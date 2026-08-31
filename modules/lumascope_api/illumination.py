@@ -400,7 +400,7 @@ def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
     lookup misses silently on every color name -- which is why this
     composition lives here once instead of at each consumer.
     """
-    return snapshot_lit_pairs(illumination.get_led_states(), illumination.color2ch)
+    return snapshot_lit_pairs(illumination.get_led_states(), illumination.state_color2ch)
 
 
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
@@ -486,11 +486,25 @@ class IlluminationAPI:
             return channel
         mapped = self.color2ch(color=channel)
         if mapped is not None:
-            return mapped
+            # The fusion of identity and drivability: identity says what
+            # the layer IS, the driver says what the board can DRIVE. A
+            # layer whose record names a channel the attached board lacks
+            # must fail by name here -- driving it anyway would light
+            # whatever occupies that address on this board.
+            drivable = tuple(self._driver.available_channels()) if self._driver else ()
+            if mapped in drivable:
+                return mapped
+            if missing_off_ok:
+                _api_log.debug(f"led_off no-op: board cannot drive '{channel}' (ch {mapped})")
+                return self._OFF_NOOP
+            raise ConfigError(
+                f"The attached LED board cannot drive the '{channel}' layer "
+                f'(channel {mapped}; board channels: {drivable}).'
+            )
         if missing_off_ok:
             _api_log.debug(f"led_off no-op: scope has no '{channel}' LED channel")
             return self._OFF_NOOP
-        available = tuple(self._driver.available_colors()) if self._driver else ()
+        available = tuple(r.key_name for r in self._scope.layer_identity.layers if r.led_channel)
         raise ConfigError(f"This scope has no '{channel}' LED channel; available: {available}")
 
     def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
@@ -602,7 +616,7 @@ class IlluminationAPI:
             raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {illumination_ma}')
 
         # Skip redundant command if channel is already on at the same current
-        color_name = self.ch2color(channel)
+        color_name = self.state_ch2color(channel)
         if color_name:
             current_ma = self.get_led_ma(color_name)
             # _led_state cache-equality trace for the slider > ~150 mA
@@ -662,7 +676,7 @@ class IlluminationAPI:
         # Update API-level state cache + ownership. Unconditional --
         # empty owner ('') is recorded too, so UI clicks (which arrive
         # without an owner tag) are tracked the same as named owners.
-        color_name = self.ch2color(channel)
+        color_name = self.state_ch2color(channel)
         if color_name:
             with self._led_owner_lock:
                 self._led_state[color_name] = {
@@ -704,7 +718,7 @@ class IlluminationAPI:
         # Prior behavior delegated to the driver's get_led_state, which
         # for FX2 always returned False -- making led_off a complete
         # no-op.
-        color_name = self.ch2color(channel)
+        color_name = self.state_ch2color(channel)
         if color_name and not self.led_enabled(color_name):
             return
 
@@ -1219,7 +1233,7 @@ class IlluminationAPI:
         # Re-assert the target channels; led_on self-skips channels already at
         # their target mA, so this does not blink an already-correct channel.
         for color, illumination_ma in target_on.items():
-            ch = self.color2ch(color)
+            ch = self.state_color2ch(color)
             if ch is not None:
                 saved_owner = snapshot.get('owners', {}).get(color, '')
                 # The restored owner tag is the channel's original owner, but
@@ -1259,7 +1273,7 @@ class IlluminationAPI:
                 self._led_owners.pop(color, None)
                 self._led_state.pop(color, None)
         for color in channels_to_off:
-            ch = self.color2ch(color)
+            ch = self.state_color2ch(color)
             if ch is not None:
                 with self._led_lock:
                     self._driver.led_off(ch)
@@ -1494,7 +1508,7 @@ class IlluminationAPI:
         with self._led_owner_lock:
             lit_colors = list(self._led_state)
         for color in lit_colors:
-            ch = self.color2ch(color)
+            ch = self.state_color2ch(color)
             if ch is not None and ch not in target_channels:
                 self._led_off_impl(channel=ch, _lease_owner=owner)
         for ch, illumination_ma in target:
@@ -1575,29 +1589,55 @@ class IlluminationAPI:
     # --- Enable / disable ---
     # --- Wait ---
     # --- Channel mapping ---
+    # Two mappings, deliberately separate. IDENTITY (color2ch/ch2color)
+    # answers from the unit's resolved layer records: what a layer IS on
+    # this unit. STATE (state_color2ch/state_ch2color) answers from the
+    # driver's own table: what the board can physically address. Cache
+    # bookkeeping, restore snapshots, and extinguish sweeps ride the
+    # STATE mapping so a channel that is physically lit is always
+    # recordable and extinguishable even when the current identity
+    # cannot name it (a mid-session identity change must never strand a
+    # lit LED or drop it from a restore set).
     def ch2color(self, channel: int) -> str | None:
-        """Convert a channel number to its color name string.
+        """The stable layer name whose record drives *channel*, else None.
 
-        Args:
-            channel: Channel number (0=Blue, 1=Green, 2=Red, 3=BF, 4=PC, 5=DF).
+        Answers from the unit's resolved layer identity -- the same
+        records `scope.layer_identity` exposes.
+        """
+        for record in self._scope.layer_identity.layers:
+            if channel in record.led_channel:
+                return record.key_name
+        return None
 
-        Returns:
-            Color name (e.g. "Blue", "BF"), or None if the LED board is
-            unavailable or the scope has no such channel.
+    def color2ch(self, color: str) -> int | None:
+        """The LED board address of the layer named *color*, else None.
+
+        Answers from the unit's resolved layer identity by stable
+        `key_name`. None means the layer is unknown to this unit's
+        identity OR drives no LED (luminescence): on-paths turn that
+        into a named error at `_resolve_channel`, off-paths no-op.
+        """
+        record = self._scope.layer_identity.find(color)
+        if record is None or not record.led_channel:
+            return None
+        return record.led_channel[0]
+
+    def state_ch2color(self, channel: int) -> str | None:
+        """The DRIVER's name for *channel* -- state bookkeeping only,
+        not part of the L2 API surface. Identity questions use
+        `ch2color`; this exists so state records and extinguish paths
+        follow the board's own table.
         """
         if not self._driver:
             return None
         return self._driver.ch2color(channel)
 
-    def color2ch(self, color: str) -> int | None:
-        """Convert a color name string to its channel number.
-
-        Args:
-            color: Color name ("Blue", "Green", "Red", "BF", "PC", "DF").
-
-        Returns:
-            Channel number (0-5), or None if the LED board is unavailable
-            or the scope cannot drive this colour.
+    def state_color2ch(self, color: str) -> int | None:
+        """The DRIVER's channel for *color* -- state bookkeeping only,
+        not part of the L2 API surface. Restore snapshots are keyed by
+        the names the state store recorded at light time; replaying them
+        through the driver's table guarantees a lit channel can always
+        be re-addressed, whatever the current identity says.
         """
         if not self._driver:
             return None

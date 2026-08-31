@@ -4204,7 +4204,9 @@ def _sim_backed_imaging():
     # as dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(get_led_states=lambda: {}, color2ch=lambda c: None)
+    scope.illumination = SimpleNamespace(
+        get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
+    )
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
@@ -10382,6 +10384,7 @@ class TestProtocolCleanupLedRestoreKey:
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         apply_calls = []
         kwargs = _run_cleanup_kwargs(
             leds_state_at_end='return_to_original',

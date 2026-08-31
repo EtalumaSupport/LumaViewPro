@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
 from modules.exceptions import AutofocusAborted
@@ -383,17 +384,18 @@ class ProtocolStepRunner:
                     resolved_policy, snapshot_lit = resolve_end_state(
                         p._leds_state_at_end,
                         getattr(p, '_original_led_states', None),
-                        p._scope.illumination.color2ch,
+                        p._scope.illumination.state_color2ch,
                     )
                     if resolved_policy is not None:
                         end_policy = resolved_policy
                 else:
                     # Last step of a non-final scan: the inter-scan idle runs dark.
                     is_scan_boundary = True
-                # An unmapped channel (color2ch returns None when no LED board
-                # is present) makes the boundary target empty, but that is
-                # moot: with no board the authority's diff is a no-op, so there
-                # is nothing to keep lit anyway.
+                # An unmapped channel makes the boundary target empty. That
+                # covers three states: no LED board (diff is a no-op), a
+                # layer that drives no LED (nothing to hold), and a layer
+                # this unit's identity lacks (the light seam already said
+                # so loudly) -- in every case there is nothing to keep lit.
                 boundary_ctx = LedTransitionCtx(
                     channel=p._scope.illumination.color2ch(step['Color']),
                     illumination_ma=step['Illumination'],
@@ -727,10 +729,22 @@ class ProtocolStepRunner:
                 '[Capture   ] LED controller not available; step channel not illuminated.'
             )
             return
+        channel = p._scope.illumination.color2ch(step['Color'])
+        if channel is None and step['Color'] in common_utils.get_layers_with_led():
+            # The board is connected (checked above) and the layer is one
+            # that drives an LED, so an unresolvable name here means this
+            # unit's identity has no such layer: the step will capture
+            # dark, deterministically, every scan. Say so per step -- a
+            # run in progress gets logs, not popups -- rather than let
+            # the frames come back dark with no named cause.
+            logger.error(
+                f"[Capture   ] This scope has no '{step['Color']}' LED "
+                f'channel; the step will capture dark.'
+            )
         self.apply_led_transition(
             LedTransition.STEP_LIGHT,
             LedTransitionCtx(
-                channel=p._scope.illumination.color2ch(step['Color']),
+                channel=channel,
                 illumination_ma=step['Illumination'],
             ),
         )

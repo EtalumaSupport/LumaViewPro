@@ -11,6 +11,7 @@ protocol layer never imports this module directly.
 
 import logging
 
+import modules.common_utils as common_utils
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
@@ -213,8 +214,19 @@ def _apply_manual_nav_outcome(
     the sweep.
     """
     if step_changed:
+        channel = ctx.scope.illumination.color2ch(color)
+        if (
+            channel is None
+            and ctx.scope.led_connected
+            and color in common_utils.get_layers_with_led()
+        ):
+            # A preview click on a layer this unit's identity lacks would
+            # otherwise just not light, with nothing anywhere naming why.
+            logger.warning(
+                f"[Step Nav  ] This scope has no '{color}' LED channel; preview will not light."
+            )
         led_ctx = LedTransitionCtx(
-            channel=ctx.scope.illumination.color2ch(color),
+            channel=channel,
             illumination_ma=step['Illumination'],
             preview_on=settings['protocol_led_on'],
         )

@@ -513,6 +513,7 @@ class TestRunCleanup:
         }
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         args, _, _ = self._make_cleanup_args(
             leds_state_at_end='return_to_original',
             original_led_states=original_leds,
@@ -805,6 +806,16 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
         def _spy(transition, ctx):
             if transition is LedTransition.STEP_BOUNDARY:
                 captured['ctx'] = ctx
+
+        # Identity and driver resolvers agree on a real channel number, as
+        # they do on real hardware: the hold decision compares the step's
+        # channel against the run-end snapshot, and a bare MagicMock would
+        # hand each resolver a different sentinel object.
+        def resolver(c):
+            return {'BF': 3}.get(c)
+
+        runner._scope.illumination.color2ch.side_effect = resolver
+        runner._scope.illumination.state_color2ch.side_effect = resolver
 
         runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()
