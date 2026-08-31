@@ -3,11 +3,13 @@
 import logging
 import typing
 
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.dropdown import DropDown
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
-from kivy.uix.spinner import Spinner
+from kivy.uix.spinner import Spinner, SpinnerOption
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -312,6 +314,18 @@ def show_confirmation_popup(
     popup.open()
 
 
+class _CompactSpinnerOption(SpinnerOption):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('font_size', '12sp')
+        super().__init__(**kwargs)
+
+
+class _CappedDropDown(DropDown):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('max_height', dp(280))
+        super().__init__(**kwargs)
+
+
 def show_objective_selection_popup(
     title: str,
     message: str,
@@ -341,21 +355,31 @@ def show_objective_selection_popup(
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(_make_message_label(message))
 
+    # A Spinner built in Python gets Kivy's stock dropdown: full-height
+    # option rows and an uncapped list, which for a dozen objectives
+    # fills the whole screen. Sync the rows to the spinner's own height
+    # (the same mechanism the kv spinners use), match their option font,
+    # and cap the dropdown so a long catalogue scrolls instead of
+    # growing.
     spinner = Spinner(
         text=current_objective_id,
         values=objectives,
         size_hint_y=None,
-        height='40dp',
+        height='30dp',
+        font_size='12sp',
+        sync_height=True,
+        option_cls=_CompactSpinnerOption,
+        dropdown_cls=_CappedDropDown,
     )
     content.add_widget(spinner)
 
-    confirm_button = Button(text='Confirm', size_hint_y=None, height='40dp')
+    confirm_button = Button(text='Confirm', size_hint_y=None, height='34dp')
     content.add_widget(confirm_button)
 
     popup = Popup(
         title=title,
         content=content,
-        size_hint=(0.6, 0.4),
+        size_hint=(0.4, 0.32),
         auto_dismiss=False,
     )
 

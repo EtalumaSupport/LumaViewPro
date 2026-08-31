@@ -186,6 +186,7 @@ def _install_kivy_uix_stubs():
         'accordion': ('AccordionItem',),
         'boxlayout': ('BoxLayout',),
         'button': ('Button',),
+        'dropdown': ('DropDown',),
         'floatlayout': ('FloatLayout',),
         'image': ('Image',),
         'label': ('Label',),
@@ -193,7 +194,7 @@ def _install_kivy_uix_stubs():
         'scatter': ('Scatter',),
         'scrollview': ('ScrollView',),
         'slider': ('Slider',),
-        'spinner': ('Spinner',),
+        'spinner': ('Spinner', 'SpinnerOption'),
         'togglebutton': ('ToggleButton',),
         'widget': ('Widget',),
     }
