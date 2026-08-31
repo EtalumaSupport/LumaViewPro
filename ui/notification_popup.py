@@ -7,6 +7,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
+from kivy.uix.spinner import Spinner
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -308,4 +309,60 @@ def show_confirmation_popup(
     no_button.bind(on_release=_on_cancel)
     popup.bind(on_dismiss=_on_dismiss)
 
+    popup.open()
+
+
+def show_objective_selection_popup(
+    title: str,
+    message: str,
+    objectives: list[str],
+    current_objective_id: str,
+    on_confirm: typing.Callable[[str], None],
+):
+    """Modal prompt asking the user which objective is in the light path.
+
+    The pixel size derived from the objective is written into the scale
+    bar and every saved image's metadata, and a wrong one cannot be told
+    from a measured one afterwards -- so when the app cannot know the
+    objective (first run, or a turret position with no assignment), it
+    asks instead of assuming silently. There is deliberately no cancel
+    path: dismissing without answering would put the app right back in
+    the cannot-know state the prompt exists to resolve, so the popup
+    stays until the user confirms a choice.
+
+    Args:
+        title: Short noun phrase.
+        message: What happened + what confirming commits to.
+        objectives: Selectable objective ids, in display order.
+        current_objective_id: Pre-selected value (the proposed default).
+        on_confirm: Called with the chosen objective id.
+    """
+    _log_show('objective_select', 'INFO', title, message)
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(_make_message_label(message))
+
+    spinner = Spinner(
+        text=current_objective_id,
+        values=objectives,
+        size_hint_y=None,
+        height='40dp',
+    )
+    content.add_widget(spinner)
+
+    confirm_button = Button(text='Confirm', size_hint_y=None, height='40dp')
+    content.add_widget(confirm_button)
+
+    popup = Popup(
+        title=title,
+        content=content,
+        size_hint=(0.6, 0.4),
+        auto_dismiss=False,
+    )
+
+    def _on_confirm(*_a):
+        _log_response(title, f'OBJECTIVE:{spinner.text}')
+        popup.dismiss()
+        on_confirm(spinner.text)
+
+    confirm_button.bind(on_release=_on_confirm)
     popup.open()

@@ -12,6 +12,7 @@
         "y": 4000.0
     },
     "objective_id": "20x Oly",
+    "objective_confirmed": false,
     "turret_objectives": {
         "1": null,
         "2": null,

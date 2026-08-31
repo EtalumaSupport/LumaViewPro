@@ -321,6 +321,17 @@ class MicroscopeSettings(BoxLayout):
         # Refresh position display after reconnect (M22)
         ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
 
+        # Same prompt gate as app startup: reconnect can change which
+        # model is attached, so re-ask only when the objective is
+        # unknowable (never-confirmed install, or the starting position
+        # has no assignment).
+        reconnect_scope_config = self.scopes.get(settings.get('microscope'))
+        reconnect_has_turret = bool(reconnect_scope_config and reconnect_scope_config.get('Turret'))
+        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+        Clock.schedule_once(
+            lambda dt: vertical_control.maybe_prompt_objective_selection(reconnect_has_turret), 0
+        )
+
         logger.info('[LVP Main  ] Reconnection complete.')
 
     # load settings from JSON file

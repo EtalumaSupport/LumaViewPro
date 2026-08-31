@@ -658,6 +658,95 @@ class VerticalControl(BoxLayout):
             logger.exception(f'ResetTurretObjective] Error: {e}')
             return
 
+        # Clearing the assignment at the position the turret is sitting
+        # on leaves the app unable to say what is in the light path --
+        # the previous objective would keep setting the image scale
+        # silently. Ask the user instead.
+        if selected_turret == settings.get('turret_position'):
+            Clock.schedule_once(
+                lambda dt: self.prompt_objective_selection(turret_position=selected_turret), 0
+            )
+
+    def prompt_objective_selection(self, turret_position=None, first_run=False):
+        """Ask which objective is in the light path, and apply the answer.
+
+        The pixel size derived from the objective is stamped into the
+        scale bar and every saved image's metadata, and a wrong scale
+        cannot be told from a measured one afterwards -- so when the app
+        cannot know the objective, it asks instead of assuming silently.
+
+        The answer performs the same actions a user does manually:
+        select the objective (spinner -> select_objective), and for a
+        turret position press Set (set_turret_objective) -- every write
+        stays on the production path.
+
+        Args:
+            turret_position: Position the answer binds to (the answer
+                also assigns that slot), or None on non-turret models.
+            first_run: Phrases the prompt as confirm-the-default rather
+                than fill-the-blank.
+        """
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        current = settings.get('objective_id') or '20x Oly'
+        if first_run:
+            where = f' at turret position {turret_position}' if turret_position else ''
+            message = (
+                f'A {current} objective is assigned{where}. Please confirm, '
+                f'or change it to the objective actually installed.'
+            )
+        else:
+            message = (
+                f'Turret position {turret_position} has no objective assigned. '
+                f'Please select the objective installed there.'
+            )
+
+        self.load_objectives()
+        objectives = list(self.ids['objective_spinner2'].values)
+        if not objectives:
+            logger.error('[LVP Main  ] Objective catalogue empty; cannot prompt for a selection')
+            return
+
+        def _apply(chosen: str):
+            self.ids['objective_spinner2'].text = chosen
+            if turret_position is not None:
+                self.update_all_turret_btn_states(turret_position)
+                self.set_turret_objective()
+            ctx.session.update_settings('objective_confirmed', True)
+
+        from ui.notification_popup import show_objective_selection_popup
+
+        show_objective_selection_popup(
+            title='Objective',
+            message=message,
+            objectives=objectives,
+            current_objective_id=current if current in objectives else objectives[0],
+            on_confirm=_apply,
+        )
+
+    def maybe_prompt_objective_selection(self, model_has_turret: bool):
+        """Fire the objective prompt if the objective is unknowable.
+
+        Two ways the app cannot know what is in the light path: no
+        person has ever confirmed the objective on this install (the
+        settings template ships a 20x default that would otherwise set
+        image scale silently forever), or the session's turret position
+        has no assignment.
+        """
+        settings = _app_ctx.ctx.settings
+        first_run = not settings.get('objective_confirmed', False)
+        turret_position = None
+        slot_unassigned = False
+        if model_has_turret:
+            position = settings.get('turret_position') or 1
+            slots = settings.get('turret_objectives') or {}
+            slot_unassigned = slots.get(position) is None
+            turret_position = position
+        if first_run:
+            self.prompt_objective_selection(turret_position=turret_position, first_run=True)
+        elif slot_unassigned:
+            self.prompt_objective_selection(turret_position=turret_position)
+
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False, restore_z=True):
         try:
@@ -723,6 +812,29 @@ class VerticalControl(BoxLayout):
                             lambda dt: self.update_spinner_text(selected_position), 0
                         )
                         Clock.schedule_once(lambda dt: self.select_objective(), 0)
+                    elif not protocol:
+                        # The turret is moving to a position with no
+                        # assignment: the previous objective would keep
+                        # setting the image scale silently. Ask the user
+                        # what is installed there. (Programmatic
+                        # turret_select on a scope with no turret --
+                        # e.g. the XY-home resync -- must not prompt.)
+                        if ctx.lumaview.scope.capabilities.has_turret:
+                            Clock.schedule_once(
+                                lambda dt: self.prompt_objective_selection(
+                                    turret_position=selected_position
+                                ),
+                                0,
+                            )
+                    else:
+                        # Run validation refuses unassigned step
+                        # objectives, so a protocol move cannot legally
+                        # land here -- and a prompt must never interrupt
+                        # an unattended run. Log loudly instead.
+                        logger.warning(
+                            f'[LVP Main  ] Protocol turret move landed on position '
+                            f'{selected_position} with no objective assigned'
+                        )
 
             Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
         except Exception as e:

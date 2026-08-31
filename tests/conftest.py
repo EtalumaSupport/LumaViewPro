@@ -193,6 +193,7 @@ def _install_kivy_uix_stubs():
         'scatter': ('Scatter',),
         'scrollview': ('ScrollView',),
         'slider': ('Slider',),
+        'spinner': ('Spinner',),
         'togglebutton': ('ToggleButton',),
         'widget': ('Widget',),
     }

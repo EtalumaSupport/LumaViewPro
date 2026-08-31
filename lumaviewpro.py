@@ -665,6 +665,18 @@ class LumaViewProApp(TooltipMixin, App):
             ),
         )
 
+        # The objective prompt may only fire once the session is up and
+        # the frame has rendered: a popup opened during build() appears
+        # before the window exists and is never seen. Clock-deferred so
+        # it opens after on_start returns.
+        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
+        scope_config = microscope_settings.scopes.get(ctx.settings.get('microscope'))
+        model_has_turret = bool(scope_config and scope_config.get('Turret'))
+        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+        Clock.schedule_once(
+            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
+        )
+
         # Objective and LEDs are set by scope.initialize() during load_settings();
         # BF apply_settings fires from complete_initialization() -> accordion_collapse().
 
