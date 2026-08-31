@@ -139,7 +139,14 @@ class MicroscopeSettings(BoxLayout):
         scopes_path = resolve_data_file('scopes.json')
         try:
             with open(scopes_path) as read_file:
-                self.scopes = json.load(read_file)
+                # The file carries two typed sections: the release layer
+                # catalogue (the identity resolver's business) and the
+                # model entries. This widget wants only the models --
+                # `self.scopes` stays a models-only dict for every
+                # consumer, the model dropdown included -- and a file
+                # without the section is as unusable as an unparseable
+                # one, so it gets the same loud treatment.
+                self.scopes = json.load(read_file)['Models']
         except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
             raise RuntimeError(
@@ -151,6 +158,12 @@ class MicroscopeSettings(BoxLayout):
             raise RuntimeError(
                 f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
             ) from e
+        except KeyError as e:
+            logger.error(f'[LVP Main  ] scopes.json has no Models section at {scopes_path}')
+            raise RuntimeError(
+                f'scopes.json at {scopes_path} has no Models section. '
+                'Please restore from backup or reinstall.'
+            ) from e
 
         self._validate_scopes(scopes_path)
 
@@ -160,7 +173,7 @@ class MicroscopeSettings(BoxLayout):
             raise ValueError(
                 f'scopes.json at {filepath}: expected dict, got {type(self.scopes).__name__}'
             )
-        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': dict}
+        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
         for scope_id, scope in self.scopes.items():
             if not isinstance(scope, dict):
                 logger.warning(f"[Scopes    ] '{scope_id}' should be dict in {filepath}")
@@ -227,12 +240,18 @@ class MicroscopeSettings(BoxLayout):
             camera_type=settings['camera_type'],
             simulate=ctx.simulate_mode,
             warn_pre_release=False,
+            configured_model=settings.get('microscope'),
         )
         _labware_id, labware = get_selected_labware()
 
         # Single hardware initialization call
         scope_config = self.scopes.get(settings.get('microscope'))
-        config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
+        config = ScopeInitConfig.from_settings(
+            settings,
+            labware,
+            scope_config=scope_config,
+            layer_identity=lumaview.scope.layer_identity,
+        )
         lumaview.scope.initialize(config)
         # Start gate release: configuration is applied, so open the gate and
         # fire the single grab (the camera-lifecycle split -- connect() left
@@ -526,7 +545,12 @@ class MicroscopeSettings(BoxLayout):
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             _labware_id, labware = get_selected_labware()
             scope_config = self.scopes.get(settings.get('microscope'))
-            config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
+            config = ScopeInitConfig.from_settings(
+                settings,
+                labware,
+                scope_config=scope_config,
+                layer_identity=lumaview.scope.layer_identity,
+            )
             lumaview.scope.initialize(config)
             # Start gate release (primary startup site): configuration is
             # applied, so open the gate and fire the single grab.
@@ -1122,16 +1146,21 @@ class MicroscopeSettings(BoxLayout):
         startup and when the Advanced Settings selector changes the scope, so
         the order is identical on both paths.
         """
+        ctx = _app_ctx.ctx
+        # Layer identity re-resolves before anything reads it, so a model
+        # selection takes effect immediately on hardware that cannot
+        # report its own model; a motor-reported model still wins inside
+        # the resolver, so on self-reporting hardware this refresh is a
+        # no-op by design.
+        ctx.lumaview.scope.refresh_layer_identity(configured_model=ctx.settings.get('microscope'))
         self.set_ui_features_for_scope()
-        _app_ctx.ctx.stage.full_redraw()
+        ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
-        scope_configs = microscope_settings.scopes
-        selected_scope_config = scope_configs[settings['microscope']]
 
         microscope_settings.current_scope_model = settings['microscope']
 
@@ -1141,8 +1170,6 @@ class MicroscopeSettings(BoxLayout):
         # the controls on it and the UI offers an XY stage on a scope that has
         # none, after which a protocol images a single position while
         # labelling every file with a different well.
-        # The Layers block below still reads scopes.json: no capability
-        # describes which illumination modalities a scope exposes.
         caps = ctx.lumaview.scope.capabilities
 
         motion_settings = ctx.motion_settings
@@ -1152,15 +1179,18 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_objective_control_visibility(visible=caps.has_focus)
 
         image_settings = ctx.image_settings
-        layers_config = selected_scope_config['Layers']
-        image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
-        image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
+        # Which layers exist comes from the scope's resolved identity --
+        # the one path that also serves headless callers -- refreshed by
+        # reconfigure_for_scope before this runs. The setters are still
+        # category-granular (all fluorescence accordions move together);
+        # per-layer granularity is a separate display change.
+        present = {layer.key_name for layer in ctx.lumaview.scope.layer_identity.layers}
+        image_settings.set_df_layer_control_visibility(visible='DF' in present)
+        image_settings.set_lumi_layer_control_visibility(visible='Lumi' in present)
         image_settings.set_fluoresence_layer_controls_visibility(
-            visible=layers_config['Fluorescence']
+            visible=bool(present & set(common_utils.get_fluorescence_layers()))
         )
-        image_settings.set_phasecontrast_layer_control_visibility(
-            visible=layers_config['PhaseContrast']
-        )
+        image_settings.set_phasecontrast_layer_control_visibility(visible='PC' in present)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=caps.has_xy_stage)

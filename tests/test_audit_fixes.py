@@ -2857,7 +2857,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
 
         # pin-justified: data/scopes.json is the shipped capability matrix;
         # the values are the contract.
-        scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
+        scopes = json.loads(pathlib.Path('data/scopes.json').read_text())['Models']
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
         assert scopes['Lumi']['XYStage'] is False, (

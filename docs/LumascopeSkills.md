@@ -117,6 +117,32 @@ scope = Lumascope(camera_type='ids')      # force IDS
 
 Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
 
+### Layer identity
+
+Every scope resolves its **layer identity** at construction — what the layers on this unit ARE: stable key name, display name, LED board address, excitation wavelength, plus the unit's filterset. It resolves from the unit's own configuration when one exists, else from the model's entry; a motor-reported model always outranks `configured_model` (hardware truth beats a selection), and `configured_model` serves models whose hardware cannot report one (the Classic/FX2 line).
+
+```python
+scope = Lumascope(simulate=True, configured_model='LS560')
+
+identity = scope.layer_identity          # immutable snapshot
+identity.source                          # 'motorconfig' | 'scopes' | 'unresolved'
+identity.filterset                       # the unit's filterset identity string
+for layer in identity.layers:
+    layer.key_name                       # stable name: settings keys, protocol Color, filenames
+    layer.display_name                   # what the operator sees (e.g. 'PC-BF' on FX2)
+    layer.led_channel                    # tuple of board addresses; () = drives no LED
+    layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
+
+identity.find('BF')                      # record by stable key name, or None
+
+# Re-resolve after a configuration change; override_model resolves AS
+# another model for this call only (lab/testing use — never persisted).
+scope.refresh_layer_identity(configured_model='LS620')
+scope.refresh_layer_identity(override_model='LS850T')
+```
+
+A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
+
 Then apply runtime configuration (frame size, objective, binning, stage offset). The preferred factory is `ScopeInitConfig.from_settings(settings, labware, scope_config=...)`, which reads from your LVP settings dict; you can also construct one directly:
 
 ```python

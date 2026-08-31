@@ -87,7 +87,7 @@ def _scopes_json_optics(model: str) -> dict[str, float]:
         # is a legitimate resolution-order branch (the LS850T sources optics
         # from motorconfig; an unknown scope has none) -- an empty mapping tells
         # the caller to fall through to the next source, not a missing value.
-        raw = scopes.get(model, {}).get('Optics', {})
+        raw = scopes.get('Models', {}).get(model, {}).get('Optics', {})
         return {key: float(raw[key]) for key in ('PixelSize', 'LensFocalLength') if key in raw}
     except (OSError, ValueError, TypeError) as e:
         logger.warning(f'[CAPABILITIES] scopes.json Optics unreadable for {model!r}: {e}')
@@ -281,7 +281,9 @@ class ScopeCapabilities:
         return bool(getattr(self, f'camera_supports_{feature}', False))
 
     @classmethod
-    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> ScopeCapabilities:
+    def from_drivers(
+        cls, motion, led, camera, led_max_ma: int = LED_MAX_MA, layer_identity=None
+    ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
         Internal constructor -- called by Lumascope at init and not part
@@ -326,7 +328,15 @@ class ScopeCapabilities:
 
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
-        led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
+        # Colour NAMES come from the unit's resolved layer identity, not
+        # the driver: the driver knows which board channels it can drive,
+        # while which layer names exist (and what they drive) is unit
+        # data. A scope with no resolved identity honestly reports no
+        # colour names -- the channels stay visible via led_channels.
+        if layer_identity is not None:
+            led_colors = tuple(r.key_name for r in layer_identity.layers if r.led_channel)
+        else:
+            led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
         has_firmware_stim = _probe(
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),

@@ -39,8 +39,7 @@ def row(key, display=None, channel=None, nm=None, **extra):
 
 
 def write_scopes(tmp_path, models, catalogue=CATALOGUE):
-    data = {'LayerOrder': catalogue}
-    data.update(models)
+    data = {'LayerOrder': catalogue, 'Models': models}
     path = tmp_path / 'scopes_fixture.json'
     path.write_text(json.dumps(data), encoding='utf-8')
     return str(path)

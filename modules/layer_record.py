@@ -242,9 +242,13 @@ def resolve_layer_identity(
     """
     scopes_data = load_scopes_data(data_file)
     catalogue = load_layer_catalogue(scopes_data)
+    models = scopes_data.get('Models')
+    if not isinstance(models, dict):
+        logger.error(f'[LAYER_RECORD] scopes data has no Models section: {sorted(scopes_data)!r}')
+        models = {}
 
     def _from_model(model: str, source: str) -> LayerIdentity | None:
-        entry = scopes_data.get(model)
+        entry = models.get(model)
         if not isinstance(entry, dict):
             return None
         layers = _parse_rows(entry.get('Layers', []), catalogue, f'scopes[{model}]')

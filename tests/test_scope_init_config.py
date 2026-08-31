@@ -73,6 +73,37 @@ _LS850T_CONFIG = {
 }
 
 
+def identity_from_rows(rows):
+    """Build a resolved-identity snapshot from (key_name, led_channel) pairs.
+
+    The truth-table fixtures used to carry scopes.json category booleans;
+    expects_led now derives from the scope's resolved layer identity, so
+    the fixtures carry the same models as identity rows instead. The
+    assertion values are unchanged.
+    """
+    from modules.layer_record import LayerIdentity, LayerRecord
+
+    records = tuple(
+        LayerRecord(
+            id=i,
+            key_name=key,
+            display_name=key,
+            led_channel=(channel,) if channel is not None else (),
+            excitation_nm=None,
+        )
+        for i, (key, channel) in enumerate(rows)
+    )
+    return LayerIdentity(layers=records, filterset='', source='scopes')
+
+
+_LS620_IDENTITY = identity_from_rows([('BF', 3), ('Blue', 0), ('Green', 1), ('Red', 2)])
+_LS820_IDENTITY = identity_from_rows(
+    [('BF', 3), ('PC', 4), ('DF', 5), ('Blue', 0), ('Green', 1), ('Red', 2)]
+)
+_LS850T_IDENTITY = _LS820_IDENTITY
+_NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
+
+
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
@@ -94,6 +125,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             labware=None,
             scope_config=_LS620_CONFIG,
+            layer_identity=_LS620_IDENTITY,
         )
         assert config.expects_motion is False
         assert config.expects_led is True
@@ -103,6 +135,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             labware=None,
             scope_config=_LS820_CONFIG,
+            layer_identity=_LS820_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
@@ -112,27 +145,18 @@ class TestFromSettings:
             _BASE_SETTINGS,
             labware=None,
             scope_config=_LS850T_CONFIG,
+            layer_identity=_LS850T_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
 
-    def test_all_layers_false_means_no_led_expected(self):
-        scope_config = {
-            'Focus': True,
-            'XYStage': False,
-            'Turret': False,
-            'Layers': {
-                'Lumi': False,
-                'Fluorescence': False,
-                'Darkfield': False,
-                'Brightfield': False,
-                'PhaseContrast': False,
-            },
-        }
+    def test_no_led_driving_layer_means_no_led_expected(self):
+        scope_config = {'Focus': True, 'XYStage': False, 'Turret': False}
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
             scope_config=scope_config,
+            layer_identity=_NO_LED_IDENTITY,
         )
         assert config.expects_led is False
 
@@ -169,6 +193,7 @@ class TestNotifyPartialHardware:
             _BASE_SETTINGS,
             labware=None,
             scope_config=_LS620_CONFIG,
+            layer_identity=_LS620_IDENTITY,
         )
         scope._notify_partial_hardware(config)
         assert captured_warnings == []
@@ -182,6 +207,7 @@ class TestNotifyPartialHardware:
             _BASE_SETTINGS,
             labware=None,
             scope_config=_LS620_CONFIG,
+            layer_identity=_LS620_IDENTITY,
         )
         scope._notify_partial_hardware(config)
         # No motor expected, LED present, no camera attached -> only

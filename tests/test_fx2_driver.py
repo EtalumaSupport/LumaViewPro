@@ -690,7 +690,7 @@ class TestScopesJsonClassicModels:
     def scopes(self):
         path = REPO_ROOT / 'data' / 'scopes.json'
         with open(path) as f:
-            return json.load(f)
+            return json.load(f)['Models']
 
     def test_ls620_exists(self, scopes):
         assert 'LS620' in scopes
@@ -717,32 +717,31 @@ class TestScopesJsonClassicModels:
         assert entry['Turret'] is False
 
     def test_ls620_has_fluorescence_bf(self, scopes):
-        """LS620 has BF and fluorescence but NO separate PC channel --
-        PC on this model is BF with a mechanically installed phase
-        slider, not a distinct illumination channel. Observed on
-        hardware 2026-04-16: clicking a PhaseContrast layer raised
-        `LED channel must be one of (0, 1, 2, 3), got -1` because
+        """LS620 carries the transmitted layer plus BGR fluorescence and
+        NO separate PC layer -- PC on this model is BF with a mechanically
+        installed phase slider, not a distinct illumination channel (the
+        transmitted layer is displayed 'PC-BF' for exactly that reason).
+        Observed on hardware 2026-04-16: clicking a PhaseContrast layer
+        raised `LED channel must be one of (0, 1, 2, 3), got -1` because
         FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
         """
-        layers = scopes['LS620']['Layers']
-        assert layers['Fluorescence'] is True
-        assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is False
-        assert layers['Darkfield'] is False
-        assert layers['Lumi'] is False
+        rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
+        assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}
+        assert rows['BF']['display_name'] == 'PC-BF'
+        assert rows['BF']['led_channel'] == 3
+        assert 'PC' not in rows
+        assert 'DF' not in rows
 
     def test_ls560_has_fluorescence_bf(self, scopes):
-        """LS560 mirrors LS620 -- BF + fluorescence (Green only; the
-        'Green only' limitation vs LS620's BGR is a future schema
-        enhancement) and no separate PC channel. Same rationale as
-        test_ls620_has_fluorescence_bf.
+        """LS560 ships as the transmitted layer (displayed 'PC-BF') plus
+        Green only -- unlike LS620's BGR -- and no separate PC layer,
+        same phase-slider rationale as test_ls620_has_fluorescence_bf.
         """
-        layers = scopes['LS560']['Layers']
-        assert layers['Fluorescence'] is True
-        assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is False
-        assert layers['Darkfield'] is False
-        assert layers['Lumi'] is False
+        rows = {r['key_name']: r for r in scopes['LS560']['Layers']}
+        assert set(rows) == {'BF', 'Green'}
+        assert rows['BF']['display_name'] == 'PC-BF'
+        assert rows['Green']['led_channel'] == 1
+        assert 'PC' not in rows
 
 
 # ---------------------------------------------------------------------------

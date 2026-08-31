@@ -27,8 +27,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # The GUI ships in the same commit as the API it calls, so the
         # PRE-RELEASE FutureWarning has nothing to tell it and only reaches
         # the user's console. It still fires for out-of-tree consumers.
+        from modules.settings_init import settings
+
         self.scope = lumascope_api.Lumascope(
-            camera_type=camera_type, simulate=simulate, warn_pre_release=False
+            camera_type=camera_type,
+            simulate=simulate,
+            warn_pre_release=False,
+            configured_model=settings.get('microscope'),
         )
         # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
         # Manual recording lives in the session's ManualRecordingController;

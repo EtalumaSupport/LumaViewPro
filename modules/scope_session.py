@@ -372,7 +372,7 @@ class ScopeSession:
         if scope is None:
             import modules.lumascope_api as lumascope_api
 
-            scope = lumascope_api.Lumascope()
+            scope = lumascope_api.Lumascope(configured_model=settings.get('microscope'))
             # connect() leaves the camera configured but NOT grabbing (the
             # camera-lifecycle start gate). The GUI releases the gate in its
             # own bring-up; for a scope THIS session constructed there is no
@@ -530,7 +530,7 @@ class ScopeSession:
                 except FileNotFoundError:
                     settings = {}
 
-        scope = lumascope_api.Lumascope(simulate=True)
+        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
         # Release the camera start gate: connect() leaves the sim camera
         # configured but NOT grabbing, and this factory is the whole
         # bring-up for the simulated session -- without the release every

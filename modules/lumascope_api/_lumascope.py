@@ -321,6 +321,7 @@ class Lumascope:
         register_metrics: bool = True,
         sim_model: str | None = None,
         warn_pre_release: bool = True,
+        configured_model: str | None = None,
     ):
         """Initialize Microscope.
 
@@ -353,6 +354,15 @@ class Lumascope:
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
                 False; defaults to the 'microscope' setting then 'LS850T'.
+            configured_model: The scope model selected in settings, for
+                units whose hardware cannot report one (the Classic/FX2
+                line has no motor board to ask). Optional: a
+                motor-reported model always wins over it (hardware truth
+                outranks a user selection), so callers on self-reporting
+                or simulated hardware construct unchanged. Left None on
+                a unit that also reports no model, layer identity
+                resolves empty and LED use fails loudly by name rather
+                than silently guessing.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
                 code may break under a future release, which is only
@@ -458,6 +468,17 @@ class Lumascope:
                 ),
             )
 
+        # ----- Layer identity -----
+        # What the layers on this unit ARE (names, LED addresses,
+        # excitations, filterset) -- resolved from the unit's motorconfig
+        # LED block or the model's scopes.json rows, here at construction
+        # so every caller (GUI, headless session, script) holds identity
+        # without any separate initialize step. Distinct from the live
+        # LED state the illumination API keeps: identity says what a
+        # layer IS, state says what is lit now.
+        self._configured_model = configured_model
+        self.layer_identity = self._resolve_layer_identity()
+
         # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
         # once from the three drivers, frozen thereafter. Callers should
@@ -469,6 +490,7 @@ class Lumascope:
             motion=self._motion_driver,
             led=self._led_driver,
             camera=self._camera_driver,
+            layer_identity=self.layer_identity,
         )
 
         # ----- Sub-API wiring -----
@@ -615,6 +637,51 @@ class Lumascope:
                 atexit.register(self._emergency_shutdown)
             except Exception as _e:
                 logger.warning(f'[SCOPE API ] atexit registration failed: {_e}')
+
+    def _resolve_layer_identity(self, override_model: str | None = None):
+        """Run the identity resolver against the current drivers and config."""
+        from modules.layer_record import resolve_layer_identity
+
+        motorconfig = getattr(self._motion_driver, 'motorconfig', None)
+        board_block = motorconfig.led_block() if motorconfig is not None else None
+        read_ok = motorconfig.board_config_read_ok if motorconfig is not None else True
+        try:
+            motor_model = self._motion_driver.get_microscope_model()
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] motor model unavailable for layer identity: {e}')
+            motor_model = None
+        return resolve_layer_identity(
+            board_block=board_block,
+            board_config_read_ok=read_ok,
+            motor_model=motor_model,
+            configured_model=self._configured_model,
+            override_model=override_model,
+        )
+
+    def refresh_layer_identity(
+        self, configured_model: str | None = None, override_model: str | None = None
+    ):
+        """Re-resolve layer identity and atomically replace the snapshot.
+
+        Args:
+            configured_model: New settings-selected model to remember and
+                resolve with; None keeps the current one. Only matters on
+                hardware that reports no model of its own -- a
+                motor-reported model still wins.
+            override_model: Resolve AS this model for this call only --
+                the lab/engineering escape hatch for exercising another
+                model's identity on whatever is attached. Session-scoped
+                by construction: it is never stored, so the next refresh
+                without it resolves the real unit again, and it is never
+                persisted anywhere.
+
+        Returns:
+            The new LayerIdentity snapshot (also on `self.layer_identity`).
+        """
+        if configured_model is not None:
+            self._configured_model = configured_model
+        self.layer_identity = self._resolve_layer_identity(override_model=override_model)
+        return self.layer_identity
 
     def initialize(self, config) -> None:
         """Configure scope from connected to ready-to-use.
@@ -1138,12 +1205,21 @@ class Lumascope:
         instance.camera = None
         instance._frame_buffer = None
 
+        # Diagnostic instances have no settings to name a configured
+        # model, so identity resolves from the motor-reported model alone
+        # -- empty (and loud on LED use) when the hardware reports none.
+        # That is the honest answer for a support tool: it must never
+        # invent an identity for a unit it is diagnosing.
+        instance._configured_model = None
+        instance.layer_identity = instance._resolve_layer_identity()
+
         # Build capabilities -- diagnostic instances still need this so
         # any code that reads scope.capabilities.* works.
         instance.capabilities = ScopeCapabilities.from_drivers(
             motion=instance._motion_driver,
             led=instance._led_driver,
             camera=None,
+            layer_identity=instance.layer_identity,
         )
 
         # Sub-API wiring -- diagnostic instances are first-class enough
