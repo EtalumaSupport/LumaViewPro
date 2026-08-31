@@ -116,6 +116,12 @@ def _read_channel(path) -> str:
 
 def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
     ctx = MagicMock()
+    # A bare MagicMock auto-answers source_path with a Mock, which the
+    # data-root resolution would happily turn into a nonexistent path --
+    # taking the layer vocabulary (and everything derived from it) down
+    # with it. None means "no session override": files resolve from the
+    # real source tree, as production does before a session exists.
+    ctx.source_path = None
     ctx.settings = {
         'live_folder': str(tmp_path),
         'separate_folder_per_channel': False,
@@ -123,7 +129,13 @@ def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
         'jpg_quality': 90,
     }
     ctx.scope = scope
-    ctx.image_settings.accordion_item_lookup.return_value = SimpleNamespace(collapse=False)
+    # Only the layer under test is expanded: the capture sweep walks the
+    # REAL layer vocabulary and asks each accordion, exactly as production
+    # does -- narrowing the vocabulary itself would also narrow the layer
+    # categories the save path derives from it.
+    ctx.image_settings.accordion_item_lookup.side_effect = lambda layer: SimpleNamespace(
+        collapse=(layer != LAYER)
+    )
     ctx.image_settings.layer_lookup.return_value = SimpleNamespace(
         ids={'false_color': SimpleNamespace(active=false_color_active)}
     )
@@ -150,7 +162,6 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
     try:
         with (
             patch('ui.composite_capture.set_last_save_folder'),
-            patch('ui.composite_capture.common_utils.get_layers', return_value=[LAYER]),
             patch(
                 'modules.config_ui_getters.get_layer_configs',
                 return_value={LAYER: {'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100}},

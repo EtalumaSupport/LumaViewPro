@@ -839,6 +839,10 @@ class ProtocolSettings(FloatLayout):
                 settings[layer]['stim_config']['enabled'] = False
         for layer_name, vals in (layer_settings_from_protocol or {}).items():
             if layer_name not in common_utils.get_layers():
+                logger.warning(
+                    f'[LVP Main  ] Protocol carries settings for unknown layer '
+                    f'{layer_name!r}; that layer is dropped on load.'
+                )
                 continue
             self._apply_layer_settings_row(settings, layer_name, vals)
 

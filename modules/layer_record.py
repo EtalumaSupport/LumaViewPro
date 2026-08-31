@@ -92,6 +92,33 @@ class LayerIdentity:
 
 UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved')
 
+# The release catalogue is loaded once per process: it ships with the
+# release (the file is version-paired), so nothing invalidates it at
+# runtime. Tests point the resolver at fixture files explicitly and may
+# replace this cache to exercise a different vocabulary.
+_CATALOGUE_CACHE: tuple[str, ...] | None = None
+
+
+def release_catalogue() -> tuple[str, ...]:
+    """The release's layer vocabulary (stable key names, display order).
+
+    The single source every vocabulary consumer derives from -- layer
+    lists, protocol validation, metadata channel acceptance.
+    """
+    global _CATALOGUE_CACHE
+    if _CATALOGUE_CACHE is None:
+        catalogue = load_layer_catalogue(load_scopes_data())
+        if not catalogue:
+            # A failed load stays uncached: memoizing it would turn one
+            # transient bad context (a data root that resolved wrongly
+            # for a single call) into an empty vocabulary for the whole
+            # process, long after the context recovered. The load itself
+            # already said what went wrong.
+            return catalogue
+        _CATALOGUE_CACHE = catalogue
+    return _CATALOGUE_CACHE
+
+
 # Row fields the resolver requires. Extra keys are tolerated so a config
 # authored by a newer wizard still resolves on this release; a row
 # MISSING one of these is unusable and is skipped loudly instead.

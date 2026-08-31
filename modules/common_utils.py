@@ -517,15 +517,23 @@ def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int
 
 
 def get_layers() -> list[str]:
-    return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+    """The release's layer key names, in display order.
+
+    Derived from the release catalogue rather than authored here, so the
+    vocabulary has exactly one source and a catalogue change cannot leave
+    this list silently disagreeing with it.
+    """
+    from modules.layer_record import release_catalogue
+
+    return list(release_catalogue())
 
 
 def get_transmitted_layers() -> list[str]:
-    return ['BF', 'PC', 'DF']
+    return [k for k in get_layers() if k in ('BF', 'PC', 'DF')]
 
 
 def get_fluorescence_layers() -> list[str]:
-    return ['Blue', 'Green', 'Red']
+    return [k for k in get_layers() if k in ('Blue', 'Green', 'Red')]
 
 
 def get_bright_background_layers() -> list[str]:
@@ -535,11 +543,11 @@ def get_bright_background_layers() -> list[str]:
     shows bright subjects on a dark field -- so it is excluded here even
     though it is a transmitted-light mode.
     """
-    return ['BF', 'PC']
+    return [k for k in get_layers() if k in ('BF', 'PC')]
 
 
 def get_luminescence_layers() -> list[str]:
-    return ['Lumi']
+    return [k for k in get_layers() if k == 'Lumi']
 
 
 def get_image_layers() -> list[str]:
