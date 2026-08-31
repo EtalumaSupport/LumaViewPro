@@ -646,6 +646,11 @@ class ScopeSession:
     def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
         """Make position 1's assignment the session's starting objective.
 
+        This method is not part of the L2 API surface: the hosting
+        environment calls it once per startup/reconnect before settings
+        are consumed; an L2 caller changes objectives through the
+        selection surface.
+
         Startup leaves the turret at position 1 (homing puts it there),
         so the stored objective_id is a leftover from the previous
         session, not a fact about what sits in the light path: a session

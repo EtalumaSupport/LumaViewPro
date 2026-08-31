@@ -135,5 +135,7 @@ def test_template_ships_the_unconfirmed_flag():
     # The template default MUST be false: the flag existing with true
     # (or missing, treated as confirmed) would silently skip the one
     # prompt that makes a person confirm the shipped 20x default.
+    # pin-justified: reads the shipped settings TEMPLATE (a JSON data
+    # contract); no AST seam exists for a data file.
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
     assert template.get('objective_confirmed') is False

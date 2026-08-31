@@ -78,7 +78,7 @@ from tests.ast_seams import iter_package_modules
 # the XY fact have not come back. ast_seams asserts that a seam EXISTS with
 # a given shape; it has no way to say a name is gone or that a body stopped
 # reading something, which is the whole content of these guards.
-_READ_TEXT_SITE_BUDGET = 374
+_READ_TEXT_SITE_BUDGET = 375
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
@@ -96,7 +96,7 @@ _READ_TEXT_SITE_BUDGET = 374
 # file into tmp_path and read its bytes back to assert the file on disk was
 # or was not modified. "The user's only copy was left exactly as it was" is
 # a claim about a file, so there is no AST seam to assert instead.
-_READ_TEXT_FILE_BUDGET = 128
+_READ_TEXT_FILE_BUDGET = 129
 
 
 def _nodes_inside_iteration(tree):
