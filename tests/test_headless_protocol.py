@@ -69,6 +69,14 @@ from modules.protocol import Protocol
 from modules.kivy_utils import schedule_ui
 import modules.kivy_utils as _kivy_utils
 
+# The purge above poisons the rest of the session: conftest installed the
+# kivy stubs once, before any file was collected, and every later-collected
+# test file that imports a ui/ module relies on them still being present.
+# Re-install (idempotent) now that the kivy-free imports are proven.
+from tests.conftest import install_mock_deps
+
+install_mock_deps()
+
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -80,21 +88,28 @@ class TestHeadlessImports:
 
     def test_protocol_imports_do_not_load_kivy(self):
         """After importing the protocol execution chain, Kivy must not be loaded."""
-        _purge_kivy_from_sys_modules()
+        try:
+            _purge_kivy_from_sys_modules()
 
-        # Re-import the protocol chain (modules already in sys.modules will
-        # be a no-op, so reload their state by dropping them first if needed)
-        import modules.lumascope_api
-        import modules.sequenced_capture_runner
-        import modules.protocol
-        import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
+            # Re-import the protocol chain (modules already in sys.modules will
+            # be a no-op, so reload their state by dropping them first if needed)
+            import modules.lumascope_api
+            import modules.sequenced_capture_runner
+            import modules.protocol
+            import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
-        # Verify no kivy module is in sys.modules
-        kivy_loaded = [name for name in sys.modules if name == 'kivy' or name.startswith('kivy.')]
-        assert not kivy_loaded, (
-            f'Kivy modules unexpectedly loaded by protocol chain: {kivy_loaded}. '
-            'This violates Rule 15 (executors must be GUI-agnostic).'
-        )
+            # Verify no kivy module is in sys.modules
+            kivy_loaded = [
+                name for name in sys.modules if name == 'kivy' or name.startswith('kivy.')
+            ]
+            assert not kivy_loaded, (
+                f'Kivy modules unexpectedly loaded by protocol chain: {kivy_loaded}. '
+                'This violates Rule 15 (executors must be GUI-agnostic).'
+            )
+        finally:
+            # Leave the session the way conftest set it up -- later test
+            # files import ui/ modules and need the kivy stubs back.
+            install_mock_deps()
 
     def test_schedule_ui_falls_back_to_direct_invocation(self):
         """Without a UI dispatcher, schedule_ui calls the function directly."""
