@@ -244,8 +244,14 @@ class MicroscopeSettings(BoxLayout):
         )
         _labware_id, labware = get_selected_labware()
 
-        # Single hardware initialization call
+        # Single hardware initialization call. Reconnect never re-runs
+        # load_settings, so the position-1 objective adoption must happen
+        # here too or a reconnect would stamp the pre-reconnect selection
+        # over whatever slot the fresh session actually starts on.
         scope_config = self.scopes.get(settings.get('microscope'))
+        ctx.session.adopt_turret_slot1_objective(
+            model_has_turret=bool(scope_config and scope_config.get('Turret'))
+        )
         config = ScopeInitConfig.from_settings(
             settings,
             labware,
@@ -477,24 +483,17 @@ class MicroscopeSettings(BoxLayout):
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
 
+            # The stored objective is only a leftover from the previous
+            # session; on turret models the session starts at position 1,
+            # so that slot's assignment is the real starting objective.
+            # Adopt it BEFORE anything below reads settings -- the spinner,
+            # the optics log, the FOV fields, and scope.initialize() all
+            # derive image scale from this value.
+            scope_config = self.scopes.get(settings.get('microscope'))
+            ctx.session.adopt_turret_slot1_objective(
+                model_has_turret=bool(scope_config and scope_config.get('Turret'))
+            )
             objective_id = settings['objective_id']
-
-            if lumaview.scope.capabilities.has_turret:
-                turret_objectives = list(settings['turret_objectives'].values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if not assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Turret',
-                        'No Turret Objectives Assigned',
-                        'Turret positions have no objectives assigned. '
-                        'Please assign objectives in Objective Control > Turret before running protocols.',
-                    )
-                elif objective_id not in assigned:
-                    logger.warning(
-                        f'Startup objective {objective_id} not found in turret objectives ({turret_objectives}).'
-                    )
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
@@ -544,7 +543,6 @@ class MicroscopeSettings(BoxLayout):
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             _labware_id, labware = get_selected_labware()
-            scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(
                 settings,
                 labware,

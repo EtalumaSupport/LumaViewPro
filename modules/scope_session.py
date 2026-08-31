@@ -643,6 +643,46 @@ class ScopeSession:
         with self.settings_lock:
             self.settings[key] = value
 
+    def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
+        """Make position 1's assignment the session's starting objective.
+
+        Startup leaves the turret at position 1 (homing puts it there),
+        so the stored objective_id is a leftover from the previous
+        session, not a fact about what sits in the light path: a session
+        that ended on another slot, or an assignment reset, leaves it
+        naming glass the turret does not hold -- and the pixel size
+        derived from it is stamped into the scale bar and saved-image
+        metadata. Whatever position 1 holds IS the starting objective;
+        call this before anything consumes settings.
+
+        Args:
+            model_has_turret: The DECLARED model's turret flag
+                (scopes.json), not live capabilities -- a scope whose
+                motorboard is dead reports no axes, and that
+                broken-hardware case is exactly when the stale
+                objective would otherwise survive. No-op when False:
+                on non-turret models objective_id is the user's free
+                choice.
+        """
+        if not model_has_turret:
+            return
+        turret_objectives = self.settings.get('turret_objectives') or {}
+        slot1_objective = turret_objectives.get(1)
+        if slot1_objective is None:
+            # Nothing assigned at the starting position: keep the stored
+            # objective rather than inventing one; the unassigned-slot
+            # prompt owns resolving this with the user.
+            return
+        if self.settings.get('objective_id') == slot1_objective:
+            return
+        logger.info(
+            f'[Session  ] Starting objective follows turret position 1: '
+            f'{slot1_objective!r} (stored selection was '
+            f'{self.settings.get("objective_id")!r})'
+        )
+        with self.settings_lock:
+            self.settings['objective_id'] = slot1_objective
+
     def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
         """Write the settings dict to disk as JSON.
 
@@ -942,19 +982,13 @@ class ScopeSession:
             return
 
         if self.scope.capabilities.has_turret:
-            objective_id = self.settings.get('objective_id')
-            turret_position = self.scope.motion.get_turret_position_for_objective_id(
-                objective_id=objective_id,
-                persisted_position=self.settings.get('turret_position'),
-            )
-            if turret_position is None:
-                DEFAULT_POSITION = 1
-                logger.info(
-                    f'Turret position for set objective {objective_id} not '
-                    f'in turret objectives configuration. Setting to '
-                    f'position {DEFAULT_POSITION}'
-                )
-                turret_position = DEFAULT_POSITION
-
-            self.settings['turret_position'] = turret_position
-            turret_fn(turret_position)
+            # Every session starts at position 1: the objective was
+            # already adopted from that slot, so positioning anywhere
+            # else would split the claimed optics from the physical
+            # glass. After a real home this move is a physical no-op,
+            # but it still must be issued -- it is the only startup
+            # path that highlights the turret button, and with homing
+            # disabled it is the only T positioning at all.
+            START_POSITION = 1
+            self.settings['turret_position'] = START_POSITION
+            turret_fn(START_POSITION)
