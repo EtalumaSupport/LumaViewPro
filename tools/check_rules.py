@@ -37,7 +37,11 @@ Checks implemented (universal -- both repos):
     rule_42  -- WARN on "healthy"/"fine"/"within range" in comments without a
                 `PERFORMANCE_BUDGETS.md` cite in the same file
 
-LumaViewPro-only (kv_ascii + cv2_channel families):
+LumaViewPro-only (kv_ascii + cv2_channel + rule_37 families):
+    rule_37  -- a PUBLIC function in modules/, drivers/, or a top-level
+                script that a staged commit adds or touches must carry
+                full type hints (params + return); the untouched legacy
+                backlog is never demanded (ratchet RULED 2026-08-24)
     rule_24 over staged .kv files, and the cv2_channel_* guards that keep
     channel order / bit depth / false-color application on their canonical
     routes:
@@ -88,8 +92,18 @@ from pathlib import Path
 # repo's pre-unification behavior exactly: the kv/cv2 families never ran
 # in Firmware, the doc-status family never ran in LumaViewPro.
 _REPO_CHECK_MAP: dict[str, dict[str, bool]] = {
-    'lumaviewpro': {'kv_ascii': True, 'cv2_channel': True, 'doc_status': False},
-    'etaluma-firmware': {'kv_ascii': False, 'cv2_channel': False, 'doc_status': True},
+    'lumaviewpro': {
+        'kv_ascii': True,
+        'cv2_channel': True,
+        'doc_status': False,
+        'rule_37': True,
+    },
+    'etaluma-firmware': {
+        'kv_ascii': False,
+        'cv2_channel': False,
+        'doc_status': True,
+        'rule_37': False,
+    },
 }
 
 
@@ -1176,6 +1190,81 @@ def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     return violations
 
 
+_RULE_37_ARG_EXEMPT = {'self', 'cls'}
+
+
+def _is_rule_37_path(path: str) -> bool:
+    """Rule 37's stated scope: modules/, drivers/, top-level scripts."""
+    p = path.replace('\\', '/')
+    if p.startswith(('modules/', 'drivers/')):
+        return True
+    return '/' not in p and p.endswith('.py')
+
+
+def _check_rule_37(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """BLOCK an added-or-touched public function missing type hints.
+
+    The Rule 37 ratchet (RULED 2026-08-24; built at the 2026-08-31 pass):
+    prose was not landing -- new public functions shipped untyped at the
+    same ~20% rate as the legacy backlog. Fails ONLY on a public function
+    whose span intersects the staged diff; the legacy backlog is never
+    demanded, so this check is diff-aware only (no added lines -> no
+    violations, including under --all). Scope is the rule's own text:
+    modules/, drivers/, top-level scripts; underscore helpers (dunders
+    included) exempt. Named params need annotations (self/cls and bare
+    *args/**kwargs exempt) and the return needs one. Nested functions are
+    not public surfaces.
+    """
+    if not added or not _is_rule_37_path(path):
+        return []
+    try:
+        tree = ast.parse(content, filename=path)
+    except SyntaxError:
+        return []  # the parse violation is already reported by check_source
+
+    def surface_functions(body):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield node
+            elif isinstance(node, ast.ClassDef):
+                yield from surface_functions(node.body)
+
+    violations: list[Violation] = []
+    for fn in surface_functions(tree.body):
+        if fn.name.startswith('_'):
+            continue
+        span = set(range(fn.lineno, (fn.end_lineno or fn.lineno) + 1))
+        if not (span & added):
+            continue
+        a = fn.args
+        untyped = [
+            arg.arg
+            for arg in (a.posonlyargs + a.args + a.kwonlyargs)
+            if arg.annotation is None and arg.arg not in _RULE_37_ARG_EXEMPT
+        ]
+        missing_return = fn.returns is None
+        if not untyped and not missing_return:
+            continue
+        parts = []
+        if untyped:
+            parts.append('untyped param(s) ' + ', '.join(untyped))
+        if missing_return:
+            parts.append('no return annotation')
+        violations.append(
+            Violation(
+                path,
+                fn.lineno,
+                0,
+                'rule_37',
+                f'public function `{fn.name}` touched by this commit has '
+                + ' and '.join(parts)
+                + ' (Rule 37 ratchet: functions a commit adds or touches are '
+                'fully hinted; the untouched legacy backlog is never demanded)',
+            )
+        )
+    return violations
+
+
 def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[Violation]:
     """Run the .py rule checks against one source file's content.
 
@@ -1305,6 +1394,10 @@ def main(argv: list[str] | None = None) -> int:
                 added = _added_lines(p)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
+            if config.get('rule_37'):
+                # Diff-aware by design (backlog never demanded), so it does
+                # its own line-range logic like the doc checks.
+                violations.extend(_check_rule_37(content, p, _added_lines(p)))
         if config['kv_ascii']:
             for p in _staged_files('.kv'):
                 try:
