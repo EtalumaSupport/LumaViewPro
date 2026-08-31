@@ -326,6 +326,14 @@ class _CappedDropDown(DropDown):
         super().__init__(**kwargs)
 
 
+# At most one objective question may be outstanding: the prompt is
+# cancel-less and every trigger asks the same thing, so a second popup
+# would stack a duplicate whose answer silently overwrites the first.
+# Cleared by the popup's own dismiss, which fires before the answer is
+# applied.
+_objective_popup_open = False
+
+
 def show_objective_selection_popup(
     title: str,
     message: str,
@@ -351,6 +359,10 @@ def show_objective_selection_popup(
         current_objective_id: Pre-selected value (the proposed default).
         on_confirm: Called with the chosen objective id.
     """
+    global _objective_popup_open
+    if _objective_popup_open:
+        logger.info('[Popup    ] objective prompt already open -- second request dropped')
+        return
     _log_show('objective_select', 'INFO', title, message)
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(_make_message_label(message))
@@ -388,5 +400,15 @@ def show_objective_selection_popup(
         popup.dismiss()
         on_confirm(spinner.text)
 
+    def _on_dismiss(*_a):
+        global _objective_popup_open
+        _objective_popup_open = False
+
     confirm_button.bind(on_release=_on_confirm)
+    # Dismiss (which confirm fires before applying the answer) clears the
+    # outstanding-question flag, so a failure while applying cannot leave
+    # the app unable to ever ask again. The flag is set only after a
+    # successful open for the same reason in the other direction.
+    popup.bind(on_dismiss=_on_dismiss)
     popup.open()
+    _objective_popup_open = True

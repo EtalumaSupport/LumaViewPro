@@ -666,16 +666,8 @@ class LumaViewProApp(TooltipMixin, App):
         )
 
         # The objective prompt may only fire once the session is up and
-        # the frame has rendered: a popup opened during build() appears
-        # before the window exists and is never seen. Clock-deferred so
-        # it opens after on_start returns.
-        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
-        scope_config = microscope_settings.scopes.get(ctx.settings.get('microscope'))
-        model_has_turret = bool(scope_config and scope_config.get('Turret'))
-        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(
-            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
-        )
+        # the frame has rendered; the deferral lives in the helper.
+        self._prompt_objective_if_needed()
 
         # Objective and LEDs are set by scope.initialize() during load_settings();
         # BF apply_settings fires from complete_initialization() -> accordion_collapse().
@@ -755,6 +747,24 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] Threads shut down.')
 
+    def _prompt_objective_if_needed(self) -> None:
+        """Ask the objective question when the objective is unknowable.
+
+        Clock-deferred: a popup opened before the frame has rendered
+        appears under no window and is never seen. Called at startup and
+        again when the provisional-settings dialog resolves -- while
+        settings were provisional the question was suppressed because
+        its answer could not be kept.
+        """
+        import modules.config_helpers as config_helpers
+
+        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
+        model_has_turret = config_helpers.model_has_turret(microscope_settings.scopes, ctx.settings)
+        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+        Clock.schedule_once(
+            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
+        )
+
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.
 
@@ -779,6 +789,9 @@ class LumaViewProApp(TooltipMixin, App):
             logger.warning(
                 f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
             )
+            # Settings can be kept again now -- ask the objective question
+            # that was suppressed while they were provisional.
+            self._prompt_objective_if_needed()
 
         def _quit():
             logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')

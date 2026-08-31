@@ -8,6 +8,7 @@ from kivy.uix.boxlayout import BoxLayout
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
+import modules.settings_init as settings_init
 from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
@@ -667,7 +668,7 @@ class VerticalControl(BoxLayout):
                 lambda dt: self.prompt_objective_selection(turret_position=selected_turret), 0
             )
 
-    def prompt_objective_selection(self, turret_position=None, first_run=False):
+    def prompt_objective_selection(self, turret_position=None):
         """Ask which objective is in the light path, and apply the answer.
 
         The pixel size derived from the objective is stamped into the
@@ -683,23 +684,40 @@ class VerticalControl(BoxLayout):
         Args:
             turret_position: Position the answer binds to (the answer
                 also assigns that slot), or None on non-turret models.
-            first_run: Phrases the prompt as confirm-the-default rather
-                than fill-the-blank.
         """
         ctx = _app_ctx.ctx
+        # Asking is only useful when the answer can matter: with no
+        # hardware there is nothing in the light path and no capture to
+        # stamp, and this cancel-less modal would cover the notice that
+        # explains why nothing works. The flag stays unconfirmed, so the
+        # next hardware session asks.
+        if ctx.lumaview.scope.no_hardware:
+            logger.info('[LVP Main  ] Objective prompt suppressed -- no hardware this session')
+            return
+        # While settings are provisional every settings write is refused,
+        # so an answer given now would be silently lost -- and the modal
+        # would cover the provisional-settings question whose resolution
+        # is what makes the answer saveable. Resolution re-asks.
+        if settings_init.settings_are_provisional():
+            logger.info(
+                '[LVP Main  ] Objective prompt deferred -- settings are provisional and '
+                'the answer could not be kept'
+            )
+            return
+
         settings = ctx.settings
-        current = settings.get('objective_id') or '20x Oly'
-        if first_run:
-            where = f' at turret position {turret_position}' if turret_position else ''
-            message = (
-                f'A {current} objective is assigned{where}. Please confirm, '
-                f'or change it to the objective actually installed.'
+        if turret_position is not None:
+            first_line = (
+                f'Please confirm the objective installed at turret position {turret_position}.'
             )
         else:
-            message = (
-                f'Turret position {turret_position} has no objective assigned. '
-                f'Please select the objective installed there.'
-            )
+            first_line = 'Please confirm the installed objective.'
+        message = f'{first_line}\nThis sets the image scale recorded with every capture.'
+
+        slots = settings.get('turret_objectives') or {}
+        current = (
+            slots.get(turret_position) if turret_position is not None else None
+        ) or settings.get('objective_id')
 
         self.load_objectives()
         objectives = list(self.ids['objective_spinner2'].values)
@@ -742,9 +760,7 @@ class VerticalControl(BoxLayout):
             slots = settings.get('turret_objectives') or {}
             slot_unassigned = slots.get(position) is None
             turret_position = position
-        if first_run:
-            self.prompt_objective_selection(turret_position=turret_position, first_run=True)
-        elif slot_unassigned:
+        if first_run or slot_unassigned:
             self.prompt_objective_selection(turret_position=turret_position)
 
     @debounce(0.5)

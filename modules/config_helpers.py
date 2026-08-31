@@ -178,6 +178,18 @@ def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, d
     return objective_id, objective
 
 
+def model_has_turret(scopes: dict, settings: dict) -> bool:
+    """Does the DECLARED microscope model have a turret?
+
+    Declared -- the settings' model looked up in the scopes catalogue --
+    rather than live capability, deliberately: a dead motorboard reports
+    no axes, and that is exactly when a stale stored objective must not
+    survive startup adoption.
+    """
+    scope_config = scopes.get(settings.get('microscope'))
+    return bool(scope_config and scope_config.get('Turret'))
+
+
 # ---------------------------------------------------------------------------
 # Position helpers
 # ---------------------------------------------------------------------------

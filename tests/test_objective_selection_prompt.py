@@ -27,8 +27,8 @@ class _PromptRecorder:
     def __init__(self):
         self.calls = []
 
-    def prompt_objective_selection(self, turret_position=None, first_run=False):
-        self.calls.append({'turret_position': turret_position, 'first_run': first_run})
+    def prompt_objective_selection(self, turret_position=None):
+        self.calls.append({'turret_position': turret_position})
 
 
 def _ctx_with(settings):
@@ -50,13 +50,13 @@ class TestMaybePromptGate:
         )
         stand = _PromptRecorder()
         stand.maybe_prompt_objective_selection(model_has_turret=True)
-        assert stand.calls == [{'turret_position': 1, 'first_run': True}]
+        assert stand.calls == [{'turret_position': 1}]
 
     def test_unconfirmed_install_prompts_without_position_on_non_turret_model(self, monkeypatch):
         monkeypatch.setattr(_app_ctx, 'ctx', _ctx_with({'objective_confirmed': False}))
         stand = _PromptRecorder()
         stand.maybe_prompt_objective_selection(model_has_turret=False)
-        assert stand.calls == [{'turret_position': None, 'first_run': True}]
+        assert stand.calls == [{'turret_position': None}]
 
     def test_confirmed_install_with_assigned_slot_stays_quiet(self, monkeypatch):
         monkeypatch.setattr(
@@ -88,7 +88,7 @@ class TestMaybePromptGate:
         )
         stand = _PromptRecorder()
         stand.maybe_prompt_objective_selection(model_has_turret=True)
-        assert stand.calls == [{'turret_position': 3, 'first_run': False}]
+        assert stand.calls == [{'turret_position': 3}]
 
     def test_confirmed_non_turret_model_never_prompts(self, monkeypatch):
         monkeypatch.setattr(_app_ctx, 'ctx', _ctx_with({'objective_confirmed': True}))
