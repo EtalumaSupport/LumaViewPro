@@ -129,7 +129,7 @@ identity.source                          # 'motorconfig' | 'scopes' | 'unresolve
 identity.filterset                       # the unit's filterset identity string
 for layer in identity.layers:
     layer.key_name                       # stable name: settings keys, protocol Color, filenames
-    layer.display_name                   # what the operator sees (e.g. 'PC-BF' on FX2)
+    layer.display_name                   # what the operator sees (e.g. 'BF-Phase' on FX2)
     layer.led_channel                    # tuple of board addresses; () = drives no LED
     layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
 

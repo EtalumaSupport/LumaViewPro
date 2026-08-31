@@ -720,26 +720,26 @@ class TestScopesJsonClassicModels:
         """LS620 carries the transmitted layer plus BGR fluorescence and
         NO separate PC layer -- PC on this model is BF with a mechanically
         installed phase slider, not a distinct illumination channel (the
-        transmitted layer is displayed 'PC-BF' for exactly that reason).
+        transmitted layer is displayed 'BF-Phase' for exactly that reason).
         Observed on hardware 2026-04-16: clicking a PhaseContrast layer
         raised `LED channel must be one of (0, 1, 2, 3), got -1` because
         FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
         """
         rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
         assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}
-        assert rows['BF']['display_name'] == 'PC-BF'
+        assert rows['BF']['display_name'] == 'BF-Phase'
         assert rows['BF']['led_channel'] == 3
         assert 'PC' not in rows
         assert 'DF' not in rows
 
     def test_ls560_has_fluorescence_bf(self, scopes):
-        """LS560 ships as the transmitted layer (displayed 'PC-BF') plus
+        """LS560 ships as the transmitted layer (displayed 'BF-Phase') plus
         Green only -- unlike LS620's BGR -- and no separate PC layer,
         same phase-slider rationale as test_ls620_has_fluorescence_bf.
         """
         rows = {r['key_name']: r for r in scopes['LS560']['Layers']}
         assert set(rows) == {'BF', 'Green'}
-        assert rows['BF']['display_name'] == 'PC-BF'
+        assert rows['BF']['display_name'] == 'BF-Phase'
         assert rows['Green']['led_channel'] == 1
         assert 'PC' not in rows
 

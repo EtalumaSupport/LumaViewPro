@@ -65,15 +65,23 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 # ============================================================================
 
 
+def layer_title(record) -> str:
+    """The accordion title for one layer: display name + excitation.
+
+    The 'Ex' marker is load-bearing: the layer name is the EMISSION
+    colour the operator sees, so a bare 'Green 488 nm' invites reading
+    the number as an emission wavelength. Broadband transmitted-light
+    layers and LED-less layers have no excitation (None) and get no
+    suffix.
+    """
+    if record.excitation_nm is None:
+        return record.display_name
+    return f'{record.display_name} Ex {record.excitation_nm:g} nm'
+
+
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
-
-    # Canonical top-to-bottom display order for the right-side accordion.
-    # Used by _resort_accordion() so live scope-model transitions
-    # (LS620 -> LS850 etc.) place re-added layer accordions in the right
-    # spot instead of pinning them to the bottom (UI-1, 2026-05-02).
-    _LAYER_DISPLAY_ORDER = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
     # Ownership boundary for the accordion LED/camera reconcile: the
     # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
@@ -90,7 +98,11 @@ class ImageSettings(BoxLayout):
         self._accordion_item_df_control = AccordionItemImageSettingsDfControl()
         self._accordion_item_lumi_control_visible = False
         self._accordion_item_lumi_control = AccordionItemImageSettingsLumiControl()
-        self._accordion_item_fluorescence_control_visible = False
+        # Per-layer, not one flag for the trio: which fluorescence
+        # channels exist comes from the unit's filterset, and a unit can
+        # carry any subset (a Green-only unit must not show dark Blue and
+        # Red drawers).
+        self._fluorescence_control_visible = {'Blue': False, 'Green': False, 'Red': False}
         self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
         self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
         self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
@@ -278,35 +290,49 @@ class ImageSettings(BoxLayout):
             self._accordion_item_pc_control_visible = False
             self.ids['accordion_id'].remove_widget(widget)
 
-    def set_fluoresence_layer_controls_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_fluorescence_layer_controls()
-        else:
-            self._hide_fluorescence_layer_controls()
+    def apply_layer_titles(self, layers) -> None:
+        """Retitle each layer accordion from its identity record.
 
-    def _show_fluorescence_layer_controls(self):
-        if not self._accordion_item_fluorescence_control_visible:
-            self._accordion_item_fluorescence_control_visible = True
-            self.ids['accordion_id'].add_widget(self._accordion_item_blue_control, 0)
-            self.ids['accordion_id'].add_widget(self._accordion_item_green_control, 0)
-            self.ids['accordion_id'].add_widget(self._accordion_item_red_control, 0)
+        Only layers present in the identity are retitled; a hidden
+        accordion keeps its last title and is refreshed the next time
+        its layer appears in identity. A record whose layer has no
+        accordion in this build is skipped -- the drawer set is fixed
+        until accordions are built from the record, so a catalogue
+        layer beyond the built set simply has no drawer to retitle.
+        """
+        for record in layers:
+            try:
+                item = self.accordion_item_lookup(layer=record.key_name)
+            except KeyError:
+                logger.debug(
+                    f'[LVP Main  ] no accordion for layer {record.key_name!r}; title skipped'
+                )
+                continue
+            item.title = layer_title(record)
+
+    def set_fluorescence_layer_control_visibility(self, layer: str, visible: bool) -> None:
+        if layer not in self._fluorescence_control_visible:
+            raise ValueError(f'{layer!r} is not a fluorescence layer')
+        if visible:
+            self._show_fluorescence_layer_control(layer)
+        else:
+            self._hide_fluorescence_layer_control(layer)
+
+    def _show_fluorescence_layer_control(self, layer: str):
+        if not self._fluorescence_control_visible[layer]:
+            self._fluorescence_control_visible[layer] = True
+            self.ids['accordion_id'].add_widget(self.accordion_item_lookup(layer=layer), 0)
             self._resort_accordion()
 
-    def _hide_fluorescence_layer_controls(self):
+    def _hide_fluorescence_layer_control(self, layer: str):
         settings = _app_ctx.ctx.settings
         if settings:
-            settings['Red']['acquire'] = None
-            settings['Green']['acquire'] = None
-            settings['Blue']['acquire'] = None
-        if self._accordion_item_fluorescence_control_visible:
-            self._accordion_item_blue_control.collapse = True
-            self._accordion_item_green_control.collapse = True
-            self._accordion_item_red_control.collapse = True
-
-            self._accordion_item_fluorescence_control_visible = False
-            self.ids['accordion_id'].remove_widget(self._accordion_item_blue_control)
-            self.ids['accordion_id'].remove_widget(self._accordion_item_green_control)
-            self.ids['accordion_id'].remove_widget(self._accordion_item_red_control)
+            settings[layer]['acquire'] = None
+        if self._fluorescence_control_visible[layer]:
+            item = self.accordion_item_lookup(layer=layer)
+            item.collapse = True
+            self._fluorescence_control_visible[layer] = False
+            self.ids['accordion_id'].remove_widget(item)
 
     def _resort_accordion(self):
         """Rebuild the accordion children list in canonical layer order.
@@ -315,13 +341,16 @@ class ImageSettings(BoxLayout):
         previously hidden layer-control widgets via add_widget(...,0),
         which appends to the children list and ends up at the BOTTOM of
         the visible accordion regardless of canonical order. After every
-        ``_show_*`` call we re-sort so the order matches
-        ``_LAYER_DISPLAY_ORDER`` regardless of insertion sequence.
+        ``_show_*`` call we re-sort so the order matches the release
+        layer catalogue -- display order IS the catalogue order (a
+        layer's id is its position there), so no second order is
+        authored here.
 
-        Kivy renders the children list bottom-to-top, so we walk the
-        canonical order in REVERSE and re-add each currently-visible
-        widget. AccordionItem state (``collapse``, internal anim) lives
-        on the widget instance, so remove + re-add preserves it.
+        Kivy renders the children list bottom-to-top and ``add_widget``
+        with no index prepends, so walking the canonical order FORWARD
+        re-adds each currently-visible widget in the right visual order.
+        AccordionItem state (``collapse``, internal anim) lives on the
+        widget instance, so remove + re-add preserves it.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
@@ -336,15 +365,12 @@ class ImageSettings(BoxLayout):
             'Red': self._accordion_item_red_control,
             'Lumi': self._accordion_item_lumi_control,
         }
-        flu_visible = self._accordion_item_fluorescence_control_visible
         visible_for_layer = {
             'BF': True,
             'PC': self._accordion_item_pc_control_visible,
             'DF': self._accordion_item_df_control_visible,
-            'Blue': flu_visible,
-            'Green': flu_visible,
-            'Red': flu_visible,
             'Lumi': self._accordion_item_lumi_control_visible,
+            **self._fluorescence_control_visible,
         }
 
         # Walk the live children list directly and remove any widget we
@@ -371,7 +397,7 @@ class ImageSettings(BoxLayout):
         # so the FIRST canonical layer added ends up at the bottom of
         # the children list and at the TOP of the visual accordion. The
         # final iteration (Lumi) lands at children[0] -> bottom of display.
-        for layer in self._LAYER_DISPLAY_ORDER:
+        for layer in common_utils.get_layers():
             if not visible_for_layer.get(layer, False):
                 continue
             widget = widget_for_layer.get(layer)

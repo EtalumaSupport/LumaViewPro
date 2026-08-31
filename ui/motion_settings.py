@@ -26,13 +26,13 @@ class MotionSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
 
-    # Canonical top-to-bottom display order for the LEFT-side accordion.
-    # Mirrors the right-side _LAYER_DISPLAY_ORDER pattern in
-    # ui/image_settings.py. Used by _resort_accordion() so live
+    # Canonical top-to-bottom display order for the LEFT-side accordion
+    # (the right-side accordion derives its order from the release layer
+    # catalogue instead; these items are panels, not layers, so the
+    # order is authored here). Used by _resort_accordion() so live
     # scope-model transitions (LS850 <-> LS820 <-> LS620, etc.) keep the
     # accordion items in canonical order regardless of which were
-    # hidden / re-shown along the way (UI-1 left-side follow-up,
-    # 2026-05-03).
+    # hidden / re-shown along the way.
     _LAYER_DISPLAY_ORDER = (
         'microscope',
         'objective',
