@@ -10,7 +10,7 @@ from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
 from drivers.registry import motor_registry
-from drivers.exceptions import HardwareError
+from drivers.exceptions import ConfigReadError, HardwareError
 from drivers.motorconfig import MotorConfig
 
 
@@ -188,18 +188,41 @@ class MotorBoard(SerialBoard):
         Called once after connect() succeeds. Separate from connect() because
         connect's job is opening the port -- config loading is a post-connect step.
         """
+        board_cfg = self._read_board_config()
+        if not board_cfg:
+            return
         try:
-            board_cfg = self.get_config()
-            if board_cfg:
-                self.motorconfig.update_from_board(board_cfg)
-                self._rebuild_cached_values()
-                logger.info(
-                    f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                    f'SN={self.motorconfig.serial_number()}, '
-                    f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
-                )
+            self.motorconfig.update_from_board(board_cfg)
+            self._rebuild_cached_values()
+            logger.info(
+                f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                f'SN={self.motorconfig.serial_number()}, '
+                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
+            )
         except Exception as e:
+            # A half-applied merge leaves the per-unit values unreliable,
+            # which for every downstream consumer is the same state as an
+            # unreadable board: record it as one, and keep the scope up on
+            # defaults (motion works without per-unit config; a config
+            # problem must not take down connect).
+            self.motorconfig.mark_board_read_failed()
             logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
+
+    def _read_board_config(self) -> dict | None:
+        """Read the board's config, converting a failed READ into recorded state.
+
+        Returns the parsed config dict, or None after a failed read. The
+        failure is not swallowed: `mark_board_read_failed` makes it a
+        queryable fact on the motorconfig, so consumers that care about
+        the difference between "no per-unit value" and "per-unit value
+        unavailable" can see it, while connect stays up on defaults.
+        """
+        try:
+            return self.get_config()
+        except ConfigReadError as e:
+            self.motorconfig.mark_board_read_failed()
+            logger.warning(f'[XYZ Class ] Board config unreadable (using defaults): {e}')
+            return None
 
     def _on_disconnect(self):
         """Clear cached firmware info on disconnect (called under self._lock)."""
@@ -1380,25 +1403,35 @@ class MotorBoard(SerialBoard):
         Firmware returns JSON (v3.0.5+) or Python dict repr (older).
 
         Returns:
-            dict: Parsed configuration, or an empty dict on failure.
+            dict: Parsed configuration (may be legitimately empty).
+
+        Raises:
+            ConfigReadError: the board did not answer, or the payload did
+                not parse to a mapping. A failed READ is not an empty
+                config: the per-unit values may exist on the board but
+                are unavailable, and callers that would treat the two
+                the same end up silently serving another source's answer.
         """
         resp = self.exchange_command('CONFIG')
         if resp is None:
-            return {}
+            raise ConfigReadError('board did not answer CONFIG')
         # Take first line (may have trailing newline noise)
         data_str = resp.split('\n')[0].strip() if '\n' in resp else resp.strip()
         import json as _json
 
+        parsed = None
         try:
-            return _json.loads(data_str)
+            parsed = _json.loads(data_str)
         except (ValueError, TypeError):
             import ast
 
             try:
-                return ast.literal_eval(data_str)
+                parsed = ast.literal_eval(data_str)
             except (ValueError, SyntaxError):
-                logger.warning(f'[XYZ Class ] get_config(): unparseable response: {data_str[:200]}')
-                return {}
+                raise ConfigReadError(f'unparseable CONFIG response: {data_str[:200]}') from None
+        if not isinstance(parsed, dict):
+            raise ConfigReadError(f'CONFIG payload is not a mapping: {data_str[:200]}')
+        return parsed
 
     def get_drvstat(self, axis: str | None = None) -> list:
         """Send DRVSTAT and return parsed driver status.
