@@ -59,6 +59,8 @@ Firmware-only (doc_status family):
     daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
                 edit that grows it is BLOCKED (append to the monthly
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
+    daily_log_ordering -- shard entries are newest-first; an entry dated
+                newer than the one above it is BLOCKED (insert at top)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1138,6 +1140,42 @@ def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) ->
     ]
 
 
+def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
+    """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
+
+    The shard header promises newest-at-top; four recurrences of
+    bottom-appended entries outlived that prose, and the Rulings check
+    examines only the top entry, so a bottom-append also dodged it
+    silently. Whole-file on purpose: a bottom-append IS an out-of-order
+    date pair wherever the staged diff landed. Frozen DAILY_LOG.md is
+    exempt (its history predates newest-first and cannot grow anyway).
+    """
+    p = path.replace('\\', '/')
+    if not _is_daily_log(p) or p.endswith('docs/DAILY_LOG.md'):
+        return []
+    violations: list[Violation] = []
+    prev: tuple[str, int] | None = None  # (date, lineno) of the entry above
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if not _DAILY_LOG_ENTRY_RE.match(line):
+            continue
+        date = line[3:13]
+        if prev is not None and date > prev[0]:
+            violations.append(
+                Violation(
+                    path,
+                    lineno,
+                    0,
+                    'daily_log_ordering',
+                    f'DAILY_LOG shard entries are newest-first: the {date} '
+                    f'entry sits below the older {prev[0]} entry (line '
+                    f'{prev[1]}); insert new entries at the TOP, directly '
+                    'under the header block',
+                )
+            )
+        prev = (date, lineno)
+    return violations
+
+
 def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[Violation]:
     """Run the .py rule checks against one source file's content.
 
@@ -1182,6 +1220,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations.extend(_check_plan_truth_base(content, path))
     violations.extend(_check_daily_log_rulings(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
+    violations.extend(_check_daily_log_ordering(content, path))
     return violations
 
 
