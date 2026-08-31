@@ -85,6 +85,9 @@ def test_the_unit_string_is_untouched():
     the read-text ratchet for a claim the AST answers exactly.
     """
     tree = parse_module('modules/image_utils.py')
+    # The tag is written either as a dict-literal pair or as a subscript
+    # assignment (it became conditional when Illumination joined the
+    # optional-fields contract); the unit fact is the same in both forms.
     units = [
         value.value
         for node in ast.walk(tree)
@@ -93,6 +96,16 @@ def test_the_unit_string_is_untouched():
         if isinstance(key, ast.Constant)
         and key.value == 'IlluminationUnit'
         and isinstance(value, ast.Constant)
+    ]
+    units += [
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Subscript)
+        and isinstance(node.targets[0].slice, ast.Constant)
+        and node.targets[0].slice.value == 'IlluminationUnit'
+        and isinstance(node.value, ast.Constant)
     ]
     assert units == ['mA'], (
         f'the TIFF IlluminationUnit tag must still read mA, got {units!r} -- '

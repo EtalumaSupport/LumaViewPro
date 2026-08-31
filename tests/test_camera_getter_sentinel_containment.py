@@ -36,6 +36,7 @@ import pytest
 
 import modules.common_utils as common_utils
 from drivers.camera import Camera
+from modules import layer_record
 from modules.binning import binning_size_int_to_str
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api import Lumascope
@@ -522,6 +523,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             get_camera_info=lambda: {'model': 'simcam'},
         ),
         illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        layer_identity=layer_record.UNRESOLVED,
         _camera_driver=driver,
     )
 

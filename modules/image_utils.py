@@ -709,6 +709,12 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     }
     if channel is not None and channel.attrib.get('Name'):
         flat['channel'] = channel.attrib['Name']
+        # ExcitationWavelength is a schema OME Channel attribute, so it
+        # survives the auto-OME serializer (unlike DisplayName and
+        # FilterSet, which are dropped with Instrument/Plate above).
+        excitation = _float(channel.attrib, 'ExcitationWavelength')
+        if excitation is not None:
+            flat['excitation_nm'] = excitation
     if datetime_value is not None:
         flat['datetime'] = datetime_value
     return flat
@@ -754,6 +760,7 @@ def _imagej_to_structured(imagej_metadata: dict) -> dict:
         ('channel', 'Channel'),
         ('instrument', 'Instrument'),
         ('plate', 'Plate'),
+        ('filterset', 'FilterSet'),
     ):
         if lower in imagej_metadata:
             structured[canonical] = parsed(lower)
@@ -872,7 +879,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             },
             'z_pos_um': plane['PositionZ'],
             'objective': plane.get('Objective', {}),
-            'illumination_ma': plane['Illumination'],
             'pixel_size_um': structured['PhysicalSizeX'],
             'channel': structured['Channel']['Name'][0],
         }
@@ -882,18 +888,31 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # frame type); fall back to defaults rather than crashing the
         # post-processing job, per this function's documented contract.
         return None
-    # Exposure and gain are the writer's optional fields: the producer
-    # omits the key when the value was genuinely unknown at capture.
-    # Mirror that here -- reconstruct them only when present -- so a
-    # frame saved with an unreadable gain still forwards its positions
+    # Exposure, gain, and illumination are the writer's optional fields:
+    # the producer omits the key when the value was genuinely unknown at
+    # capture (a failed camera read; an LED that was off, as on every
+    # dark or luminescence frame). Mirror that here -- reconstruct them
+    # only when present -- so such a frame still forwards its positions
     # and pixel size, and no fabricated stand-in value is invented on
     # the way back out to a derived output.
+    if 'Illumination' in plane:
+        flat['illumination_ma'] = plane['Illumination']
     if 'ExposureTime' in plane:
         flat['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
         flat['gain_db'] = plane['Gain']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
+
+    # Spectral identity, written by the same producer: per-channel fields
+    # from the Channel block, the unit-level filterset from its own key.
+    channel_block = structured['Channel']
+    if channel_block.get('DisplayName'):
+        flat['channel_display'] = channel_block['DisplayName'][0]
+    if channel_block.get('ExcitationWavelength'):
+        flat['excitation_nm'] = channel_block['ExcitationWavelength'][0]
+    if 'FilterSet' in structured:
+        flat['filterset'] = structured['FilterSet']
 
     # Per-frame markers travel with the original capture, not with
     # derived outputs. Read them so the helper is reusable; the builder
@@ -1086,6 +1105,14 @@ def build_postproc_output_metadata(
             'frame_id',
         ):
             metadata.pop(per_capture_field, None)
+
+    # Per-layer claims travel only while the layer does: a derived output
+    # on a different channel (a composite) must not pair another layer's
+    # display name or excitation with its own channel field. The
+    # filterset stays -- the same unit produced the inputs.
+    if metadata.get('channel') != channel:
+        metadata.pop('channel_display', None)
+        metadata.pop('excitation_nm', None)
 
     metadata['channel'] = channel
     metadata['datetime'] = datetime.datetime.now().isoformat(timespec='seconds')
@@ -2178,15 +2205,17 @@ def generate_tiff_data(
         'PositionYUnit': 'mm',
         'PositionZUnit': micron,
         'Objective': metadata['objective'],
-        'Illumination': metadata['illumination_ma'],
-        'IlluminationUnit': 'mA',
     }
-    # Exposure and gain join the same optional-fields contract as the
-    # per-frame timestamps below: the producer omits the key when the value
-    # is genuinely unknown (no chunk data AND the live read failed), because
-    # a fabricated stand-in written here would masquerade downstream as a
-    # real acquisition setting. Present -> written with its unit; absent ->
-    # the TIFF field is omitted, and the frame still saves.
+    # Exposure, gain, and illumination share the optional-fields contract
+    # with the per-frame timestamps below: the producer omits the key when
+    # the value is genuinely unknown (a failed camera read, an LED that is
+    # off or on an absent board), because a fabricated stand-in written
+    # here would masquerade downstream as a real acquisition setting.
+    # Present -> written with its unit; absent -> the TIFF field is
+    # omitted, and the frame still saves.
+    if 'illumination_ma' in metadata:
+        plane['Illumination'] = metadata['illumination_ma']
+        plane['IlluminationUnit'] = 'mA'
     if 'exposure_time_ms' in metadata:
         plane['ExposureTime'] = metadata['exposure_time_ms']
         plane['ExposureTimeUnit'] = 'ms'
@@ -2212,6 +2241,18 @@ def generate_tiff_data(
     if 'frame_id' in metadata:
         plane['FrameID'] = metadata['frame_id']
 
+    # Spectral identity rides in the Channel block. ExcitationWavelength
+    # is a schema OME Channel attribute, so the OME container serializes
+    # it into real OME-XML; DisplayName is not schema and survives only in
+    # the structured (shaped/ImageJ) containers -- the same partial-
+    # survival contract as gain and instrument on the OME path.
+    channel_block: dict = {'Name': [metadata['channel']]}
+    if 'channel_display' in metadata:
+        channel_block['DisplayName'] = [metadata['channel_display']]
+    if 'excitation_nm' in metadata:
+        channel_block['ExcitationWavelength'] = [metadata['excitation_nm']]
+        channel_block['ExcitationWavelengthUnit'] = ['nm']
+
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
@@ -2219,9 +2260,13 @@ def generate_tiff_data(
         # a right-aligned narrow payload is not read back as full container
         # width and rendered ~16x dark.
         'SignificantBits': metadata['significant_bits'],
-        'Channel': {'Name': [metadata['channel']]},
+        'Channel': channel_block,
         'Plane': plane,
     }
+    # The filterset is a unit-level fact, not per-channel; it rides as its
+    # own structured key (the OME container drops it, like Instrument).
+    if 'filterset' in metadata:
+        tiff_metadata['FilterSet'] = metadata['filterset']
 
     # A scale is written only when one is known. Emitting the keys with a null
     # value would still read downstream as a PhysicalSize claim, and a reader

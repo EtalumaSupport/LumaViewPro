@@ -393,12 +393,30 @@ def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
             'camera read failed); omitting gain_db from saved metadata'
         )
 
+    # Spectral identity from the resolved layer record. Written whatever
+    # rung identity resolved from, and a null value is ABSENT: broadband
+    # layers have no excitation, 'Composite' has no record, an unresolved
+    # identity has no filterset -- a null or stand-in written here would
+    # read downstream as a measured property of the capture. The board
+    # address (led_channel) deliberately stays out of metadata: it changes
+    # with a rewire, board swap, or motorconfig regeneration, so recording
+    # it would version the files to the wiring.
+    identity = scope.layer_identity
+    record = identity.find(channel)
+
     metadata = {
         'camera_make': 'Etaluma',
         'microscope': microscope_model,
         'microscope_model': microscope_model,
         'software': f'LumaViewPro {version}',
         'channel': channel,
+        **({'channel_display': record.display_name} if record is not None else {}),
+        **(
+            {'excitation_nm': record.excitation_nm}
+            if record is not None and record.excitation_nm is not None
+            else {}
+        ),
+        **({'filterset': identity.filterset} if identity.filterset else {}),
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
         'objective': objective,
@@ -408,10 +426,14 @@ def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
         'y_pos': py,
         'z_pos_um': z,
         **_frame_settings,
-        'illumination_ma': (
-            round(_ma, common_utils.max_decimal_precision('illumination'))
+        # An LED that is off, never set, or on an absent board has no
+        # drive current -- a normal state for dark and luminescence
+        # captures, so the key is simply absent (no warning, unlike the
+        # exposure/gain omissions above, which indicate a failed read).
+        **(
+            {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
             if (_ma := scope.illumination.get_led_ma(channel=channel)) is not None
-            else 0
+            else {}
         ),
         'binning_size': scope.imaging._binning_size,
         'pixel_size_um': pixel_size_um,

@@ -15,6 +15,7 @@ each test proves which source won.
 
 from types import SimpleNamespace
 
+from modules import layer_record
 from modules.image_save import generate_image_metadata
 
 
@@ -57,6 +58,10 @@ def _metadata_scope(chunks, chunk_reads=None):
             get_camera_info=lambda: {'model': 'simcam'},
         ),
         illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        # The real Lumascope always carries a resolved identity snapshot;
+        # UNRESOLVED is its worst case, and these tests are about frame
+        # settings, not spectral fields.
+        layer_identity=layer_record.UNRESOLVED,
         _camera_driver=SimpleNamespace(
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
             timestamp_tick_frequency_hz=1_000_000_000,
