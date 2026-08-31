@@ -17,6 +17,7 @@ from modules import gui_logger
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
+    model_has_turret,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -250,7 +251,7 @@ class MicroscopeSettings(BoxLayout):
         # over whatever slot the fresh session actually starts on.
         scope_config = self.scopes.get(settings.get('microscope'))
         ctx.session.adopt_turret_slot1_objective(
-            model_has_turret=bool(scope_config and scope_config.get('Turret'))
+            model_has_turret=model_has_turret(self.scopes, settings)
         )
         config = ScopeInitConfig.from_settings(
             settings,
@@ -325,8 +326,7 @@ class MicroscopeSettings(BoxLayout):
         # model is attached, so re-ask only when the objective is
         # unknowable (never-confirmed install, or the starting position
         # has no assignment).
-        reconnect_scope_config = self.scopes.get(settings.get('microscope'))
-        reconnect_has_turret = bool(reconnect_scope_config and reconnect_scope_config.get('Turret'))
+        reconnect_has_turret = model_has_turret(self.scopes, settings)
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
         Clock.schedule_once(
             lambda dt: vertical_control.maybe_prompt_objective_selection(reconnect_has_turret), 0
@@ -502,7 +502,7 @@ class MicroscopeSettings(BoxLayout):
             # derive image scale from this value.
             scope_config = self.scopes.get(settings.get('microscope'))
             ctx.session.adopt_turret_slot1_objective(
-                model_has_turret=bool(scope_config and scope_config.get('Turret'))
+                model_has_turret=model_has_turret(self.scopes, settings)
             )
             objective_id = settings['objective_id']
 
