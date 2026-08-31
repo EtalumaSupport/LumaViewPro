@@ -75,7 +75,8 @@
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
-            ]
+            ],
+            "Filterset": "405/488/589"
         },
         "LS850": {
             "Focus": true,
@@ -118,7 +119,8 @@
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
-            ]
+            ],
+            "Filterset": "405/488/589"
         },
         "LS850-0": {
             "Focus": true,
@@ -174,7 +176,8 @@
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
-            ]
+            ],
+            "Filterset": "405/488/589"
         },
         "LS850T-0": {
             "Focus": true,
@@ -228,7 +231,8 @@
                     "led_channel": 2,
                     "excitation_nm": 589
                 }
-            ]
+            ],
+            "Filterset": "405/488/589"
         },
         "LS560": {
             "Focus": false,
@@ -251,7 +255,8 @@
                     "led_channel": 1,
                     "excitation_nm": 488
                 }
-            ]
+            ],
+            "Filterset": "405/488/589"
         }
     }
 }
