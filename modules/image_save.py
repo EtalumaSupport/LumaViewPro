@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime
 import os
 import pathlib
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -715,10 +716,10 @@ def save_image(
 
 def save_live_image(
     scope: Lumascope,
-    save_folder='./capture',
-    file_root='img_',
-    append='ms',
-    tail_id_mode='increment',
+    save_folder: str | pathlib.Path = './capture',
+    file_root: str = 'img_',
+    append: str = 'ms',
+    tail_id_mode: str | None = 'increment',
     force_to_8bit: bool = True,
     output_format: str = 'TIFF',
     earliest_image_ts: datetime.datetime | None = None,
@@ -726,7 +727,7 @@ def save_live_image(
     all_ones_check: bool = False,
     sum_count: int = 1,
     sum_delay_s: float = 0,
-    sum_iteration_callback=None,
+    sum_iteration_callback: Callable[..., None] | None = None,
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
     jpeg_quality: int = 90,
@@ -768,18 +769,21 @@ def save_live_image(
     Returns:
         str | None: Path to saved file, or None on failure.
     """
-    array = scope.imaging._capture_and_wait_impl(
-        force_to_8bit=force_to_8bit,
-        earliest_image_ts=earliest_image_ts,
-        timeout_s=timeout_s,
-        all_ones_check=all_ones_check,
-        sum_count=sum_count,
-        sum_delay_s=sum_delay_s,
-        sum_iteration_callback=sum_iteration_callback,
-    )
-
-    if turn_off_all_leds_after:
-        scope.illumination._leds_off_impl()
+    try:
+        array = scope.imaging._capture_and_wait_impl(
+            force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
+            timeout_s=timeout_s,
+            all_ones_check=all_ones_check,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+        )
+    finally:
+        # The off must hold even when the capture raises -- a caller that
+        # asked for it is relying on this call to end illumination.
+        if turn_off_all_leds_after:
+            scope.illumination._leds_off_impl()
 
     if array is None:
         return None
