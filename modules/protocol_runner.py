@@ -30,7 +30,7 @@ import typing
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode_module
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import CaptureError, ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 
@@ -196,7 +196,8 @@ class ProtocolRunner:
         sequence_name: str = 'composite',
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
-    ) -> None:
+        merge_timeout_s: float = 900.0,
+    ) -> str:
         """Capture one frame per acquiring channel and merge them.
 
         A composite is a single-position run through the same engine as
@@ -208,22 +209,32 @@ class ProtocolRunner:
         settings snapshot rather than from any widget, so a headless caller
         gets the same run a GUI click does.
 
-        The merged artifact is the run's real product, so it -- not the
-        capture's end -- is what this reports once the merge is wired in;
-        until then the run's completion is observed through the callbacks
-        and wait_for_completion, as with the other run kinds.
+        The merged artifact is the run's real product, so this BLOCKS until
+        the merge settles and returns where the artifact landed. A run that
+        reported 'completed' while the merged file was missing would be
+        indistinguishable from a successful one to every headless caller,
+        which is the boundary this run kind exists to fix.
 
         Args:
             sequence_name: Name for the output folder.
             parent_dir: Parent directory for output (defaults to
                 settings['live_folder']/ProtocolData).
             callbacks: Optional dict of callback functions.
+            merge_timeout_s: Upper bound on the whole capture-and-merge
+                wait. Covers the run itself, so it is longer than the
+                merge's own internal drain bound.
+
+        Returns:
+            The path of the merged composite.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
                 still writing, hardware not connected).
+            CaptureError: The run finished but produced no composite. The
+                error names the machine-readable reason, so a caller can
+                tell an aborted run from a failed merge from a timeout.
         """
         import modules.config_helpers as config_helpers
 
@@ -252,7 +263,23 @@ class ProtocolRunner:
             # found, rather than forcing every channel dark the way an
             # unattended scan does.
             leds_state_at_end='return_to_original',
+            composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
+
+        outcome = self._executor.merge_outcome()
+        if outcome is None:
+            raise CaptureError(
+                'the composite run reported no outcome to wait on; the run was never committed'
+            )
+        settled = outcome.wait(timeout_s=merge_timeout_s)
+        if settled is None:
+            raise CaptureError(
+                f'the composite did not report an outcome within '
+                f'{merge_timeout_s:.0f}s; the run or its merge is wedged'
+            )
+        if not settled.merged:
+            raise CaptureError(f'no composite was produced ({settled.reason})')
+        return settled.artifact_path
 
     def _run(
         self,
@@ -267,6 +294,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
         leds_state_at_end: str = 'off',
+        composite_thresholds_percent: dict | None = None,
     ):
         """Internal: configure and launch the sequenced capture executor.
 
@@ -352,6 +380,7 @@ class ProtocolRunner:
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
             leds_state_at_end=leds_state_at_end,
+            composite_thresholds_percent=composite_thresholds_percent,
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )

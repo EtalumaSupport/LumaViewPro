@@ -1067,6 +1067,21 @@ def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn
     raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
 
 
+def get_composite_blend_thresholds(settings: dict) -> dict:
+    """Per-layer blend thresholds the post-run merge needs, as percentages.
+
+    Snapshotted from settings by the caller that has them, because the
+    merge runs on a worker thread after the run: reading settings there is
+    unavailable headless and would in any case be a later value than the
+    run was configured with.
+    """
+    return {
+        layer: settings[layer]['composite_brightness_threshold']
+        for layer in common_utils.get_layers()
+        if 'composite_brightness_threshold' in settings.get(layer, {})
+    }
+
+
 def get_composite_image_capture_config_from_settings(
     settings: dict,
 ) -> image_mode.ImageCaptureConfig:

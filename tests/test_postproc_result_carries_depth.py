@@ -116,6 +116,7 @@ class TestGroupAlgorithmsCarryDepth:
         result = composite._group_algorithm(
             path=tmp_path,
             df=df,
+            brightness_thresholds_percent={},
             output_file_loc=pd.Series(['composite.tiff'])[0],
         )
         assert isinstance(result, PostProcResult)

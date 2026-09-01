@@ -22,11 +22,12 @@ import pytest
 
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_image_writer import ProtocolImageWriter
+from tests.scope_fakes import spec_scope
 
 
 def _writer(file_io_executor=None):
     return ProtocolImageWriter(
-        scope=MagicMock(),
+        scope=spec_scope(),
         callbacks=MagicMock(),
         aborted=threading.Event(),
         file_io_executor=file_io_executor or MagicMock(),

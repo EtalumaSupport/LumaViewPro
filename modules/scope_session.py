@@ -956,6 +956,18 @@ class ScopeSession:
         outlive the executors they snapshot.
         """
         self.stop_metrics()
+        # Settle any run's merge outcome FIRST. The executor teardown below
+        # does not wait for the file lanes to drain, so a merge still
+        # waiting on this run's writes can never finish -- and a caller
+        # blocked on the result would wait out its whole bound for an
+        # answer that is no longer coming. Ahead of the non-owner early
+        # return, because a borrowed-executor session tears down the same
+        # way from the waiter's point of view.
+        runner = self.sequenced_capture_runner
+        if runner is not None:
+            outcome = runner.merge_outcome()
+            if outcome is not None:
+                outcome.settle_unfinished('shutdown')
         # The session owns its scheduler: shut it down here, before the
         # non-owner early return below, so a session that borrowed its
         # executors still ends its own timers (a live health check

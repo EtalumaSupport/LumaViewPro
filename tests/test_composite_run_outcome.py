@@ -18,13 +18,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.exceptions import CaptureError
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from modules.run_outcome import MergeOutcome, RunMergeOutcome
 from tests.test_composite_run_config import _settings
-
-_OUTCOME_PENDING = (
-    'the merge and its run-scoped outcome object are the next build '
-    'stage; run_composite returns the artifact path once that lands'
-)
 
 
 def _runner(acquiring=('BF', 'Blue')):
@@ -98,12 +95,54 @@ class TestCompositeRunsAsItsOwnKind:
 
 
 class TestCompositeOutcomeIsObservable:
-    @pytest.mark.xfail(strict=True, reason=_OUTCOME_PENDING)
-    def test_run_composite_returns_the_merged_artifact_path(self):
+    """B17: the merge, not the capture, is what the caller learns about."""
+
+    def _runner_whose_merge(self, outcome):
         runner = _runner()
-        result = runner.run_composite()
-        assert result is not None, (
-            'an L2 caller must learn where the merged composite landed; '
+        settled = RunMergeOutcome()
+        if outcome is not None:
+            token = settled.arm()
+            settled.resolve(token, outcome)
+        runner._executor.merge_outcome.return_value = settled
+        return runner
+
+    def test_run_composite_returns_the_merged_artifact_path(self):
+        runner = self._runner_whose_merge(
+            MergeOutcome(merged=True, artifact_path='/runs/1/A1_Composite_1.tiff', reason='')
+        )
+
+        assert runner.run_composite() == '/runs/1/A1_Composite_1.tiff', (
+            'an L2 caller must learn WHERE the merged composite landed; '
             'returning nothing makes a missing artifact indistinguishable '
             'from a successful merge'
         )
+
+    @pytest.mark.parametrize(
+        'reason',
+        ['aborted', 'merge_timeout', 'inputs_discarded', 'merge_failed'],
+    )
+    def test_a_run_that_produced_no_composite_raises_typed(self, reason):
+        runner = self._runner_whose_merge(
+            MergeOutcome(merged=False, artifact_path=None, reason=reason)
+        )
+
+        with pytest.raises(CaptureError) as excinfo:
+            runner.run_composite()
+        assert reason in str(excinfo.value), (
+            'the failure must name its machine-readable cause, so a caller '
+            'can tell an aborted run from a failed merge from a timeout'
+        )
+
+    def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
+        runner = self._runner_whose_merge(None)
+
+        with pytest.raises(CaptureError) as excinfo:
+            runner.run_composite(merge_timeout_s=0.05)
+        assert 'wedged' in str(excinfo.value)
+
+    def test_a_run_that_was_never_committed_raises(self):
+        runner = _runner()
+        runner._executor.merge_outcome.return_value = None
+
+        with pytest.raises(CaptureError):
+            runner.run_composite()
