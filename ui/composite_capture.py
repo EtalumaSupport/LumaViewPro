@@ -264,13 +264,6 @@ class CompositeCapture(FloatLayout):
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
 
-        # Suspend video false coloring during composite capture.
-        # The video recorder applies a single false color (set at recording start)
-        # to ALL frames, but composite capture cycles through multiple channels.
-        # Without this, every frame records as the initial channel's color.
-        saved_video_false_color = getattr(self, 'video_false_color', None)
-        self.video_false_color = None
-
         # Log per-channel settings for composite debugging
         settings = ctx.settings
         for layer in (
@@ -316,7 +309,6 @@ class CompositeCapture(FloatLayout):
                     'led_restore_state': led_restore_state,
                     'capture_depth': capture_depth,
                     'save_encoding': save_encoding,
-                    'saved_video_false_color': saved_video_false_color,
                 },
                 priority=PRIORITY_MED,
             )
@@ -329,7 +321,6 @@ class CompositeCapture(FloatLayout):
         led_restore_state,
         capture_depth,
         save_encoding,
-        saved_video_false_color=None,
     ):
         """Runs on background thread -- performs hardware I/O without blocking UI."""
         failed = False
@@ -340,7 +331,6 @@ class CompositeCapture(FloatLayout):
                 led_restore_state=led_restore_state,
                 capture_depth=capture_depth,
                 save_encoding=save_encoding,
-                saved_video_false_color=saved_video_false_color,
             )
         except Exception as ex:
             failed = True
@@ -367,7 +357,6 @@ class CompositeCapture(FloatLayout):
             # Without this, a save_image failure leaves _capturing set and
             # all subsequent composite clicks are blocked.
             CompositeCapture._capturing.clear()
-            self.video_false_color = saved_video_false_color
 
             def _restore_ui_on_error(dt):
                 try:
@@ -402,7 +391,6 @@ class CompositeCapture(FloatLayout):
         led_restore_state,
         capture_depth,
         save_encoding,
-        saved_video_false_color=None,
     ):
         """Inner worker -- actual composite capture logic.
 
@@ -670,9 +658,6 @@ class CompositeCapture(FloatLayout):
             finally:
                 opened_layer_obj._initializing = False
             opened_layer_obj.apply_settings(update_led=True)
-
-        # Restore video false color that was suspended during composite capture
-        self.video_false_color = saved_video_false_color
 
         CompositeCapture._capturing.clear()
         Clock.schedule_once(_restore_ui, 0)

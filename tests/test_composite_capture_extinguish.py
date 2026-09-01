@@ -98,7 +98,6 @@ def _run_worker(worker_self):
         led_restore_state=True,
         capture_depth=8,
         save_encoding='raw',
-        saved_video_false_color=None,
     )
 
 
