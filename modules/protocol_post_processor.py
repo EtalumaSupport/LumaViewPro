@@ -347,6 +347,12 @@ class ProtocolPostProcessor(abc.ABC):
         output_significant_bits = None
         completed_group_ms = []
         skipped_single_paths = []
+        # Where each produced artifact landed. The return used to carry only
+        # the output ROOT, which tells a caller a directory was touched but
+        # not whether its own file exists -- an unattended caller could not
+        # distinguish a successful run from one that produced nothing, and
+        # had to re-derive the filename to find out.
+        artifact_paths = []
 
         for _, group in groups:
             if len(group) == 0:
@@ -449,6 +455,10 @@ class ProtocolPostProcessor(abc.ABC):
                 row0=row0,
                 **record_data_post_functions.to_dict(),
             )
+
+            # Recorded after the relocation resolve above, so the path names
+            # the file that actually exists rather than the one requested.
+            artifact_paths.append(str(root_path / output_file_loc_rel))
 
             new_count += 1
             current_group += 1
@@ -589,6 +599,7 @@ class ProtocolPostProcessor(abc.ABC):
                 'degraded_outputs': degraded_outputs,
                 'new_count': new_count,
                 'output_root': str(root_path),
+                'artifact_paths': artifact_paths,
                 'accounting_note': accounting_note,
             }
         return {
@@ -596,5 +607,6 @@ class ProtocolPostProcessor(abc.ABC):
             'message': f'Success.{collision_note}{accounting_note}',
             'new_count': new_count,
             'output_root': str(root_path),
+            'artifact_paths': artifact_paths,
             'accounting_note': accounting_note,
         }

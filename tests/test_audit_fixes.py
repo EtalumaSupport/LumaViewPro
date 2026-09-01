@@ -11485,6 +11485,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             result = CompositeGeneration._create_composite_image(
                 path=tmp,
                 df=df,
+                brightness_thresholds_percent={},
                 output_file_loc=protocol_tiff,
             )
             assert result['status'] is True, (
@@ -11535,6 +11536,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             result = CompositeGeneration._create_composite_image(
                 path=tmp,
                 df=df,
+                brightness_thresholds_percent={},
                 output_file_loc=None,
             )
             assert result['status'] is True
