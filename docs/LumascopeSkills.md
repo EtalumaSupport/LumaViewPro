@@ -258,7 +258,9 @@ config = session.get_layer_configs()          # read, in API names
 session.settings['live_folder'] = '/data/run7'  # write, from the host's own thread
 session.update_settings('live_folder', '/data/run7')  # write, from any other thread
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
-session.save_settings(force=True)             # persist to data/current.json
+session.save_settings(force=True)             # persist to data/current.json (raises if refused)
+session.settings_are_provisional()            # True while current.json is unread and undecided
+session.retire_rejected_settings()            # resolve it: retire the unreadable file, saves work again
 ```
 
 The settings dict IS the configuration surface: its storage keys are the
@@ -271,15 +273,22 @@ lock — a write that skips it can tear a snapshot another thread is taking
 concurrently. Long-running work should take one `get_settings_snapshot()`
 at entry and read from that rather than the live dict.
 
-`save_settings()` writes the dict to `data/current.json`. **It skips the
-write by default when no hardware was connected during the session**: with
-no camera attached the GUI's sliders sit at their defaults, and persisting
-those over a user's real per-channel values loses them. An API caller has
-no sliders behind it, so a deliberate persist passes `force=True` — without
-it, `save_settings()` on a hardware-less session succeeds and writes
-nothing. It also declines, `force` or not, when the app came up on the
-shipped template because `current.json` could not be read; that file is the
-user's only copy and is left untouched until they decide.
+`save_settings()` writes the dict to `data/current.json`. **A refused
+write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),
+carrying a machine-readable `reason` and the refused `file` — a caller
+can always tell a refusal from a success. Two reasons exist.
+`'no_hardware'`: no hardware was connected during the session, so the
+GUI's sliders sit at their defaults and persisting those over a user's
+real per-channel values loses them; an API caller has no sliders behind
+it, so a deliberate persist passes `force=True`, which overrides this
+refusal. `'settings_provisional'`: the app came up on the shipped
+template because `current.json` could not be read; that file is the
+user's only copy and is left untouched until they decide, so `force`
+does **not** override — check `session.settings_are_provisional()` and,
+once the user (or the controlling client) has chosen to start over,
+resolve with `session.retire_rejected_settings()`. The provisional
+refusal protects `current.json` specifically; a save aimed at another
+destination still writes.
 
 ### Periodic metrics logging (optional)
 

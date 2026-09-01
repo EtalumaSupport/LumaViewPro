@@ -616,14 +616,17 @@ def _resolve_settings_path(directory):
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-def load_debug_setting(directory):
+def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
 
     try:
         filename = _resolve_settings_path(directory)
-        debug_setting_source = os.path.basename(filename)
 
         temp_settings = read_settings_json(filename)
+
+        # Named as the source only after the read succeeds: a rejected
+        # file must not appear in the banner as the settings in force.
+        debug_setting_source = os.path.basename(filename)
 
         debug_setting = temp_settings.get('debug_mode', False)
         return debug_setting

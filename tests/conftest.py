@@ -112,7 +112,11 @@ def install_mock_deps():
         'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
-        'kivy.base': MagicMock(),
+        # EventLoop.status must read as a RUNNING loop: the pre-mainloop
+        # popup detector fires on 'idle', and a bare MagicMock attribute
+        # would compare unequal to every real value and false-negative --
+        # or, gated the other way, mark every headless popup pre-mainloop.
+        'kivy.base': MagicMock(EventLoop=MagicMock(status='started')),
         'kivy.app': MagicMock(),
         # FX2 / libusb -- skipped when --run-fx2-hardware is set.
         'usb': MagicMock(),

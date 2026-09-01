@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 import modules.settings_init as settings_init
+from modules.exceptions import SettingsSaveRefusedError
 from modules.scope_session import ScopeSession
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,13 +55,20 @@ def test_a_relative_path_resolves_against_the_session_source(session, tmp_path):
 
 
 def test_no_hardware_this_session_skips_the_write(session, tmp_path, monkeypatch):
-    """The sliders would be at their defaults; those are not the user's values."""
+    """The sliders would be at their defaults; those are not the user's values.
+
+    The skip is announced, not silent: a caller that cannot tell a
+    refusal from a success reports success on a write that never
+    happened, which is how a whole session's changes get lost.
+    """
     _disconnect(session, monkeypatch)
     before = (tmp_path / 'data' / 'current.json').read_text()
 
     session.settings['live_folder'] = '/data/should_not_persist'
-    session.save_settings()
+    with pytest.raises(SettingsSaveRefusedError) as excinfo:
+        session.save_settings()
 
+    assert excinfo.value.reason == 'no_hardware'
     assert (tmp_path / 'data' / 'current.json').read_text() == before
 
 
@@ -83,8 +91,10 @@ def test_running_on_the_template_declines_even_when_forced(session, tmp_path, mo
     before = (tmp_path / 'data' / 'current.json').read_text()
 
     session.settings['live_folder'] = '/data/template_values'
-    session.save_settings(force=True)
+    with pytest.raises(SettingsSaveRefusedError) as excinfo:
+        session.save_settings(force=True)
 
+    assert excinfo.value.reason == 'settings_provisional'
     assert (tmp_path / 'data' / 'current.json').read_text() == before
 
 

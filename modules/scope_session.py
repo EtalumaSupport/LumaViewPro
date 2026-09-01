@@ -28,6 +28,7 @@ import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.common_utils import CustomJSONizer
+from modules.exceptions import SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 
@@ -688,15 +689,46 @@ class ScopeSession:
         with self.settings_lock:
             self.settings['objective_id'] = slot1_objective
 
+    def settings_are_provisional(self) -> bool:
+        """Is the app running on defaults nobody has agreed to keep?
+
+        True while the user's current.json could not be read and no one
+        has decided its fate. While it holds, every save aimed at
+        current.json raises SettingsSaveRefusedError -- resolve with
+        retire_rejected_settings() after the user has chosen to start
+        over.
+        """
+        return settings_init.settings_are_provisional()
+
+    def retire_rejected_settings(self) -> 'str | None':
+        """Resolve the provisional-settings state: retire the unreadable file.
+
+        Moves the unusable current.json aside (renamed, never deleted --
+        it is the user's only copy) so a fresh one can take its place,
+        and clears the provisional state so saves work again. Call only
+        after a human has chosen to start over. Returns the retired
+        path, or None when nothing was provisional.
+        """
+        return settings_init.retire_rejected_current_json()
+
     def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
         """Write the settings dict to disk as JSON.
 
-        Skipped by default when no hardware was connected this session:
-        with no camera or stage attached the sliders sit at their
+        Refused (raising) when writing would destroy real data: when no
+        hardware was connected this session the sliders sit at their
         defaults (0.01 ms exposure and the like), and writing those over
-        a user's real per-channel values silently loses them. A caller
-        that means the save regardless passes force=True -- an API write
-        has no slider behind it to misread.
+        a user's real per-channel values silently loses them -- a caller
+        that means the save regardless passes force=True, since an API
+        write has no slider behind it to misread.
+
+        Raises:
+            SettingsSaveRefusedError: reason='settings_provisional' when
+                the app is running on the shipped template because
+                current.json could not be read AND the save targets
+                current.json (force does not override; a save aimed at
+                any other destination still writes). reason='no_hardware'
+                when no hardware was connected this session and force is
+                not set.
         """
         logger.info('[Session  ] save_settings()')
 
@@ -705,15 +737,15 @@ class ScopeSession:
         # alone". The settings in memory right now are the shipped template,
         # loaded because the user's own file could not be read; writing them
         # to current.json would replace their entire configuration with
-        # defaults. Resolved by retire_rejected_current_json() once the user
+        # defaults. Resolved by retire_rejected_settings() once the user
         # has actually chosen to start over.
         if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
             logger.warning(
-                '[Session  ] save_settings: skipped -- running on default '
+                '[Session  ] save_settings: refused -- running on default '
                 'settings because current.json could not be read. Not '
                 'overwriting it until the user decides.'
             )
-            return
+            raise SettingsSaveRefusedError(reason='settings_provisional', file=file)
 
         if not force:
             scope = self.scope
@@ -722,11 +754,11 @@ class ScopeSession:
             )
             if not had_hardware:
                 logger.info(
-                    '[Session  ] save_settings: skipped -- no hardware was '
+                    '[Session  ] save_settings: refused -- no hardware was '
                     'connected this session (would overwrite real per-channel '
                     'values with slider defaults). Pass force=True to override.'
                 )
-                return
+                raise SettingsSaveRefusedError(reason='no_hardware', file=file)
 
         if isinstance(file, str) and (file[-5:].lower() != '.json'):
             file = file + '.json'

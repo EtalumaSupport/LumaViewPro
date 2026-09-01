@@ -143,8 +143,15 @@ class NotificationCenter:
         of work, so a UI listener can replace the earlier message rather than
         stack on it.
         """
-        # Always log at the matching level
-        logger.log(int(severity), f'[{category}] {title}: {message}')
+        # Always log at the matching level. Collapsed to one physical
+        # line: message prose may span paragraphs, and raw continuation
+        # lines carry no level/timestamp prefix.
+        from modules import gui_logger
+
+        logger.log(
+            int(severity),
+            f'[{category}] {gui_logger.one_line(title)}: {gui_logger.one_line(message)}',
+        )
 
         # Forensics: every notification (independent of any UI popup
         # bridge that may suppress it post-shutdown) lands in

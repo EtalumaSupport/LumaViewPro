@@ -164,7 +164,11 @@ def _install_ctx(monkeypatch, settings, *, no_hardware=False):
         settings=settings,
         lumaview=SimpleNamespace(scope=SimpleNamespace(no_hardware=no_hardware)),
         session=SimpleNamespace(
-            update_settings=lambda key, value: settings.__setitem__(key, value)
+            update_settings=lambda key, value: settings.__setitem__(key, value),
+            # The real Session delegate, not a constant: the provisional
+            # gate now asks the session, and the D4 tests below set the
+            # module state the real delegate reads.
+            settings_are_provisional=settings_init.settings_are_provisional,
         ),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)

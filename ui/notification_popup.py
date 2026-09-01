@@ -37,7 +37,29 @@ def _log_show(kind: str, severity: str, title: str, message: str):
     """Log every popup at the moment it is shown, to BOTH the main log (for post-mortem context)
     and the GUI-interactions log (for crash forensics). One entry per surface so a deployed
     customer log captures the full user-visible event."""
-    logger.info(f'[Popup    ] show {kind} -- {title}: {message}')
+    # A popup opened before Kivy's event loop runs is painted UNDER the
+    # app root once the root attaches -- created, "open", and invisible.
+    # The open cannot be made illegal here (callers legitimately defer),
+    # so make the state loud: mark both records and log at ERROR.
+    pre_mainloop = False
+    try:
+        from kivy.base import EventLoop
+
+        pre_mainloop = getattr(EventLoop, 'status', None) == 'idle'
+    except Exception:
+        pass
+    if pre_mainloop:
+        message = f'{message} (pre-mainloop)'
+    try:
+        from modules import gui_logger
+
+        line = f'[Popup    ] show {kind} -- {gui_logger.one_line(title)}: {gui_logger.one_line(message)}'
+    except Exception:
+        line = f'[Popup    ] show {kind} -- {title}: {message}'
+    if pre_mainloop:
+        logger.error(line)
+    else:
+        logger.info(line)
     try:
         from modules import gui_logger
 
@@ -49,7 +71,14 @@ def _log_show(kind: str, severity: str, title: str, message: str):
 def _log_response(title: str, response: str):
     """Log the user's response (OK / Cancel / Ack / dismiss) to BOTH surfaces. Pairs with
     _log_show so post-mortem can tell what the user was looking at AND what they decided."""
-    logger.info(f'[Popup    ] response {response} -- {title}')
+    try:
+        from modules import gui_logger
+
+        logger.info(
+            f'[Popup    ] response {gui_logger.one_line(response)} -- {gui_logger.one_line(title)}'
+        )
+    except Exception:
+        logger.info(f'[Popup    ] response {response} -- {title}')
     try:
         from modules import gui_logger
 

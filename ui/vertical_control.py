@@ -8,7 +8,6 @@ from kivy.uix.boxlayout import BoxLayout
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-import modules.settings_init as settings_init
 from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
@@ -698,7 +697,7 @@ class VerticalControl(BoxLayout):
         # so an answer given now would be silently lost -- and the modal
         # would cover the provisional-settings question whose resolution
         # is what makes the answer saveable. Resolution re-asks.
-        if settings_init.settings_are_provisional():
+        if ctx.session.settings_are_provisional():
             logger.info(
                 '[LVP Main  ] Objective prompt deferred -- settings are provisional and '
                 'the answer could not be kept'

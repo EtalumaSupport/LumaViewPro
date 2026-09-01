@@ -665,8 +665,11 @@ class LumaViewProApp(TooltipMixin, App):
             ),
         )
 
-        # The objective prompt may only fire once the session is up and
-        # the frame has rendered; the deferral lives in the helper.
+        # Both startup questions may only fire once the session is up and
+        # the frame has rendered; each helper owns its own deferral. The
+        # settings question comes first -- while it is unresolved, every
+        # save is refused and the objective prompt suppresses itself.
+        self._ask_about_rejected_settings()
         self._prompt_objective_if_needed()
 
         # Objective and LEDs are set by scope.initialize() during load_settings();
@@ -773,19 +776,47 @@ class LumaViewProApp(TooltipMixin, App):
         lifecycle dismiss as cancel, so anything that closes this dialog
         without a human deciding must leave the file alone.
 
+        Clock-deferred: a popup opened before the frame has rendered is
+        painted under the app root once it attaches -- open, invisible,
+        and unanswerable. A dialog, not the notification bus: the bus is
+        one-way and renders a single OK button, so a question posted
+        there would be acknowledged and never answered, leaving settings
+        unsaveable for the rest of the session and every session after.
+
         A failure to present the question is itself fatal. Carrying on would
         mean running with saves silently disabled -- the user changes settings
         all session and loses every one of them at exit, with nothing said.
         """
         import modules.settings_init as settings_init
 
-        if not settings_init.settings_are_provisional():
+        if not ctx.session.settings_are_provisional():
             return
 
         path, reason = settings_init.rejected_current_json
 
         def _revert():
-            retired = settings_init.retire_rejected_current_json()
+            # The retire is a file rename that can fail under a Windows
+            # AV/indexer lock; unguarded, that exception would kill the
+            # process from the button callback with no teardown. On
+            # failure, say so and re-present the question -- the
+            # provisional state still holds, and every save raises
+            # loudly until it is resolved.
+            try:
+                retired = ctx.session.retire_rejected_settings()
+            except Exception:
+                logger.error(
+                    '[LVP Main  ] could not retire the unreadable settings file',
+                    exc_info=True,
+                )
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'Settings',
+                    'Settings file could not be replaced',
+                    f'{path} is in use by another program. Close it and try again.',
+                )
+                self._ask_about_rejected_settings()
+                return
             logger.warning(
                 f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
             )
@@ -797,31 +828,34 @@ class LumaViewProApp(TooltipMixin, App):
             logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')
             self.stop()
 
-        try:
-            from ui.notification_popup import show_confirmation_popup
+        def _present(_dt):
+            try:
+                from ui.notification_popup import show_confirmation_popup
 
-            show_confirmation_popup(
-                title='Settings file could not be read',
-                message=(
-                    f'{path}\n\n{reason}\n\n'
-                    'LumaViewPro is running on default settings. Your file has '
-                    'not been changed, and nothing will be saved until you '
-                    'choose.\n\n'
-                    'Start over with defaults, and keep the old file alongside '
-                    'it for support? Or quit now so the file can be repaired?'
-                ),
-                confirm_text='Use defaults',
-                cancel_text='Quit and repair',
-                on_confirm=_revert,
-                on_cancel=_quit,
-            )
-        except Exception:
-            logger.critical(
-                '[LVP Main  ] could not ask about the unreadable settings '
-                'file; refusing to run with saving disabled',
-                exc_info=True,
-            )
-            self.stop()
+                show_confirmation_popup(
+                    title='Settings file could not be read',
+                    message=(
+                        f'{path}\n\n{reason}\n\n'
+                        'LumaViewPro is running on default settings. Your file has '
+                        'not been changed, and nothing will be saved until you '
+                        'choose.\n\n'
+                        'Start over with defaults, and keep the old file alongside '
+                        'it for support? Or quit now so the file can be repaired?'
+                    ),
+                    confirm_text='Use defaults',
+                    cancel_text='Quit and repair',
+                    on_confirm=_revert,
+                    on_cancel=_quit,
+                )
+            except Exception:
+                logger.critical(
+                    '[LVP Main  ] could not ask about the unreadable settings '
+                    'file; refusing to run with saving disabled',
+                    exc_info=True,
+                )
+                self.stop()
+
+        Clock.schedule_once(_present, 0)
 
     def build(self) -> 'MainDisplay':
         """Kivy lifecycle hook: construct the widget tree and return the root widget."""
@@ -893,13 +927,6 @@ class LumaViewProApp(TooltipMixin, App):
             min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
         )
 
-        # If current.json could not be read, the app is running on template
-        # values right now and the user's file is untouched on disk. Ask what
-        # to do about it. Not through the notification bus above -- that is
-        # one-way and renders a single OK button, so a question posted there
-        # would be acknowledged and never answered, leaving settings unsaveable
-        # for the rest of the session and every session after it.
-        self._ask_about_rejected_settings()
         try:
             from kivy.core.window import Window
 
@@ -1326,8 +1353,16 @@ class LumaViewProApp(TooltipMixin, App):
         save_settings prevents overwriting real per-channel values with
         slider defaults when no hardware was connected this session.
         """
+        from modules.exceptions import SettingsSaveRefusedError
+
         try:
             ctx.session.save_settings('./data/current.json')
+        except SettingsSaveRefusedError as e:
+            # Expected while no hardware is connected or settings are
+            # provisional; save_settings logged the refusal at its own
+            # site, and a 5-minute timer must not turn an expected
+            # condition into a recurring traceback.
+            logger.debug(f'[LVP Main  ] periodic flush declined: {e.reason}')
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
@@ -1455,8 +1490,16 @@ class LumaViewProApp(TooltipMixin, App):
 
         # The hardware-presence gate lives inside the session's save_settings,
         # so every caller (engineering plugin, REST, scheduled save) gets the
-        # same guard. Pass force=True only to override.
-        ctx.session.save_settings('./data/current.json')
+        # same guard. Pass force=True only to override. A refusal must not
+        # abort shutdown -- the disconnect below is hardware teardown. INFO,
+        # not WARNING: the errors log ships in every support bundle and a
+        # hardware-less clean exit is not an error.
+        from modules.exceptions import SettingsSaveRefusedError
+
+        try:
+            ctx.session.save_settings('./data/current.json')
+        except SettingsSaveRefusedError as e:
+            logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
         logger.info('[LVP Main  ] lumaview.scope.disconnect()')
         lumaview.scope.disconnect()
