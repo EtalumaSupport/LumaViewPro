@@ -344,8 +344,7 @@ class Lumascope:
             register_metrics: If True (default), construct a
                 MetricsLogger on this Lumascope. Doesn't START it --
                 callers must call ``self.metrics_logger.start(scheduler)``
-                with an environment-appropriate Scheduler (Kivy app
-                uses KivyClockScheduler, REST/headless use
+                with a Scheduler (every host uses the session-owned
                 ThreadingTimerScheduler). Tests that don't need
                 periodic logging set False.
             sim_model: When simulating, the scope model the simulated

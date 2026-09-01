@@ -1,25 +1,23 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-13 -- pluggable Scheduler protocol for periodic background work.
+"""Pluggable Scheduler protocol for periodic background work.
 
-Lumascope-side periodic work (metrics logging, motion monitor,
-future Pylon-thread health checks, GC-pressure pollers) needs to fire
-on a cadence regardless of whether the host process is a Kivy app, a
-REST server, a headless soak harness, or a CLI tool. Each environment
-brings its own scheduling primitive: Kivy uses ``Clock``, asyncio uses
-``loop.call_later``, vanilla Python uses ``threading.Timer``.
+Lumascope-side periodic work (metrics logging, recording health
+checks, camera-temp logging, future pollers) needs to fire on a
+cadence regardless of whether the host process is a Kivy app, a REST
+server, a headless soak harness, or a CLI tool.
 
 This module formalizes the previously-informal "pass two callables
 matching ``Clock.schedule_interval / Clock.unschedule``" pattern into
-a real ``Scheduler`` protocol with two reference implementations:
+a real ``Scheduler`` protocol whose reference implementation is
+:class:`ThreadingTimerScheduler` -- plain daemon timers, one timebase
+for every host. The API layer deliberately carries NO UI-clock
+scheduler: a periodic safety bound armed on a UI loop stops ticking
+when the UI freezes, and a single implementation means the GUI,
+tests, and headless all exercise the same path. The GUI's Clock stays
+in ``ui/`` for display refresh only.
 
-- :class:`KivyClockScheduler` -- wraps Kivy ``Clock`` for the LVP App.
-- :class:`ThreadingTimerScheduler` -- wraps ``threading.Timer`` for
-  REST API, headless soak, future CLI tools.
-
-Stays Rule-15-clean: ``Scheduler`` itself imports nothing GUI; the
-Kivy variant only imports Kivy when constructed (so headless callers
-never trigger a Kivy import path).
+Imports nothing GUI.
 """
 
 from __future__ import annotations
@@ -70,75 +68,6 @@ class Scheduler(Protocol):
         ...
 
 
-class KivyClockScheduler:
-    """Scheduler implementation backed by Kivy ``Clock``.
-
-    Used by the Kivy App entry point. Kivy callbacks fire on the
-    MainThread so the wrapped callback runs there too -- appropriate for
-    UI-touching ticks; metrics logging is fine because it just calls
-    ``logger.info`` which is thread-safe.
-    """
-
-    def __init__(self, clock=None):
-        """Initialize.
-
-        Args:
-            clock: The Kivy Clock module. Defaults to importing
-                ``kivy.clock.Clock`` lazily so importing this module
-                from a headless context (which would never construct
-                a ``KivyClockScheduler``) doesn't drag Kivy along.
-        """
-        if clock is None:
-            from kivy.clock import Clock as _Clock
-
-            clock = _Clock
-        self._clock = clock
-        self._handles: list[object] = []
-        self._closed = False
-        self._lock = threading.Lock()
-
-    def schedule_interval(self, callback, interval_s):
-        if self._closed:
-            raise RuntimeError('KivyClockScheduler is shutdown; refusing new schedule')
-
-        # Clock invokes callback(dt); accept callbacks that ignore it.
-        def _wrapped(dt=0):
-            try:
-                callback()
-            except TypeError:
-                # Caller's callback wants the dt arg -- pass it through.
-                callback(dt)
-
-        handle = self._clock.schedule_interval(_wrapped, interval_s)
-        with self._lock:
-            self._handles.append(handle)
-        return handle
-
-    def unschedule(self, handle):
-        if handle is None:
-            return
-        try:
-            self._clock.unschedule(handle)
-        except Exception:
-            pass
-        with self._lock:
-            try:
-                self._handles.remove(handle)
-            except ValueError:
-                pass
-
-    def shutdown(self):
-        with self._lock:
-            handles = list(self._handles)
-            self._handles.clear()
-            self._closed = True
-        for h in handles:
-            try:
-                self._clock.unschedule(h)
-            except Exception:
-                pass
-
-
 class _PeriodicTimer:
     """Internal: re-arming wrapper around stdlib ``threading.Timer``.
 
@@ -167,10 +96,10 @@ class _PeriodicTimer:
         if self._cancelled.is_set():
             return
         try:
-            # Match Kivy's "callback may take dt" convention: pass the
-            # interval as dt so callbacks that expect it get a sensible
-            # value. Callers that don't take an arg use the same
-            # try/except shim as KivyClockScheduler does internally.
+            # Callbacks may take a dt arg (the convention the pattern
+            # grew up with) or none: pass the interval as dt so
+            # callbacks that expect it get a sensible value; no-arg
+            # callbacks are caught by the TypeError shim.
             try:
                 self._callback()
             except TypeError:
@@ -300,7 +229,7 @@ class _CallablePairScheduler:
     """Wraps a (schedule_interval_fn, unschedule_fn) pair as a Scheduler.
 
     Used by the backwards-compat path inside MetricsLogger.start; not
-    expected to be constructed by user code (use KivyClockScheduler /
+    expected to be constructed by user code (use
     ThreadingTimerScheduler instead).
     """
 

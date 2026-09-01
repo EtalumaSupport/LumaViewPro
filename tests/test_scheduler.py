@@ -1,10 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""LVP-A-13 -- Scheduler protocol + reference implementations.
+"""Scheduler protocol + reference implementation.
 
-ThreadingTimerScheduler is the load-bearing one for REST + headless
-soak; KivyClockScheduler is a thin pass-through that's exercised in
-the LVP app every launch. These tests focus on the threading variant
-because Kivy isn't easily exercisable in a unit-test context.
+ThreadingTimerScheduler is the one scheduler every host uses (the API
+layer deliberately carries no UI-clock scheduler).
 
 The interesting properties:
 - schedule_interval fires the callback periodically

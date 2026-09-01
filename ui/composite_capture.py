@@ -322,6 +322,7 @@ class CompositeCapture(FloatLayout):
         saved_video_false_color=None,
     ):
         """Runs on background thread -- performs hardware I/O without blocking UI."""
+        failed = False
         try:
             self._composite_capture_worker_inner(
                 z_stage_present=z_stage_present,
@@ -332,14 +333,29 @@ class CompositeCapture(FloatLayout):
                 saved_video_false_color=saved_video_false_color,
             )
         except Exception as ex:
+            failed = True
             logger.error(f'[COMPOSITE] _composite_capture_worker failed: {ex}', exc_info=True)
             from modules.notification_center import notifications
 
             notifications.error('Composite', 'Composite Capture Failed', str(ex))
         finally:
+            if failed:
+                # The channel loop turns LEDs on and only its non-raising
+                # path turns them off; nothing below the host extinguishes
+                # (no firmware watchdog), so a raise mid-loop leaves
+                # excitation light on the sample. Gated on failure because
+                # the success path schedules its own LED-state restore on
+                # another lane, which an unconditional off here can race.
+                try:
+                    _app_ctx.ctx.scope.illumination._leds_off_impl()
+                except Exception:
+                    logger.error(
+                        '[COMPOSITE] LED extinguish after failed capture did not complete',
+                        exc_info=True,
+                    )
             # Always clear _capturing so the button resets even on error.
             # Without this, a save_image failure leaves _capturing set and
-            # all subsequent composite clicks are blocked. (#610 session)
+            # all subsequent composite clicks are blocked.
             CompositeCapture._capturing.clear()
             self.video_false_color = saved_video_false_color
 
@@ -350,6 +366,22 @@ class CompositeCapture(FloatLayout):
                     live_histo_reverse()
                 except Exception:
                     pass
+                if failed:
+                    # Hardware is dark after the extinguish above, so the
+                    # LED button must show OFF. The snapshot-restore path
+                    # (apply_settings with update_led) would re-command
+                    # the LED on; display follows hardware instead.
+                    try:
+                        opened_layer_obj = common_utils.get_opened_layer_obj(
+                            _app_ctx.ctx.image_settings
+                        )
+                        opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+                    except Exception:
+                        logger.error(
+                            '[COMPOSITE] LED button could not be set to match '
+                            'the extinguished hardware state',
+                            exc_info=True,
+                        )
 
             Clock.schedule_once(_restore_ui_on_error, 0)
 

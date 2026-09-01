@@ -29,8 +29,14 @@ from modules.sequential_io_executor import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from modules.autofocus_thread import AutofocusThread
     from modules.lumascope_api import Lumascope
+    from modules.protocol import Protocol
     from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_execution_record import ProtocolExecutionRecord
+    from modules.sequential_io_executor import SequentialIOExecutor
 
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -45,8 +51,8 @@ _RECORD_COMPLETE_STALL_S = 2.0
 def run_cleanup(
     *,
     # State
-    get_state_fn,
-    set_state_fn,
+    get_state_fn: Callable[[], ProtocolState],
+    set_state_fn: Callable[[ProtocolState], None],
     run_lock: threading.Lock,
     scan_in_progress: threading.Event,
     # True when the run died on a fatal fault (stalled writer, dead camera,
@@ -60,32 +66,38 @@ def run_cleanup(
     saved_camera_state: dict,
     return_to_position: dict | None,
     disable_saving_artifacts: bool,
-    protocol,
-    protocol_execution_record,
+    protocol: Protocol,
+    protocol_execution_record: ProtocolExecutionRecord | None,
     # Dependencies
     scope: Lumascope,
     callbacks: ProtocolCallbacks,
     # Executor functions
-    apply_led_transition_fn,
-    default_move_fn,
-    cancel_scheduled_events_fn,
+    apply_led_transition_fn: Callable[[LedTransition, LedTransitionCtx], object],
+    default_move_fn: Callable[..., object],
+    cancel_scheduled_events_fn: Callable[[], None],
     # IO executors
-    io_executor,
-    autofocus_thread,
-    file_io_executor,
-    camera_executor,
+    io_executor: SequentialIOExecutor,
+    autofocus_thread: AutofocusThread | None,
+    file_io_executor: SequentialIOExecutor,
+    camera_executor: SequentialIOExecutor,
     # Mutable flag -- set to False when done
-    set_run_in_progress_fn,
+    set_run_in_progress_fn: Callable[[bool], None],
     logger_name: str = 'SequencedCaptureRunner',
     # Terminal outcome the run_complete subscribers receive
     run_status: str,
-):
+) -> bool:
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status
     ('completed', 'aborted', 'failed', 'failed_at_start') is required so
     the cleanup site states the run's true terminal outcome; it reaches
     every run_complete subscriber as the ``status`` kwarg.
+
+    Returns True when the RUN_END LED transition actually applied -- the
+    run's LED end-state is decided. False (or a raise anywhere in here)
+    means it is NOT decided, and the caller must darken before releasing
+    the lease: a lit channel with no owner to turn it off cooks the
+    sample, and the lease release itself deliberately leaves LEDs as-is.
     """
     # Capture the abort state BEFORE the COMPLETING transition below. Only a
     # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
@@ -165,6 +177,7 @@ def run_cleanup(
     # construction. apply(RUN_END) runs on the still-held lease and serializes
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
+    led_end_state_applied = False
     try:
         # A fatal abort's terminal LED state is DARK regardless of the user's
         # end policy: force_off already darkened the sample at the fault
@@ -186,12 +199,17 @@ def run_cleanup(
                 LedTransition.RUN_END,
                 LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
             )
+            led_end_state_applied = True
     except CancelledError:
-        # An overlapping abort / new-run cycle cleared the protocol queue
-        # and cancelled this restore task before it ran. The superseding
-        # cycle owns LED state from here; this is a normal hand-off, not a
-        # failure -- surfacing it as one produced a popup per cycle when
-        # the run button was clicked rapidly.
+        # The protocol queue was cleared and this restore task cancelled
+        # before it ran. A superseding run/abort cycle is one canceller --
+        # but so are executor shutdown, an unwedge/quarantine, and the
+        # end-of-protocol-mode drain, and none of those re-asserts LED
+        # state. So the end-state stays undecided and the caller darkens;
+        # a superseding run re-lights per step, costing at most a
+        # transient dark blip during rapid run cycling. Not surfaced as a
+        # failure -- doing so produced a popup per cycle when the run
+        # button was clicked rapidly.
         logger.info(
             f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
         )
@@ -503,3 +521,5 @@ def run_cleanup(
     from lib import memory_profile
 
     memory_profile.snapshot('post_protocol')
+
+    return led_end_state_applied

@@ -158,16 +158,16 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
 
     def _poll_recording_state(self, dt=None):
-        """Main-thread poll: duration cap, titles, button state.
+        """Main-thread poll: titles and button state only.
 
-        The controller owns the recording; this poll only reflects it --
-        and enforces the wall-clock max-duration cap via tick(), which
-        must run somewhere periodic on every host (here, the Kivy Clock).
+        The controller owns the recording AND its health bounds (the
+        duration cap and camera-death detection arm themselves on the
+        session's scheduler); this poll purely reflects that state into
+        the display.
         """
         from ui.ui_helpers import set_title_event_text
 
         controller = _app_ctx.ctx.session.manual_recording
-        controller.tick()
         if controller.is_recording:
             set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
             return

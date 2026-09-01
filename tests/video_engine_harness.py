@@ -31,6 +31,41 @@ class FakeClock:
             self._now += seconds
 
 
+class ManualFireScheduler:
+    """Scheduler fake: holds the scheduled callback; tests fire it by hand.
+
+    fire() invokes whatever callback is currently scheduled, so a test
+    that pumps through it also proves the controller actually armed its
+    health check -- an unarmed controller makes fire() a no-op and the
+    test's expected stop never happens.
+    """
+
+    def __init__(self):
+        self.callback = None
+        self.interval_s = None
+        self.unscheduled = []
+        self.shutdown_called = False
+
+    def schedule_interval(self, callback, interval_s):
+        self.callback = callback
+        self.interval_s = interval_s
+        handle = (callback, interval_s)
+        return handle
+
+    def unschedule(self, handle):
+        self.unscheduled.append(handle)
+        self.callback = None
+
+    def shutdown(self):
+        self.shutdown_called = True
+        self.callback = None
+
+    def fire(self):
+        cb = self.callback
+        if cb is not None:
+            cb(0)
+
+
 class FrameFeed:
     """Synthetic camera: produces (image, timestamp_s, chunks) triples.
 

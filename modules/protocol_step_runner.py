@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gc
 import time
+from concurrent.futures import CancelledError
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -701,7 +702,25 @@ class ProtocolStepRunner:
         )
         if fut:
             if transition not in FIRE_AND_FORGET_TRANSITIONS:
-                fut.result(timeout=30)
+                try:
+                    fut.result(timeout=30)
+                except CancelledError:
+                    if transition is not LedTransition.RUN_END:
+                        raise
+                    # The protocol queue is cleared the moment
+                    # protocol-mode ends, and a run's terminal RUN_END
+                    # can be enqueued exactly then -- a ROUTINE end-of-
+                    # run ordering, not only an overlapping abort. The
+                    # cancelled task never ran, the queue's FIFO
+                    # serialization is moot once it is cleared, and the
+                    # still-held lease serializes against any new run
+                    # (it cannot acquire until this one releases), so
+                    # the end-state applies directly. A cancelled
+                    # MID-RUN transition stays dead: it belongs to
+                    # whatever abort cleared the queue, and lighting a
+                    # channel from here during teardown would undo that
+                    # abort's darkening.
+                    lease.apply(transition, ctx)
         else:
             lease.apply(transition, ctx)
 

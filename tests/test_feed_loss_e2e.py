@@ -1,12 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 E2E: a manual recording on the real simulated stack ends within the
-stall bound when the feed silently dies.
+stall bound when the feed silently dies -- with NO host pump at all.
 
 Production-path injection: stop_streaming halts the sim camera's
 callback pump WITHOUT flipping active_cached -- the silent-stall shape.
-The controller's tick (the GUI's poll stand-in here) must stop the
-recording, keep the frames, and record camera_stalled in the manifest.
+The controller's self-armed health check (real timer scheduler, the
+same one a headless host gets) must stop the recording, keep the
+frames, and record camera_stalled in the manifest. The wait loop below
+deliberately calls NOTHING on the controller: a host that never polls
+still gets the bound.
 """
 
 import json
@@ -14,6 +17,7 @@ import time
 
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
+from modules.scheduler import ThreadingTimerScheduler
 from tests.video_engine_harness import ClaimStub
 
 
@@ -28,8 +32,9 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
         'video_as_frames': True,
         'video': {'max_fps': 0, 'max_duration_seconds': 60, 'timestamp_overlay': False},
     }
+    scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(
-        scope=sim_scope, settings=settings, activity_claim=ClaimStub()
+        scope=sim_scope, settings=settings, activity_claim=ClaimStub(), scheduler=scheduler
     )
     controller.start()
     time.sleep(1.0)
@@ -37,10 +42,12 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
 
     deadline = time.monotonic() + 30.0
     while controller.is_recording and time.monotonic() < deadline:
-        controller.tick()
         time.sleep(0.1)
 
-    assert not controller.is_recording, 'the stall bound must end the recording'
+    assert not controller.is_recording, (
+        'the self-armed stall bound must end the recording with no host pump'
+    )
+    assert controller.end_reason == 'camera_stalled'
     while controller.is_busy and time.monotonic() < deadline:
         time.sleep(0.1)
 
@@ -51,3 +58,4 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     frames = list(controller.save_folder.glob('ManualVideo_Frame_*.tiff'))
     assert len(frames) == manifest['frames_written']
     assert frames, 'frames captured before the death must stay on disk'
+    scheduler.shutdown()
