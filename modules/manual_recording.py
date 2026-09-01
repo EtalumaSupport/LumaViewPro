@@ -64,12 +64,19 @@ from modules.video_recording import (
     RecordingConfig,
     VideoRecordingEngine,
 )
+from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
 
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
 # nothing downstream has to represent a channel-less recording.
 DEFAULT_LAYER = 'BF'
+
+# Health-check cadence while a recording is live. Matches the cadence the
+# GUI historically polled at; the check is three reads, so ten a second
+# is cheap and catches a duration cap or a dead feed within a tenth of a
+# second.
+HEALTH_CHECK_INTERVAL_S = 0.1
 
 
 def sweep_recording_scratch(live_folder) -> None:
@@ -109,13 +116,27 @@ class ManualRecordingController:
         activity_claim: The session's compare-and-claim handle; passed
             through to the engine so a recording and a protocol run are
             mutually exclusive.
+        scheduler: The session's scheduler; the controller arms its own
+            periodic health check on it at ``start`` and disarms at
+            finish. Required: a controller that can start a recording
+            but has no armed health bound is the trap this parameter
+            exists to make unconstructible.
         clock: Injectable time source (seconds); tests drive it.
     """
 
-    def __init__(self, *, scope: Any, settings: dict, activity_claim: Any, clock=time.time):
+    def __init__(
+        self,
+        *,
+        scope: Any,
+        settings: dict,
+        activity_claim: Any,
+        scheduler: Scheduler,
+        clock: Callable[[], float] = time.time,
+    ):
         self._scope = scope
         self._settings = settings
         self._claim = activity_claim
+        self._scheduler = scheduler
         self._clock = clock
         self._engine: VideoRecordingEngine | None = None
         self._config: RecordingConfig | None = None
@@ -128,6 +149,13 @@ class ManualRecordingController:
         self._last_disk_check_ts = 0.0
         self._on_complete: Callable[[], None] | None = None
         self._finish_thread: threading.Thread | None = None
+        self._health_handle: object | None = None
+        # Guards the per-recording state slots published by start():
+        # the health check reads them from the scheduler's timer thread,
+        # and a check racing a start could otherwise pair the new
+        # engine with the previous recording's start timestamp.
+        self._state_lock = threading.Lock()
+        self._end_reason: str | None = None
         # Set by the composing session: the engine's claim refusal
         # names the holding run's trigger through this.
         self.run_trigger_lookup = None
@@ -444,16 +472,20 @@ class ManualRecordingController:
         # raises. Assign controller state only after it succeeds.
         engine.start(config)
         try:
-            self._engine = engine
-            self._config = config
-            self._plan = plan
-            self._writer = writer
-            self._start_ts = self._clock()
-            self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
-            self._rebaser = CameraTickRebaser(identity['timestamp_tick_frequency_hz'], self._clock)
-            self._hyperstack_rows = [] if hyperstack else None
-            self._last_disk_check_ts = 0.0
-            self._on_complete = on_complete
+            with self._state_lock:
+                self._engine = engine
+                self._config = config
+                self._plan = plan
+                self._writer = writer
+                self._start_ts = self._clock()
+                self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
+                self._rebaser = CameraTickRebaser(
+                    identity['timestamp_tick_frequency_hz'], self._clock
+                )
+                self._hyperstack_rows = [] if hyperstack else None
+                self._last_disk_check_ts = 0.0
+                self._on_complete = on_complete
+                self._end_reason = None
             # The frames folder was reserved before the commit point; nothing
             # to create here.
 
@@ -462,6 +494,14 @@ class ManualRecordingController:
                 target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
             )
             self._finish_thread.start()
+            # Armed last, after every state slot above is published: a
+            # check firing between engine.start and the publish would
+            # read the previous recording's start timestamp against the
+            # new engine and stop the fresh recording as expired.
+            self._disarm_health_check()
+            self._health_handle = self._scheduler.schedule_interval(
+                self._health_check, HEALTH_CHECK_INTERVAL_S
+            )
         except BaseException:
             # Past the commit point the engine holds the claim, and this is
             # the only frame holding the writer -- the engine is handed a
@@ -482,6 +522,9 @@ class ManualRecordingController:
         the artifact -- disposing first would leave the lane writing into
         a closed encoder and count those frames as saved.
         """
+        # Idempotent no-op when the failure preceded the arming.
+        self._disarm_health_check()
+        self._end_reason = END_REASON_START_FAILED
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
@@ -526,35 +569,59 @@ class ManualRecordingController:
         engine = self._engine
         if engine is None:
             return
+        self._end_reason = reason
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
         engine.stop(reason)
 
-    def tick(self) -> None:
-        """Watch the recording's health; the caller polls this.
+    @property
+    def end_reason(self) -> str | None:
+        """Why the most recent recording ended, or None before any has.
+
+        Manifest vocabulary ('user_stop', 'duration_elapsed',
+        'camera_stalled', ...). Latched on the controller because the
+        engine handle -- and its own reason -- is dropped exactly on the
+        failed-start unwind, and a caller watching is_recording flip
+        False needs to distinguish a camera death from a user stop.
+        """
+        return self._end_reason
+
+    def _health_check(self, dt: float | None = None) -> None:
+        """Watch the recording's health; armed by the controller itself.
 
         Owns the wall-clock duration cap (the engine's frame budget is
         frame-driven, so a dead feed would never fill it) and both
         camera-death checks: the disconnect latch, and the stall watch
         for a feed that dies without an event -- delivery stops while
-        the camera still reads active. Detection lives in the poll on
-        purpose, so it is armed exactly while a host polls; a host that
-        never ticks gets neither the cap nor the detector, and the
-        recording runs until its frame budget or an explicit stop.
+        the camera still reads active. start() schedules this on the
+        session's scheduler and the post-drain finish disarms it, so
+        every host -- GUI or headless -- carries the same bounds. The
+        state snapshot is taken under the lock, which is released
+        before any stop or notification runs.
         """
-        if self.is_recording and self._start_ts is not None and self._config is not None:
-            if self._clock() - self._start_ts >= self._config.duration_s:
-                self.stop(reason='duration_elapsed')
-                return
-            if not self._scope.imaging.active_cached:
-                self._stop_for_camera_loss(reason='camera_disconnected')
-                return
-            if self._stall_watch is not None and self._stall_watch.stalled(
-                self._engine.frames_selected, self._clock()
-            ):
-                self._stop_for_camera_loss(reason='camera_stalled')
+        with self._state_lock:
+            engine = self._engine
+            config = self._config
+            start_ts = self._start_ts
+            stall_watch = self._stall_watch
+        if engine is None or not engine.is_recording or start_ts is None or config is None:
+            return
+        if self._clock() - start_ts >= config.duration_s:
+            self.stop(reason='duration_elapsed')
+            return
+        if not self._scope.imaging.active_cached:
+            self._stop_for_camera_loss(reason='camera_disconnected')
+            return
+        if stall_watch is not None and stall_watch.stalled(engine.frames_selected, self._clock()):
+            self._stop_for_camera_loss(reason='camera_stalled')
+
+    def _disarm_health_check(self) -> None:
+        handle = self._health_handle
+        self._health_handle = None
+        if handle is not None:
+            self._scheduler.unschedule(handle)
 
     def _stop_for_camera_loss(self, reason: str) -> None:
         logger.error(f'[ManualRecord] Camera feed lost mid-recording ({reason}); stopping')
@@ -691,6 +758,12 @@ class ManualRecordingController:
         """
         engine = self._engine
         engine.wait_for_drain()
+        # The recording is over on every path that gets here (the drain
+        # completes only after selection closes); the health check has
+        # nothing left to watch. Disarmed here rather than in stop()
+        # because the dominant end -- the frame budget filling inside
+        # the frame callback -- never goes through stop().
+        self._disarm_health_check()
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
@@ -712,6 +785,10 @@ class ManualRecordingController:
                 writer_dropped = self._writer.dropped_frames
 
             result = engine.result()
+            # The engine's reason is the measured truth (it alone knows a
+            # budget-fill end); the latch taken at stop() is only the
+            # fallback for a finish that never produced a result.
+            self._end_reason = result.end_reason
 
             if self._hyperstack_rows is not None:
                 self._build_hyperstack()

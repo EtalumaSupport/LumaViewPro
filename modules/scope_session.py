@@ -31,12 +31,23 @@ from modules.common_utils import CustomJSONizer
 from modules.exceptions import SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
+from modules.scheduler import Scheduler, ThreadingTimerScheduler
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
     from modules.protocol_runner import ProtocolRunner
+
+
+def _scheduler_callback_error(exc: BaseException) -> None:
+    """A scheduled callback died on its timer thread; say so loudly.
+
+    The scheduler's default is to swallow the exception, which is the
+    wrong default here: the callbacks the session schedules include the
+    recording health check, whose entire purpose is loud failure.
+    """
+    logger.error('[ScopeSession] scheduled callback raised', exc_info=exc)
 
 
 class ScopeSession:
@@ -59,7 +70,7 @@ class ScopeSession:
         autofocus_thread=None,
         z_ui_update_func=None,
         owns_executors: bool = False,
-        metrics_scheduler=None,
+        scheduler: Scheduler | None = None,
         settings_saved_hook=None,
     ):
         self.settings = settings
@@ -74,13 +85,20 @@ class ScopeSession:
         # passes nothing, because there is no plugin registry to notify.
         self._settings_saved_hook = settings_saved_hook
         self.scope = scope
-        # The MetricsLogger lives on the scope, but its scheduler is a
-        # host choice (Kivy Clock vs threading timers), so the host
-        # injects it here and the session owns start/stop/restart --
-        # including moving running metrics onto a new scope at
-        # set_scope. None (the factory default) means metrics never
-        # start: the pre-existing headless contract.
-        self._metrics_scheduler = metrics_scheduler
+        # One scheduler per session, owned here and shared by every
+        # periodic consumer -- metrics, camera-temp logging, and the
+        # recording health check. Plain daemon timers on every host,
+        # never a UI clock: a safety bound armed on a UI loop stops
+        # when the UI freezes, and one timebase means the GUI, tests,
+        # and headless all exercise the same path. Injectable so tests
+        # fire callbacks by hand. Metrics stay opt-in through
+        # start_metrics; the scheduler existing does not start them.
+        if scheduler is None:
+            scheduler = ThreadingTimerScheduler(
+                name_prefix='LVP-SessionTimer',
+                on_callback_error=_scheduler_callback_error,
+            )
+        self._scheduler = scheduler
         # The one store for "metrics are running"; start_metrics /
         # stop_metrics are its only writers. Host-serialized (main
         # thread in the GUI): a threaded host must serialize
@@ -137,6 +155,7 @@ class ScopeSession:
             scope=scope,
             settings=settings,
             activity_claim=self.activity_claim,
+            scheduler=self._scheduler,
         )
         if self.file_io_executor is not None:
             self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
@@ -848,13 +867,13 @@ class ScopeSession:
     def start_metrics(self) -> None:
         """Start the scope's periodic metrics logging.
 
-        Uses the scheduler the host injected at construction (no
-        scheduler: no-op -- headless sessions never start metrics) and
-        the ``settings.profiling.metrics_interval_s`` cadence override
-        when present. A scope whose MetricsLogger failed to construct
-        (that failure is logged as a warning at construction) is
-        tolerated as a no-op: metrics are observability, not a reason
-        to fail the session lifecycle.
+        Uses the session's scheduler and the
+        ``settings.profiling.metrics_interval_s`` cadence override when
+        present. Metrics stay opt-in by the call itself: headless hosts
+        simply never call this. A scope whose MetricsLogger failed to
+        construct (that failure is logged as a warning at construction)
+        is tolerated as a no-op: metrics are observability, not a
+        reason to fail the session lifecycle.
 
         Raises:
             RuntimeError: Metrics are already running. A second
@@ -863,8 +882,6 @@ class ScopeSession:
                 untracked, forever-ticking events -- so a double start
                 refuses loudly instead.
         """
-        if self._metrics_scheduler is None:
-            return
         if self._metrics_started:
             raise RuntimeError(
                 'ScopeSession.start_metrics: metrics are already running; '
@@ -895,7 +912,7 @@ class ScopeSession:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif getattr(_app_ctx.ctx, 'engineering_mode', False):
             start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
-        metrics_logger.start(self._metrics_scheduler, **start_kwargs)
+        metrics_logger.start(self._scheduler, **start_kwargs)
         self._metrics_started = True
 
     def stop_metrics(self) -> None:
@@ -935,6 +952,11 @@ class ScopeSession:
         outlive the executors they snapshot.
         """
         self.stop_metrics()
+        # The session owns its scheduler: shut it down here, before the
+        # non-owner early return below, so a session that borrowed its
+        # executors still ends its own timers (a live health check
+        # outliving the session would fire into torn-down state).
+        self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
         if not self._owns_executors:

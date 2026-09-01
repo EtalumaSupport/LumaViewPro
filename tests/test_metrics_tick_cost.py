@@ -177,7 +177,7 @@ def _make_session(**kwargs):
         'scope': spec_scope(),
         'io_executor': MagicMock(),
         'camera_executor': MagicMock(),
-        'metrics_scheduler': _SCHEDULER,
+        'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
     return ScopeSession(**defaults)

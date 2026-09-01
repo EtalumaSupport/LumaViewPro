@@ -36,7 +36,10 @@ from modules.scope_session import ScopeSession
 from tests.scope_fakes import spec_scope
 
 
-_SCHEDULER = object()  # identity sentinel: restart must reuse THIS instance
+# Identity sentinel: restart must reuse THIS instance. A mock (not a bare
+# object) because the session shuts its scheduler down at teardown -- the
+# injected instance must satisfy the Scheduler protocol.
+_SCHEDULER = MagicMock()
 
 
 def _make_session(**kwargs):
@@ -45,7 +48,7 @@ def _make_session(**kwargs):
         'scope': spec_scope(),
         'io_executor': MagicMock(),
         'camera_executor': MagicMock(),
-        'metrics_scheduler': _SCHEDULER,
+        'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
     return ScopeSession(**defaults)
@@ -64,10 +67,16 @@ class TestStartStop:
         session.start_metrics()
         session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
-    def test_start_metrics_without_scheduler_is_a_no_op(self):
-        session = _make_session(metrics_scheduler=None)
-        session.start_metrics()
+    def test_default_session_owns_a_real_scheduler_and_metrics_stay_opt_in(self):
+        # No injected scheduler: the session builds and owns its own, and
+        # metrics still start ONLY when start_metrics is called -- the
+        # scheduler existing must not start them.
+        session = _make_session(scheduler=None)
         session.scope.metrics_logger.start.assert_not_called()
+        session.start_metrics()
+        session.scope.metrics_logger.start.assert_called_once()
+        (sched_arg,), _kwargs = session.scope.metrics_logger.start.call_args
+        assert sched_arg is session._scheduler
 
     def test_double_start_refuses_loudly(self):
         # MetricsLogger.start overwrites its handles on a second call,

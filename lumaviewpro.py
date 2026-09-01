@@ -682,8 +682,8 @@ class LumaViewProApp(TooltipMixin, App):
         # the noise of repeating those facts every tick.
         config_helpers.log_environment_once()
 
-        # The session owns the metrics lifecycle (it holds the injected
-        # KivyClockScheduler and restarts metrics on the new scope at
+        # The session owns the metrics lifecycle (it owns the session
+        # scheduler and restarts metrics on the new scope at
         # every reconnect). Cadence is hourly in production and 60 s in
         # engineering mode; settings.profiling.metrics_interval_s
         # overrides both (gen2_depth + handle/thread counts are the
@@ -977,8 +977,6 @@ class LumaViewProApp(TooltipMixin, App):
         # callbacks to the Kivy main thread without importing Kivy themselves.
         from kivy.clock import Clock
 
-        from modules.scheduler import KivyClockScheduler
-
         _ui = Clock.schedule_once
 
         # Also set the global dispatcher for kivy_utils.schedule_ui()
@@ -1046,7 +1044,6 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
-            metrics_scheduler=KivyClockScheduler(Clock),
             settings_saved_hook=_notify_plugins_of_settings_save,
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner

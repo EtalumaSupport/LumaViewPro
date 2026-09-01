@@ -21,7 +21,7 @@ from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
-from tests.video_engine_harness import ClaimStub, FakeClock, NotifyRecorder
+from tests.video_engine_harness import ClaimStub, FakeClock, ManualFireScheduler, NotifyRecorder
 
 TICK_HZ = 1_000_000_000
 
@@ -140,6 +140,7 @@ def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kw
         scope=scope,
         settings=make_settings(tmp_path, **settings_kwargs),
         activity_claim=ClaimStub(),
+        scheduler=ManualFireScheduler(),
         clock=clock,
     )
     return controller, scope, clock
@@ -252,6 +253,7 @@ class TestRateClamp:
             scope=scope,
             settings=settings,
             activity_claim=ClaimStub(),
+            scheduler=ManualFireScheduler(),
             clock=FakeClock(),
         )
         controller.start()
@@ -644,7 +646,7 @@ class TestDurationCap:
         feed_frames(scope, clock, 3, fps=10.0)
         assert controller.is_recording
         clock.advance(2.0)
-        controller.tick()
+        controller._scheduler.fire()
         assert not controller.is_recording
         finish(controller)
 
@@ -912,7 +914,7 @@ class TestD15LiveSettingsBackDoor:
 
         feed_frames(scope, clock, 5, fps=10.0)
         clock.advance(2.0)  # past the mutated 1 s duration, far under the baked 60 s
-        controller.tick()
+        controller._scheduler.fire()
         assert controller.is_recording, (
             'the duration cap must read the baked snapshot, not the mutated setting'
         )
@@ -950,12 +952,12 @@ class TestFeedLossDetection:
         # Threshold is the 5 s floor (10 fps, 0.1 s exposure). Ticks
         # before it: recording continues; past it with no new frames:
         # the feed is dead.
-        controller.tick()
+        controller._scheduler.fire()
         clock.advance(4.0)
-        controller.tick()
+        controller._scheduler.fire()
         assert controller.is_recording
         clock.advance(1.5)
-        controller.tick()
+        controller._scheduler.fire()
         assert not controller.is_recording
         errors = [c for c in notify.calls if c[0] == 'error']
         assert len(errors) == 1
@@ -972,7 +974,7 @@ class TestFeedLossDetection:
         controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
         scope.imaging.active_cached = False
         clock.advance(0.2)
-        controller.tick()
+        controller._scheduler.fire()
         assert not controller.is_recording
         errors = [c for c in notify.calls if c[0] == 'error']
         assert len(errors) == 1
@@ -985,8 +987,23 @@ class TestFeedLossDetection:
         for _ in range(4):
             clock.advance(3.0)
             feed_frames(scope, clock, 2)
-            controller.tick()
+            controller._scheduler.fire()
         assert controller.is_recording
         assert not [c for c in notify.calls if c[0] == 'error']
         controller.stop()
         finish(controller)
+
+
+class TestHealthCheckArming:
+    def test_start_arms_and_finish_disarms(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        controller.start()
+        sched = controller._scheduler
+        assert sched.callback is not None, 'start must arm the health check'
+        feed_frames(scope, clock, 3, fps=10.0)
+        clock.advance(2.0)
+        sched.fire()
+        assert not controller.is_recording
+        finish(controller)
+        assert sched.unscheduled, 'the finish path must disarm the health check'
+        assert controller.end_reason == 'duration_elapsed'
