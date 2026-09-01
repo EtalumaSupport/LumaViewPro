@@ -334,7 +334,7 @@ def log_environment_once():
     )
 
 
-def log_system_metrics(settings: dict):
+def log_system_metrics(settings: dict) -> None:
     """Log CPU, RAM, and disk metrics."""
     path = settings.get('live_folder', '.')
     # Resolve relative paths and handle missing directories gracefully.

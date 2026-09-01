@@ -195,7 +195,7 @@ class SimulatedCamera(Camera):
             frames.append(canvas[y : y + h, x : x + w].astype(np.uint8))
         return frames
 
-    def load_cycle_images(self, image_dir=None) -> None:
+    def load_cycle_images(self, image_dir: str | None = None) -> None:
         """Load images from a directory for cycling through in simulate mode.
 
         Images are resized to match the camera resolution and converted

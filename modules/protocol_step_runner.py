@@ -98,7 +98,7 @@ class ProtocolStepRunner:
     # Single step iteration
     # ------------------------------------------------------------------
 
-    def scan_iterate(self, dt=None):
+    def scan_iterate(self, dt: float | None = None) -> None:
         """Execute one iteration of the scan state machine."""
         p = self._p  # shorthand
 

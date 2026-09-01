@@ -2127,11 +2127,11 @@ def write_tiff(
 
 
 def generate_tiff_data(
-    data,
+    data: np.ndarray,
     metadata: dict,
     image_type: str,
     color: str,
-):
+) -> dict:
 
     axes = 'YX'
 

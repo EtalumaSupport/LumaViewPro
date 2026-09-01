@@ -39,7 +39,11 @@ class ScopeInitConfig:
 
     @classmethod
     def from_settings(
-        cls, settings, labware, scope_config: dict | None = None, layer_identity=None
+        cls,
+        settings: dict,
+        labware: object,
+        scope_config: dict | None = None,
+        layer_identity: object | None = None,
     ) -> 'ScopeInitConfig':
         """Build config from LVP settings dict and labware object.
 
@@ -75,7 +79,7 @@ class ScopeInitConfig:
         return cls(
             labware=labware,
             objective_id=settings.get('objective_id', '4x'),
-            turret_config=settings.get('turret_objectives', None),
+            turret_config=settings.get('turret_objectives'),
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],

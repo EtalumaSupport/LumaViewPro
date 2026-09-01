@@ -36,7 +36,7 @@ class MotorConfig:
         # Start with defaults
         self._config = dict(self._defaults)
 
-    def mark_board_read_failed(self):
+    def mark_board_read_failed(self) -> None:
         """Record that the board's config could not be read this session."""
         self.board_config_read_ok = False
 
@@ -53,7 +53,7 @@ class MotorConfig:
             'Filterset': self._config.get('Filterset', ''),
         }
 
-    def update_from_board(self, board_config: dict):
+    def update_from_board(self, board_config: dict) -> None:
         """Merge per-unit config from the motor controller on top of defaults.
 
         Only keys explicitly present in board_config override defaults.

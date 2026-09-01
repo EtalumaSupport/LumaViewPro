@@ -390,7 +390,7 @@ def _lit_channel_pairs(
     return frozenset(pairs)
 
 
-def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
+def live_lit_pairs(illumination: IlluminationAPI) -> frozenset[tuple[int, float]]:
     """The (channel, illumination_ma) set of channels commanded lit RIGHT NOW.
 
     The live-state counterpart of snapshot_lit_pairs: reads the
@@ -403,7 +403,9 @@ def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
     return snapshot_lit_pairs(illumination.get_led_states(), illumination.state_color2ch)
 
 
-def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
+def snapshot_lit_pairs(
+    led_states: dict, color2ch: typing.Callable[[str], int | None]
+) -> frozenset[tuple[int, float]]:
     """Convert a saved LED-state mapping to the authority's lit (channel, illumination_ma) set.
 
     Mirrors the filter restore_led_state uses for its restore target: a channel
@@ -423,7 +425,7 @@ def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float
 def resolve_end_state(
     leds_state_at_end: str,
     original_led_states: dict,
-    color2ch,
+    color2ch: typing.Callable[[str], int | None],
 ) -> tuple[LedEndPolicy | None, frozenset[tuple[int, float]]]:
     """Map a run's end-state policy and pre-run snapshot to the LED authority's
     (end_policy, snapshot_lit).
@@ -824,8 +826,8 @@ class IlluminationAPI:
 
     def led_on(
         self,
-        channel,
-        illumination_ma,
+        channel: int | str,
+        illumination_ma: float,
         block: bool = False,
         owner: str = '',
         _lease_owner: str | None = None,
@@ -1033,7 +1035,13 @@ class IlluminationAPI:
             logger.info('[SCOPE API ] leds_off_async()')
 
     def led_on_async(
-        self, channel, illumination_ma, *, callback=None, cb_kwargs=None, owner: str = ''
+        self,
+        channel: int | str,
+        illumination_ma: float,
+        *,
+        callback: typing.Callable | None = None,
+        cb_kwargs: dict | None = None,
+        owner: str = '',
     ) -> None:
         """Submit ``led_on(channel, illumination_ma)`` to the io_executor.
 
@@ -1644,7 +1652,7 @@ class IlluminationAPI:
         return self._driver.color2ch(color)
 
     # --- Listeners ---
-    def add_led_listener(self, listener) -> None:
+    def add_led_listener(self, listener: typing.Callable) -> None:
         """Register a callback for LED state changes.
 
         The listener is called with ``(channel, enabled, illumination_ma, owner)`` whenever

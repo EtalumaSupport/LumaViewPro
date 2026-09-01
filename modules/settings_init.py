@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import os
 import json
+import logging
 import time
 
 
@@ -99,7 +100,7 @@ def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
     return moved
 
 
-def read_settings_json(path, logger=None):
+def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     """Open and parse one settings file. THE one place these files are read.
 
     Every reader of `current.json` / `settings.json` goes through here so
@@ -417,7 +418,9 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
 
 
-def prepare_settings(logger, directory, *, fall_back_to_template: bool) -> tuple:
+def prepare_settings(
+    logger: logging.Logger, directory: str, *, fall_back_to_template: bool
+) -> tuple:
     """Read the settings file and make it USABLE. Every host runs this.
 
     Reading the file is only the first step. A settings dict is not usable
@@ -529,7 +532,7 @@ def _reject_if_misshapen(logger, loaded, template_path, current_path):
         )
 
 
-def load_lvp_settings(logger, lvp_appdata):
+def load_lvp_settings(logger: logging.Logger, lvp_appdata: str) -> None:
     """Prepare the settings and publish them as this process's module state.
 
     The preparation itself is prepare_settings, which every host shares.
@@ -550,7 +553,7 @@ def load_lvp_settings(logger, lvp_appdata):
     )
 
 
-def retire_rejected_current_json():
+def retire_rejected_current_json() -> str | None:
     """Move the unusable current.json aside so a fresh one can take its place.
 
     Renamed, never deleted: it is the user's only copy of their
@@ -572,7 +575,7 @@ def retire_rejected_current_json():
     return retired
 
 
-def settings_are_provisional():
+def settings_are_provisional() -> bool:
     """True while the app is running on defaults nobody has agreed to keep.
 
     Writing current.json in this state would replace a user's whole
@@ -581,7 +584,7 @@ def settings_are_provisional():
     return rejected_current_json is not None
 
 
-def targets_current_json(file):
+def targets_current_json(file: object) -> bool:
     """Is this save aimed at the live user configuration?
 
     Matched on the resolved basename rather than the literal argument: the
@@ -635,7 +638,7 @@ def load_debug_setting(directory: str) -> bool:
         raise e
 
 
-def load_profile_trace_setting(directory):
+def load_profile_trace_setting(directory: str) -> dict:
     """Read profile_trace.enabled + profile_trace.output_dir from settings.
 
     Returns a dict {"enabled": bool, "output_dir": str | None}. Missing
@@ -659,7 +662,7 @@ def load_profile_trace_setting(directory):
     }
 
 
-def load_tracemalloc_setting(directory):
+def load_tracemalloc_setting(directory: str) -> bool:
     """Read tracemalloc_enabled from settings.
 
     Returns bool. Missing or unreadable settings file resolves to False
@@ -679,7 +682,7 @@ def load_tracemalloc_setting(directory):
     return bool(temp_settings.get('tracemalloc_enabled', False))
 
 
-def load_memory_profile_setting(directory):
+def load_memory_profile_setting(directory: str) -> dict:
     """Read memory_profile settings (gate + cadence).
 
     Returns ``{"enabled": bool, "interval_s": float}``. Missing or unreadable
@@ -705,7 +708,7 @@ def load_memory_profile_setting(directory):
     }
 
 
-def load_fx2_debug_wire_setting(directory):
+def load_fx2_debug_wire_setting(directory: str) -> bool:
     """Read fx2_debug_wire_enabled from settings.
 
     Returns bool. Missing or unreadable settings file resolves to False
