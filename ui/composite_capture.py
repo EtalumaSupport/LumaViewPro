@@ -245,6 +245,19 @@ class CompositeCapture(FloatLayout):
                 'Check USB and reconnect, then try again.',
             )
             return
+        # Every refusal must precede _capturing.set(): only the worker's
+        # finally clears the guard, so a return after set() has no clearer
+        # and wedges BOTH capture buttons for the process lifetime.
+        if not ctx.scope.imaging.active_cached:
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Camera',
+                'Camera not active',
+                'Cannot capture composite -- the camera is not streaming. '
+                'Wait for the camera to start, then try again.',
+            )
+            return
         CompositeCapture._capturing.set()
 
         z_stage_present = not ctx.disable_homing
@@ -280,9 +293,6 @@ class CompositeCapture(FloatLayout):
             led_restore_state = False
 
         live_histo_off()
-
-        if not ctx.scope.imaging.active_cached:
-            return
 
         # Resolve the image mode on the main thread (reads UI widgets) and pass
         # the derived facts into the worker, which runs off-thread and must not

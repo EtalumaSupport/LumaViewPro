@@ -148,6 +148,45 @@ def test_success_path_does_not_add_an_extra_off(scope, app_ctx):
     )
 
 
+def test_inactive_camera_refusal_leaves_capture_usable(scope, app_ctx, monkeypatch):
+    """A composite click with the camera inactive must refuse loudly and
+    leave the app usable: `_capturing` clear (both capture buttons work
+    again), no display state half-toggled, nothing dispatched, and a
+    notification telling the operator why nothing happened."""
+    app_ctx.disable_homing = True
+    app_ctx.settings = {}
+    app_ctx.worker_pool = MagicMock()
+    monkeypatch.setattr(cc.common_utils, 'get_opened_layer', lambda _settings: LAYER)
+    histo_off = MagicMock()
+    monkeypatch.setattr(cc, 'live_histo_off', histo_off)
+    notifications = MagicMock()
+    monkeypatch.setattr('modules.notification_center.notifications', notifications)
+
+    with scope.imaging._camera_cache_lock:
+        scope.imaging._camera_cache['active'] = False
+    assert not scope.imaging.active_cached, 'precondition: camera not streaming'
+    cc.CompositeCapture._capturing.clear()
+
+    try:
+        cc.CompositeCapture.composite_capture(_SucceedingSelf())
+
+        assert not cc.CompositeCapture._capturing.is_set(), (
+            'an inactive-camera refusal must clear the capture guard; a set '
+            'guard with no worker to clear it wedges BOTH capture buttons '
+            'for the process lifetime'
+        )
+        assert not histo_off.called, (
+            'the refusal must precede display-state changes; a refused click '
+            'must not leave live-histogram equalization off'
+        )
+        assert not app_ctx.worker_pool.put.called, 'nothing to dispatch on a refusal'
+        assert notifications.warning.called or notifications.error.called, (
+            'the operator must be told why nothing happened'
+        )
+    finally:
+        cc.CompositeCapture._capturing.clear()
+
+
 def test_save_live_image_off_flag_holds_on_capture_raise(scope, tmp_path):
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: the LED must be lit before the fault'
