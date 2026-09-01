@@ -1181,8 +1181,9 @@ class SequencedCaptureRunner:
         """Release the scan's LED lease (idempotent), leaving the LEDs as-is.
 
         leave_on: the run's end-state is set by run_cleanup's RUN_END
-        transition (or, on the early-abort path, left untouched), so the
-        release itself must not turn anything off. Releasing also drops any
+        transition when it applies -- and when it does not, _cleanup_inner
+        forces all channels dark before this release -- so the release
+        itself must not turn anything off. Releasing also drops any
         stranded autofocus child lease if an abort unwound out of order, so
         the next run can acquire. getattr so a stub driving _cleanup_inner
         directly need not set the slot.
@@ -1239,6 +1240,7 @@ class SequencedCaptureRunner:
     def _cleanup_inner(self, run_status: str):
         from modules.notification_center import notifications
 
+        led_end_state_applied = False
         try:
             # Restore popups: the unattended-protocol suppression ends here, on
             # every cleanup path (normal end and abort).
@@ -1267,7 +1269,7 @@ class SequencedCaptureRunner:
             # Read once, pass a bool: cleanup's fatal decision must not flip
             # mid-cleanup if a new run's _reset_vars replaces the Event object
             # after the run flag clears.
-            run_cleanup(
+            led_end_state_applied = run_cleanup(
                 get_state_fn=lambda: self._state,
                 set_state_fn=self._set_state,
                 run_lock=self._run_lock,
@@ -1300,6 +1302,27 @@ class SequencedCaptureRunner:
             # record, which reconciles inside it.
             self._start_hyperstack_build()
         finally:
+            if not led_end_state_applied and getattr(self, '_led_lease', None) is not None:
+                # The run's LED end-state was never decided (the RUN_END
+                # transition failed, was cancelled, or cleanup raised
+                # before reaching it), and the release below deliberately
+                # leaves LEDs as-is. Owner-blind off, because the lit
+                # channel may be recorded to an autofocus child or to no
+                # owner at all, so an owner-scoped darken can miss it.
+                # Gated on still holding the lease: a cleanup that never
+                # owned the run's LEDs (double cleanup, early return)
+                # must not darken a prior cleanup's restored end-state.
+                try:
+                    self._scope.illumination._leds_off_impl()
+                    logger.warning(
+                        f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
+                        'forced all channels dark before lease release'
+                    )
+                except Exception:
+                    logger.error(
+                        f'[{self.LOGGER_NAME}] Cleanup: forced LED extinguish failed',
+                        exc_info=True,
+                    )
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
             # the next run. After run_cleanup, not before: apply(RUN_END) runs
