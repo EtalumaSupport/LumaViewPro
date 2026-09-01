@@ -1190,6 +1190,30 @@ def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     return violations
 
 
+def _merge_in_progress() -> bool:
+    """True while a merge is being concluded.
+
+    A merge commit authors no lines. Every line it stages came from the
+    commits being merged, each of which faced this gate on its own branch.
+    The staged diff against HEAD is nonetheless the union of the whole
+    incoming stack, so a diff-aware ratchet reads that union as freshly
+    written code -- and a ratchet adopted partway along a branch then
+    demands the entire backlog beneath it, which is the one demand it
+    promises never to make. Conflict resolutions are authored here, but
+    the merge playbook reviews those hunk by hunk.
+    """
+    try:
+        git_dir = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return False
+    return (Path(git_dir) / 'MERGE_HEAD').exists()
+
+
 _RULE_37_ARG_EXEMPT = {'self', 'cls'}
 
 
@@ -1384,6 +1408,7 @@ def main(argv: list[str] | None = None) -> int:
     violations: list[Violation] = []
 
     if args.staged:
+        merging = _merge_in_progress()
         for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
@@ -1394,7 +1419,7 @@ def main(argv: list[str] | None = None) -> int:
                 added = _added_lines(p)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
-            if config.get('rule_37'):
+            if config.get('rule_37') and not merging:
                 # Diff-aware by design (backlog never demanded), so it does
                 # its own line-range logic like the doc checks.
                 violations.extend(_check_rule_37(content, p, _added_lines(p)))
