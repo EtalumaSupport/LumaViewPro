@@ -832,15 +832,16 @@ class LumaViewProApp(TooltipMixin, App):
             try:
                 from ui.notification_popup import show_confirmation_popup
 
+                # The reason string already leads with the file path, so the
+                # message does not repeat it; the two buttons carry the
+                # question, so the body only states the stakes.
                 show_confirmation_popup(
                     title='Settings file could not be read',
                     message=(
-                        f'{path}\n\n{reason}\n\n'
-                        'LumaViewPro is running on default settings. Your file has '
-                        'not been changed, and nothing will be saved until you '
-                        'choose.\n\n'
-                        'Start over with defaults, and keep the old file alongside '
-                        'it for support? Or quit now so the file can be repaired?'
+                        f'{reason}\n\n'
+                        'Your file has not been changed, and nothing will be '
+                        'saved until you choose. "Use defaults" keeps the old '
+                        'file alongside it for support.'
                     ),
                     confirm_text='Use defaults',
                     cancel_text='Quit and repair',
