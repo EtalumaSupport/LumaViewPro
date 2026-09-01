@@ -47,7 +47,7 @@ def _lit(scope, ch):
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
     """An unleased UI led_off must not turn off the channel autofocus owns."""
     scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
-    scope.illumination.led_on(channel=3, mA=200, owner='autofocus')
+    scope.illumination.led_on(channel=3, illumination_ma=200, owner='autofocus')
     assert _lit(scope, 3)
 
     # The #695 shape: the AF button click defocuses the exposure field, whose

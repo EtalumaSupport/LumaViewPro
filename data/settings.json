@@ -12,6 +12,7 @@
         "y": 4000.0
     },
     "objective_id": "20x Oly",
+    "objective_confirmed": false,
     "turret_objectives": {
         "1": null,
         "2": null,
@@ -33,11 +34,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill_ma": 5.0,
+        "illumination_ma": 5.0,
         "sum": 1,
         "gain_db": 1.0,
         "auto_gain": false,
-        "exp_ms": 2.0,
+        "exposure_ms": 2.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -49,11 +50,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill_ma": 50.0,
+        "illumination_ma": 50.0,
         "sum": 1,
         "gain_db": 1.0,
         "auto_gain": false,
-        "exp_ms": 5.0,
+        "exposure_ms": 5.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -65,11 +66,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
-        "ill_ma": 100.0,
+        "illumination_ma": 100.0,
         "sum": 1,
         "gain_db": 1.0,
         "auto_gain": false,
-        "exp_ms": 30.0,
+        "exposure_ms": 30.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -81,11 +82,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill_ma": 250.0,
+        "illumination_ma": 250.0,
         "sum": 1,
         "gain_db": 10.0,
         "auto_gain": false,
-        "exp_ms": 100.0,
+        "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -93,7 +94,7 @@
         },
         "stim_config": {
             "enabled": false,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 100
@@ -105,11 +106,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill_ma": 250.0,
+        "illumination_ma": 250.0,
         "sum": 1,
         "gain_db": 20.0,
         "auto_gain": false,
-        "exp_ms": 100.0,
+        "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -117,7 +118,7 @@
         },
         "stim_config": {
             "enabled": false,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 100
@@ -129,11 +130,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill_ma": 350.0,
+        "illumination_ma": 350.0,
         "sum": 1,
         "gain_db": 30.0,
         "auto_gain": false,
-        "exp_ms": 100.0,
+        "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -141,7 +142,7 @@
         },
         "stim_config": {
             "enabled": false,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 100
@@ -153,11 +154,11 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill_ma": 0.0,
+        "illumination_ma": 0.0,
         "sum": 1,
         "gain_db": 48.0,
         "auto_gain": false,
-        "exp_ms": 100.0,
+        "exposure_ms": 100.0,
         "acquire": null,
         "video_config": {
             "duration": 5,
@@ -213,6 +214,7 @@
         "stim_profiling": false,
         "handle_trace_enabled": false,
         "handle_trace_obj_sample_every": 1000,
+        "open_files_enabled": false,
         "metrics_interval_s": null
     },
     "scale_bar": {

@@ -119,6 +119,7 @@ if __name__ == '__main__':
     import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
+    from modules.plugins import fire_settings_save_hooks
     from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
@@ -425,6 +426,17 @@ from ui.zstack import ZStack
 _CURRENT_JSON_FLUSH_INTERVAL_S = 300
 
 
+def _notify_plugins_of_settings_save(settings_snapshot: dict) -> None:
+    """Tell plugins the settings were just written to disk.
+
+    The session does the saving and knows nothing about the plugin
+    registry, which is a GUI-side service. Passing this down as a
+    callback keeps it that way: a headless session is simply handed no
+    hook, rather than reaching up for a registry that is not there.
+    """
+    fire_settings_save_hooks(app_context.ctx, settings_snapshot)
+
+
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
@@ -589,7 +601,7 @@ class LumaViewProApp(TooltipMixin, App):
                         ls = settings.get(layer, {})
                         logger.info(
                             f'[INIT      ] {layer:6s}: gain={ls.get("gain_db", "?"):>6}, '
-                            f'exp={ls.get("exp_ms", "?"):>8}ms, ill={ls.get("ill_ma", "?"):>6}mA, '
+                            f'exp={ls.get("exposure_ms", "?"):>8}ms, ill={ls.get("illumination_ma", "?"):>6}mA, '
                             f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
                         )
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
@@ -638,7 +650,27 @@ class LumaViewProApp(TooltipMixin, App):
 
         # ScopeSession owns startup orchestration so REST API, headless tools, and
         # the reconnect handler in ui/microscope_settings.py all hit the same path.
-        ctx.session.start_application_session(disable_homing=disable_homing)
+        # The GUI drives motion through the ui_helpers wrappers: they set the
+        # window title during the home, and the turret one goes through the
+        # widget that also reconciles the objective, spinner and button state.
+        # The Session's own defaults are the bare API calls, which is what a
+        # headless caller gets.
+        from ui.ui_helpers import move_home, move_absolute
+
+        ctx.session.start_application_session(
+            disable_homing=disable_homing,
+            home_fn=lambda axis: move_home(axis, wait=True),
+            turret_fn=lambda position: move_absolute(
+                axis='T', position=position, wait_until_complete=True
+            ),
+        )
+
+        # Both startup questions may only fire once the session is up and
+        # the frame has rendered; each helper owns its own deferral. The
+        # settings question comes first -- while it is unresolved, every
+        # save is refused and the objective prompt suppresses itself.
+        self._ask_about_rejected_settings()
+        self._prompt_objective_if_needed()
 
         # Objective and LEDs are set by scope.initialize() during load_settings();
         # BF apply_settings fires from complete_initialization() -> accordion_collapse().
@@ -652,11 +684,10 @@ class LumaViewProApp(TooltipMixin, App):
 
         # The session owns the metrics lifecycle (it holds the injected
         # KivyClockScheduler and restarts metrics on the new scope at
-        # every reconnect); settings.profiling.metrics_interval_s
-        # overrides the default 3600 s cadence -- set 30-60 s for
-        # short-soak leak hunts (gen2_depth + handle/thread counts are
-        # usable signals at sub-minute granularity; hourly is fine for
-        # production).
+        # every reconnect). Cadence is hourly in production and 60 s in
+        # engineering mode; settings.profiling.metrics_interval_s
+        # overrides both (gen2_depth + handle/thread counts are the
+        # signals worth sub-minute granularity on a short leak hunt).
         ctx.session.start_metrics()
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
@@ -718,6 +749,114 @@ class LumaViewProApp(TooltipMixin, App):
             ctx.worker_pool.shutdown(wait=False)
 
         logger.info('[LVP Main  ] Threads shut down.')
+
+    def _prompt_objective_if_needed(self) -> None:
+        """Ask the objective question when the objective is unknowable.
+
+        Clock-deferred: a popup opened before the frame has rendered
+        appears under no window and is never seen. Called at startup and
+        again when the provisional-settings dialog resolves -- while
+        settings were provisional the question was suppressed because
+        its answer could not be kept.
+        """
+        import modules.config_helpers as config_helpers
+
+        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
+        model_has_turret = config_helpers.model_has_turret(microscope_settings.scopes, ctx.settings)
+        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+        Clock.schedule_once(
+            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
+        )
+
+    def _ask_about_rejected_settings(self) -> None:
+        """Let the user choose what happens to a current.json we could not read.
+
+        Confirm is the destructive branch and cancel is the safe one, which
+        is not arbitrary: show_confirmation_popup treats a programmatic or
+        lifecycle dismiss as cancel, so anything that closes this dialog
+        without a human deciding must leave the file alone.
+
+        Clock-deferred: a popup opened before the frame has rendered is
+        painted under the app root once it attaches -- open, invisible,
+        and unanswerable. A dialog, not the notification bus: the bus is
+        one-way and renders a single OK button, so a question posted
+        there would be acknowledged and never answered, leaving settings
+        unsaveable for the rest of the session and every session after.
+
+        A failure to present the question is itself fatal. Carrying on would
+        mean running with saves silently disabled -- the user changes settings
+        all session and loses every one of them at exit, with nothing said.
+        """
+        import modules.settings_init as settings_init
+
+        if not ctx.session.settings_are_provisional():
+            return
+
+        path, reason = settings_init.rejected_current_json
+
+        def _revert():
+            # The retire is a file rename that can fail under a Windows
+            # AV/indexer lock; unguarded, that exception would kill the
+            # process from the button callback with no teardown. On
+            # failure, say so and re-present the question -- the
+            # provisional state still holds, and every save raises
+            # loudly until it is resolved.
+            try:
+                retired = ctx.session.retire_rejected_settings()
+            except Exception:
+                logger.error(
+                    '[LVP Main  ] could not retire the unreadable settings file',
+                    exc_info=True,
+                )
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'Settings',
+                    'Settings file could not be replaced',
+                    f'{path} is in use by another program. Close it and try again.',
+                )
+                self._ask_about_rejected_settings()
+                return
+            logger.warning(
+                f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
+            )
+            # Settings can be kept again now -- ask the objective question
+            # that was suppressed while they were provisional.
+            self._prompt_objective_if_needed()
+
+        def _quit():
+            logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')
+            self.stop()
+
+        def _present(_dt):
+            try:
+                from ui.notification_popup import show_confirmation_popup
+
+                # The reason string already leads with the file path, so the
+                # message does not repeat it; the two buttons carry the
+                # question, so the body only states the stakes.
+                show_confirmation_popup(
+                    title='Settings file could not be read',
+                    message=(
+                        f'{reason}\n\n'
+                        'Your file has not been changed, and nothing will be '
+                        'saved until you choose. "Use defaults" keeps the old '
+                        'file alongside it for support.'
+                    ),
+                    confirm_text='Use defaults',
+                    cancel_text='Quit and repair',
+                    on_confirm=_revert,
+                    on_cancel=_quit,
+                )
+            except Exception:
+                logger.critical(
+                    '[LVP Main  ] could not ask about the unreadable settings '
+                    'file; refusing to run with saving disabled',
+                    exc_info=True,
+                )
+                self.stop()
+
+        Clock.schedule_once(_present, 0)
 
     def build(self) -> 'MainDisplay':
         """Kivy lifecycle hook: construct the widget tree and return the root widget."""
@@ -908,6 +1047,7 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
             metrics_scheduler=KivyClockScheduler(Clock),
+            settings_saved_hook=_notify_plugins_of_settings_save,
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner
 
@@ -915,7 +1055,6 @@ class LumaViewProApp(TooltipMixin, App):
         ctx = AppContext(
             scope=lumaview.scope,
             lumaview=lumaview,
-            settings=settings,
             session=scope_session,
             sequenced_capture_runner=sequenced_capture_runner,
             autofocus_runner=autofocus_runner,
@@ -1215,8 +1354,16 @@ class LumaViewProApp(TooltipMixin, App):
         save_settings prevents overwriting real per-channel values with
         slider defaults when no hardware was connected this session.
         """
+        from modules.exceptions import SettingsSaveRefusedError
+
         try:
-            ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
+            ctx.session.save_settings('./data/current.json')
+        except SettingsSaveRefusedError as e:
+            # Expected while no hardware is connected or settings are
+            # provisional; save_settings logged the refusal at its own
+            # site, and a 5-minute timer must not turn an expected
+            # condition into a recurring traceback.
+            logger.debug(f'[LVP Main  ] periodic flush declined: {e.reason}')
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
@@ -1342,10 +1489,18 @@ class LumaViewProApp(TooltipMixin, App):
         # are consolidated into one teardown.
         lumaview.scope.motion.stop_motion()
 
-        # The hardware-presence gate lives inside MicroscopeSettings.save_settings
-        # now, so every caller (engineering plugin, REST, scheduled save) gets
-        # the same guard. Pass force=True only to override.
-        ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
+        # The hardware-presence gate lives inside the session's save_settings,
+        # so every caller (engineering plugin, REST, scheduled save) gets the
+        # same guard. Pass force=True only to override. A refusal must not
+        # abort shutdown -- the disconnect below is hardware teardown. INFO,
+        # not WARNING: the errors log ships in every support bundle and a
+        # hardware-less clean exit is not an error.
+        from modules.exceptions import SettingsSaveRefusedError
+
+        try:
+            ctx.session.save_settings('./data/current.json')
+        except SettingsSaveRefusedError as e:
+            logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
         logger.info('[LVP Main  ] lumaview.scope.disconnect()')
         lumaview.scope.disconnect()

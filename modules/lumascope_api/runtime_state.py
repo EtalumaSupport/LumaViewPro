@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
 from lvp_logger import logger
+from modules.exceptions import ConfigError
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -88,9 +89,18 @@ class RuntimeState:
 
         Args:
             objective_id: Objective identifier (e.g. "4x", "10x", "20x").
+
+        Raises:
+            ConfigError: The id resolves to no objective. State is
+                untouched on failure -- resolving before assigning keeps
+                the id and the info describing the same objective, so a
+                bad id can never leave the pair torn.
         """
+        objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        if objective is None:
+            raise ConfigError(f'unknown objective {objective_id!r}; active objective unchanged')
         self._objective_id = objective_id
-        self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        self._objective = objective
 
     def get_current_objective_id(self) -> str | None:
         """Get the ID of the currently active objective.

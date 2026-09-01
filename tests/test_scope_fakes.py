@@ -64,8 +64,8 @@ class TestSpecScopeRejectsTheWrongWorld:
         scope = spec_scope()
         for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics', 'io'):
             assert hasattr(scope, sub_api), f'{sub_api} missing from the double'
-        scope.illumination.led_on(channel=0, mA=100)
-        scope.illumination.led_on.assert_called_once_with(channel=0, mA=100)
+        scope.illumination.led_on(channel=0, illumination_ma=100)
+        scope.illumination.led_on.assert_called_once_with(channel=0, illumination_ma=100)
 
     def test_wrong_signature_raises(self):
         """A specced method rejects a call the real one would reject."""

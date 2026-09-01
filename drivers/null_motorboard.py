@@ -234,6 +234,14 @@ class NullMotionBoard:
         """
         return []
 
+    def detect_homed_axes(self) -> list:
+        """Null board has no axes, so none can be homed.
+
+        Returns:
+            list: Always empty.
+        """
+        return []
+
     # ------------------------------------------------------------------
     # Info
     # ------------------------------------------------------------------

@@ -69,7 +69,11 @@ def _make_board(response, monkeypatch):
 def test_unknown_cmd_returns_fallback_without_error(monkeypatch):
     board, rec = _make_board(_UNKNOWN_CMD, monkeypatch)
     result = board.fullinfo()
-    assert result == {'model': 'unknown', 'serial_number': 'unknown'}
+    # Assert the identity fields, not the whole record: this test's subject is
+    # the LOG LEVEL, and the record carries other fields (axis presence, homed
+    # state) whose fallback values are pinned in
+    # test_fresh_process_reads_homed_state.py.
+    assert (result['model'], result['serial_number']) == ('unknown', 'unknown')
     # Expected legacy-firmware capability gap -- must NOT log at ERROR.
     assert rec.messages('error') == [], f'unexpected ERROR logs: {rec.messages("error")}'
     # The condition is still recorded, once, at INFO.
@@ -81,7 +85,7 @@ def test_unparseable_response_still_logs_error(monkeypatch):
     # so real parse failures are not silently swallowed by the legacy path.
     board, rec = _make_board('garbage nonsense with no fields', monkeypatch)
     result = board.fullinfo()
-    assert result == {'model': 'unknown', 'serial_number': 'unknown'}
+    assert (result['model'], result['serial_number']) == ('unknown', 'unknown')
     assert any('Failed to parse FULLINFO' in m for m in rec.messages('error'))
 
 

@@ -43,15 +43,6 @@ class Stage(Widget):
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
-        # _has_xy_stage -- static scope capability. The crosshair
-        # indicates a live XY position, so it is meaningless (and
-        # hidden) only on scopes with no XY stage. It must NOT track
-        # the run lock, or the crosshair vanishes whenever a protocol
-        # runs on a scope that has a stage. The interaction lock itself
-        # is not stored here: motion_capability() derives from the
-        # session (config declares a stage AND no run lockout), so
-        # there is no per-run write to strand or mis-restore.
-        self._has_xy_stage = True
         self.ROIs = []
 
         # Track labware state for smart redraws
@@ -86,15 +77,30 @@ class Stage(Widget):
         self._crosshair_v_line = None
         self._create_persistent_canvas_objects()
 
+    def _xy_stage_present(self) -> bool:
+        """Whether the live scope has an XY stage.
+
+        Asked of the driver on every read rather than copied in at
+        construction. A copy would describe whichever scope the widget
+        was built against and survive a reconnect onto different
+        hardware -- and the scope model is user-editable while the app
+        runs, so nothing would correct it.
+
+        Deliberately NOT the run lock: gating on that would make the
+        crosshair vanish whenever a protocol runs on a scope that does
+        have a stage.
+        """
+        ctx = _app_ctx.ctx
+        return (
+            ctx is not None
+            and getattr(ctx, 'scope', None) is not None
+            and ctx.scope.capabilities.has_xy_stage
+        )
+
     def _stage_limits_um(self):
         """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
         ctx = _app_ctx.ctx
-        if (
-            ctx is not None
-            and hasattr(ctx, 'scope')
-            and ctx.scope is not None
-            and ctx.scope.capabilities.has_xy_stage
-        ):
+        if self._xy_stage_present():
             limits = ctx.scope.capabilities.axis_travel_limits_um
             return (limits['X'], limits['Y'])
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
@@ -137,9 +143,6 @@ class Stage(Widget):
     def motion_capability(self) -> bool:
         session = getattr(_app_ctx.ctx, 'session', None)
         return session.motion_enabled if session is not None else True
-
-    def set_xy_stage_capability(self, enabled: bool):
-        self._has_xy_stage = enabled
 
     def on_touch_down(self, touch):
         logger.debug('[LVP Main  ] Stage.on_touch_down()')
@@ -613,9 +616,9 @@ class Stage(Widget):
             # Draw crosshairs (updates every frame - but only 2 lines!).
             # Skip on scopes without an XY stage: there is no live XY position
             # to indicate, so the crosshair would be meaningless on the
-            # single-plate view. Gated on the static stage capability, NOT the
+            # single-plate view. Gated on the stage capability, NOT the
             # transient run lock -- the crosshair stays visible during a run.
-            if self._has_xy_stage:
+            if self._xy_stage_present():
                 pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
                     labware=labware,
                     stage_offset=settings['stage_offset'],

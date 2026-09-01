@@ -117,6 +117,32 @@ scope = Lumascope(camera_type='ids')      # force IDS
 
 Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
 
+### Layer identity
+
+Every scope resolves its **layer identity** at construction — what the layers on this unit ARE: stable key name, display name, LED board address, excitation wavelength, plus the unit's filterset. It resolves from the unit's own configuration when one exists, else from the model's entry; a motor-reported model always outranks `configured_model` (hardware truth beats a selection), and `configured_model` serves models whose hardware cannot report one (the Classic/FX2 line).
+
+```python
+scope = Lumascope(simulate=True, configured_model='LS560')
+
+identity = scope.layer_identity          # immutable snapshot
+identity.source                          # 'motorconfig' | 'scopes' | 'unresolved'
+identity.filterset                       # the unit's filterset identity string
+for layer in identity.layers:
+    layer.key_name                       # stable name: settings keys, protocol Color, filenames
+    layer.display_name                   # what the operator sees (e.g. 'BF-Phase' on FX2)
+    layer.led_channel                    # tuple of board addresses; () = drives no LED
+    layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
+
+identity.find('BF')                      # record by stable key name, or None
+
+# Re-resolve after a configuration change; override_model resolves AS
+# another model for this call only (lab/testing use — never persisted).
+scope.refresh_layer_identity(configured_model='LS620')
+scope.refresh_layer_identity(override_model='LS850T')
+```
+
+A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
+
 Then apply runtime configuration (frame size, objective, binning, stage offset). The preferred factory is `ScopeInitConfig.from_settings(settings, labware, scope_config=...)`, which reads from your LVP settings dict; you can also construct one directly:
 
 ```python
@@ -225,6 +251,45 @@ session.start_application_session(disable_homing=True)  # skip homing, still pos
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
+### Reading and persisting configuration
+
+```python
+config = session.get_layer_configs()          # read, in API names
+session.settings['live_folder'] = '/data/run7'  # write, from the host's own thread
+session.update_settings('live_folder', '/data/run7')  # write, from any other thread
+snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
+session.save_settings(force=True)             # persist to data/current.json (raises if refused)
+session.settings_are_provisional()            # True while current.json is unread and undecided
+session.retire_rejected_settings()            # resolve it: retire the unreadable file, saves work again
+```
+
+The settings dict IS the configuration surface: its storage keys are the
+API names, so what you read is what you write. The session owns the dict
+and the lock that guards it.
+
+Reads may go straight to `session.settings`. A write from a thread other
+than the host's own goes through `update_settings()`, which takes the
+lock — a write that skips it can tear a snapshot another thread is taking
+concurrently. Long-running work should take one `get_settings_snapshot()`
+at entry and read from that rather than the live dict.
+
+`save_settings()` writes the dict to `data/current.json`. **A refused
+write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),
+carrying a machine-readable `reason` and the refused `file` — a caller
+can always tell a refusal from a success. Two reasons exist.
+`'no_hardware'`: no hardware was connected during the session, so the
+GUI's sliders sit at their defaults and persisting those over a user's
+real per-channel values loses them; an API caller has no sliders behind
+it, so a deliberate persist passes `force=True`, which overrides this
+refusal. `'settings_provisional'`: the app came up on the shipped
+template because `current.json` could not be read; that file is the
+user's only copy and is left untouched until they decide, so `force`
+does **not** override — check `session.settings_are_provisional()` and,
+once the user (or the controlling client) has chosen to start over,
+resolve with `session.retire_rejected_settings()`. The provisional
+refusal protects `current.json` specifically; a save aimed at another
+destination still writes.
+
 ### Periodic metrics logging (optional)
 
 ```python
@@ -294,7 +359,10 @@ image = session.scope.imaging.capture_and_wait()
 save_image(
     session.scope,
     array=image, save_folder='./output',
-    file_root='capture', append='_BF', color='BF',
+    file_root='capture', append='_BF',
+    channel='BF', false_color_on=False,
+    save_encoding='right_aligned',
+    significant_bits=session.scope.imaging.capture_frame_depth(image),
 )
 
 # Live-view tap: the latest buffered frame, no new exposure forced
@@ -425,7 +493,7 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
 scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
-scope.motion.has_thomed()                        # turret-specific
+scope.motion.has_turret_homed()                  # turret-specific
 
 # Homing is REQUIRED, not advisory. A commanded move on an axis whose
 # position is unknown raises AxisStateUnknownError instead of driving --
@@ -437,7 +505,7 @@ scope.motion.has_thomed()                        # turret-specific
 #   if not scope.motion.move_home_and_wait('ALL'):
 #       ...  # do not command moves; the reference frame is not established
 #
-# has_homed() / has_thomed() answer from that same live state, so they
+# has_homed() / has_turret_homed() answer from that same live state, so they
 # report False after a fault revokes a reference that was previously
 # good -- not merely "a home once succeeded".
 
@@ -471,7 +539,7 @@ scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, fo
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
-scope.motion.tmove(2)                            # turret position 2
+scope.motion.move_turret(2)                      # turret position 2
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
@@ -514,13 +582,20 @@ scope.motion.remove_position_listener(on_position)
 
 Channels available depend on the scope — always check `scope.capabilities.led_colors`.
 
+**A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Blue'`,
+`'Green'`, `'Red'` — the name is the portable identity. The number behind it is
+a driver detail and is NOT portable: an FX2 board carries four channels and an
+RP2040 board six, so the same integer means different LEDs, or none, depending
+on the board. Ask `caps.led_colors` for what a given scope can actually drive.
+Passing an integer still works today as a legacy compatibility form, but it is
+not the supported contract and will not be part of the REST surface.
+
 **Colours the scope cannot drive**: `led_on` with a colour name the scope has no LED channel for raises `ConfigError` naming the colour (it never maps to a substitute channel); `led_off` with such a colour is an idempotent no-op — a channel the scope does not have is already off. Numeric channel arguments are always range-checked and raise `ValueError` when invalid.
 
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_on(0, 200)                      # same, by channel number
 scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
@@ -532,7 +607,8 @@ scope.illumination.led_on_async('Red', 100)
 scope.illumination.led_off_async('Red')
 scope.illumination.leds_off_async()
 
-# Channel mapping
+# Channel mapping. Numbers are a DRIVER detail -- these exist to read the
+# board's own wire vocabulary, not to address channels from L2.
 scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
@@ -584,8 +660,8 @@ scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on
 Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change, ownership change) with no serial I/O cost:
 
 ```python
-def on_led(color: str, enabled: bool, mA: float, owner: str):
-    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner!r}")
+def on_led(channel: str, enabled: bool, illumination_ma: float, owner: str):
+    print(f"{channel} {'ON' if enabled else 'OFF'} {illumination_ma}mA owner={owner!r}")
 
 scope.illumination.add_led_listener(on_led)
 # ... later ...
@@ -666,7 +742,9 @@ image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
     accept_dark=False,                     # True admits a dark frame while lit
     all_ones_check=True,                   # detect saturated frames
-    sum_count=4,                           # average 4 frames
+    sum_count=4,                           # SUM 4 frames (not an average); a
+                                           # summed capture is promoted to a
+                                           # 16-bit container and clipped there
     sum_delay_s=0.05,                      # delay between sum frames
     exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
     earliest_image_ts=None,                # optional wall-clock lower bound on returned frame
@@ -816,7 +894,7 @@ The four listener families each pass a different callback signature -- register 
 | Listener | Register via | Callback signature |
 |---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, target: float, state: str)` |
-| LED / illumination | `scope.illumination.add_led_listener` | `on_led(color: str, enabled: bool, mA: float, owner: str)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float, owner: str)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
 
@@ -1048,9 +1126,12 @@ save_image(
     save_folder='/path/to/output',
     file_root='experiment1',
     append='_BF_A1',
-    color='BF',
+    channel='BF',                          # what was imaged -- recorded as identity
+    false_color_on=False,                  # how it is displayed -- never recorded as identity
     tail_id_mode='increment',              # auto-number files
     output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
+    save_encoding='right_aligned',         # from the image-mode config layer
+    significant_bits=scope.imaging.capture_frame_depth(image),
     x=60000, y=40000, z=5000,              # stage position metadata (µm)
 )
 ```
@@ -1062,7 +1143,7 @@ The full set of free functions in `modules.image_save`:
 | `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
 | `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
 | `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
-| `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
+| `generate_image_metadata(scope, channel, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
 | `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
 
@@ -1190,36 +1271,15 @@ A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml
 
 ## REST surface reference
 
-> **Status (2026-08):** Not yet in the tree. REST lands as its own phase after the 4.0 API-surface work completes; when it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the sketch below as design preview, not yet-callable code.
+REST is **not implemented**. There is no server, no endpoints, and no wire
+format — nothing in this repo answers HTTP. Endpoints will be documented here
+when REST actually ships, against the real implementation.
 
-HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
-
-```
-GET  /api/status                    → system status
-POST /api/led/on    {color, mA}     → turn on LED
-POST /api/led/off                   → turn off all LEDs
-POST /api/move      {axis, pos}     → move stage
-POST /api/capture                   → capture image, returns file path
-GET  /api/live/frame                → grab live frame (binary)
-POST /api/protocol/run              → run a protocol file
-POST /api/protocol/abort            → abort running protocol
-```
-
-**MATLAB example (preview — API not yet live):**
-
-```matlab
-url = "http://localhost:8000/api";
-
-webwrite(url + "/move", struct('axis','Z','pos',5000,'wait',true));
-webwrite(url + "/led/on", struct('color','BF','mA',100));
-result = webwrite(url + "/capture", struct('format','tiff'));
-
-img = imread(result.file_path);
-imshow(img);
-
-webwrite(url + "/led/off", struct());
-```
-
+Nothing about a future REST surface is specified anywhere in this document. An
+earlier revision carried a sketch of endpoint shapes and a MATLAB client; both
+predated the 4.0 API-surface work, were never built, and were removed once they
+started being read as a contract that constrained that work. `git log` has them
+if the ideas are ever wanted.
 ---
 
 ## Common patterns
@@ -1250,7 +1310,10 @@ scope.illumination.leds_off()
 save_image(
     scope,
     array=image, save_folder='./output',
-    file_root='capture', append='_BF', color='BF',
+    file_root='capture', append='_BF',
+    channel='BF', false_color_on=False,
+    save_encoding='right_aligned',
+    significant_bits=scope.imaging.capture_frame_depth(image),
     output_format='TIFF', x=60000, y=40000, z=5000,
 )
 scope.disconnect()
@@ -1263,16 +1326,16 @@ from modules.composite_builder import build_composite
 from modules.image_save import save_image
 
 channel_images = {}
-for color, mA, exp_ms, gain_db in [
+for channel, illumination_ma, exposure_ms, gain_db in [
     ('Blue',  200, 100, 15),
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
-    scope.imaging.set_exposure_ms(exp_ms)
+    scope.imaging.set_exposure_ms(exposure_ms)
     scope.imaging.set_gain_db(gain_db)
-    scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.imaging.capture_and_wait()
-    scope.illumination.led_off(color)
+    scope.illumination.led_on(channel, illumination_ma)
+    channel_images[channel] = scope.imaging.capture_and_wait()
+    scope.illumination.led_off(channel)
 
 # Transmitted (brightfield) base image
 scope.imaging.set_exposure_ms(2.0)
@@ -1288,7 +1351,8 @@ composite = build_composite(
 )
 
 save_image(scope, array=composite, save_folder='./output',
-           file_root='composite', color=None, output_format='TIFF')
+           file_root='composite', channel='Composite', false_color_on=False,
+           save_encoding='8bit', significant_bits=8, output_format='TIFF')
 ```
 
 `build_composite` accepts fluorescence keys `'Red'`, `'Green'`, `'Blue'`, `'Lumi'`.
@@ -1308,7 +1372,10 @@ while z <= z_end:
     save_image(
         scope,
         array=image, save_folder='./zstack',
-        file_root='z', append=f'_{int(z)}', color='BF',
+        file_root='z', append=f'_{int(z)}',
+        channel='BF', false_color_on=False,
+        save_encoding='right_aligned',
+        significant_bits=scope.imaging.capture_frame_depth(image),
         output_format='TIFF', z=z,
     )
     z += z_step
@@ -1334,7 +1401,10 @@ for well_name, px, py in wells:
     save_image(
         scope,
         array=image, save_folder='./scan',
-        file_root=f'{well_name}_BF', color='BF',
+        file_root=f'{well_name}_BF',
+        channel='BF', false_color_on=False,
+        save_encoding='right_aligned',
+        significant_bits=scope.imaging.capture_frame_depth(image),
         output_format='TIFF', x=sx, y=sy,
     )
 scope.illumination.leds_off()

@@ -34,10 +34,10 @@ def _make_layer_settings(**overrides):
         'video_config': {'enabled': False},
         'autofocus': False,
         'false_color': [1, 1, 1, 1],
-        'ill_ma': 50.123456,
+        'illumination_ma': 50.123456,
         'gain_db': 1.23456,
         'auto_gain': False,
-        'exp_ms': 10.56789,
+        'exposure_ms': 10.56789,
         'sum': 1,
         'focus': 0.0,
     }
@@ -58,7 +58,7 @@ def _make_settings(layers=None, with_stim=False):
         if with_stim:
             s['stim_config'] = {
                 'enabled': True,
-                'illumination': 0,
+                'illumination_ma': 0,
                 'frequency': 1,
             }
         settings[layer] = s
@@ -213,19 +213,19 @@ class TestGetLayerConfigs:
     def test_stim_config_illumination_independent(self):
         """Stim illumination is independent from imaging illumination.
 
-        The stim brightness slider controls stim_config['illumination']
+        The stim brightness slider controls stim_config['illumination_ma']
         directly -- it is NOT force-synced to the layer's imaging illumination.
-        Stim config key stays bare 'illumination' (pre-freeze defer per
-        units audit; stim is on its own evolution track).
+        Both carry the _ma suffix because both are LED current in milliamps;
+        they are the same unit on independent controls, not the same value.
         """
         settings = _make_settings(with_stim=True)
         # Set stim illumination to a different value than layer illumination
         for layer in settings:
             if isinstance(settings[layer], dict) and 'stim_config' in settings[layer]:
-                settings[layer]['stim_config']['illumination'] = 200
+                settings[layer]['stim_config']['illumination_ma'] = 200
         configs = config_helpers.get_layer_configs(settings)
         for cfg in configs.values():
-            assert cfg['stim_config']['illumination'] == 200
+            assert cfg['stim_config']['illumination_ma'] == 200
             # Layer illumination is different (50.123456 rounded)
             assert cfg['illumination_ma'] != 200
 
@@ -418,7 +418,7 @@ class TestLogSystemMetrics:
             import pathlib
 
             expected_path = str(pathlib.Path('/tmp').resolve())
-            mock_metrics.assert_called_once_with(path=expected_path)
+            mock_metrics.assert_called_once_with(path=expected_path, collect_open_files=False)
 
 
 # ===========================================================================
@@ -448,7 +448,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on_async(channel=2, mA=100)
+        scope.illumination.led_on_async(channel=2, illumination_ma=100)
         task = io_ex.submitted[0]
         assert task.action == scope.illumination._led_on_impl
         assert task.args == (2, 100)
@@ -485,7 +485,7 @@ class TestLumascopeLedAPI:
         # assertion -- a dispatcher that submitted without waiting would
         # find the channel still dark.
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, mA=75)
+        scope.illumination.led_on(channel=1, illumination_ma=75)
         assert len(io_ex.submitted) == 1
         color = scope.illumination.ch2color(1)
         assert scope.illumination.get_led_ma(color) == 75.0
@@ -510,7 +510,7 @@ class TestLumascopeLedAPI:
         form."""
         scope = lumascope_api.Lumascope(simulate=True)
         try:
-            scope.illumination.led_on_async(channel=0, mA=30)
+            scope.illumination.led_on_async(channel=0, illumination_ma=30)
             color = scope.illumination.ch2color(0)
             assert scope.illumination.get_led_ma(color) == 30.0
             scope.illumination.leds_off_async()
@@ -577,7 +577,7 @@ class TestLumascopeMotionAPI:
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('T')
         task = io_ex.submitted[0]
-        assert task.action == scope.motion._thome_impl
+        assert task.action == scope.motion._home_turret_impl
 
     def test_move_home_async_with_callback(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()

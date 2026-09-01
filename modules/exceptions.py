@@ -18,6 +18,36 @@ class ConfigError(Exception):
     pass
 
 
+class SettingsSaveRefusedError(ConfigError):
+    """A settings save was refused: writing now would destroy real data.
+
+    Raised by ``ScopeSession.save_settings`` instead of silently skipping
+    the write -- a caller that cannot tell a refusal from a success reports
+    success on a write that never happened, which is how a whole session's
+    changes get lost with nothing said.
+
+    Like the hardware-command refusal, this reaches an external API caller
+    that no notification path serves, so it carries no user-facing strings;
+    the caller that provoked it owns the response.
+
+    Attributes:
+        reason: Machine-readable refusal code for callers that map refusals
+            to responses. ``'settings_provisional'`` -- the app is running
+            on the shipped template because the user's file could not be
+            read, and that file stays untouched until they decide
+            (``force`` does not override). ``'no_hardware'`` -- no hardware
+            was connected this session, so the in-memory per-channel values
+            are slider defaults, not measurements (``force=True``
+            overrides).
+        file: The destination whose write was refused.
+    """
+
+    def __init__(self, reason: str, file: str):
+        super().__init__(f'settings save to {file} refused: {reason}')
+        self.reason = reason
+        self.file = file
+
+
 class CaptureError(Exception):
     """Image capture, save, or processing failure."""
 

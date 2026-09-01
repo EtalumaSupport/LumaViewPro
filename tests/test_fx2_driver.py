@@ -25,7 +25,9 @@ without pyusb installed.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Heavy deps (lvp_logger, kivy, usb, usb1, ...) are mocked by
@@ -688,7 +690,7 @@ class TestScopesJsonClassicModels:
     def scopes(self):
         path = REPO_ROOT / 'data' / 'scopes.json'
         with open(path) as f:
-            return json.load(f)
+            return json.load(f)['Models']
 
     def test_ls620_exists(self, scopes):
         assert 'LS620' in scopes
@@ -715,32 +717,31 @@ class TestScopesJsonClassicModels:
         assert entry['Turret'] is False
 
     def test_ls620_has_fluorescence_bf(self, scopes):
-        """LS620 has BF and fluorescence but NO separate PC channel --
-        PC on this model is BF with a mechanically installed phase
-        slider, not a distinct illumination channel. Observed on
-        hardware 2026-04-16: clicking a PhaseContrast layer raised
-        `LED channel must be one of (0, 1, 2, 3), got -1` because
+        """LS620 carries the transmitted layer plus BGR fluorescence and
+        NO separate PC layer -- PC on this model is BF with a mechanically
+        installed phase slider, not a distinct illumination channel (the
+        transmitted layer is displayed 'BF-Phase' for exactly that reason).
+        Observed on hardware 2026-04-16: clicking a PhaseContrast layer
+        raised `LED channel must be one of (0, 1, 2, 3), got -1` because
         FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
         """
-        layers = scopes['LS620']['Layers']
-        assert layers['Fluorescence'] is True
-        assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is False
-        assert layers['Darkfield'] is False
-        assert layers['Lumi'] is False
+        rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
+        assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}
+        assert rows['BF']['display_name'] == 'BF-Phase'
+        assert rows['BF']['led_channel'] == 3
+        assert 'PC' not in rows
+        assert 'DF' not in rows
 
     def test_ls560_has_fluorescence_bf(self, scopes):
-        """LS560 mirrors LS620 -- BF + fluorescence (Green only; the
-        'Green only' limitation vs LS620's BGR is a future schema
-        enhancement) and no separate PC channel. Same rationale as
-        test_ls620_has_fluorescence_bf.
+        """LS560 ships as the transmitted layer (displayed 'BF-Phase') plus
+        Green only -- unlike LS620's BGR -- and no separate PC layer,
+        same phase-slider rationale as test_ls620_has_fluorescence_bf.
         """
-        layers = scopes['LS560']['Layers']
-        assert layers['Fluorescence'] is True
-        assert layers['Brightfield'] is True
-        assert layers['PhaseContrast'] is False
-        assert layers['Darkfield'] is False
-        assert layers['Lumi'] is False
+        rows = {r['key_name']: r for r in scopes['LS560']['Layers']}
+        assert set(rows) == {'BF', 'Green'}
+        assert rows['BF']['display_name'] == 'BF-Phase'
+        assert rows['Green']['led_channel'] == 1
+        assert 'PC' not in rows
 
 
 # ---------------------------------------------------------------------------
@@ -788,3 +789,97 @@ class TestFX2ConnectionSingleton:
         ):
             fx2driver._FX2Connection.get()
         assert fx2driver._FX2Connection._instance is None
+
+
+# ---------------------------------------------------------------------------
+# WinUSB control-transfer failure contract
+# ---------------------------------------------------------------------------
+#
+# `WinUsbDevice.control_transfer` used to discard the BOOL that
+# WinUsb_ControlTransfer returns, so on the Windows streaming path a failed
+# vendor request was indistinguishable from a successful one: the OUT branch
+# returned None either way and the IN branch returned b'' because the
+# transferred count stays 0 on failure. That None reached `_led_write`'s
+# short-write detector, whose `result is not None` guard skipped the check --
+# a safety check silently disabling itself.
+#
+# These drive the seam the consumers use rather than the ctypes wrapper:
+# `drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
+# cannot be imported off-Windows at all. `control_transfer_out` reaches the
+# transport through a plain `self._winusb_reader_for_ctrl.device` attribute,
+# so a stub substitutes for it on any platform.
+
+
+def _conn_on_winusb(device):
+    """A _FX2Connection routed through a stub WinUSB transport.
+
+    Built with __new__ rather than the real constructor so the test needs no
+    USB device; only the three attributes control_transfer_out reads to pick
+    its transport, plus the lock it takes.
+    """
+    conn = object.__new__(fx2driver._FX2Connection)
+    conn._lock = threading.Lock()
+    conn._iso_handle_for_ctrl = None  # not the libusb1 path
+    conn._winusb_reader_for_ctrl = SimpleNamespace(device=device)
+    return conn
+
+
+def test_a_failed_winusb_out_transfer_reaches_the_caller():
+    """The contract every consumer in this chain is written against."""
+
+    def refuse(*a, **kw):
+        raise RuntimeError('ControlTransfer OUT ... failed: 31')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
+    with pytest.raises(RuntimeError, match='failed'):
+        conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+
+
+def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
+    """`control_transfer_out` is declared `-> int` and its docstring promises
+    bytes written. Returning None is what switched off the detector below."""
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=lambda *a, **kw: 1))
+    result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+    assert result == 1
+    assert result is not None
+
+
+def test_a_failed_winusb_in_transfer_reaches_the_caller():
+    def refuse(*a, **kw):
+        raise RuntimeError('ControlTransfer IN ... failed: 31')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
+    with pytest.raises(RuntimeError, match='failed'):
+        conn.control_transfer_in(fx2driver.VR_I2C_READ, index=0x42, length=2)
+
+
+def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
+    """The test that would have failed for the whole life of the defect.
+
+    `_led_write` compares i2c_write's return against the 1 byte it expects,
+    but skips the comparison when the value is None -- which is all the
+    WinUSB transport ever returned. With a real count flowing, a zero-byte
+    write is caught.
+    """
+    led = object.__new__(fx2driver.FX2LEDController)
+    led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
+    led._wire_debug_enabled = lambda: False
+
+    with patch.object(fx2driver, 'logger') as mock_logger:
+        led._led_write(channel=0, brightness=0x10)
+        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+
+    assert 'short write' in warned, f'a 0-of-1-byte write was not reported: {warned!r}'
+
+
+def test_the_led_detector_stays_quiet_on_a_good_write():
+    """The converse -- the detector must not cry wolf on every LED command."""
+    led = object.__new__(fx2driver.FX2LEDController)
+    led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 1)
+    led._wire_debug_enabled = lambda: False
+
+    with patch.object(fx2driver, 'logger') as mock_logger:
+        led._led_write(channel=0, brightness=0x10)
+        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+
+    assert 'short write' not in warned

@@ -39,6 +39,24 @@ from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
 from modules.notification_center import notifications
+from modules.sequential_io_executor import IOTask, slow_task_budget
+
+# Declared costs, module-level because the @slow_task_budget decorators run at
+# class-body time and cannot reach a class attribute defined further down.
+#
+# Homing legitimately takes 10-60+ seconds depending on travel distance and
+# starting position. Deliberately NOT _MOTION_SETTLE_TIMEOUT_S even though both
+# are 120: that one is how long ONE motion may take to settle, this is how long
+# the homing command may run before the elapsed-time warning means anything.
+# Two facts that happen to share a number drift apart the moment one is tuned.
+_HOMING_SLOW_TASK_S = 120.0
+
+# A turret move is three physically-waited motions (Z park, turret, Z restore),
+# so it runs past a threshold written for one and warned on every successful
+# move. Measured 5.2s on an LS850T between adjacent positions; this is ~3x
+# that, the "unusual" bound rather than the hung bound. Budget row:
+# Firmware docs/PERFORMANCE_BUDGETS.md, turret move.
+_TURRET_MOVE_SLOW_TASK_S = 15.0
 
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
@@ -149,24 +167,42 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
-        # Last turret position cache -- tmove() short-circuits a same-
+        # Last turret position cache -- move_turret() short-circuits a same-
         # position request to avoid a no-op move command. Defaults to None
-        # so the first tmove() always goes through to the firmware.
+        # so the first move_turret() always goes through to the firmware.
         self._last_turret_position: int | None = None
 
-    def _init_axes(self, present_axes: list[str]) -> None:
-        """Populate per-axis state dicts from the list of detected axes.
+    def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
+        """Populate per-axis state dicts from the detected axes.
 
         Called from Lumascope.__init__ (and create_diagnostic) after the
         motion driver's detect_present_axes() has run. NullMotionBoard
         returns [] so a system with no motor hardware ends up with empty
         dicts -- all state-touching methods handle that via no-ops.
 
+        An axis the hardware reports homed starts IDLE, not UNKNOWN.
+        Seeding every axis UNKNOWN meant a fresh process was blind to a
+        scope that was already homed and still powered, so the pre-drive
+        gate refused it -- correct for a scope that has never been homed,
+        wrong for one whose reference frame is live. The GUI never saw
+        this because it homes at startup; every headless caller saw it
+        always, and the only fixes available to them were to re-home
+        (destroying the position they attached to measure) or to bypass
+        the gate. Neither is acceptable, so the state store is told the
+        truth instead.
+
+        homed_axes is required rather than defaulted: a caller that
+        forgets it would silently reintroduce the blind seeding, and
+        that failure is invisible until a headless run is refused.
+
         Args:
             present_axes: List of axis names the hardware actually has.
+            homed_axes: Those axes the hardware reports as already homed.
         """
         self._pos_cache = dict.fromkeys(present_axes, 0.0)
-        self._axis_state = dict.fromkeys(present_axes, AxisState.UNKNOWN)
+        self._axis_state = {
+            ax: (AxisState.IDLE if ax in homed_axes else AxisState.UNKNOWN) for ax in present_axes
+        }
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
@@ -337,8 +373,6 @@ class MotionAPI:
             otherwise None. Also None when the executor declined the
             task, which a waiting caller must read as "did not run".
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
         task = IOTask(
             action=action,
             kwargs=kwargs,
@@ -536,6 +570,7 @@ class MotionAPI:
         after = self.get_limit_switch_status_all_axes()
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _home_impl(self) -> bool:
         """Home every axis the motor board has.
 
@@ -601,7 +636,7 @@ class MotionAPI:
                 self._set_axis_state(ax, AxisState.IDLE)
             self._refresh_position_cache()
             # The firmware homes the turret to position 1, so seed the cache.
-            # Without this it stays None and a subsequent tmove(1) -- e.g. the
+            # Without this it stays None and a subsequent move_turret(1) -- e.g. the
             # startup select-position-1 -- can't recognize the turret is
             # already there, and runs a redundant Z-retract / rotate / restore.
             if 'T' in present_axes:
@@ -670,7 +705,8 @@ class MotionAPI:
                     extra={'force_error': True},
                 )
 
-    def _thome_impl(self) -> bool:
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
+    def _home_turret_impl(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
         Returns:
@@ -728,7 +764,7 @@ class MotionAPI:
                 return False
             self._refresh_position_cache()
             # Turret homes to position 1; seed the cache so a following
-            # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
+            # move_turret(1) is a no-op rather than a redundant Z-retract / rotate /
             # restore (see home() for the full rationale).
             self._last_turret_position = 1
             _api_log.info('T home DONE')
@@ -742,7 +778,7 @@ class MotionAPI:
             _api_log.info('T home DONE')
             return False
 
-    def has_thomed(self) -> bool:
+    def has_turret_homed(self) -> bool:
         """Whether the turret has a known reference position.
 
         Answers from the axis state rather than the driver's homing
@@ -762,7 +798,8 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._position_known(self._axis_state['T'])
 
-    def _tmove_impl(self, position: int, restore_z: bool = True) -> None:
+    @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
+    def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
@@ -802,10 +839,11 @@ class MotionAPI:
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
-        Unlike get_current_position() which returns the last commanded
-        target, this queries the motor controller for where it actually is
-        right now. Use during continuous motion sweeps where the stage is
-        moving and the cache doesn't reflect the true position.
+        Unlike get_current_position(), which serves the in-memory cache,
+        this asks the motor controller directly. Use during continuous
+        motion sweeps where the stage is moving and the cache doesn't
+        reflect the true position. The commanded target is a third thing
+        again -- get_target_position() answers that.
 
         Costs one serial round-trip (~5ms).
 
@@ -1026,7 +1064,7 @@ class MotionAPI:
         if a in ('ALL', 'XY'):
             return self._home_impl
         if a == 'T':
-            return self._thome_impl
+            return self._home_turret_impl
         logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
         return None
 
@@ -1061,7 +1099,6 @@ class MotionAPI:
             self._submit_motion(
                 action,
                 'move_home_and_wait',
-                slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
                 wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
             )
             is True
@@ -1085,11 +1122,6 @@ class MotionAPI:
             'move_home_async',
             callback=callback,
             cb_args=cb_args,
-            # Homing legitimately takes 10-60+ seconds depending on travel
-            # distance and starting position -- well above the 5 sec default
-            # slow-task threshold. Only a true stall warrants a slow-task
-            # warning here.
-            slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
         )
 
     def get_axis_state(self, axis: str) -> str:
@@ -1170,6 +1202,7 @@ class MotionAPI:
         """
         return self._driver.get_axis_limits(axis=axis)
 
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _zhome_impl(self) -> bool:
         """Home the Z axis (focus).
 
@@ -1225,7 +1258,7 @@ class MotionAPI:
         """Whether the stage / focus axes have a known reference position.
 
         Answers from the axis state rather than the driver's homing
-        latch, for the same reason as ``has_thomed``: the latch survives
+        latch, for the same reason as ``has_turret_homed``: the latch survives
         every fault short of a physical disconnect, so it keeps
         reporting "homed" after a stall or a dropout has already
         invalidated the reference frame.
@@ -1625,7 +1658,9 @@ class MotionAPI:
     # routine legitimately takes on long travel.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
-    def _dispatch_motion(self, impl, name, args=(), kwargs=None, *, timeout_s):
+    def _dispatch_motion(
+        self, impl, name, args=(), kwargs=None, *, timeout_s, slow_task_threshold_sec=None
+    ):
         """Run one motion command for an external caller, on the right thread.
 
         Three outcomes. With no executor registered the body runs on the
@@ -1642,16 +1677,29 @@ class MotionAPI:
         fence can land between the check and the submit, and without the
         second check that race surfaces as an AttributeError on the missing
         future instead of the typed refusal.
-        """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
 
+        slow_task_threshold_sec declares how long this command may take
+        before the elapsed-time WARNING means anything. Left None the task
+        inherits IOTask's default, which describes a SINGLE motion -- a
+        command that physically performs several will trip it every time it
+        succeeds. Distinct from timeout_s, which is the hung bound: this one
+        is "unusually slow, look at it", that one is "definitively stuck".
+        """
         kwargs = kwargs or {}
         ex = self._scope._io_executor
         if ex is None:
             return impl(*args, **kwargs)
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        fut = ex.put(
+            IOTask(
+                action=impl,
+                args=args,
+                kwargs=kwargs,
+                slow_task_threshold_sec=slow_task_threshold_sec,
+            ),
+            return_future=True,
+        )
         if fut is None:
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
@@ -1719,7 +1767,7 @@ class MotionAPI:
                 Same vocabulary as ``move_home_async``, minus its legacy
                 ``'XY'`` alias.
 
-        See the ``_home_impl`` / ``_zhome_impl`` / ``_thome_impl``
+        See the ``_home_impl`` / ``_zhome_impl`` / ``_home_turret_impl``
         docstrings for the per-axis notify-on-failure contracts.
 
         Returns:
@@ -1738,7 +1786,7 @@ class MotionAPI:
         if a == 'Z':
             impl, settle_windows = self._zhome_impl, 1
         elif a == 'T':
-            impl, settle_windows = self._thome_impl, 3
+            impl, settle_windows = self._home_turret_impl, 3
         elif a == 'ALL':
             impl, settle_windows = self._home_impl, 1
         else:
@@ -1749,15 +1797,15 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
         )
 
-    def tmove(self, position: int, restore_z: bool = True) -> None:
-        """Move the turret to a position, and wait for it. See ``_tmove_impl``.
+    def move_turret(self, position: int, restore_z: bool = True) -> None:
+        """Move the turret to a position, and wait for it. See ``_move_turret_impl``.
 
         The wait bound covers three physically-waited motions: the Z park,
         the turret move itself, and the Z restore.
         """
         return self._dispatch_motion(
-            self._tmove_impl,
-            'tmove',
+            self._move_turret_impl,
+            'move_turret',
             args=(position,),
             kwargs={'restore_z': restore_z},
             timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,

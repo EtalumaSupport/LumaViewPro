@@ -1,5 +1,4 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-import copy
 import threading
 from dataclasses import dataclass, field
 
@@ -51,8 +50,6 @@ class AppContext:
     lumaview: object = None  # MainDisplay widget
 
     # Core services
-    settings: dict = field(default_factory=dict)
-    settings_lock: threading.Lock = field(default_factory=threading.Lock)
     session: object = None  # ScopeSession
     sequenced_capture_runner: object = None
     autofocus_runner: object = None
@@ -125,26 +122,37 @@ class AppContext:
         """Backward-compatible check (replaces _app_initializing)."""
         return not self._ready
 
-    # --- Thread-safe settings access ---
-    # The `settings` dict is a module-level mutable global accessed ~395 times
-    # across 27+ files. Worker threads should call get_settings_snapshot() at
-    # task entry to obtain an immutable copy, avoiding races with the GUI thread.
-    # GUI-thread code may continue to access `settings` directly for now.
+    # --- Settings access: the session owns the store, this forwards ---
+    # Neither the dict nor its lock is a field here. The session is built
+    # before this context and is handed the one settings dict; a field
+    # holding either half would let a caller construct a second store, or
+    # a lock guarding only one alias of the dict, and nothing would report
+    # the mismatch. Forwarding makes both unconstructible. Worker threads
+    # take get_settings_snapshot() at task entry and read from that;
+    # writers off the host thread use update_settings().
+
+    def _require_session(self):
+        if self.session is None:
+            raise AttributeError(
+                'AppContext has no session, so there is no settings store to '
+                'reach. Construct the session first and pass it in.'
+            )
+        return self.session
+
+    @property
+    def settings(self):
+        """The live settings dict, owned by the session."""
+        return self._require_session().settings
+
+    @property
+    def settings_lock(self):
+        """The lock guarding the settings dict, owned by the session."""
+        return self._require_session().settings_lock
 
     def get_settings_snapshot(self):
-        """Return a deep copy of settings under the lock.
-
-        Worker threads should call this once at task entry and read from
-        the returned snapshot rather than touching the live settings dict.
-        """
-        with self.settings_lock:
-            return copy.deepcopy(self.settings)
+        """A deep copy of settings taken under the lock."""
+        return self._require_session().get_settings_snapshot()
 
     def update_settings(self, key, value):
-        """Write a top-level key in settings under the lock.
-
-        Use this for any cross-thread write to settings so the lock is
-        always acquired consistently.
-        """
-        with self.settings_lock:
-            self.settings[key] = value
+        """Write one top-level settings key under the lock."""
+        self._require_session().update_settings(key, value)

@@ -310,9 +310,19 @@ class AutofocusRunner:
                 if self._led_color is not None
                 else None
             )
+            if af_channel is None and self._led_color is not None and self._scope.led_connected:
+                # A named AF colour that resolves to no channel on a
+                # connected board means this unit's identity has no such
+                # layer: the metric would scan an ambient field and focus
+                # on the wrong thing. Loud, then proceed ambient -- an
+                # in-flight run gets logs, not popups.
+                logger.error(
+                    f"[AF        ] This scope has no '{self._led_color}' LED "
+                    f'channel; autofocus will scan ambient light.'
+                )
             self._led_lease.apply(
                 LedTransition.AF_ENTER,
-                LedTransitionCtx(channel=af_channel, mA=self._led_illumination),
+                LedTransitionCtx(channel=af_channel, illumination_ma=self._led_illumination),
             )
             # Drop Z precision for the coarse passes; the fine pass restores
             # precision ON, and all exit paths (success, abort, exception)
@@ -438,7 +448,7 @@ class AutofocusRunner:
                 )
                 snapshot_lit = (
                     snapshot_lit_pairs(
-                        self._saved_led_state.get('states', {}), illumination.color2ch
+                        self._saved_led_state.get('states', {}), illumination.state_color2ch
                     )
                     if self._saved_led_state
                     else frozenset()
@@ -447,7 +457,7 @@ class AutofocusRunner:
                     LedTransition.AF_TO_CAPTURE,
                     LedTransitionCtx(
                         channel=af_channel,
-                        mA=self._led_illumination,
+                        illumination_ma=self._led_illumination,
                         keep_led_on=keep_for_capture,
                         snapshot_lit=snapshot_lit,
                     ),

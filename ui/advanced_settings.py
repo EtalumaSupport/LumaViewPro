@@ -297,6 +297,21 @@ class AdvancedSettings(Popup):
         # (control visibility + read-only model label + stage redraw); the
         # startup path uses the same method so both reconfigure identically.
         ctx.motion_settings.ids['microscope_settings_id'].reconfigure_for_scope()
+        # The motion controls follow the attached hardware, so this selection
+        # does not move them. Say that outright: a panel that visibly does
+        # nothing otherwise reads as a broken selector. The wording must not
+        # promise the choice sticks either -- a board that reports its own
+        # model overwrites this value at the next startup.
+        from modules.notification_center import notifications
+
+        notifications.info(
+            'Microscope',
+            'Scope model saved',
+            f'{new_model} is saved as the configured model. The controls on '
+            f'screen follow the microscope actually attached, so this takes '
+            f'effect when you reconnect. A microscope that reports its own '
+            f'model overrides this selection.',
+        )
 
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value

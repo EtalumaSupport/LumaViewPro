@@ -61,21 +61,21 @@ def _default_stim_config():
     return {
         'Red': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
         'Green': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
         'Blue': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
@@ -88,7 +88,7 @@ def _stim_config_enabled(channels=('Green',)):
     cfg = _default_stim_config()
     for ch in channels:
         cfg[ch]['enabled'] = True
-        cfg[ch]['illumination'] = 200.0
+        cfg[ch]['illumination_ma'] = 200.0
         cfg[ch]['frequency'] = 5.0
         cfg[ch]['pulse_width'] = 20
         cfg[ch]['pulse_count'] = 50
@@ -433,7 +433,7 @@ class TestRoundTripBasic:
 
         assert isinstance(step['Stim_Config'], dict)
         assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Green']['illumination'] == 500.0
+        assert step['Stim_Config']['Green']['illumination_ma'] == 500.0
         assert step['Stim_Config']['Green']['frequency'] == 0.8
         assert step['Stim_Config']['Green']['pulse_count'] == 10
         assert step['Stim_Config']['Red']['enabled'] is False
@@ -2341,20 +2341,20 @@ class TestLumascapeAPILed:
     """Direct tests on Lumascope LED API with simulated hardware."""
 
     def test_led_on_off(self, scope):
-        scope.illumination.led_on(channel=0, mA=100)
+        scope.illumination.led_on(channel=0, illumination_ma=100)
         assert scope.illumination.led_enabled('Blue')
         scope.illumination.led_off(channel=0)
         assert not scope.illumination.led_enabled('Blue')
 
     def test_led_on_by_color_name(self, scope):
-        scope.illumination.led_on(channel='Green', mA=200)
+        scope.illumination.led_on(channel='Green', illumination_ma=200)
         state = scope.illumination.get_led_state('Green')
         assert state['enabled']
         assert state['illumination_ma'] == 200
 
     def test_leds_off(self, scope):
-        scope.illumination.led_on(channel='BF', mA=50)
-        scope.illumination.led_on(channel='Red', mA=100)
+        scope.illumination.led_on(channel='BF', illumination_ma=50)
+        scope.illumination.led_on(channel='Red', illumination_ma=100)
         scope.illumination.leds_off()
         states = scope.illumination.get_led_states()
         for color, state in states.items():
@@ -2362,17 +2362,17 @@ class TestLumascapeAPILed:
 
     def test_led_current_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, mA=-1)
+            scope.illumination.led_on(channel=0, illumination_ma=-1)
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, mA=1001)
+            scope.illumination.led_on(channel=0, illumination_ma=1001)
 
     def test_led_channel_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=99, mA=100)
+            scope.illumination.led_on(channel=99, illumination_ma=100)
 
     def test_led_states_snapshot(self, scope):
-        scope.illumination.led_on(channel='Green', mA=200)
-        scope.illumination.led_on(channel='Red', mA=150)
+        scope.illumination.led_on(channel='Green', illumination_ma=200)
+        scope.illumination.led_on(channel='Red', illumination_ma=150)
         states = scope.illumination.get_led_states()
         assert states['Green']['enabled']
         assert states['Green']['illumination_ma'] == 200

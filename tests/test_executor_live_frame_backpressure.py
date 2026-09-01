@@ -23,6 +23,7 @@ import threading
 import time
 
 from modules.sequential_io_executor import (
+    ENQUEUED,
     LIVE_FRAME_DROPPED,
     _LIVE_FRAME_MAXSIZE,
     IOTask,
@@ -40,7 +41,7 @@ def _ex():
 def test_put_bounds_droppable_live_frames():
     ex = _ex()
     for _ in range(_LIVE_FRAME_MAXSIZE):
-        assert ex.put(IOTask(lambda: None, droppable_live=True)) is None  # enqueued
+        assert ex.put(IOTask(lambda: None, droppable_live=True)) is ENQUEUED
     assert ex._live_inflight == _LIVE_FRAME_MAXSIZE
     assert ex.queue.qsize() == _LIVE_FRAME_MAXSIZE
 
@@ -66,7 +67,7 @@ def test_worker_frees_inflight_slot_on_dequeue():
     ex.start()
     try:
         ran = threading.Event()
-        assert ex.put(IOTask(lambda: ran.set(), droppable_live=True)) is None
+        assert ex.put(IOTask(lambda: ran.set(), droppable_live=True)) is ENQUEUED
         assert ran.wait(2.0)  # the task actually ran
         # The decrement happens right after get(), before run; allow a beat.
         deadline = time.monotonic() + 1.0

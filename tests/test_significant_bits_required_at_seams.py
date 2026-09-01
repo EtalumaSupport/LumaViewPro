@@ -59,7 +59,13 @@ def test_add_scale_bar_rejects_missing_depth():
 
 def test_save_image_rejects_missing_depth():
     with pytest.raises(TypeError):
-        image_save.save_image(None, np.zeros((4, 4), dtype=np.uint8), save_encoding='8bit')
+        image_save.save_image(
+            None,
+            np.zeros((4, 4), dtype=np.uint8),
+            save_encoding='8bit',
+            channel='BF',
+            false_color_on=False,
+        )
 
 
 def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
@@ -81,5 +87,11 @@ def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(image_save, 'save_image', _fail_save)
 
-    out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
+    out = image_save.save_live_image(
+        scope,
+        save_folder=str(tmp_path),
+        save_encoding='8bit',
+        channel='BF',
+        false_color_on=False,
+    )
     assert out is None

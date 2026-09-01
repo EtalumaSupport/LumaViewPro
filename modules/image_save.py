@@ -46,7 +46,7 @@ def write_video_frame(
     frame: np.ndarray,
     file_loc: pathlib.Path,
     metadata: dict,
-    layer_color: str,
+    channel: str,
     false_color_on: bool,
     save_encoding: str,
     capture_depth: int,
@@ -68,7 +68,7 @@ def write_video_frame(
         frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
         file_loc: Output .tiff path.
         metadata: Per-frame metadata dict (must include 'datetime').
-        layer_color: Acquiring layer ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
+        channel: Acquiring channel ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
         false_color_on: Whether the layer's false-color toggle was on.
         save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
             'msb_aligned'/'rgb').
@@ -84,7 +84,13 @@ def write_video_frame(
             f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
             'with an unrecognized image-mode encoding'
         )
-    save_color = layer_color if false_color_on else 'BF'
+    # Rendering value, permanently: it collapses to 'BF' whenever false color
+    # is off, so it stops naming the channel that was imaged. Nothing derived
+    # from false_color_on may reach a field describing WHAT the frame is -- a
+    # display setting recorded as identity is a claim about the specimen that
+    # the file cannot walk back. Video frames carry no channel field today, so
+    # nothing structural stops it here; the names are what keep them apart.
+    render_color = channel if false_color_on else 'BF'
     # State the payload depth so the file is labeled honestly: an 8-bit frame
     # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
     # msb_aligned can left-justify and right_aligned marks the true depth; a
@@ -99,15 +105,15 @@ def write_video_frame(
         frame.dtype == np.uint8
         and false_color_on
         and not image_utils.is_color_image(frame)
-        and save_color in common_utils.get_image_layers()
+        and render_color in common_utils.get_image_layers()
     ):
-        frame = image_utils.add_false_color(array=frame, color=save_color)
+        frame = image_utils.add_false_color(array=frame, color=render_color)
     image_utils.write_tiff(
         data=frame,
         file_loc=file_loc,
         metadata=metadata,
         ome=False,
-        color=save_color,
+        color=render_color,
         video_frame=True,
         significant_bits=significant_bits,
         save_encoding=save_encoding,
@@ -241,14 +247,14 @@ def generate_image_save_path(
     return path
 
 
-def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
+def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
     Args:
         scope: Read for objective / labware / stage-offset state,
             coordinate transformer, current camera + LED settings,
             and pending camera chunk metadata.
-        color (str): Channel color name (e.g. "Blue", "BF").
+        channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
         x (float): Stage X position in um (or None).
         y (float): Stage Y position in um (or None).
         z (float): Stage Z position in um (or None).
@@ -258,7 +264,18 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
 
     Raises:
         ConfigError: If objective, labware, or stage offset are not set.
+        ValueError: If channel is not a known layer or 'Composite'.
     """
+    # This is the last point that can tell a real channel from a placeholder,
+    # an index, or a rendering value: past here it is written verbatim and read
+    # back forever as a claim about what was imaged. The caller set stops being
+    # enumerable the moment this ships, so the vocabulary is checked, not assumed.
+    if channel not in common_utils.get_layers() and channel != 'Composite':
+        raise ValueError(
+            f'unknown channel {channel!r} for image metadata; expected one of '
+            f"{common_utils.get_layers()} or 'Composite'"
+        )
+
     objective = scope.runtime_state.get_current_objective()
     if objective is None:
         raise ConfigError('[SCOPE API ] Objective not set')
@@ -376,12 +393,30 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
             'camera read failed); omitting gain_db from saved metadata'
         )
 
+    # Spectral identity from the resolved layer record. Written whatever
+    # rung identity resolved from, and a null value is ABSENT: broadband
+    # layers have no excitation, 'Composite' has no record, an unresolved
+    # identity has no filterset -- a null or stand-in written here would
+    # read downstream as a measured property of the capture. The board
+    # address (led_channel) deliberately stays out of metadata: it changes
+    # with a rewire, board swap, or motorconfig regeneration, so recording
+    # it would version the files to the wiring.
+    identity = scope.layer_identity
+    record = identity.find(channel)
+
     metadata = {
         'camera_make': 'Etaluma',
         'microscope': microscope_model,
         'microscope_model': microscope_model,
         'software': f'LumaViewPro {version}',
-        'channel': color,
+        'channel': channel,
+        **({'channel_display': record.display_name} if record is not None else {}),
+        **(
+            {'excitation_nm': record.excitation_nm}
+            if record is not None and record.excitation_nm is not None
+            else {}
+        ),
+        **({'filterset': identity.filterset} if identity.filterset else {}),
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
         'objective': objective,
@@ -391,10 +426,14 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'y_pos': py,
         'z_pos_um': z,
         **_frame_settings,
-        'illumination_ma': (
-            round(_ma, common_utils.max_decimal_precision('illumination'))
-            if (_ma := scope.illumination.get_led_ma(color=color)) is not None
-            else 0
+        # An LED that is off, never set, or on an absent board has no
+        # drive current -- a normal state for dark and luminescence
+        # captures, so the key is simply absent (no warning, unlike the
+        # exposure/gain omissions above, which indicate a failed read).
+        **(
+            {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
+            if (_ma := scope.illumination.get_led_ma(channel=channel)) is not None
+            else {}
         ),
         'binning_size': scope.imaging._binning_size,
         'pixel_size_um': pixel_size_um,
@@ -452,14 +491,13 @@ def prepare_image_for_saving(
     save_folder: str,
     file_root: str,
     append: str,
-    color: str,
     tail_id_mode: str,
     output_format: str,
-    true_color: str,
     x,
     y,
     z,
     *,
+    channel: str,
     significant_bits: int,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
@@ -474,14 +512,16 @@ def prepare_image_for_saving(
         array: Raw image array from drivers.
         save_folder: Directory to save into.
         file_root: Filename prefix.
-        append: String appended to filename (e.g. color label).
-        color: Color label for the filename.
+        append: String appended to filename (e.g. channel label).
         tail_id_mode: "increment" for auto-numbered files, or None.
         output_format: "TIFF" or "OME-TIFF".
-        true_color: Actual channel color for metadata.
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
+        channel: Channel the frame was acquired on. Required and keyword-only:
+            it is the sole durable carrier of channel identity, so a save that
+            never states its channel must not be constructible. It is
+            independent of how the frame is displayed.
         significant_bits: Payload depth ``array`` was captured at, recorded in
             the SignificantBits tag. Required: the caller passes the depth it
             captured the frame at (8 for a uint8 frame, the native depth for a
@@ -492,7 +532,7 @@ def prepare_image_for_saving(
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
-    metadata = generate_image_metadata(scope, color=true_color, x=x, y=y, z=z)
+    metadata = generate_image_metadata(scope, channel=channel, x=x, y=y, z=z)
 
     metadata['significant_bits'] = significant_bits
 
@@ -521,12 +561,12 @@ def save_image(
     save_folder='./capture',
     file_root='img_',
     append='ms',
-    color='BF',
     tail_id_mode='increment',
     *,
+    channel: str,
+    false_color_on: bool,
     save_encoding: str,
     output_format: str = 'TIFF',
-    true_color: str = 'BF',
     x=None,
     y=None,
     z=None,
@@ -543,10 +583,14 @@ def save_image(
         save_folder: Directory to save into.
         file_root: Filename prefix.
         append: String appended to filename.
-        color: Color label for the filename.
         tail_id_mode: "increment" for auto-numbered files, or None.
+        channel: Channel the frame was acquired on -- what the image IS.
+            Required and keyword-only; recorded as the file's identity and
+            never altered by a display setting.
+        false_color_on: Whether the channel's false-color toggle was on --
+            how the image is DISPLAYED. Required and keyword-only; drives the
+            colormap and the JPG bake, and reaches no identity field.
         output_format: "TIFF", "OME-TIFF", or "JPG".
-        true_color: Actual channel color for metadata.
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
@@ -578,6 +622,11 @@ def save_image(
             'the protocol will retry on the next step.'
         )
 
+    # The one place the two facts meet, and they meet on the rendering side
+    # only. A channel with false color off is drawn like brightfield; it is
+    # still that channel, and the metadata below says so.
+    render_color = channel if false_color_on else 'BF'
+
     if output_format == 'JPG':
         # JPG is a convenience / sharing export: no metadata is embedded
         # and the pixels come from the raw array (to match the live
@@ -602,10 +651,9 @@ def save_image(
             save_folder=save_folder,
             file_root=file_root,
             append=append,
-            color=color,
             tail_id_mode=tail_id_mode,
             output_format=output_format,
-            true_color=true_color,
+            channel=channel,
             x=x,
             y=y,
             z=z,
@@ -630,7 +678,7 @@ def save_image(
             # 16-bit data + metadata.
             jpg_bytes = image_utils.encode_display_jpg(
                 _apply_save_orientation(array),
-                color,
+                render_color,
                 significant_bits=significant_bits,
                 jpeg_quality=jpeg_quality,
             )
@@ -641,7 +689,7 @@ def save_image(
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
-                color=color,
+                color=render_color,
                 significant_bits=metadata['significant_bits'],
                 save_encoding=save_encoding,
                 false_color_buf=false_color_buf,
@@ -670,11 +718,9 @@ def save_live_image(
     save_folder='./capture',
     file_root='img_',
     append='ms',
-    color='BF',
     tail_id_mode='increment',
     force_to_8bit: bool = True,
     output_format: str = 'TIFF',
-    true_color: str = 'BF',
     earliest_image_ts: datetime.datetime | None = None,
     timeout_s: float = 5.0,
     all_ones_check: bool = False,
@@ -685,6 +731,8 @@ def save_live_image(
     use_executor: bool = False,
     jpeg_quality: int = 90,
     *,
+    channel: str,
+    false_color_on: bool,
     save_encoding: str,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
@@ -697,11 +745,9 @@ def save_live_image(
         save_folder: Directory to save into.
         file_root: Filename prefix.
         append: String appended to filename.
-        color: Color label for the filename.
         tail_id_mode: "increment" for auto-numbered files, or None.
         force_to_8bit: Convert 12-bit images to 8-bit.
         output_format: "TIFF" or "OME-TIFF".
-        true_color: Actual channel color for metadata.
         earliest_image_ts: Reject frames before this timestamp.
         timeout_s: Max seconds to wait for a valid frame.
         all_ones_check: Reject saturated frames.
@@ -712,6 +758,10 @@ def save_live_image(
         use_executor: Reserved for future use.
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
+        channel: Channel the frame was acquired on, forwarded to save_image as
+            the file's identity. Required and keyword-only.
+        false_color_on: Whether the channel's false-color toggle was on,
+            forwarded as the rendering choice. Required and keyword-only.
         save_encoding: The derived on-disk encoding from the image_mode
             config layer; required and keyword-only, forwarded to save_image
             so the live-capture path cannot drop the image mode.
@@ -742,13 +792,13 @@ def save_live_image(
     path = save_image(
         scope,
         array,
-        save_folder,
-        file_root,
-        append,
-        color,
-        tail_id_mode,
+        save_folder=save_folder,
+        file_root=file_root,
+        append=append,
+        tail_id_mode=tail_id_mode,
+        channel=channel,
+        false_color_on=false_color_on,
         output_format=output_format,
-        true_color=true_color,
         jpeg_quality=jpeg_quality,
         significant_bits=significant_bits,
         save_encoding=save_encoding,

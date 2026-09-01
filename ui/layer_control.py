@@ -327,7 +327,7 @@ class LayerControl(BoxLayout):
                 type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
-        settings[self.layer]['ill_ma'] = illumination
+        settings[self.layer]['illumination_ma'] = illumination
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
@@ -350,7 +350,7 @@ class LayerControl(BoxLayout):
             # Show current valid value so user knows input was rejected (M21)
             self._initializing = True
             try:
-                self.ids['ill_text'].text = str(settings[self.layer]['ill_ma'])
+                self.ids['ill_text'].text = str(settings[self.layer]['illumination_ma'])
             finally:
                 self._initializing = False
             return
@@ -370,7 +370,7 @@ class LayerControl(BoxLayout):
                 illumination,
                 type(illumination).__name__,
             )
-        settings[self.layer]['ill_ma'] = illumination
+        settings[self.layer]['illumination_ma'] = illumination
 
         # Wrap programmatic widget writes so on_value does not re-enter
         # ill_slider and re-fire apply_settings (#617).
@@ -511,7 +511,7 @@ class LayerControl(BoxLayout):
                     self.ids['gain_slider'].value = gain
                     self.ids['gain_text'].text = str(round(gain, 1))
                 if exp_known:
-                    settings[self.layer]['exp_ms'] = exp
+                    settings[self.layer]['exposure_ms'] = exp
                     self.ids['exp_slider'].value = exp
                     self.ids['exp_text'].text = str(round(exp, 2))
 
@@ -572,7 +572,7 @@ class LayerControl(BoxLayout):
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        settings[self.layer]['exp_ms'] = exposure  # exposure in ms
+        settings[self.layer]['exposure_ms'] = exposure  # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
@@ -597,14 +597,14 @@ class LayerControl(BoxLayout):
             # Show current valid value so user knows input was rejected (M21)
             self._initializing = True
             try:
-                self.ids['exp_text'].text = str(settings[self.layer]['exp_ms'])
+                self.ids['exp_text'].text = str(settings[self.layer]['exposure_ms'])
             finally:
                 self._initializing = False
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
-        settings[self.layer]['exp_ms'] = exposure
+        settings[self.layer]['exposure_ms'] = exposure
 
         # Wrap programmatic widget writes so on_value does not re-enter
         # exp_slider and re-fire apply_exp_slider (#617).
@@ -691,7 +691,7 @@ class LayerControl(BoxLayout):
         illumination = round(self.ids['stim_ill_slider'].value)
         gui_logger.slider(f'STIM_ILL_{self.layer}', illumination)
         try:
-            settings[self.layer]['stim_config']['illumination'] = illumination
+            settings[self.layer]['stim_config']['illumination_ma'] = illumination
         except Exception as e:
             logger.error(f'[LVP Main  ] LayerControl.stim_ill_slider() -> {e}')
         new_text = str(illumination)
@@ -1008,7 +1008,7 @@ class LayerControl(BoxLayout):
         camera_executor = ctx.camera_executor
         enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
-        illumination = settings[self.layer]['ill_ma']
+        illumination = settings[self.layer]['illumination_ma']
 
         if apply_settings:
             self.apply_settings(update_led=False)
@@ -1126,8 +1126,8 @@ class LayerControl(BoxLayout):
                     self.ids['stim_disable_btn'].active = True
                     self.ids['stim_enable_btn'].active = False
                 self.update_stim_controls_visibility()
-                self.ids['stim_ill_text'].text = str(stim.get('illumination', 100))
-                self.ids['stim_ill_slider'].value = float(stim.get('illumination', 100))
+                self.ids['stim_ill_text'].text = str(stim.get('illumination_ma', 100))
+                self.ids['stim_ill_slider'].value = float(stim.get('illumination_ma', 100))
                 self.ids['stim_freq_text'].text = str(stim.get('frequency', 1))
                 self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
                 self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))
@@ -1163,16 +1163,16 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         layer_settings = settings.get(self.layer, {})
         try:
-            if 'exp_ms' in layer_settings:
-                exp = float(layer_settings['exp_ms'])
+            if 'exposure_ms' in layer_settings:
+                exp = float(layer_settings['exposure_ms'])
                 self.ids['exp_text'].text = str(round(exp, 2))
                 self.ids['exp_slider'].value = exp
             if 'gain_db' in layer_settings:
                 gain = float(layer_settings['gain_db'])
                 self.ids['gain_text'].text = str(round(gain, 1))
                 self.ids['gain_slider'].value = gain
-            if 'ill_ma' in layer_settings:
-                ill = float(layer_settings['ill_ma'])
+            if 'illumination_ma' in layer_settings:
+                ill = float(layer_settings['illumination_ma'])
                 self.ids['ill_text'].text = str(ill)
                 self.ids['ill_slider'].value = ill
         except Exception as e:
@@ -1248,7 +1248,7 @@ class LayerControl(BoxLayout):
                         if layer == self.layer:
                             continue
                         try:
-                            state = ctx.scope.illumination.get_led_state(color=layer)
+                            state = ctx.scope.illumination.get_led_state(channel=layer)
                             if state.get('enabled', False):
                                 ctx.scope.illumination.led_off_async(layer)
                         except Exception as e:
@@ -1314,7 +1314,7 @@ class LayerControl(BoxLayout):
         # update exposure to currently selected settings
         # -----------------------------------------------------
 
-        exposure = settings[self.layer]['exp_ms']
+        exposure = settings[self.layer]['exposure_ms']
         gain = settings[self.layer]['gain_db']
 
         if not ctx.session.run_lockout:

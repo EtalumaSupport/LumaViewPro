@@ -31,18 +31,32 @@ from modules.scheduler import Scheduler, _CallablePairScheduler
 
 # Default cadences. system_metrics is the verbose snapshot (CPU, RAM,
 # GC, page-faults, Defender, buffer-churn, handle counts, queue depth,
-# caller_futures alloc/pop drift, frame-interval percentiles) costing
-# ~10-50 ms per tick. The Bug E investigation showed that 1-hr cadence
-# (the original default) was too coarse to catch handle-growth-per-hr
-# regressions and silent_stuck symptoms; one boot snapshot in a 38-min
-# soak left handle-growth-per-hr unmeasured. Stage B1 lowered the
-# default to 60 s -- ~60 ticks per hour at <0.1% CPU overhead so every
-# soak has post-mortem coverage with sub-minute granularity for the
-# leak-rate budgets in PERFORMANCE_BUDGETS.md. Engineering plugin /
-# REST status endpoint can still call snapshot_* on demand. Callers
-# wanting finer or coarser cadence override via
+# caller_futures alloc/pop drift, frame-interval percentiles).
+#
+# This default was 60 s for three months, on the strength of a comment
+# claiming the snapshot cost ~10-50 ms per tick. Measurement later put
+# the open-files probe ALONE at 134-306 ms on healthy Windows hosts --
+# the estimate was wrong by 3-30x, and nothing re-derived the cadence
+# when the real number arrived. That probe is now opt-in, and this
+# returns to the hourly cadence production always meant to run.
+#
+# Sub-minute sampling still exists where it is needed: a bench soak
+# wants it, because the leak-rate budgets in PERFORMANCE_BUDGETS.md are
+# per-hour figures and an hourly tick yields one sample. So engineering
+# mode selects 60 s automatically -- the alternative, asking every bench
+# operator to remember a settings override, is exactly the arrangement
+# whose being forgotten produced a 38-minute soak with a single snapshot
+# and no measurable handle-growth rate.
+#
+# The trade production accepts: metrics derived through _delta_rate
+# (io_read_mbps, io_write_mbps, page_faults_per_sec) become hour-averages
+# off-bench. Engineering plugin / REST status endpoint can still call
+# snapshot_* on demand, and any caller can override via
 # settings.profiling.metrics_interval_s.
-DEFAULT_SYSTEM_METRICS_INTERVAL_S = 60.0
+DEFAULT_SYSTEM_METRICS_INTERVAL_S = 3600.0
+# What engineering mode selects instead: sub-minute, so a soak shorter than
+# an hour still produces the several samples a per-hour leak rate needs.
+ENGINEERING_METRICS_INTERVAL_S = 60.0
 DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0
 DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 

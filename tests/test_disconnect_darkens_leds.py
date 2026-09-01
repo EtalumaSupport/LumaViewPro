@@ -54,7 +54,7 @@ def test_disconnect_darkens_a_lit_channel(scope):
     # scope's slot to a NullLEDBoard, so reading it afterwards would inspect
     # a fresh object that was never lit and pass no matter what.
     driver = scope._led_driver
-    scope.illumination.led_on(channel=0, mA=50)
+    scope.illumination.led_on(channel=0, illumination_ma=50)
     assert _lit_channels(driver), 'precondition: the channel must actually be lit'
 
     scope.disconnect()
@@ -69,8 +69,8 @@ def test_disconnect_darkens_every_lit_channel(scope):
     # One channel passing does not prove the command was a leds-off rather
     # than an off aimed at whichever channel the code happened to track.
     driver = scope._led_driver
-    scope.illumination.led_on(channel=0, mA=30)
-    scope.illumination.led_on(channel=1, mA=40)
+    scope.illumination.led_on(channel=0, illumination_ma=30)
+    scope.illumination.led_on(channel=1, illumination_ma=40)
     assert len(_lit_channels(driver)) >= 2, 'precondition: two channels lit'
 
     scope.disconnect()

@@ -52,7 +52,19 @@ def protocol_action(action, detail=''):
     _log.info(f'PROTOCOL {action} {detail}')
 
 
-def notification(severity, title, message, source=''):
+def one_line(text: object) -> str:
+    """Collapse free text to a single physical log line.
+
+    Popup and notification messages are caller-supplied prose that may
+    span paragraphs; written raw, the continuation lines carry no
+    level/timestamp prefix and every line-oriented consumer of the log
+    miscounts. Escaping (rather than indenting) keeps the record one
+    physical line and round-trippable.
+    """
+    return str(text).replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
+
+
+def notification(severity: str, title: str, message: str, source: str = '') -> None:
     """Log every popup / notification the user sees.
 
     Wired from every path that produces visible UI:
@@ -70,17 +82,17 @@ def notification(severity, title, message, source=''):
     """
     sev_str = severity if isinstance(severity, str) else str(severity)
     src_suffix = f' from={source}' if source else ''
-    _log.info(f'NOTIFICATION {sev_str} | {title} | {message}{src_suffix}')
+    _log.info(f'NOTIFICATION {sev_str} | {one_line(title)} | {one_line(message)}{src_suffix}')
 
 
-def popup_response(title, response):
+def popup_response(title: str, response: str) -> None:
     """Log the user's response to a modal popup (OK / Cancel / Ack / dismiss).
 
     Pairs with ``notification`` -- one entry when the popup is shown,
     one when the user resolves it. Without the response, post-mortem
     can tell what the user saw but not what they did with it.
     """
-    _log.info(f'POPUP_RESPONSE {response} | {title}')
+    _log.info(f'POPUP_RESPONSE {one_line(response)} | {one_line(title)}')
 
 
 _debounce_timers: dict = {}

@@ -16,11 +16,42 @@ from lvp_logger import logger
 
 
 class MotorConfig:
+    # True until a board config READ fails. A class-level default so the
+    # flag exists on every instance, including the bare-`__new__` fallback
+    # construction the Null motion driver uses when no defaults file is
+    # readable. False means the per-unit values may exist on the board but
+    # are unavailable -- a different state from "the board has none", and
+    # consumers deciding between per-unit and fallback sources need the
+    # difference or they silently serve the wrong unit's answer.
+    board_config_read_ok: bool = True
+
+    # Keys that describe ONE physical assembly (the LED/filterset block).
+    # They are applied whole, never deep-merged: a field-by-field merge of
+    # two sources could describe hardware that does not exist.
+    _WHOLESALE_KEYS: ClassVar[frozenset] = frozenset({'Layers', 'Filterset'})
+
     def __init__(self, defaults_file: pathlib.Path):
         self._config = {}
         self._defaults = self._load_json(defaults_file, label='defaults')
         # Start with defaults
         self._config = dict(self._defaults)
+
+    def mark_board_read_failed(self):
+        """Record that the board's config could not be read this session."""
+        self.board_config_read_ok = False
+
+    def led_block(self) -> dict | None:
+        """The per-unit LED/filterset identity block, or None when absent.
+
+        Returned whole because the block describes one physical filterset
+        assembly; the caller consumes or replaces it as a unit.
+        """
+        if 'Layers' not in self._config:
+            return None
+        return {
+            'Layers': self._config['Layers'],
+            'Filterset': self._config.get('Filterset', ''),
+        }
 
     def update_from_board(self, board_config: dict):
         """Merge per-unit config from the motor controller on top of defaults.
@@ -32,8 +63,14 @@ class MotorConfig:
         Basic type validation is applied to numeric fields -- if a board
         sends a non-numeric value where a number is expected, the board
         value is rejected and the default is kept.
+
+        The wholesale keys (the LED/filterset block) are assigned whole,
+        never deep-merged, whatever shape either side carries.
         """
         validated = self._validate_board_config(board_config)
+        for key in self._WHOLESALE_KEYS:
+            if key in validated:
+                self._config[key] = validated.pop(key)
         self._deep_merge(self._config, validated)
 
     # Sections where values must be numeric (int or float).

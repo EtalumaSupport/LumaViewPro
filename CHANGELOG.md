@@ -26,6 +26,28 @@
   writes a `recording_manifest.json` with the measured frame rate, frame
   count, and per-frame timestamps; raise the step's fps to record more
   frames.
+- **Saved channel identity (metadata fix + SDK signature break)**: a saved
+  image now records the channel it was acquired on, independently of how it is
+  displayed. Manual captures, composites and composite exports previously
+  stamped every file `Channel.Name = "BF"` regardless of the LED that lit them,
+  because the metadata argument carrying that fact defaulted to brightfield and
+  only the protocol path passed it -- so Quick Enhance read a green frame back
+  as brightfield and declined to color it. `Channel.Modality` had the same
+  defect one field over: it was derived from the false-color toggle, so one file
+  could carry `Channel.Name = "Green"` next to `Channel.Modality = "BF"`. A
+  16-bit non-OME fluorescence or luminescence capture saved with false color OFF
+  now records `Modality = "MIF"` where it previously recorded `"BF"`; nothing
+  else on disk changes, and no existing file is rewritten. Manual captures also
+  begin recording their real LED drive current instead of `0`.
+
+  **Breaking for SDK callers**: `save_image`, `save_live_image` and
+  `prepare_image_for_saving` now require keyword-only `channel` and
+  `false_color_on`; the `color` and `true_color` parameters are gone, and
+  `write_video_frame`'s `layer_color` is now `channel`. A save can no longer be
+  constructed without stating what it imaged. Post-processing outputs whose
+  source channel cannot be determined record `"Unknown"` rather than asserting
+  brightfield.
+
 - **Per-recording OME-TIFF hyperstacks**: protocol video runs produce one
   hyperstack per well per scan (T = frame order, per-plane timing),
   including headless / REST runs. In Fiji, open hyperstacks via

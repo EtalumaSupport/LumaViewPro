@@ -384,6 +384,54 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert run_in_progress[0] is False
 
+    def test_closed_camera_executor_is_not_submitted_to(self):
+        """Cleanup runs after the run has disabled the camera executor, so a
+        refused submit is the EXPECTED route -- and the executor reports a
+        refusal at WARNING, because it cannot know this caller restores
+        inline instead. Asking first keeps the warning meaning "someone lost
+        work" rather than "a protocol ended normally"."""
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import MagicMock
+
+        closed = MagicMock()
+        closed.accepts_work.return_value = False
+        closed.protocol_put.side_effect = AssertionError(
+            'cleanup must not submit to a camera executor it already knows is closed'
+        )
+        scope = MagicMock()
+        args, _, _ = self._make_cleanup_args(
+            camera_executor=closed,
+            saved_camera_state={'gain': 1.0, 'exposure': 10.0},
+            scope=scope,
+        )
+        run_cleanup(**args)
+
+        closed.accepts_work.assert_called()
+        scope.imaging.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
+
+    def test_live_camera_executor_still_gets_the_restore(self):
+        """The pre-check must not turn into "always restore inline" -- a
+        cleanup with no run behind it still has a live executor, and the
+        restore belongs on the camera worker there."""
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import MagicMock
+
+        live = MagicMock()
+        live.accepts_work.return_value = True
+        future = MagicMock()
+        live.protocol_put.return_value = future
+        scope = MagicMock()
+        args, _, _ = self._make_cleanup_args(
+            camera_executor=live,
+            saved_camera_state={'gain': 1.0, 'exposure': 10.0},
+            scope=scope,
+        )
+        run_cleanup(**args)
+
+        live.protocol_put.assert_called_once()
+        future.result.assert_called_once()
+        scope.imaging.restore_camera_state.assert_not_called()
+
     def test_dropped_captures_surface_a_run_end_notification(self):
         from modules.protocol_cleanup import run_cleanup
         from unittest.mock import patch
@@ -465,6 +513,7 @@ class TestRunCleanup:
         }
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         args, _, _ = self._make_cleanup_args(
             leds_state_at_end='return_to_original',
             original_led_states=original_leds,
@@ -757,6 +806,16 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
         def _spy(transition, ctx):
             if transition is LedTransition.STEP_BOUNDARY:
                 captured['ctx'] = ctx
+
+        # Identity and driver resolvers agree on a real channel number, as
+        # they do on real hardware: the hold decision compares the step's
+        # channel against the run-end snapshot, and a bare MagicMock would
+        # hand each resolver a different sentinel object.
+        def resolver(c):
+            return {'BF': 3}.get(c)
+
+        runner._scope.illumination.color2ch.side_effect = resolver
+        runner._scope.illumination.state_color2ch.side_effect = resolver
 
         runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()

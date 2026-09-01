@@ -550,6 +550,19 @@ class SerialBoard:
         with self._lock:
             return self.driver is not None
 
+    def is_responsive(self) -> bool:
+        """Whether the board answers, not merely whether its port opened.
+
+        `is_connected()` is true as soon as `open()` succeeds, which stays
+        true for a board that returns zero bytes to every command. Selecting
+        such a board hands the caller an object that rejects everything it is
+        asked to do, one user-visible failure per command, until a hardware
+        power cycle. The connect-time reset already distinguishes the two
+        cases; this exposes that verdict so a caller can decline the board
+        instead of discovering it one rejected command at a time.
+        """
+        return not self.firmware_silent
+
     def _close_driver(self):
         """Safely close and clear the serial driver."""
         try:

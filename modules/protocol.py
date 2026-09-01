@@ -17,7 +17,6 @@ from lvp_logger import logger
 from modules.exceptions import ConfigError, ProtocolError
 from modules.notification_center import notifications
 
-import modules.common_utils as color_channels
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
@@ -513,7 +512,19 @@ class Protocol:
         return df
 
     # Valid values for field validation
-    VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
+    @staticmethod
+    def valid_colors() -> set:
+        """The layer names a protocol Color column may carry.
+
+        Derived at call time from the release catalogue, so a layer added
+        to the catalogue validates without touching this class -- an
+        import-time constant would freeze the vocabulary at whatever the
+        catalogue said when this module first loaded.
+        """
+        from modules.common_utils import get_layers
+
+        return set(get_layers())
+
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
     @staticmethod
@@ -578,10 +589,10 @@ class Protocol:
 
             # Color
             color = step.get('Color', '')
-            if color not in self.VALID_COLORS:
+            if color not in self.valid_colors():
                 errors.append(
                     f"{label}: Color '{color}' is not valid. "
-                    f'Must be one of: {", ".join(sorted(self.VALID_COLORS))}'
+                    f'Must be one of: {", ".join(sorted(self.valid_colors()))}'
                 )
 
             # Objective
@@ -1970,21 +1981,21 @@ class Protocol:
         DEFAULT_STIM_CONFIG = {
             'Red': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
             },
             'Green': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
             },
             'Blue': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
@@ -1995,6 +2006,23 @@ class Protocol:
             logger.info(
                 f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
             )
+
+        def _carry_stim_key_names(stim_config):
+            """Carry a saved stim config's illumination key to its unit-suffixed name.
+
+            The sub-key moved when the settings dict became the L2 API
+            surface, but protocols saved before that carry the old spelling
+            inside the Stim_Config column. Every reader takes it with a
+            default -- `stim.get('illumination_ma', 100)` -- so without this
+            an older protocol would load silently at 100 mA instead of the
+            current the run was actually set up for.
+            """
+            if not isinstance(stim_config, dict):
+                return stim_config
+            for layer_stim in stim_config.values():
+                if isinstance(layer_stim, dict) and 'illumination' in layer_stim:
+                    layer_stim['illumination_ma'] = layer_stim.pop('illumination')
+            return stim_config
 
         def _parse_config_per_row(row, column, default):
             """Parse a config string for a single row.
@@ -2064,7 +2092,9 @@ class Protocol:
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs
             protocol_df['Stim_Config'] = protocol_df.apply(
-                lambda row: _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG),
+                lambda row: _carry_stim_key_names(
+                    _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+                ),
                 axis=1,
             )
 

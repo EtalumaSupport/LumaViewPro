@@ -102,10 +102,12 @@ class QuickEnhancer:
             legacy_channel = cls._legacy_false_color_channel(source_pixels)
             if legacy_channel is not None:
                 return legacy_channel[0]
-        # Some ImageJ-style monochrome TIFFs do not round-trip the channel
-        # field through read_postproc_input_metadata. A channel may follow a
-        # numeric acquisition prefix (for example ``0green_s``), so letters
-        # rather than digits form the conservative filename boundary.
+        # Foreign inputs only. This path admits PNG/JPG/BMP and third-party
+        # TIFFs, none of which carry a channel field; files this application
+        # writes always state theirs and are answered by the metadata branch
+        # above. A channel may follow a numeric acquisition prefix (for example
+        # ``0green_s``), so letters rather than digits form the conservative
+        # filename boundary.
         channel_by_token = {
             'BF': 'BF',
             'PC': 'PC',
@@ -376,7 +378,7 @@ class QuickEnhancer:
                     source_pixels=source_pixels,
                     source_metadata=source_metadata,
                 )
-                or 'BF'
+                or 'Unknown'
             )
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=source_path,
@@ -397,12 +399,13 @@ class QuickEnhancer:
                     output_for_write,
                     cv2.COLOR_BGR2RGB,
                 )
+            render_color = channel if channel in common_utils.get_layers() else 'BF'
             image_utils.write_tiff(
                 data=output_for_write,
                 file_loc=temp_output,
                 metadata=metadata,
                 ome=False,
-                color=channel,
+                color=render_color,
                 significant_bits=significant_bits,
                 save_encoding='right_aligned',
             )

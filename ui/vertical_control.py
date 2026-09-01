@@ -266,20 +266,22 @@ class VerticalControl(BoxLayout):
                 gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
 
-            # With a turret, the objective must be assigned to a turret position
-            # before it can be selected; warn (but still allow) if it is not.
+            # Selecting an objective the turret does not hold is a normal step
+            # of assigning it: the user picks the objective, then presses Set to
+            # bind it to the current position. Interrupting the first half to
+            # complain about the second is why this used to pop a dialog saying
+            # the selection had been refused -- which it never was; the write
+            # below always happened. Logged, not raised: the moments where an
+            # unassigned objective actually blocks something (creating,
+            # modifying, adding to and running a protocol) each refuse there,
+            # and those refusals are real.
             if ctx.lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings.get('turret_objectives', {}).values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if assigned and objective_id not in assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Objective',
-                        'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
-                        f'to any turret position. Assign it in Objective Control > '
-                        f'Turret before using.',
+                    logger.info(
+                        f'[LVP Main  ] Objective {objective_id!r} selected with no turret '
+                        f'position assigned; assigned objectives are {assigned}'
                     )
 
             # Update objective stored in settings
@@ -533,7 +535,15 @@ class VerticalControl(BoxLayout):
                     autogain_settings=get_auto_gain_settings(),
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=False,
-                    leds_state_at_end='off',
+                    # A standalone autofocus is a one-shot at the field the
+                    # user is already watching, so it ends by putting the live
+                    # view back exactly as they had it, illumination included.
+                    # Ending dark is the right policy for an acquisition that
+                    # traverses the plate (the sample must not be left lit
+                    # between positions), and the wrong one for a run that
+                    # never leaves the current position. A fatal abort still
+                    # forces dark regardless of this policy.
+                    leds_state_at_end='return_to_original',
                     video_as_frames=settings['video_as_frames'],
                 )
                 runner.start(plan)
@@ -557,7 +567,7 @@ class VerticalControl(BoxLayout):
 
         ctx.io_executor.put(
             IOTask(
-                action=ctx.lumaview.scope.motion._thome_impl,
+                action=ctx.lumaview.scope.motion._home_turret_impl,
                 callback=_on_turret_homed,
             )
         )
@@ -594,7 +604,11 @@ class VerticalControl(BoxLayout):
             # Change turret text
             selected_turret_id.text = f'{magnification}x'
 
-            # Update settings
+            # Update settings. The slot key is the STRING form: this dict is
+            # loaded from JSON, whose object keys are always strings, while
+            # range() hands out ints. Writing the int added a second entry
+            # beside the string one, so every reader keyed by string kept
+            # seeing the old value and the saved file carried a duplicate key.
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = desired_objective_id
 
@@ -627,7 +641,9 @@ class VerticalControl(BoxLayout):
             # Change turret text
             selected_turret_id.text = str(selected_turret)
 
-            # Update settings
+            # Update settings -- string key, for the reason in
+            # set_turret_objective: an int key writes a second entry instead of
+            # clearing the one readers look at.
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = None
 
@@ -642,6 +658,110 @@ class VerticalControl(BoxLayout):
             logger.exception(f'ResetTurretObjective] Error: {e}')
             return
 
+        # Clearing the assignment at the position the turret is sitting
+        # on leaves the app unable to say what is in the light path --
+        # the previous objective would keep setting the image scale
+        # silently. Ask the user instead.
+        if selected_turret == settings.get('turret_position'):
+            Clock.schedule_once(
+                lambda dt: self.prompt_objective_selection(turret_position=selected_turret), 0
+            )
+
+    def prompt_objective_selection(self, turret_position=None):
+        """Ask which objective is in the light path, and apply the answer.
+
+        The pixel size derived from the objective is stamped into the
+        scale bar and every saved image's metadata, and a wrong scale
+        cannot be told from a measured one afterwards -- so when the app
+        cannot know the objective, it asks instead of assuming silently.
+
+        The answer performs the same actions a user does manually:
+        select the objective (spinner -> select_objective), and for a
+        turret position press Set (set_turret_objective) -- every write
+        stays on the production path.
+
+        Args:
+            turret_position: Position the answer binds to (the answer
+                also assigns that slot), or None on non-turret models.
+        """
+        ctx = _app_ctx.ctx
+        # Asking is only useful when the answer can matter: with no
+        # hardware there is nothing in the light path and no capture to
+        # stamp, and this cancel-less modal would cover the notice that
+        # explains why nothing works. The flag stays unconfirmed, so the
+        # next hardware session asks.
+        if ctx.lumaview.scope.no_hardware:
+            logger.info('[LVP Main  ] Objective prompt suppressed -- no hardware this session')
+            return
+        # While settings are provisional every settings write is refused,
+        # so an answer given now would be silently lost -- and the modal
+        # would cover the provisional-settings question whose resolution
+        # is what makes the answer saveable. Resolution re-asks.
+        if ctx.session.settings_are_provisional():
+            logger.info(
+                '[LVP Main  ] Objective prompt deferred -- settings are provisional and '
+                'the answer could not be kept'
+            )
+            return
+
+        settings = ctx.settings
+        if turret_position is not None:
+            first_line = (
+                f'Please confirm the objective installed at turret position {turret_position}.'
+            )
+        else:
+            first_line = 'Please confirm the installed objective.'
+        message = f'{first_line}\nThis sets the image scale recorded with every capture.'
+
+        slots = settings.get('turret_objectives') or {}
+        current = (
+            slots.get(turret_position) if turret_position is not None else None
+        ) or settings.get('objective_id')
+
+        self.load_objectives()
+        objectives = list(self.ids['objective_spinner2'].values)
+        if not objectives:
+            logger.error('[LVP Main  ] Objective catalogue empty; cannot prompt for a selection')
+            return
+
+        def _apply(chosen: str):
+            self.ids['objective_spinner2'].text = chosen
+            if turret_position is not None:
+                self.update_all_turret_btn_states(turret_position)
+                self.set_turret_objective()
+            ctx.session.update_settings('objective_confirmed', True)
+
+        from ui.notification_popup import show_objective_selection_popup
+
+        show_objective_selection_popup(
+            title='Objective',
+            message=message,
+            objectives=objectives,
+            current_objective_id=current if current in objectives else objectives[0],
+            on_confirm=_apply,
+        )
+
+    def maybe_prompt_objective_selection(self, model_has_turret: bool):
+        """Fire the objective prompt if the objective is unknowable.
+
+        Two ways the app cannot know what is in the light path: no
+        person has ever confirmed the objective on this install (the
+        settings template ships a 20x default that would otherwise set
+        image scale silently forever), or the session's turret position
+        has no assignment.
+        """
+        settings = _app_ctx.ctx.settings
+        first_run = not settings.get('objective_confirmed', False)
+        turret_position = None
+        slot_unassigned = False
+        if model_has_turret:
+            position = settings.get('turret_position') or 1
+            slots = settings.get('turret_objectives') or {}
+            slot_unassigned = slots.get(position) is None
+            turret_position = position
+        if first_run or slot_unassigned:
+            self.prompt_objective_selection(turret_position=turret_position)
+
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False, restore_z=True):
         try:
@@ -649,16 +769,16 @@ class VerticalControl(BoxLayout):
                 gui_logger.button(f'TURRET_POS_{selected_position}')
             ctx = _app_ctx.ctx
             settings = ctx.settings
-            if not ctx.lumaview.scope.motion.has_thomed():
+            if not ctx.lumaview.scope.motion.has_turret_homed():
                 if not protocol:
-                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._thome_impl))
+                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._home_turret_impl))
                 else:
                     # Protocol context runs on protocol_thread, not the io
                     # worker -- route the turret home through the protocol queue so it
-                    # stays ordered ahead of the subsequent tmove/X/Y/Z and
+                    # stays ordered ahead of the subsequent move_turret/X/Y/Z and
                     # behind the prior step's leds_off on the single worker.
                     fut = ctx.io_executor.protocol_put(
-                        IOTask(ctx.lumaview.scope.motion._thome_impl), return_future=True
+                        IOTask(ctx.lumaview.scope.motion._home_turret_impl), return_future=True
                     )
                     if fut:
                         fut.result(timeout=120)
@@ -672,18 +792,18 @@ class VerticalControl(BoxLayout):
             if not protocol:
                 ctx.io_executor.put(
                     IOTask(
-                        ctx.lumaview.scope.motion._tmove_impl,
+                        ctx.lumaview.scope.motion._move_turret_impl,
                         kwargs={'position': selected_position},
                     )
                 )
             else:
                 # See the turret-home branch above: route the protocol-context
-                # tmove through the protocol queue so it serializes with the
+                # move_turret through the protocol queue so it serializes with the
                 # step's other moves and LED ops on the single io worker
                 # instead of racing them from protocol_thread.
                 fut = ctx.io_executor.protocol_put(
                     IOTask(
-                        ctx.lumaview.scope.motion._tmove_impl,
+                        ctx.lumaview.scope.motion._move_turret_impl,
                         kwargs={'position': selected_position, 'restore_z': restore_z},
                     ),
                     return_future=True,
@@ -707,6 +827,29 @@ class VerticalControl(BoxLayout):
                             lambda dt: self.update_spinner_text(selected_position), 0
                         )
                         Clock.schedule_once(lambda dt: self.select_objective(), 0)
+                    elif not protocol:
+                        # The turret is moving to a position with no
+                        # assignment: the previous objective would keep
+                        # setting the image scale silently. Ask the user
+                        # what is installed there. (Programmatic
+                        # turret_select on a scope with no turret --
+                        # e.g. the XY-home resync -- must not prompt.)
+                        if ctx.lumaview.scope.capabilities.has_turret:
+                            Clock.schedule_once(
+                                lambda dt: self.prompt_objective_selection(
+                                    turret_position=selected_position
+                                ),
+                                0,
+                            )
+                    else:
+                        # Run validation refuses unassigned step
+                        # objectives, so a protocol move cannot legally
+                        # land here -- and a prompt must never interrupt
+                        # an unattended run. Log loudly instead.
+                        logger.warning(
+                            f'[LVP Main  ] Protocol turret move landed on position '
+                            f'{selected_position} with no objective assigned'
+                        )
 
             Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
         except Exception as e:

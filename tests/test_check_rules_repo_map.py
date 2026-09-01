@@ -30,6 +30,7 @@ class TestRepoCheckMap:
             'kv_ascii': True,
             'cv2_channel': True,
             'doc_status': False,
+            'rule_37': True,
         }
 
     def test_firmware_families_match_pre_unification_behavior(self):
@@ -37,6 +38,7 @@ class TestRepoCheckMap:
             'kv_ascii': False,
             'cv2_channel': False,
             'doc_status': True,
+            'rule_37': False,
         }
 
     def test_live_resolution_in_this_repo(self, monkeypatch):

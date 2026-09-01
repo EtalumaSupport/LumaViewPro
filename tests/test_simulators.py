@@ -11,6 +11,7 @@ Verifies that simulators are drop-in replacements for real hardware:
 
 import ast
 import inspect
+import itertools
 import pytest
 import threading
 import time
@@ -97,8 +98,8 @@ class TestSimulatedLEDBoard:
         # All LEDs should be off after all toggles complete; check the
         # driver-internal cache (now Phase-3d.5 dead state) directly
         # since the protocol-level reader was retired.
-        for color, mA in board.led_ma.items():
-            assert mA == -1, f'{color} not reset after concurrent toggle'
+        for color, illumination_ma in board.led_ma.items():
+            assert illumination_ma == -1, f'{color} not reset after concurrent toggle'
 
 
 # ---------------------------------------------------------------------------
@@ -817,14 +818,81 @@ class TestSimulatedCamera:
         # Noise should have some variance
         assert cam.array.std() > 0
 
-    def test_disable_pattern_returns_gradient(self):
+    def test_disable_pattern_returns_the_specimen(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
         cam.grab()
-        # Gradient should have variation across columns
+        # The specimen field has variation; the black pattern it replaced does not
         assert cam.array.std() > 0
+
+
+class TestNoPatternRequestedRendersTheSpecimen:
+    """Turning a test pattern off, or never asking for one, must show the
+    specimen field -- not the static ramp the cycle was built to replace.
+
+    The ramp was reachable three ways: the constructor default, the
+    disable path, and any unrecognized pattern name. Landing on it undid
+    the cycle for the rest of the session.
+    """
+
+    def test_disabling_a_pattern_restores_the_moving_specimen(self):
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=True, pattern='Black')
+        cam.set_test_pattern(enabled=False)
+        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        spread = max(f.max() for f in frames) - min(f.min() for f in frames)
+        diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
+        assert spread > 0
+        assert max(diffs) > 0, 'consecutive frames are identical -- this is a static image'
+
+    def test_a_fresh_camera_renders_the_specimen_without_load_cycle_images(self):
+        cam = SimulatedCamera()
+        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
+        assert max(diffs) > 0, 'the constructor default is a static image'
+
+    def test_an_unknown_pattern_name_warns_and_still_renders(self):
+        # The suite mocks lvp_logger, so the driver's `logger` is a MagicMock
+        # and no handler or caplog capture can see the call -- assert on the
+        # mock, which is how the rest of the suite checks driver logging.
+        import drivers.simulated_camera as sim_cam
+
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=True, pattern='NotAPattern')
+        sim_cam.logger.warning.reset_mock()
+        img = np.asarray(cam._generate_image(), dtype=float)
+
+        assert img.std() > 0, 'a bad name must still produce a usable frame'
+        sim_cam.logger.warning.assert_called()
+        # set_test_pattern lowercases the name, so the message carries it lowercased
+        emitted = ' '.join(str(c) for c in sim_cam.logger.warning.call_args_list).lower()
+        assert 'notapattern' in emitted, (
+            'an unrecognized pattern name must say so, not fall back silently'
+        )
+
+    def test_the_fallback_scales_for_16_bit_pixel_formats(self):
+        """Mono12 renders against a 4095 range while the source frames top out
+        at 255. Without the uint16 scaling the fallback comes out nearly black,
+        which is exactly what a second copy of the render path drops."""
+        cam = SimulatedCamera()
+        cam.set_test_pattern(enabled=False)
+        cam._pixel_format = 'Mono12'
+        img = np.asarray(cam._generate_image(), dtype=float)
+        assert img.max() > 255, (
+            f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
+        )
+
+    def test_disabling_a_pattern_does_not_enable_exposure_pacing(self):
+        """grab() paces frame delivery on exposure ONLY for 'image_cycle'.
+        The disable path must not borrow that behaviour by reusing the name."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=False)
+        assert cam._test_pattern != 'image_cycle'
 
     # -- Grabbing state --
 
@@ -1180,6 +1248,56 @@ class TestSimulatedCamera:
         assert len(stop_calls) == 0
         assert len(start_calls) == 0
         assert cam.is_grabbing() is False
+
+
+class TestSpecimenCycleFrames:
+    """The fallback cycle frames must drift, not strobe.
+
+    The cycle advances once per generated frame, so four unrelated patterns
+    flash at frame rate -- the earlier horizontal-ramp / vertical-ramp /
+    bullseye / checkerboard set did exactly that, and it was unwatchable in
+    simulate mode. These pin the properties that make the replacement calm:
+    neighbouring frames stay close, none is fully black or blown out, and the
+    wrap back to the first frame is the same size step as the others.
+    """
+
+    def test_frames_are_distinct_so_a_live_stream_is_visible(self):
+        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        assert len(frames) == 4
+        assert len({f.tobytes() for f in frames}) == 4, (
+            'identical frames make a running stream indistinguishable from a frozen one'
+        )
+
+    def test_consecutive_frames_stay_close_including_the_wrap(self):
+        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        deltas = [
+            float(np.abs(frames[i].astype(int) - frames[(i + 1) % len(frames)].astype(int)).mean())
+            for i in range(len(frames))
+        ]
+        # Calibrated against the live display, not against the old patterns:
+        # an 8 px sampling offset (~12 grey levels) was rejected as looking
+        # like the sample being jostled, and 1 px (~1.6) was accepted. The
+        # ceiling sits between 1 px and 2 px so a creeping increase trips it
+        # while the accepted setting has ~2x headroom for frame-size variation.
+        # The wrap is included deliberately: sampling around a circle is what
+        # keeps the last->first step the same size as the others.
+        assert max(deltas) < 3.0, f'frames too far apart, this reads as jostling: {deltas}'
+        assert min(deltas) > 1.0, f'frames too similar to read as motion: {deltas}'
+
+    def test_never_fully_black_or_blown_out(self):
+        for frame in SimulatedCamera._make_specimen_frames(600, 800):
+            assert frame.min() > 0, 'a crushed frame reads as a dead camera'
+            assert frame.max() < 255, 'a blown frame hides the exposure control'
+
+    def test_deterministic_for_a_fixed_seed(self):
+        first = SimulatedCamera._make_specimen_frames(600, 800)
+        second = SimulatedCamera._make_specimen_frames(600, 800)
+        assert all(np.array_equal(a, b) for a, b in zip(first, second, strict=True))
+
+    def test_matches_requested_frame_size(self):
+        for frame in SimulatedCamera._make_specimen_frames(1200, 1920):
+            assert frame.shape == (1200, 1920)
+            assert frame.dtype == np.uint8
 
 
 class TestCameraProfiles:

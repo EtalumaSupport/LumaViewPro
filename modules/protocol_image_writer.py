@@ -659,7 +659,6 @@ class ProtocolImageWriter:
             # pure grab+save and drives no LED on the success path (its failure /
             # video / cancel offs remain as error cleanup below).
             sum_iteration_callback = None
-            use_color = step['Color'] if step['False_Color'] else 'BF'
 
             capture_depth = self._config.capture_depth
 
@@ -815,7 +814,6 @@ class ProtocolImageWriter:
                     if not self._submit_write(
                         kwargs={
                             'save_folder': save_folder,
-                            'use_color': use_color,
                             'output_format': output_format,
                             'captured_image': CapturedFrame(
                                 image=captured_image,
@@ -886,7 +884,6 @@ class ProtocolImageWriter:
     def write_capture(
         self,
         save_folder=None,
-        use_color=None,
         name=None,
         output_format=None,
         *,
@@ -973,7 +970,6 @@ class ProtocolImageWriter:
                     save_folder=save_folder,
                     file_root=None,
                     append=name,
-                    color=use_color,
                     # Defense-in-depth against duplicate step Names that
                     # slip past load-time validation (#636). Plain
                     # filename when no file exists; numeric suffix only
@@ -981,7 +977,8 @@ class ProtocolImageWriter:
                     tail_id_mode='if_collision',
                     output_format=output_format,
                     jpeg_quality=self._config.jpg_quality,
-                    true_color=step['Color'],
+                    channel=step['Color'],
+                    false_color_on=bool(step['False_Color']),
                     x=step['X'],
                     y=step['Y'],
                     z=step['Z'],

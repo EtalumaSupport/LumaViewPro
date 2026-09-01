@@ -10,7 +10,7 @@ from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
 from drivers.registry import motor_registry
-from drivers.exceptions import HardwareError
+from drivers.exceptions import ConfigReadError, HardwareError
 from drivers.motorconfig import MotorConfig
 
 
@@ -32,6 +32,74 @@ class _LegacyAccelProbeFilter(logging.Filter):
 
 
 logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
+
+# Axis order the firmware reports and the driver answers in.
+_FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
+
+# What every consumer gets when FULLINFO is missing, unsupported, or
+# unparseable. Every key the parsed record has, so a caller reading a
+# field off a fallback record gets a safe answer instead of a KeyError.
+# No axis is reported homed here, which leaves motion at "position
+# unknown" -- the conservative end of the gate, not a bypass.
+_UNKNOWN_BOARD_RECORD = {
+    'model': 'unknown',
+    'serial_number': 'unknown',
+    'has_turret': False,
+    'present_axes': [],
+    'homed_axes': [],
+    '_raw': '',
+}
+
+
+def _fullinfo_axis_flag(resp: str, axis: str, field: str) -> bool:
+    """Read one per-axis boolean out of a FULLINFO response.
+
+    The firmware pads its fields unevenly (``X homed: True   X present:
+    True``), so match the label and its value rather than a fixed
+    column, and tolerate the space after the colon being absent.
+    """
+    return f'{axis} {field}: True' in resp or f'{axis} {field}:True' in resp
+
+
+def _parse_fullinfo(resp: str) -> dict:
+    """Parse a FULLINFO response into the one board record.
+
+    The single reader of this string. Model, serial, turret presence,
+    which axes exist and which the firmware has homed all arrive in one
+    response, and every one of them used to be recovered by a separate
+    scan of the same text -- so a firmware format change broke some
+    callers and silently spared others. One parse, one record.
+
+    ``homed_axes`` is the firmware's own record of which axes completed
+    a home since IT booted. That is a different fact from both "this
+    process homed the axis" (which a fresh process can never know) and
+    "the axis is sitting on its home switch right now" (false as soon as
+    the stage moves anywhere useful). It is the only one of the three
+    that answers whether an axis has a valid reference frame, which is
+    why a headless caller attaching to a powered, already-homed scope
+    can be told the truth instead of being refused.
+
+    Args:
+        resp: The raw FULLINFO response text.
+
+    Returns:
+        dict: The board record; the unknown record when the model or
+            serial cannot be read.
+    """
+    parts = resp.split()
+    try:
+        model = parts[parts.index('Model:') + 1]
+        serial_number = parts[parts.index('Serial:') + 1]
+    except (ValueError, IndexError):
+        return _UNKNOWN_BOARD_RECORD.copy()
+    return {
+        'model': model,
+        'serial_number': serial_number,
+        'has_turret': model.endswith('T'),
+        'present_axes': [ax for ax in _FIRMWARE_AXES if _fullinfo_axis_flag(resp, ax, 'present')],
+        'homed_axes': [ax for ax in _FIRMWARE_AXES if _fullinfo_axis_flag(resp, ax, 'homed')],
+        '_raw': resp,
+    }
 
 
 @motor_registry.register('rp2040', priority=100)
@@ -120,18 +188,41 @@ class MotorBoard(SerialBoard):
         Called once after connect() succeeds. Separate from connect() because
         connect's job is opening the port -- config loading is a post-connect step.
         """
+        board_cfg = self._read_board_config()
+        if not board_cfg:
+            return
         try:
-            board_cfg = self.get_config()
-            if board_cfg:
-                self.motorconfig.update_from_board(board_cfg)
-                self._rebuild_cached_values()
-                logger.info(
-                    f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
-                    f'SN={self.motorconfig.serial_number()}, '
-                    f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
-                )
+            self.motorconfig.update_from_board(board_cfg)
+            self._rebuild_cached_values()
+            logger.info(
+                f'[XYZ Class ] Board config merged: model={self.motorconfig.model()}, '
+                f'SN={self.motorconfig.serial_number()}, '
+                f'Z_usteps/mm={self.motorconfig.usteps_per_mm("Z")}'
+            )
         except Exception as e:
+            # A half-applied merge leaves the per-unit values unreliable,
+            # which for every downstream consumer is the same state as an
+            # unreadable board: record it as one, and keep the scope up on
+            # defaults (motion works without per-unit config; a config
+            # problem must not take down connect).
+            self.motorconfig.mark_board_read_failed()
             logger.warning(f'[XYZ Class ] Board config load failed (using defaults): {e}')
+
+    def _read_board_config(self) -> dict | None:
+        """Read the board's config, converting a failed READ into recorded state.
+
+        Returns the parsed config dict, or None after a failed read. The
+        failure is not swallowed: `mark_board_read_failed` makes it a
+        queryable fact on the motorconfig, so consumers that care about
+        the difference between "no per-unit value" and "per-unit value
+        unavailable" can see it, while connect stays up on defaults.
+        """
+        try:
+            return self.get_config()
+        except ConfigReadError as e:
+            self.motorconfig.mark_board_read_failed()
+            logger.warning(f'[XYZ Class ] Board config unreadable (using defaults): {e}')
+            return None
 
     def _on_disconnect(self):
         """Clear cached firmware info on disconnect (called under self._lock)."""
@@ -217,18 +308,19 @@ class MotorBoard(SerialBoard):
     # Informational Functions
     # ----------------------------------------------------------
     def fullinfo(self) -> dict:
-        """Send FULLINFO and return parsed model + serial-number dict.
+        """Send FULLINFO and return the parsed board record.
 
         Returns:
-            dict: ``{'model': str, 'serial_number': str, '_raw': str}``.
-                Falls back to ``{'model': 'unknown', 'serial_number':
-                'unknown'}`` when the response is missing or unparseable.
+            dict: ``{'model': str, 'serial_number': str, 'present_axes':
+                list, 'homed_axes': list, '_raw': str}``. Falls back to
+                the unknown record when the response is missing or
+                unparseable.
         """
         info = self.exchange_command('FULLINFO')
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         if info is None:
             logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
-            return {'model': 'unknown', 'serial_number': 'unknown'}
+            return _UNKNOWN_BOARD_RECORD.copy()
         # Legacy firmware (pre-FULLINFO) replies with an UNKNOWN_CMD error
         # instead of model/serial. That is an expected capability gap on older
         # units, not a fault -- log at INFO and fall back, rather than an ERROR
@@ -239,22 +331,15 @@ class MotorBoard(SerialBoard):
             logger.info(
                 '[XYZ Class ] FULLINFO not supported on this firmware; using model/serial fallback'
             )
-            return {'model': 'unknown', 'serial_number': 'unknown'}
-        try:
-            parts = info.split()
-            model = parts[parts.index('Model:') + 1]
-            if model[-1] == 'T':
-                with self._state_lock:
-                    self._has_turret = True
-            serial_number = parts[parts.index('Serial:') + 1]
-        except (ValueError, IndexError) as e:
-            logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r} ({e})')
-            return {'model': 'unknown', 'serial_number': 'unknown'}
-        return {
-            'model': model,
-            'serial_number': serial_number,
-            '_raw': info,  # Cached raw response for detect_present_axes()
-        }
+            return _UNKNOWN_BOARD_RECORD.copy()
+        record = _parse_fullinfo(info)
+        if record['model'] == 'unknown':
+            logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r}')
+            return record
+        if record['has_turret']:
+            with self._state_lock:
+                self._has_turret = True
+        return record
 
     def get_microscope_model(self) -> str | None:
         """Return the cached microscope model string from FULLINFO.
@@ -292,28 +377,50 @@ class MotorBoard(SerialBoard):
             return None
         return info.get('serial_number')
 
+    def _board_record(self) -> dict:
+        """The parsed FULLINFO record, from the connect-time cache.
+
+        Falls back to a fresh round trip only when connect() never
+        cached one, so the common path costs no serial traffic.
+        """
+        with self._state_lock:
+            info = self._fullinfo
+        if info is not None:
+            return info
+        return _parse_fullinfo(self.exchange_command('FULLINFO') or '')
+
     def detect_present_axes(self) -> list:
         """Detect which axes are present on this board.
-
-        Uses cached FULLINFO from connect() if available, avoiding
-        an unnecessary serial round-trip.
 
         Returns:
             list: Axis letters present, e.g. ``['X', 'Y', 'Z', 'T']`` or
                 ``['Z', 'T']``.
         """
-        # Use cached fullinfo if available (set during connect)
-        with self._state_lock:
-            info = self._fullinfo
-        if info is not None:
-            resp = info.get('_raw', '')
-        else:
-            resp = self.exchange_command('FULLINFO') or ''
-        axes = []
-        for axis in ('X', 'Y', 'Z', 'T'):
-            if f'{axis} present: True' in resp or f'{axis} present:True' in resp:
-                axes.append(axis)
-        return axes
+        return list(self._board_record()['present_axes'])
+
+    def detect_homed_axes(self) -> list:
+        """Detect which axes the FIRMWARE reports as already homed.
+
+        Distinct from has_homed(), which only knows whether THIS process
+        homed since it connected, and from home_status(), which reports
+        whether an axis is on its home switch right now. An axis that
+        homed and then moved to a working position is homed but not at
+        home, and is invisible to a process that did not do the homing --
+        so neither of those can say whether the reference frame is valid.
+
+        The firmware clears these flags when it boots and sets one only
+        when that axis completes a home. A power-cycled board therefore
+        reports nothing homed, and a board still powered across an
+        application restart reports the truth -- which is what lets a
+        headless caller attach to a focused stage without re-homing it
+        and losing the position it was pointed at.
+
+        Returns:
+            list: Axis letters the firmware reports homed. Empty on
+                firmware without FULLINFO support, leaving those axes at
+                "position unknown".
+        """
+        return list(self._board_record()['homed_axes'])
 
     def current_pos_steps(self, axis: str) -> int | None:
         """Get current position in raw microsteps (no unit conversion).
@@ -1296,25 +1403,35 @@ class MotorBoard(SerialBoard):
         Firmware returns JSON (v3.0.5+) or Python dict repr (older).
 
         Returns:
-            dict: Parsed configuration, or an empty dict on failure.
+            dict: Parsed configuration (may be legitimately empty).
+
+        Raises:
+            ConfigReadError: the board did not answer, or the payload did
+                not parse to a mapping. A failed READ is not an empty
+                config: the per-unit values may exist on the board but
+                are unavailable, and callers that would treat the two
+                the same end up silently serving another source's answer.
         """
         resp = self.exchange_command('CONFIG')
         if resp is None:
-            return {}
+            raise ConfigReadError('board did not answer CONFIG')
         # Take first line (may have trailing newline noise)
         data_str = resp.split('\n')[0].strip() if '\n' in resp else resp.strip()
         import json as _json
 
+        parsed = None
         try:
-            return _json.loads(data_str)
+            parsed = _json.loads(data_str)
         except (ValueError, TypeError):
             import ast
 
             try:
-                return ast.literal_eval(data_str)
+                parsed = ast.literal_eval(data_str)
             except (ValueError, SyntaxError):
-                logger.warning(f'[XYZ Class ] get_config(): unparseable response: {data_str[:200]}')
-                return {}
+                raise ConfigReadError(f'unparseable CONFIG response: {data_str[:200]}') from None
+        if not isinstance(parsed, dict):
+            raise ConfigReadError(f'CONFIG payload is not a mapping: {data_str[:200]}')
+        return parsed
 
     def get_drvstat(self, axis: str | None = None) -> list:
         """Send DRVSTAT and return parsed driver status.

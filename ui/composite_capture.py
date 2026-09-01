@@ -75,7 +75,7 @@ class CompositeCapture(FloatLayout):
         settings = ctx.settings
 
         file_root = 'live_'
-        color = 'BF'
+        false_color_on = False
         well_label = ctx.scope.runtime_state.get_well_label()
 
         image_capture_config = get_image_capture_config_from_ui()
@@ -89,8 +89,12 @@ class CompositeCapture(FloatLayout):
                 # Empty well label (zero-well Blank labware): no leading
                 # underscore from a missing segment.
                 append = f'{well_label}_{layer}' if well_label else layer
-                if layer_obj.ids['false_color'].active:
-                    color = layer
+                # The checkbox answers how the frame is DISPLAYED, and nothing
+                # else. What was imaged is the opened layer, passed separately
+                # below -- reading the channel off this checkbox is what made
+                # every false-color-off capture claim to be brightfield while
+                # its own filename said otherwise.
+                false_color_on = layer_obj.ids['false_color'].active
 
                 break
 
@@ -128,10 +132,11 @@ class CompositeCapture(FloatLayout):
         if not use_bullseye and not use_crosshairs:
             return save_live_image(
                 ctx.scope,
-                save_folder,
-                file_root,
-                append,
-                color,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=append,
+                channel=layer,
+                false_color_on=false_color_on,
                 force_to_8bit=force_to_8bit_pixel_depth,
                 output_format=settings['image_output_format']['live'],
                 all_ones_check=True,
@@ -184,7 +189,8 @@ class CompositeCapture(FloatLayout):
             save_folder=save_folder,
             file_root=file_root,
             append=append,
-            color=color,
+            channel=layer,
+            false_color_on=false_color_on,
             tail_id_mode=None,
             output_format=settings['image_output_format']['live'],
             jpeg_quality=settings.get('jpg_quality', 90),
@@ -211,7 +217,8 @@ class CompositeCapture(FloatLayout):
             save_folder=save_folder,
             file_root=file_root,
             append=f'{append}_overlay',
-            color=color,
+            channel=layer,
+            false_color_on=false_color_on,
             tail_id_mode=None,
             output_format=settings['image_output_format']['live'],
             jpeg_quality=settings.get('jpg_quality', 90),
@@ -260,8 +267,8 @@ class CompositeCapture(FloatLayout):
             ls = settings.get(layer, {})
             if ls.get('acquire') == 'image':
                 logger.info(
-                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exp_ms")}ms, '
-                    f'ill={ls.get("ill_ma")}mA, sum={ls.get("sum", 1)}, '
+                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exposure_ms")}ms, '
+                    f'ill={ls.get("illumination_ma")}mA, sum={ls.get("sum", 1)}, '
                     f'threshold={ls.get("composite_brightness_threshold", "?")}%'
                 )
 
@@ -408,9 +415,9 @@ class CompositeCapture(FloatLayout):
                 gain = layer_settings[trans_layer]['gain_db']
                 # On-worker camera writes bind _impl, as with the move above.
                 ctx.scope.imaging._set_gain_db_impl(gain)
-                exposure = layer_settings[trans_layer]['exp_ms']
+                exposure = layer_settings[trans_layer]['exposure_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
-                illumination = layer_settings[trans_layer]['ill_ma']
+                illumination = layer_settings[trans_layer]['illumination_ma']
 
                 # Colour string to the seam unmapped: an undrivable colour
                 # fails with the colour named, never a sentinel channel.
@@ -470,7 +477,7 @@ class CompositeCapture(FloatLayout):
                 gain = layer_settings[layer]['gain_db']
                 # On-worker camera writes bind _impl, as above.
                 ctx.scope.imaging._set_gain_db_impl(gain)
-                exposure = layer_settings[layer]['exp_ms']
+                exposure = layer_settings[layer]['exposure_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
@@ -482,7 +489,7 @@ class CompositeCapture(FloatLayout):
                     layer_settings[layer]['composite_brightness_threshold'] / 100 * 255
                 )
 
-                illumination = layer_settings[layer]['ill_ma']
+                illumination = layer_settings[layer]['illumination_ma']
 
                 # Only channels the scope drives an LED for get lit;
                 # luminescence channels have no LED and their frames are
@@ -579,7 +586,8 @@ class CompositeCapture(FloatLayout):
                 save_folder=save_folder,
                 file_root='composite_',
                 append=append,
-                color=None,
+                channel='Composite',
+                false_color_on=False,
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,
@@ -594,7 +602,8 @@ class CompositeCapture(FloatLayout):
                 save_folder=save_folder,
                 file_root=f'{most_recent_aq_channel}_Image_',
                 append=append,
-                color=None,
+                channel=most_recent_aq_channel,
+                false_color_on=False,
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,

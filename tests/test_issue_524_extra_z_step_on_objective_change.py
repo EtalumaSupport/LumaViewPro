@@ -7,7 +7,7 @@ Every protocol step that crosses an objective went:
   step_navigation.go_to_step:118
     -> ui_helpers.move_absolute('T', protocol=True)
     -> vertical_control.turret_select(protocol=True)
-    -> motion.tmove(position=...)
+    -> motion.move_turret(position=...)
     -> motion._safe_turret_move() (context manager)
         -> Z to 0
         -> T move
@@ -23,7 +23,7 @@ Fix
 Option A (chosen): thread restore_z=False from go_to_step through
 the call chain so _safe_turret_move skips the wasted restore. The
 default in each function is restore_z=True so standalone callers
-(_thome_impl, UI turret button) preserve their existing contract.
+(_home_turret_impl, UI turret button) preserve their existing contract.
 
 Test approach
 -------------
@@ -86,7 +86,7 @@ def test_safe_turret_move_accepts_restore_z_default_true():
     default = _default_for(method, 'restore_z')
     assert default is not None, 'restore_z must have a default value. (#524)'
     assert isinstance(default, ast.Constant) and default.value is True, (
-        'restore_z default must be True so standalone callers (_thome_impl, '
+        'restore_z default must be True so standalone callers (_home_turret_impl, '
         'UI turret button) preserve their pre-fix behavior. (#524)'
     )
 
@@ -111,16 +111,16 @@ def test_safe_turret_move_gates_z_restore_on_flag():
 
 
 def test_tmove_threads_restore_z():
-    # The public tmove is a dispatcher; the turret motion lives in the
+    # The public move_turret is a dispatcher; the turret motion lives in the
     # _impl body, so the signature is checked on the public form and the
     # _safe_turret_move threading on the body.
-    method = _function_node(_module_tree(MOTION_SRC), 'tmove', class_name='MotionAPI')
+    method = _function_node(_module_tree(MOTION_SRC), 'move_turret', class_name='MotionAPI')
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
-    assert 'restore_z' in all_names, 'tmove must accept restore_z. (#524)'
-    impl = _function_node(_module_tree(MOTION_SRC), '_tmove_impl', class_name='MotionAPI')
+    assert 'restore_z' in all_names, 'move_turret must accept restore_z. (#524)'
+    impl = _function_node(_module_tree(MOTION_SRC), '_move_turret_impl', class_name='MotionAPI')
     src = ast.unparse(impl)
     assert '_safe_turret_move(restore_z=restore_z)' in src, (
-        'tmove must pass its restore_z through to _safe_turret_move. (#524)'
+        'move_turret must pass its restore_z through to _safe_turret_move. (#524)'
     )
 
 
@@ -131,13 +131,13 @@ def test_turret_select_threads_restore_z():
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'restore_z' in all_names, 'turret_select must accept restore_z. (#524)'
     src = ast.unparse(method)
-    # restore_z must reach tmove. In the non-protocol branch that is a
-    # direct keyword (restore_z=restore_z); in the protocol branch tmove
-    # is routed through io_executor as IOTask(tmove, kwargs={...,
+    # restore_z must reach move_turret. In the non-protocol branch that is a
+    # direct keyword (restore_z=restore_z); in the protocol branch move_turret
+    # is routed through io_executor as IOTask(move_turret, kwargs={...,
     # 'restore_z': restore_z}) so the keyword appears in dict form. Accept
-    # either -- both thread restore_z to tmove.
+    # either -- both thread restore_z to move_turret.
     assert ('restore_z=restore_z' in src) or ("'restore_z': restore_z" in src), (
-        'turret_select must pass restore_z through to tmove. (#524)'
+        'turret_select must pass restore_z through to move_turret. (#524)'
     )
 
 

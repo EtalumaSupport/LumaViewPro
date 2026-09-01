@@ -36,6 +36,7 @@ import pytest
 
 import modules.common_utils as common_utils
 from drivers.camera import Camera
+from modules import layer_record
 from modules.binning import binning_size_int_to_str
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api import Lumascope
@@ -521,7 +522,8 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
             get_camera_info=lambda: {'model': 'simcam'},
         ),
-        illumination=SimpleNamespace(get_led_ma=lambda color: 100.0),
+        illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        layer_identity=layer_record.UNRESOLVED,
         _camera_driver=driver,
     )
 
@@ -537,7 +539,7 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     driver._scripts['get_exposure_t'] = [RAISE]
     scope = _metadata_scope_with_real_imaging(imaging, driver)
 
-    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    metadata = generate_image_metadata(scope, channel='BF', x=0, y=0, z=0)
 
     assert 'gain_db' not in metadata, (
         f'failed live gain read must omit the key, not record '
@@ -649,10 +651,9 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     writer.write_capture(
         enable_image_saving=True,
         captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12),
-        step={'Name': 's', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),
-        use_color='BF',
         output_format='TIFF',
     )
     assert recorded, 'write_capture must reach save_image'

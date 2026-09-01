@@ -59,7 +59,7 @@ IMPL_RESULT = object()
 # deleted rather than collapsed, so the camera capability ends with the
 # dispatcher as its only public form and has no async member to pin.
 FAMILIES = [
-    ('illumination', 'led_on', 'led_on_async', {'channel': 0, 'mA': 10.0}, 'io'),
+    ('illumination', 'led_on', 'led_on_async', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
     ('imaging', 'set_gain_db', None, {'gain_db': 1.0}, 'camera'),
     (
         'motion',

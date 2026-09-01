@@ -11,6 +11,7 @@ protocol layer never imports this module directly.
 
 import logging
 
+import modules.common_utils as common_utils
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
@@ -122,10 +123,10 @@ def go_to_step(
                 {
                     'autofocus': step['Auto_Focus'],
                     'false_color': step['False_Color'],
-                    'ill_ma': step['Illumination'],
+                    'illumination_ma': step['Illumination'],
                     'gain_db': step['Gain'],
                     'auto_gain': step['Auto_Gain'],
-                    'exp_ms': step['Exposure'],
+                    'exposure_ms': step['Exposure'],
                     'sum': step['Sum'],
                     'acquire': step['Acquire'],
                     'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)
@@ -213,9 +214,20 @@ def _apply_manual_nav_outcome(
     the sweep.
     """
     if step_changed:
+        channel = ctx.scope.illumination.color2ch(color)
+        if (
+            channel is None
+            and ctx.scope.led_connected
+            and color in common_utils.get_layers_with_led()
+        ):
+            # A preview click on a layer this unit's identity lacks would
+            # otherwise just not light, with nothing anywhere naming why.
+            logger.warning(
+                f"[Step Nav  ] This scope has no '{color}' LED channel; preview will not light."
+            )
         led_ctx = LedTransitionCtx(
-            channel=ctx.scope.illumination.color2ch(color),
-            mA=step['Illumination'],
+            channel=channel,
+            illumination_ma=step['Illumination'],
             preview_on=settings['protocol_led_on'],
         )
         ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)

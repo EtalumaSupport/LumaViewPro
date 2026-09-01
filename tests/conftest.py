@@ -20,6 +20,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 import os
 import sys
 import tempfile
+from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
@@ -111,10 +112,12 @@ def install_mock_deps():
         'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
-        'kivy.base': MagicMock(),
+        # EventLoop.status must read as a RUNNING loop: the pre-mainloop
+        # popup detector fires on 'idle', and a bare MagicMock attribute
+        # would compare unequal to every real value and false-negative --
+        # or, gated the other way, mark every headless popup pre-mainloop.
+        'kivy.base': MagicMock(EventLoop=MagicMock(status='started')),
         'kivy.app': MagicMock(),
-        'kivy.uix': MagicMock(),
-        'kivy.uix.scrollview': MagicMock(),
         # FX2 / libusb -- skipped when --run-fx2-hardware is set.
         'usb': MagicMock(),
         'usb.core': MagicMock(),
@@ -137,6 +140,74 @@ def install_mock_deps():
         if name in _skip_mocks:
             continue
         sys.modules.setdefault(name, mock_mod)
+
+    _install_kivy_uix_stubs()
+
+
+class StubWidget:
+    """Subclassable stand-in for every kivy.uix base a ui/ module inherits.
+
+    A bare MagicMock cannot be subclassed, so widget modules would only
+    import if some earlier test file had installed a real stub module --
+    an import-order dependence that made whole test files pass or fail
+    depending on which file ran first. Registering real ModuleType stubs
+    here, before collection, removes the ordering.
+    """
+
+    def __init__(self, **kwargs):
+        pass
+
+
+def _install_kivy_uix_stubs():
+    """Register stubs for every kivy submodule production code imports.
+
+    The top-level `kivy` mock is not a package, so importing any
+    UNregistered `kivy.x` submodule raises ModuleNotFoundError; the set
+    below covers every `from kivy.<x>` in ui/, modules/, plugins/ and
+    lumaviewpro.py. setdefault, like the MagicMock deps above: a test
+    file that installs its own richer stub for one of these names keeps
+    it.
+    """
+    for name in (
+        'kivy.core',
+        'kivy.core.text',
+        'kivy.core.window',
+        'kivy.factory',
+        'kivy.graphics',
+        'kivy.graphics.texture',
+        'kivy.input',
+        'kivy.lang',
+        'kivy.lang.builder',
+        'kivy.metrics',
+        'kivy.properties',
+        'kivy.uix',
+    ):
+        sys.modules.setdefault(name, MagicMock())
+
+    # One name per `from kivy.uix.<mod> import <Base>` in ui/, modules/,
+    # plugins/, lumaviewpro.py -- keep in sync with that import set.
+    bases = {
+        'accordion': ('AccordionItem',),
+        'boxlayout': ('BoxLayout',),
+        'button': ('Button',),
+        'dropdown': ('DropDown',),
+        'floatlayout': ('FloatLayout',),
+        'image': ('Image',),
+        'label': ('Label',),
+        'popup': ('Popup',),
+        'scatter': ('Scatter',),
+        'scrollview': ('ScrollView',),
+        'slider': ('Slider',),
+        'spinner': ('Spinner', 'SpinnerOption'),
+        'togglebutton': ('ToggleButton',),
+        'widget': ('Widget',),
+    }
+    for mod_name, class_names in bases.items():
+        full_name = f'kivy.uix.{mod_name}'
+        mod = ModuleType(full_name)
+        for class_name in class_names:
+            setattr(mod, class_name, StubWidget)
+        sys.modules.setdefault(full_name, mod)
 
 
 # Run at conftest import time -- before any test file is collected.
@@ -245,7 +316,11 @@ def _enable_driver_logging(config):
     real.propagate = False
     real.handlers.clear()
 
-    log_path = os.path.abspath(f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
+    # Under logs/, which is gitignored -- writing to the repo root left these
+    # sitting beside the source tree, one per --driver-log run, forever.
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
     file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     real.addHandler(file_handler)
@@ -329,6 +404,7 @@ def scale_ctx(monkeypatch):
     reports one. The values match Etaluma's Classic optics so geometry
     assertions written against the previous default stay valid.
     """
+    import threading
     from types import SimpleNamespace
 
     import modules.app_context as app_context
@@ -338,6 +414,14 @@ def scale_ctx(monkeypatch):
     )
     # A real AppContext (not a bare namespace) so code paths that gate on
     # "ctx is not None" -- e.g. the save-encoding resolver's settings_lock --
-    # find the services they expect, not a half-built stand-in.
-    monkeypatch.setattr(app_context, 'ctx', app_context.AppContext(scope=scope))
+    # find the services they expect, not a half-built stand-in. The settings
+    # store lives on the session, so the context needs one to reach it.
+    monkeypatch.setattr(
+        app_context,
+        'ctx',
+        app_context.AppContext(
+            scope=scope,
+            session=SimpleNamespace(settings={}, settings_lock=threading.Lock()),
+        ),
+    )
     return scope

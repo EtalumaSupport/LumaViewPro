@@ -92,8 +92,10 @@ class SimulatedCamera(Camera):
         self._pump_stop = threading.Event()
 
         # Synthetic image state -- can be set externally for test scenarios
-        # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
-        self._test_pattern = 'gradient'
+        # 'specimen', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
+        # 'specimen' is the no-pattern-requested state; anything unrecognized
+        # renders it too, with a warning.
+        self._test_pattern = 'specimen'
 
         # Image cycling: load real images from data/sim_images/ and cycle through
         self._cycle_images = []  # List of numpy arrays (grayscale)
@@ -132,6 +134,66 @@ class SimulatedCamera(Camera):
             raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
+
+    @staticmethod
+    def _make_specimen_frames(
+        h: int, w: int, count: int = 4, shift_px: int = 1, seed: int = 20260827
+    ) -> list[np.ndarray]:
+        """Build the frames the cycle falls back to when no image dir exists.
+
+        These are ONE soft field sampled at ``count`` slightly different
+        offsets, not independent patterns. The distinction is the whole point:
+        the cycle advances once per generated frame, so anything that differs
+        much between entries strobes at frame rate. Neighbouring crops of a
+        single field read as gentle drift instead -- enough motion to tell a
+        live stream from a frozen one, and to judge the rate by how smooth it
+        looks, without a pattern change fighting for attention.
+
+        The field is low-resolution noise upsampled and smoothed twice, which
+        leaves rounded blobs with no hard edges. Grey values are held inside a
+        mid band so no frame is ever fully black or blown out; the caller's
+        brightness scaling then reads as exposure rather than as a switch.
+
+        Args:
+            h: Frame height in pixels.
+            w: Frame width in pixels.
+            count: How many frames the cycle should contain.
+            shift_px: Sampling offset between consecutive frames. One pixel,
+                set by watching the live display: the field is coherent, so a
+                whole-frame shift is far more visible than its ~1.5 grey-level
+                mean difference suggests, and larger values read as the sample
+                being jostled rather than as the stream being alive.
+            seed: Fixes the field so a run is reproducible.
+
+        Returns:
+            ``count`` grayscale uint8 frames of shape ``(h, w)``.
+        """
+        rng = np.random.RandomState(seed)
+        margin = shift_px * count
+        canvas_h = h + margin
+        canvas_w = w + margin
+
+        # Cell size sets the apparent feature scale -- roughly the blob width
+        # in pixels before smoothing rounds them off.
+        cell = 48
+        low = rng.random((canvas_h // cell + 2, canvas_w // cell + 2))
+        field = np.kron(low, np.ones((cell, cell)))[:canvas_h, :canvas_w]
+        field = uniform_filter(field, size=cell // 2)
+        field = uniform_filter(field, size=cell // 2)
+        field -= field.min()
+        field /= max(field.max(), 1e-9)
+        canvas = 55.0 + field * 165.0
+
+        frames = []
+        # Sampling around a circle keeps the drift bounded and closes the loop,
+        # so wrapping from the last frame back to the first is the same size
+        # step as every other -- a linear walk would snap back on the wrap.
+        for i in range(count):
+            angle = 2.0 * np.pi * i / count
+            y = margin // 2 + round(shift_px * np.sin(angle))
+            x = margin // 2 + round(shift_px * np.cos(angle))
+            frames.append(canvas[y : y + h, x : x + w].astype(np.uint8))
+        return frames
 
     def load_cycle_images(self, image_dir=None) -> None:
         """Load images from a directory for cycling through in simulate mode.
@@ -177,21 +239,7 @@ class SimulatedCamera(Camera):
                     logger.warning('[SimCamera ] Pillow not available -- cannot load cycle images')
 
         if not images:
-            # Generate 4 synthetic patterns as fallback
-            h = self._height
-            w = self._width
-            # 1: Horizontal gradient
-            images.append(np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1)))
-            # 2: Vertical gradient
-            images.append(np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(-1, 1), (1, w)))
-            # 3: Radial gradient (bullseye-like)
-            y, x = np.ogrid[-h // 2 : h // 2, -w // 2 : w // 2]
-            r = np.sqrt(x.astype(float) ** 2 + y.astype(float) ** 2)
-            images.append(((r / r.max()) * 255).astype(np.uint8))
-            # 4: Checkerboard
-            block = 40
-            checker = np.indices((h, w)).sum(axis=0) // block % 2
-            images.append((checker * 200 + 30).astype(np.uint8))
+            images = self._make_specimen_frames(self._height, self._width)
             logger.info(f'[SimCamera ] Generated {len(images)} synthetic cycle images')
 
         self._cycle_images = images
@@ -715,6 +763,35 @@ class SimulatedCamera(Camera):
         blurred = uniform_filter(img.astype(np.float32), size=filter_size)
         return np.clip(blurred, 0, max_val)
 
+    def _render_cycle_frame(self, h, w, dtype, max_val, brightness) -> np.ndarray:
+        """Render the current specimen frame, resized and scaled to ``dtype``.
+
+        Shared by the explicit ``image_cycle`` pattern and the
+        no-pattern-requested fallback so the two cannot drift. A second copy
+        of this is how the uint16 scaling below gets left out: without it a
+        Mono10/Mono12 frame renders nearly black, because the source tops out
+        at 255 against a max_val of 1023 or 4095.
+
+        Frames are built on demand -- both callers are reachable before
+        ``load_cycle_images()`` has run, and a camera-init failure skips that
+        call entirely.
+        """
+        if not self._cycle_images:
+            self._cycle_images = self._make_specimen_frames(h, w)
+        src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
+        self._cycle_index += 1
+        # Resize if binning changed since load -- nearest-neighbor via slicing
+        if src.shape != (h, w):
+            src_h, src_w = src.shape
+            y_idx = np.linspace(0, src_h - 1, h, dtype=int)
+            x_idx = np.linspace(0, src_w - 1, w, dtype=int)
+            src = src[np.ix_(y_idx, x_idx)]
+        # Floor so the field stays visible at the short default exposures
+        brightness = max(0.5, brightness)
+        if dtype == np.uint16:
+            return (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
+        return (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
         h = self._height
@@ -730,27 +807,8 @@ class SimulatedCamera(Camera):
         # Scale brightness by exposure and gain
         raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
         brightness = min(1.0, raw)
-        # For image cycling, apply a floor so patterns are visible even at
-        # short default exposures (2ms -> raw=0.02, floor lifts to 0.5)
         if self._test_pattern == 'image_cycle':
-            brightness = max(0.5, brightness)
-
-        if self._test_pattern == 'image_cycle' and self._cycle_images:
-            # Cycle through loaded/generated images
-            src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
-            self._cycle_index += 1
-            # Resize if binning changed since load
-            if src.shape != (h, w):
-                # Simple nearest-neighbor resize via slicing
-                src_h, src_w = src.shape
-                y_idx = np.linspace(0, src_h - 1, h, dtype=int)
-                x_idx = np.linspace(0, src_w - 1, w, dtype=int)
-                src = src[np.ix_(y_idx, x_idx)]
-            # Scale to target dtype and apply brightness
-            if dtype == np.uint16:
-                img = (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
-            else:
-                img = (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
         elif self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
@@ -762,9 +820,18 @@ class SimulatedCamera(Camera):
             img = self._apply_defocus_blur(base * brightness, max_val)
             img = img.astype(dtype)
         else:
-            # Default gradient -- also apply defocus blur if Z tracking is active
-            row = np.linspace(0, max_val * brightness, w, dtype=np.float32)
-            img = np.tile(row, (h, 1)).astype(dtype)
+            # No specific pattern was asked for. Render the same specimen field
+            # the cycle uses rather than a column ramp: a ramp is not what a
+            # sample looks like, and reaching this branch used to undo the
+            # cycle for the rest of the session. Built lazily because this
+            # branch is reachable before load_cycle_images() has run -- a
+            # camera-init failure skips that call entirely.
+            if self._test_pattern != 'specimen':
+                logger.warning(
+                    f'[SimCamera ] Unknown test pattern '
+                    f'{self._test_pattern!r} -- rendering the specimen field'
+                )
+            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
 
         return img
 
@@ -1021,7 +1088,8 @@ class SimulatedCamera(Camera):
         """Enable or disable the simulator's test pattern generator.
 
         Args:
-            enabled: True to enable the pattern, False to revert to ``'gradient'``.
+            enabled: True to enable the pattern, False to revert to the
+                specimen field the live view normally shows.
             pattern: Pattern name (case-insensitive). Common values:
                 ``'black'``, ``'white'``, ``'noise'``, ``'focus_target'``,
                 ``'image_cycle'``.
@@ -1029,4 +1097,6 @@ class SimulatedCamera(Camera):
         if enabled:
             self._test_pattern = pattern.lower()
         else:
-            self._test_pattern = 'gradient'
+            # Back to the specimen field, not a static ramp: turning a test
+            # pattern OFF must restore what the view showed before it went on.
+            self._test_pattern = 'specimen'

@@ -71,7 +71,22 @@ from tests.ast_seams import iter_package_modules
 # image/folder label guard (test_enhance_file_or_folder.py), which asserts
 # button LABEL TEXT inside a function body, where ast_seams carries the def
 # but not the literals in it. One site each; measured on the merged tree.
-_READ_TEXT_SITE_BUDGET = 367
+# pin-justified: 367 -> 370 for the capability-gating guards
+# (test_capability_gating_ssot.py, two sites; test_controls_lockout.py, one).
+# Every one asserts an ABSENCE -- that a function no longer reads a
+# capability out of the scope-model config, and that two deleted mirrors of
+# the XY fact have not come back. ast_seams asserts that a seam EXISTS with
+# a given shape; it has no way to say a name is gone or that a body stopped
+# reading something, which is the whole content of these guards.
+# pin-justified: 375 -> 376 for test_settings_question_failure_parity.py,
+# ONE site. It reads no source: the refusal tests assert that a refused
+# save left the user's only copy of their configuration exactly as it was,
+# which is a claim about a file on disk and has no AST seam -- the same
+# rationale already recorded for test_session_save_settings.py in the file
+# budget below, whose assertions these mirror. Six natural sites (a
+# before/after pair in each of three tests) were funnelled through one
+# `_current_json` helper so the file costs one.
+_READ_TEXT_SITE_BUDGET = 376
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
@@ -82,7 +97,19 @@ _READ_TEXT_SITE_BUDGET = 367
 # other polarity of the same guard: its subject is ALSO the text of
 # LumascopeSkills.md (does every live public member appear in a checked
 # fence), so there is no AST seam to assert instead.
-_READ_TEXT_FILE_BUDGET = 125
+# pin-justified: 125 -> 126 for test_capability_gating_ssot.py, same reason
+# as the site bump above: absence assertions have no seam to assert.
+# pin-justified: 126 -> 128 for test_settings_preparation_shared.py and
+# test_session_save_settings.py. Neither reads SOURCE: both write a settings
+# file into tmp_path and read its bytes back to assert the file on disk was
+# or was not modified. "The user's only copy was left exactly as it was" is
+# a claim about a file, so there is no AST seam to assert instead.
+# pin-justified: 129 -> 130 for test_settings_question_failure_parity.py --
+# same reason as the site bump above, and the same reason as the two files
+# named immediately above it. Its AST work goes through
+# tests.ast_seams.parse_module, which is where that read already lives and
+# is already counted; the one site this file adds is the on-disk check.
+_READ_TEXT_FILE_BUDGET = 130
 
 
 def _nodes_inside_iteration(tree):

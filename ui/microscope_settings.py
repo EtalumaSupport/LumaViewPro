@@ -1,12 +1,10 @@
 # Copyright Etaluma, Inc.
-import copy
 import datetime
 import json
 import logging
 import os
 import pathlib
 import threading
-import time
 
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
@@ -19,6 +17,7 @@ from modules import gui_logger
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
+    model_has_turret,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -26,7 +25,6 @@ from modules.config_ui_getters import (
     get_current_frame_dimensions,
     get_selected_labware,
 )
-from modules.common_utils import CustomJSONizer
 from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
@@ -142,7 +140,14 @@ class MicroscopeSettings(BoxLayout):
         scopes_path = resolve_data_file('scopes.json')
         try:
             with open(scopes_path) as read_file:
-                self.scopes = json.load(read_file)
+                # The file carries two typed sections: the release layer
+                # catalogue (the identity resolver's business) and the
+                # model entries. This widget wants only the models --
+                # `self.scopes` stays a models-only dict for every
+                # consumer, the model dropdown included -- and a file
+                # without the section is as unusable as an unparseable
+                # one, so it gets the same loud treatment.
+                self.scopes = json.load(read_file)['Models']
         except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
             raise RuntimeError(
@@ -154,6 +159,12 @@ class MicroscopeSettings(BoxLayout):
             raise RuntimeError(
                 f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
             ) from e
+        except KeyError as e:
+            logger.error(f'[LVP Main  ] scopes.json has no Models section at {scopes_path}')
+            raise RuntimeError(
+                f'scopes.json at {scopes_path} has no Models section. '
+                'Please restore from backup or reinstall.'
+            ) from e
 
         self._validate_scopes(scopes_path)
 
@@ -163,7 +174,7 @@ class MicroscopeSettings(BoxLayout):
             raise ValueError(
                 f'scopes.json at {filepath}: expected dict, got {type(self.scopes).__name__}'
             )
-        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': dict}
+        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
         for scope_id, scope in self.scopes.items():
             if not isinstance(scope, dict):
                 logger.warning(f"[Scopes    ] '{scope_id}' should be dict in {filepath}")
@@ -227,13 +238,27 @@ class MicroscopeSettings(BoxLayout):
         import modules.lumascope_api as lumascope_api
 
         lumaview.scope = lumascope_api.Lumascope(
-            camera_type=settings['camera_type'], simulate=ctx.simulate_mode
+            camera_type=settings['camera_type'],
+            simulate=ctx.simulate_mode,
+            warn_pre_release=False,
+            configured_model=settings.get('microscope'),
         )
         _labware_id, labware = get_selected_labware()
 
-        # Single hardware initialization call
+        # Single hardware initialization call. Reconnect never re-runs
+        # load_settings, so the position-1 objective adoption must happen
+        # here too or a reconnect would stamp the pre-reconnect selection
+        # over whatever slot the fresh session actually starts on.
         scope_config = self.scopes.get(settings.get('microscope'))
-        config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
+        ctx.session.adopt_turret_slot1_objective(
+            model_has_turret=model_has_turret(self.scopes, settings)
+        )
+        config = ScopeInitConfig.from_settings(
+            settings,
+            labware,
+            scope_config=scope_config,
+            layer_identity=lumaview.scope.layer_identity,
+        )
         lumaview.scope.initialize(config)
         # Start gate release: configuration is applied, so open the gate and
         # fire the single grab (the camera-lifecycle split -- connect() left
@@ -252,6 +277,12 @@ class MicroscopeSettings(BoxLayout):
         ctx.ui_listener_bridge.rebind(lumaview.scope)
         ctx.scope = lumaview.scope
 
+        # Re-gate the UI against the scope that is now attached. The control
+        # visibility comes from the drivers, so a reconnect onto different
+        # hardware leaves the previous scope's controls on screen until this
+        # runs -- there is no second store to fall back on.
+        self.reconfigure_for_scope()
+
         # Restart display
 
         ctx.scope_display.stop()
@@ -261,7 +292,17 @@ class MicroscopeSettings(BoxLayout):
         # (ALL-axis home + turret-positioning) -- same path the App's
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
-        ctx.session.start_application_session(disable_homing=ctx.disable_homing)
+        # Same GUI motion wrappers the App's on_start passes -- see there for
+        # why the widget path rather than the Session's bare-API defaults.
+        from ui.ui_helpers import move_home, move_absolute
+
+        ctx.session.start_application_session(
+            disable_homing=ctx.disable_homing,
+            home_fn=lambda axis: move_home(axis, wait=True),
+            turret_fn=lambda position: move_absolute(
+                axis='T', position=position, wait_until_complete=True
+            ),
+        )
         # Resync the whole per-camera UI surface from the NEW camera: refresh
         # the slider caps first (reconnect previously left the gain cap stale,
         # a blackout risk on a lower-cap camera), then the per-layer ranges +
@@ -280,6 +321,16 @@ class MicroscopeSettings(BoxLayout):
 
         # Refresh position display after reconnect (M22)
         ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
+
+        # Same prompt gate as app startup: reconnect can change which
+        # model is attached, so re-ask only when the objective is
+        # unknowable (never-confirmed install, or the starting position
+        # has no assignment).
+        reconnect_has_turret = model_has_turret(self.scopes, settings)
+        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+        Clock.schedule_once(
+            lambda dt: vertical_control.maybe_prompt_objective_selection(reconnect_has_turret), 0
+        )
 
         logger.info('[LVP Main  ] Reconnection complete.')
 
@@ -402,16 +453,9 @@ class MicroscopeSettings(BoxLayout):
             self.ids['jpg_quality_value_label'].text = str(jpg_quality)
             self.select_live_image_output_format()
 
-            # Migrate legacy 'ImageJ Hyperstack' spinner value to the
-            # honest 'OME-TIFF Hyperstack' label. The underlying file
-            # format never changed (always OME-TIFF); only the label
-            # was misleading. Migrating on load means existing user
-            # settings.json files keep working without manual edits.
-            sequenced_fmt = settings['image_output_format']['sequenced']
-            if sequenced_fmt == 'ImageJ Hyperstack':
-                sequenced_fmt = image_mode.OUTPUT_FORMAT_HYPERSTACK
-                settings['image_output_format']['sequenced'] = sequenced_fmt
-            self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
+            self.ids['sequenced_image_output_format_spinner'].text = settings[
+                'image_output_format'
+            ]['sequenced']
             self.select_sequenced_image_output_format()
 
             # The exposure/gain slider caps from the live camera (the resolver
@@ -450,29 +494,17 @@ class MicroscopeSettings(BoxLayout):
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
 
+            # The stored objective is only a leftover from the previous
+            # session; on turret models the session starts at position 1,
+            # so that slot's assignment is the real starting objective.
+            # Adopt it BEFORE anything below reads settings -- the spinner,
+            # the optics log, the FOV fields, and scope.initialize() all
+            # derive image scale from this value.
+            scope_config = self.scopes.get(settings.get('microscope'))
+            ctx.session.adopt_turret_slot1_objective(
+                model_has_turret=model_has_turret(self.scopes, settings)
+            )
             objective_id = settings['objective_id']
-
-            # Mutate turret config keys from str to int for cleaner handling
-            settings['turret_objectives'] = {
-                int(k): v for k, v in settings['turret_objectives'].items()
-            }
-
-            if lumaview.scope.capabilities.has_turret:
-                turret_objectives = list(settings['turret_objectives'].values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if not assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Turret',
-                        'No Turret Objectives Assigned',
-                        'Turret positions have no objectives assigned. '
-                        'Please assign objectives in Objective Control > Turret before running protocols.',
-                    )
-                elif objective_id not in assigned:
-                    logger.warning(
-                        f'Startup objective {objective_id} not found in turret objectives ({turret_objectives}).'
-                    )
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
@@ -522,8 +554,12 @@ class MicroscopeSettings(BoxLayout):
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             _labware_id, labware = get_selected_labware()
-            scope_config = self.scopes.get(settings.get('microscope'))
-            config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
+            config = ScopeInitConfig.from_settings(
+                settings,
+                labware,
+                scope_config=scope_config,
+                layer_identity=lumaview.scope.layer_identity,
+            )
             lumaview.scope.initialize(config)
             # Start gate release (primary startup site): configuration is
             # applied, so open the gate and fire the single grab.
@@ -572,9 +608,6 @@ class MicroscopeSettings(BoxLayout):
                 settings['stimulation_enabled'] = False
             self.apply_stimulation_support()
 
-            # Protocol accordions are permanently disabled (no longer a setting)
-            settings.pop('disable_protocol_accordions', None)
-
             for layer in common_utils.get_layers():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
@@ -586,8 +619,8 @@ class MicroscopeSettings(BoxLayout):
                         'composite_brightness_threshold'
                     ]
 
-                if 'ill_ma' in settings[layer]:
-                    layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
+                if 'illumination_ma' in settings[layer]:
+                    layer_obj.ids['ill_slider'].value = settings[layer]['illumination_ma']
 
                 # Size the sliders to the camera caps BEFORE setting the value
                 # (the Kivy slider clamps the displayed value to its max). The
@@ -597,7 +630,7 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj.ids['gain_slider'].max = max_gain
                 layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-                layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
+                layer_obj.ids['exp_slider'].value = settings[layer]['exposure_ms']
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -611,24 +644,9 @@ class MicroscopeSettings(BoxLayout):
                 elif settings[layer]['acquire'] == 'video':
                     layer_obj.ids['acquire_video'].active = True
                 else:
-                    settings[layer]['acquire'] = None
                     layer_obj.ids['acquire_none'].active = True
 
                 video_config = settings[layer]['video_config']
-                DEFAULT_VIDEO_DURATION_SEC = 5
-                DEFAULT_VIDEO_FPS = 30
-
-                if video_config is None:
-                    video_config = {}
-
-                if 'duration' not in video_config:
-                    video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
-
-                if 'fps' not in video_config or video_config['fps'] <= 0:
-                    video_config['fps'] = DEFAULT_VIDEO_FPS
-
-                settings[layer]['video_config'] = video_config
-
                 layer_obj.ids['video_duration_text'].text = str(video_config['duration'])
                 layer_obj.ids['video_duration_slider'].value = video_config['duration']
 
@@ -644,9 +662,11 @@ class MicroscopeSettings(BoxLayout):
                     stim_config = settings[layer]['stim_config']
                     layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
                     layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
-                    layer_obj.ids['stim_ill_text'].text = str(stim_config.get('illumination', 100))
+                    layer_obj.ids['stim_ill_text'].text = str(
+                        stim_config.get('illumination_ma', 100)
+                    )
                     layer_obj.ids['stim_ill_slider'].value = float(
-                        stim_config.get('illumination', 100)
+                        stim_config.get('illumination_ma', 100)
                     )
                     layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
                     layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
@@ -938,72 +958,6 @@ class MicroscopeSettings(BoxLayout):
                             settings[layer]['stim_config']['enabled'] = False
 
     # Save settings to JSON file
-    def save_settings(self, file='./data/current.json', *, force=False):
-        """Save the current settings dict to disk as JSON.
-
-        LVP-A-4: when ``force=False`` (default), the save is skipped if
-        no hardware was connected during the session -- without hardware
-        the slider defaults (0.01ms exposure, etc.) would overwrite the
-        user's real per-channel settings in current.json. The gate
-        previously lived inline in ``lumaviewpro.py:on_stop``; lifted
-        here so every caller (engineering plugin save-on-quit, REST
-        endpoint, scheduled save, future CLI tools) gets the same
-        guard.
-
-        Pass ``force=True`` only when the caller really does want the
-        save regardless of hardware presence (rare; e.g. an explicit
-        "save folder paths only" path that doesn't touch per-channel
-        values).
-
-        TODO 4.1: split by section so non-hardware values (folder
-        paths, protocol config) are always saved while hardware values
-        (gain, exposure) are gated. Until then, all-or-nothing on
-        hardware presence.
-        """
-        logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        # LVP-A-4: hardware-presence gate.
-        if not force:
-            scope = ctx.lumaview.scope if ctx.lumaview else None
-            had_hardware = bool(
-                scope and (scope.camera_connected or scope.motor_connected or scope.led_connected)
-            )
-            if not had_hardware:
-                logger.info(
-                    '[LVP Main  ] save_settings: skipped -- no hardware was '
-                    'connected this session (would overwrite real per-channel '
-                    'values with slider defaults). Pass force=True to override.'
-                )
-                return
-
-        if isinstance(file, str) and (file[-5:].lower() != '.json'):
-            file = file + '.json'
-
-        t0 = time.monotonic()
-        with ctx.settings_lock:
-            settings_snapshot = copy.deepcopy(settings)
-        # Resolve relative paths against source_path instead of relying on CWD
-        if not os.path.isabs(file):
-            file = os.path.join(ctx.source_path, file)
-        with open(file, 'w') as write_file:
-            json.dump(settings_snapshot, write_file, indent=4, cls=CustomJSONizer)
-        dt = time.monotonic() - t0
-        if dt > 0.1:
-            logger.warning(f'[LVP Main  ] save_settings took {dt * 1000:.0f}ms')
-
-        # Dispatch on_settings_changed to plugins whose subscribes_to
-        # prefix-matches the keys that diffed since the last save.
-        # The first call after startup caches the baseline without
-        # firing; subsequent saves fire only when actual values change.
-        try:
-            from modules.plugins import fire_settings_save_hooks
-
-            fire_settings_save_hooks(ctx, settings_snapshot)
-        except Exception:
-            logger.exception('[LVP Main  ] save_settings: plugin notification failed')
-
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
         # Use Lumascope API to get available binning sizes
@@ -1201,58 +1155,77 @@ class MicroscopeSettings(BoxLayout):
         startup and when the Advanced Settings selector changes the scope, so
         the order is identical on both paths.
         """
+        ctx = _app_ctx.ctx
+        # Layer identity re-resolves before anything reads it, so a model
+        # selection takes effect immediately on hardware that cannot
+        # report its own model; a motor-reported model still wins inside
+        # the resolver, so on self-reporting hardware this refresh is a
+        # no-op by design.
+        ctx.lumaview.scope.refresh_layer_identity(configured_model=ctx.settings.get('microscope'))
         self.set_ui_features_for_scope()
-        _app_ctx.ctx.stage.full_redraw()
+        ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
-        scope_configs = microscope_settings.scopes
-        selected_scope_config = scope_configs[settings['microscope']]
 
         microscope_settings.current_scope_model = settings['microscope']
 
+        # Which motion hardware exists is asked of the drivers, never of the
+        # selected model. scopes.json describes the model picked in Advanced
+        # Settings, and that selection is editable while the app runs -- gate
+        # the controls on it and the UI offers an XY stage on a scope that has
+        # none, after which a protocol images a single position while
+        # labelling every file with a different well.
+        caps = ctx.lumaview.scope.capabilities
+
         motion_settings = ctx.motion_settings
-        motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
-        motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
-        motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
-        motion_settings.set_objective_control_visibility(visible=selected_scope_config['Focus'])
+        motion_settings.set_turret_control_visibility(visible=caps.has_turret)
+        motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
+        motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
+        motion_settings.set_objective_control_visibility(visible=caps.has_focus)
 
         image_settings = ctx.image_settings
-        layers_config = selected_scope_config['Layers']
-        image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
-        image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
-        image_settings.set_fluoresence_layer_controls_visibility(
-            visible=layers_config['Fluorescence']
-        )
-        image_settings.set_phasecontrast_layer_control_visibility(
-            visible=layers_config['PhaseContrast']
-        )
+        # Which layers exist comes from the scope's resolved identity --
+        # the one path that also serves headless callers -- refreshed by
+        # reconfigure_for_scope before this runs. Visibility and titles
+        # are per-layer from the record, so a filterset carrying only
+        # some channels (a Green-only unit) shows exactly what the unit
+        # has, with each drawer titled by what its layer IS on this unit.
+        identity = ctx.lumaview.scope.layer_identity
+        present = {layer.key_name for layer in identity.layers}
+        image_settings.set_df_layer_control_visibility(visible='DF' in present)
+        image_settings.set_lumi_layer_control_visibility(visible='Lumi' in present)
+        for color in common_utils.get_fluorescence_layers():
+            image_settings.set_fluorescence_layer_control_visibility(
+                color, visible=color in present
+            )
+        image_settings.set_phasecontrast_layer_control_visibility(visible='PC' in present)
+        image_settings.apply_layer_titles(identity.layers)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+        protocol_settings.set_labware_selection_visibility(visible=caps.has_xy_stage)
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
-        ].set_button_enabled_state(state=selected_scope_config['XYStage'])
+        ].set_button_enabled_state(state=caps.has_xy_stage)
 
-        if selected_scope_config['XYStage'] is False:
-            # XYStage=False scopes (Lumi, LS820) keep a single-plate
+        if not caps.has_xy_stage:
+            # Stage-less scopes (Lumi, LS820) keep a single-plate
             # ("Center Plate") graphic in the protocol tab so the crosshair
             # position is visible; only the XY motion capability is disabled
             # (set below). Stitch is hidden -- it needs tiling.
             protocol_settings.select_labware(labware='Center Plate')
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
-        # The one writer of the XY-stage configuration fact; user stage
-        # motion derives from it (session.motion_enabled), so there is
-        # no per-run capability write to mis-restore on a stage-less
-        # scope. Republish so the derivation's consumers see the edge.
-        ctx.session.xystage_configured = selected_scope_config['XYStage']
+        # Nothing to write: session.motion_enabled and the stage crosshair
+        # each ask the drivers for the XY fact at read time, so there is no
+        # copy here to keep in step. Run state is still republished -- the
+        # derivation's consumers are edge-driven, and a scope change can
+        # move motion_enabled.
         ctx.session.notify_run_state()
-        ctx.stage.set_xy_stage_capability(enabled=selected_scope_config['XYStage'])
 
         # Size the protocol-tab stage holder to its width-based aspect for
         # every scope. The plate graphic now renders on XYStage=False scopes

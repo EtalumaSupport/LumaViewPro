@@ -224,11 +224,11 @@ class TestLiveCaptureConfigSeam:
             'video_config': {},
             'autofocus': False,
             'false_color': False,
-            'ill_ma': 100.0,
+            'illumination_ma': 100.0,
             'sum': 1,
             'gain_db': 0.0,
             'auto_gain': False,
-            'exp_ms': 33.0,
+            'exposure_ms': 33.0,
             'focus': 0.0,
         }
         schema = set(

@@ -3,10 +3,13 @@
 import logging
 import typing
 
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.dropdown import DropDown
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
+from kivy.uix.spinner import Spinner, SpinnerOption
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -34,7 +37,29 @@ def _log_show(kind: str, severity: str, title: str, message: str):
     """Log every popup at the moment it is shown, to BOTH the main log (for post-mortem context)
     and the GUI-interactions log (for crash forensics). One entry per surface so a deployed
     customer log captures the full user-visible event."""
-    logger.info(f'[Popup    ] show {kind} -- {title}: {message}')
+    # A popup opened before Kivy's event loop runs is painted UNDER the
+    # app root once the root attaches -- created, "open", and invisible.
+    # The open cannot be made illegal here (callers legitimately defer),
+    # so make the state loud: mark both records and log at ERROR.
+    pre_mainloop = False
+    try:
+        from kivy.base import EventLoop
+
+        pre_mainloop = getattr(EventLoop, 'status', None) == 'idle'
+    except Exception:
+        pass
+    if pre_mainloop:
+        message = f'{message} (pre-mainloop)'
+    try:
+        from modules import gui_logger
+
+        line = f'[Popup    ] show {kind} -- {gui_logger.one_line(title)}: {gui_logger.one_line(message)}'
+    except Exception:
+        line = f'[Popup    ] show {kind} -- {title}: {message}'
+    if pre_mainloop:
+        logger.error(line)
+    else:
+        logger.info(line)
     try:
         from modules import gui_logger
 
@@ -46,7 +71,14 @@ def _log_show(kind: str, severity: str, title: str, message: str):
 def _log_response(title: str, response: str):
     """Log the user's response (OK / Cancel / Ack / dismiss) to BOTH surfaces. Pairs with
     _log_show so post-mortem can tell what the user was looking at AND what they decided."""
-    logger.info(f'[Popup    ] response {response} -- {title}')
+    try:
+        from modules import gui_logger
+
+        logger.info(
+            f'[Popup    ] response {gui_logger.one_line(response)} -- {gui_logger.one_line(title)}'
+        )
+    except Exception:
+        logger.info(f'[Popup    ] response {response} -- {title}')
     try:
         from modules import gui_logger
 
@@ -309,3 +341,103 @@ def show_confirmation_popup(
     popup.bind(on_dismiss=_on_dismiss)
 
     popup.open()
+
+
+class _CompactSpinnerOption(SpinnerOption):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('font_size', '12sp')
+        super().__init__(**kwargs)
+
+
+class _CappedDropDown(DropDown):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('max_height', dp(280))
+        super().__init__(**kwargs)
+
+
+# At most one objective question may be outstanding: the prompt is
+# cancel-less and every trigger asks the same thing, so a second popup
+# would stack a duplicate whose answer silently overwrites the first.
+# Cleared by the popup's own dismiss, which fires before the answer is
+# applied.
+_objective_popup_open = False
+
+
+def show_objective_selection_popup(
+    title: str,
+    message: str,
+    objectives: list[str],
+    current_objective_id: str,
+    on_confirm: typing.Callable[[str], None],
+):
+    """Modal prompt asking the user which objective is in the light path.
+
+    The pixel size derived from the objective is written into the scale
+    bar and every saved image's metadata, and a wrong one cannot be told
+    from a measured one afterwards -- so when the app cannot know the
+    objective (first run, or a turret position with no assignment), it
+    asks instead of assuming silently. There is deliberately no cancel
+    path: dismissing without answering would put the app right back in
+    the cannot-know state the prompt exists to resolve, so the popup
+    stays until the user confirms a choice.
+
+    Args:
+        title: Short noun phrase.
+        message: What happened + what confirming commits to.
+        objectives: Selectable objective ids, in display order.
+        current_objective_id: Pre-selected value (the proposed default).
+        on_confirm: Called with the chosen objective id.
+    """
+    global _objective_popup_open
+    if _objective_popup_open:
+        logger.info('[Popup    ] objective prompt already open -- second request dropped')
+        return
+    _log_show('objective_select', 'INFO', title, message)
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(_make_message_label(message))
+
+    # A Spinner built in Python gets Kivy's stock dropdown: full-height
+    # option rows and an uncapped list, which for a dozen objectives
+    # fills the whole screen. Sync the rows to the spinner's own height
+    # (the same mechanism the kv spinners use), match their option font,
+    # and cap the dropdown so a long catalogue scrolls instead of
+    # growing.
+    spinner = Spinner(
+        text=current_objective_id,
+        values=objectives,
+        size_hint_y=None,
+        height='30dp',
+        font_size='12sp',
+        sync_height=True,
+        option_cls=_CompactSpinnerOption,
+        dropdown_cls=_CappedDropDown,
+    )
+    content.add_widget(spinner)
+
+    confirm_button = Button(text='Confirm', size_hint_y=None, height='34dp')
+    content.add_widget(confirm_button)
+
+    popup = Popup(
+        title=title,
+        content=content,
+        size_hint=(0.4, 0.32),
+        auto_dismiss=False,
+    )
+
+    def _on_confirm(*_a):
+        _log_response(title, f'OBJECTIVE:{spinner.text}')
+        popup.dismiss()
+        on_confirm(spinner.text)
+
+    def _on_dismiss(*_a):
+        global _objective_popup_open
+        _objective_popup_open = False
+
+    confirm_button.bind(on_release=_on_confirm)
+    # Dismiss (which confirm fires before applying the answer) clears the
+    # outstanding-question flag, so a failure while applying cannot leave
+    # the app unable to ever ask again. The flag is set only after a
+    # successful open for the same reason in the other direction.
+    popup.bind(on_dismiss=_on_dismiss)
+    popup.open()
+    _objective_popup_open = True

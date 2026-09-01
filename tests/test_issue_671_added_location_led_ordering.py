@@ -10,7 +10,7 @@ User repro (the beta tester, beta12, 2026-05-19):
 
 Observed in `Firmware/build/issue671_2026-05-19/api.log`:
 
-    07:33:17.895  led_on ch=2  mA=350.0  owner='protocol'   <-- A2 Red
+    07:33:17.895  led_on ch=2  illumination_ma=350.0  owner='protocol'   <-- A2 Red
     07:33:19.090  move_abs X=19856.9um                       <-- move WITHOUT leds_off!
     07:33:19.150  move_abs Y=57899.3um
     07:33:19.231  move_abs Z=6247.4um wait
@@ -19,7 +19,7 @@ Observed in `Firmware/build/issue671_2026-05-19/api.log`:
     07:33:21.001  move_abs Y=57899.3um
     07:33:21.073  move_abs Z=6247.4um wait
     07:33:21.109  set_exposure 1.0ms
-    07:33:21.171  led_on ch=0  mA=250.0  owner='protocol'    <-- step 9 (added BF)
+    07:33:21.171  led_on ch=0  illumination_ma=250.0  owner='protocol'    <-- step 9 (added BF)
 
 The Red LED stays lit during the well-to-well move from A2 to the
 3rd location. Two structural anomalies:
@@ -365,7 +365,7 @@ class TestAddedLocationLedOrdering:
         all_red_led_ons = [
             i
             for i, (_, msg) in enumerate(capture.records)
-            if 'led_on ch=2' in msg and 'mA=350' in msg and "owner='protocol'" in msg
+            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "owner='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
             f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '

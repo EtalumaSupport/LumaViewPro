@@ -210,6 +210,16 @@ class SimulatedMotorBoard:
         """
         return self.driver is not None
 
+    def is_responsive(self) -> bool:
+        """Whether the board answers commands, as distinct from merely
+        having an open port. The simulator has no firmware that can go
+        mute, so a connected simulated board always answers.
+
+        Returns:
+            bool: True whenever the board is connected.
+        """
+        return self.is_connected()
+
     def motor_stop(self) -> bool:
         """Simulator answers True (sim firmware always supports STOP).
         Mirrors the production MotorBoard method so
@@ -1154,6 +1164,24 @@ class SimulatedMotorBoard:
         if model.endswith('T'):
             axes.append('T')
         return axes
+
+    def detect_homed_axes(self) -> list:
+        """Return the axes the simulated board reports as homed.
+
+        The simulator is its own firmware, so the homing flags it keeps
+        ARE the flags a real board would report -- a test that wants a
+        scope which was already homed before this process attached sets
+        them directly, the same state a powered bench scope presents.
+        """
+        return [
+            axis
+            for axis in self.detect_present_axes()
+            if (
+                self.initial_homing_complete or self.initial_t_homing_complete
+                if axis == 'T'
+                else self.initial_homing_complete
+            )
+        ]
 
     def current_pos_steps(self, axis: str) -> int:
         """Get current position in raw microsteps.

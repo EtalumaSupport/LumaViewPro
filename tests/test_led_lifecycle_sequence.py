@@ -152,9 +152,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, mA, owner):
+    def __call__(self, color, enabled, illumination_ma, owner):
         with self._lock:
-            self._events.append((color, bool(enabled), mA, owner))
+            self._events.append((color, bool(enabled), illumination_ma, owner))
 
     @property
     def events(self) -> list[tuple]:
@@ -407,7 +407,7 @@ def _recorded_run(
         # A pre-run Live LED so leds_state_at_end='return_to_original' has
         # something to restore (the snapshot is taken at lease acquire).
         scope.illumination.led_on(
-            channel=scope.illumination.color2ch(prelit[0]), mA=prelit[1], owner='ui'
+            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1], owner='ui'
         )
     scope.illumination.add_led_listener(sub)
     protocol = _build_protocol(specs)
@@ -556,7 +556,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
     lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     assert lease is not None
-    ill.led_on(channel=ill.color2ch('Green'), mA=250.0, owner='protocol')
+    ill.led_on(channel=ill.color2ch('Green'), illumination_ma=250.0, owner='protocol')
 
     # Out-of-turn live writes (empty owner) while the run holds the lease. Both
     # are refused by the LEASE check (_lease_violation), not by per-owner
@@ -564,7 +564,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     # only thing that can refuse them. The off is NOT a no-op skip: Green is lit,
     # so if the lease did not refuse it Green would go dark and the assertions
     # below would fail -- the refusal is what keeps Green lit.
-    ill.led_on(channel=ill.color2ch('Red'), mA=350.0, owner='')  # refused by lease
+    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0, owner='')  # refused by lease
     ill.led_off(channel=ill.color2ch('Green'), owner='')  # refused by lease
 
     assert ill.led_enabled('Green'), 'protocol channel was disturbed by a live write'
@@ -611,11 +611,13 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    def _preview(color, mA):
+    def _preview(color, illumination_ma):
         return _run_async(
             ill.apply_transition_async,
             LedTransition.MANUAL_STEP,
-            LedTransitionCtx(channel=ill.color2ch(color), mA=mA, preview_on=True),
+            LedTransitionCtx(
+                channel=ill.color2ch(color), illumination_ma=illumination_ma, preview_on=True
+            ),
         )
 
     # Preview to a Green step.
@@ -746,7 +748,7 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     restores the pre-AF Live channel on exit -- no stale AF channel, original
     Live state back (pins #695 restore path)."""
     ill = scope.illumination
-    ill.led_on(channel=ill.color2ch('Blue'), mA=120.0, owner='ui')
+    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='ui')
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
@@ -880,7 +882,7 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
     assert ill.led_lease_owner == 'autofocus'
     af_lease.apply(
         LedTransition.AF_ENTER,
-        LedTransitionCtx(channel=ill.color2ch('Green'), mA=250.0),
+        LedTransitionCtx(channel=ill.color2ch('Green'), illumination_ma=250.0),
     )
     assert ill.led_enabled('Green'), "the holder's apply must still drive the LEDs"
     af_lease.release(leave_on=False)
@@ -1087,8 +1089,8 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    for color, mA in (('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)):
-        ill.led_on(channel=ill.color2ch(color), mA=mA)
+    for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)):
+        ill.led_on(channel=ill.color2ch(color), illumination_ma=illumination_ma)
     assert sub.final_lit() == {'Blue', 'Green', 'Red'}, (
         'multi-channel illumination is API-legal; if this fails the premise of '
         f'the test is gone, not the diff\n{sub.render()}'
@@ -1111,8 +1113,8 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    for color, mA in (('Blue', 100.0), ('Green', 250.0)):
-        ill.led_on(channel=ill.color2ch(color), mA=mA)
+    for color, illumination_ma in (('Blue', 100.0), ('Green', 250.0)):
+        ill.led_on(channel=ill.color2ch(color), illumination_ma=illumination_ma)
 
     ill._emit_led_diff(
         frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),

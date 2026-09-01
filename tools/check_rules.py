@@ -37,7 +37,11 @@ Checks implemented (universal -- both repos):
     rule_42  -- WARN on "healthy"/"fine"/"within range" in comments without a
                 `PERFORMANCE_BUDGETS.md` cite in the same file
 
-LumaViewPro-only (kv_ascii + cv2_channel families):
+LumaViewPro-only (kv_ascii + cv2_channel + rule_37 families):
+    rule_37  -- a PUBLIC function in modules/, drivers/, or a top-level
+                script that a staged commit adds or touches must carry
+                full type hints (params + return); the untouched legacy
+                backlog is never demanded (ratchet RULED 2026-08-24)
     rule_24 over staged .kv files, and the cv2_channel_* guards that keep
     channel order / bit depth / false-color application on their canonical
     routes:
@@ -59,6 +63,8 @@ Firmware-only (doc_status family):
     daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
                 edit that grows it is BLOCKED (append to the monthly
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
+    daily_log_ordering -- shard entries are newest-first; an entry dated
+                newer than the one above it is BLOCKED (insert at top)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -86,8 +92,18 @@ from pathlib import Path
 # repo's pre-unification behavior exactly: the kv/cv2 families never ran
 # in Firmware, the doc-status family never ran in LumaViewPro.
 _REPO_CHECK_MAP: dict[str, dict[str, bool]] = {
-    'lumaviewpro': {'kv_ascii': True, 'cv2_channel': True, 'doc_status': False},
-    'etaluma-firmware': {'kv_ascii': False, 'cv2_channel': False, 'doc_status': True},
+    'lumaviewpro': {
+        'kv_ascii': True,
+        'cv2_channel': True,
+        'doc_status': False,
+        'rule_37': True,
+    },
+    'etaluma-firmware': {
+        'kv_ascii': False,
+        'cv2_channel': False,
+        'doc_status': True,
+        'rule_37': False,
+    },
 }
 
 
@@ -1138,6 +1154,141 @@ def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) ->
     ]
 
 
+def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
+    """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
+
+    The shard header promises newest-at-top; four recurrences of
+    bottom-appended entries outlived that prose, and the Rulings check
+    examines only the top entry, so a bottom-append also dodged it
+    silently. Whole-file on purpose: a bottom-append IS an out-of-order
+    date pair wherever the staged diff landed. Frozen DAILY_LOG.md is
+    exempt (its history predates newest-first and cannot grow anyway).
+    """
+    p = path.replace('\\', '/')
+    if not _is_daily_log(p) or p.endswith('docs/DAILY_LOG.md'):
+        return []
+    violations: list[Violation] = []
+    prev: tuple[str, int] | None = None  # (date, lineno) of the entry above
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if not _DAILY_LOG_ENTRY_RE.match(line):
+            continue
+        date = line[3:13]
+        if prev is not None and date > prev[0]:
+            violations.append(
+                Violation(
+                    path,
+                    lineno,
+                    0,
+                    'daily_log_ordering',
+                    f'DAILY_LOG shard entries are newest-first: the {date} '
+                    f'entry sits below the older {prev[0]} entry (line '
+                    f'{prev[1]}); insert new entries at the TOP, directly '
+                    'under the header block',
+                )
+            )
+        prev = (date, lineno)
+    return violations
+
+
+def _merge_in_progress() -> bool:
+    """True while a merge is being concluded.
+
+    A merge commit authors no lines. Every line it stages came from the
+    commits being merged, each of which faced this gate on its own branch.
+    The staged diff against HEAD is nonetheless the union of the whole
+    incoming stack, so a diff-aware ratchet reads that union as freshly
+    written code -- and a ratchet adopted partway along a branch then
+    demands the entire backlog beneath it, which is the one demand it
+    promises never to make. Conflict resolutions are authored here, but
+    the merge playbook reviews those hunk by hunk.
+    """
+    try:
+        git_dir = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return False
+    return (Path(git_dir) / 'MERGE_HEAD').exists()
+
+
+_RULE_37_ARG_EXEMPT = {'self', 'cls'}
+
+
+def _is_rule_37_path(path: str) -> bool:
+    """Rule 37's stated scope: modules/, drivers/, top-level scripts."""
+    p = path.replace('\\', '/')
+    if p.startswith(('modules/', 'drivers/')):
+        return True
+    return '/' not in p and p.endswith('.py')
+
+
+def _check_rule_37(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """BLOCK an added-or-touched public function missing type hints.
+
+    The Rule 37 ratchet (RULED 2026-08-24; built at the 2026-08-31 pass):
+    prose was not landing -- new public functions shipped untyped at the
+    same ~20% rate as the legacy backlog. Fails ONLY on a public function
+    whose span intersects the staged diff; the legacy backlog is never
+    demanded, so this check is diff-aware only (no added lines -> no
+    violations, including under --all). Scope is the rule's own text:
+    modules/, drivers/, top-level scripts; underscore helpers (dunders
+    included) exempt. Named params need annotations (self/cls and bare
+    *args/**kwargs exempt) and the return needs one. Nested functions are
+    not public surfaces.
+    """
+    if not added or not _is_rule_37_path(path):
+        return []
+    try:
+        tree = ast.parse(content, filename=path)
+    except SyntaxError:
+        return []  # the parse violation is already reported by check_source
+
+    def surface_functions(body):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield node
+            elif isinstance(node, ast.ClassDef):
+                yield from surface_functions(node.body)
+
+    violations: list[Violation] = []
+    for fn in surface_functions(tree.body):
+        if fn.name.startswith('_'):
+            continue
+        span = set(range(fn.lineno, (fn.end_lineno or fn.lineno) + 1))
+        if not (span & added):
+            continue
+        a = fn.args
+        untyped = [
+            arg.arg
+            for arg in (a.posonlyargs + a.args + a.kwonlyargs)
+            if arg.annotation is None and arg.arg not in _RULE_37_ARG_EXEMPT
+        ]
+        missing_return = fn.returns is None
+        if not untyped and not missing_return:
+            continue
+        parts = []
+        if untyped:
+            parts.append('untyped param(s) ' + ', '.join(untyped))
+        if missing_return:
+            parts.append('no return annotation')
+        violations.append(
+            Violation(
+                path,
+                fn.lineno,
+                0,
+                'rule_37',
+                f'public function `{fn.name}` touched by this commit has '
+                + ' and '.join(parts)
+                + ' (Rule 37 ratchet: functions a commit adds or touches are '
+                'fully hinted; the untouched legacy backlog is never demanded)',
+            )
+        )
+    return violations
+
+
 def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[Violation]:
     """Run the .py rule checks against one source file's content.
 
@@ -1182,6 +1333,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations.extend(_check_plan_truth_base(content, path))
     violations.extend(_check_daily_log_rulings(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
+    violations.extend(_check_daily_log_ordering(content, path))
     return violations
 
 
@@ -1256,6 +1408,7 @@ def main(argv: list[str] | None = None) -> int:
     violations: list[Violation] = []
 
     if args.staged:
+        merging = _merge_in_progress()
         for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
@@ -1266,6 +1419,10 @@ def main(argv: list[str] | None = None) -> int:
                 added = _added_lines(p)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
+            if config.get('rule_37') and not merging:
+                # Diff-aware by design (backlog never demanded), so it does
+                # its own line-range logic like the doc checks.
+                violations.extend(_check_rule_37(content, p, _added_lines(p)))
         if config['kv_ascii']:
             for p in _staged_files('.kv'):
                 try:

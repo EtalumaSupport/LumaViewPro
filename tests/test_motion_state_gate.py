@@ -22,14 +22,14 @@ the driver's real error handling runs rather than a replaced method.
 
 Two seams are substituted, both deliberately:
 
-* ``ui.ui_helpers.move_home`` / ``move_absolute`` in the startup test.
-  ``ScopeSession.start_application_session`` reaches UP into the UI
-  layer for these two (a known layering defect, tracked separately and
-  NOT fixed here), and they need a live Kivy app context. The
-  substitutes route straight to the production motion bodies and record
-  what the orchestrator attempted, so the decision under test -- does
-  startup attempt the turret move after a failed home? -- is observed
-  exactly, while the hardware underneath stays the real simulator.
+* The startup test's two motion calls, supplied through
+  ``start_application_session``'s ``home_fn`` / ``turret_fn`` parameters
+  -- the same seam the Kivy app uses to pass its widget-flavored
+  wrappers. The substitutes route straight to the production motion
+  bodies and record what the orchestrator attempted, so the decision
+  under test -- does startup attempt the turret move after a failed
+  home? -- is observed exactly, while the hardware underneath stays the
+  real simulator.
 * ``exchange_command`` returning None on a target write, for the
   dead-board move. That is the serial boundary, where Rule 11 puts the
   only permitted canned value.
@@ -135,7 +135,7 @@ def test_relative_move_refuses_on_unknown_axis(scope):
 def test_turret_move_refuses_before_lowering_z(scope):
     """The turret move must refuse BEFORE the safety Z-retract.
 
-    ``_tmove_impl`` opens ``_safe_turret_move``, which drives Z to 0
+    ``_move_turret_impl`` opens ``_safe_turret_move``, which drives Z to 0
     first. Gating only the inner absolute move would lower Z -- real
     motion against an unknown Z reference -- and only then refuse, so
     the refusal has to sit at the turret entry point.
@@ -143,7 +143,7 @@ def test_turret_move_refuses_before_lowering_z(scope):
     _home_and_fail(scope)
     z_before = scope._motion_driver.target_pos('Z')
     with pytest.raises(AxisStateUnknownError) as exc:
-        scope.motion._tmove_impl(position=3)
+        scope.motion._move_turret_impl(position=3)
     assert exc.value.axis == 'T'
     assert scope._motion_driver.target_pos('Z') == z_before, (
         'Z must not be driven by a turret move that was refused'
@@ -175,20 +175,20 @@ def test_forced_move_still_drives_on_unknown_axis(scope):
 def test_turret_home_recovers_from_unknown_z(scope):
     """A turret home after a failed home must not deadlock.
 
-    ``_thome_impl`` lowers Z inside ``_safe_turret_move`` while Z is
+    ``_home_turret_impl`` lowers Z inside ``_safe_turret_move`` while Z is
     UNKNOWN. Without the hatch the gate refuses its own recovery path
     and the turret can never be re-homed without a restart.
     """
     _home_and_fail(scope)
     scope._motion_driver._fail_on.discard('HOME')
-    assert scope.motion._thome_impl() is True, (
+    assert scope.motion._home_turret_impl() is True, (
         'turret homing must survive an UNKNOWN Z -- it is the recovery path'
     )
     assert scope.motion._axis_state['T'] == AxisState.IDLE
 
 
 # ---------------------------------------------------------------------------
-# B2: one state store. The driver's has_thomed() flag clears only on physical
+# B2: one state store. The driver's has_turret_homed() flag clears only on physical
 # disconnect, so a stall or disconnect fault mid-turret-move leaves it True
 # while _axis_state says UNKNOWN -- and turret_select's safety check reads the
 # flag. That is a live bypass: the turret drives against an unknown reference.
@@ -196,23 +196,23 @@ def test_turret_home_recovers_from_unknown_z(scope):
 
 
 def test_turret_fault_revokes_homed_state(scope):
-    """A fault that makes T UNKNOWN must revoke has_thomed().
+    """A fault that makes T UNKNOWN must revoke has_turret_homed().
 
     This is the state the stall fault and the disconnect fault leave
     behind: the board answered the home, then the move faulted. The
     driver flag alone cannot see that.
     """
     assert scope.motion._home_impl() is True
-    assert scope.motion.has_thomed() is True, 'precondition: a good home homes the turret'
+    assert scope.motion.has_turret_homed() is True, 'precondition: a good home homes the turret'
 
     scope.motion._set_axis_state('T', AxisState.UNKNOWN)
 
-    assert scope.motion.has_thomed() is False, (
-        'has_thomed() must follow the axis state, not a driver flag that '
+    assert scope.motion.has_turret_homed() is False, (
+        'has_turret_homed() must follow the axis state, not a driver flag that '
         'clears only on physical disconnect'
     )
     with pytest.raises(AxisStateUnknownError):
-        scope.motion._tmove_impl(position=2)
+        scope.motion._move_turret_impl(position=2)
 
 
 def test_stage_fault_revokes_homed_state(scope):
@@ -233,14 +233,21 @@ def test_stage_fault_revokes_homed_state(scope):
 
 
 def _startup_session(scope, monkeypatch):
-    """Build a session and route its two UI-layer motion calls to the
-    production bodies, recording what startup attempted.
+    """Build a session and route its two motion calls to the production
+    bodies, recording what startup attempted.
 
     See the module docstring for why these two are substituted.
+
+    The substitutes go in through ``start_application_session``'s own
+    ``home_fn`` / ``turret_fn`` parameters -- the same seam the GUI uses
+    to supply its widget-flavored wrappers. An earlier version patched
+    ``ui.ui_helpers`` attributes instead, which pinned the substitution
+    MECHANISM rather than the invariant and stopped intercepting
+    anything the moment the Session took its motion callables by
+    injection.
     """
     from unittest.mock import MagicMock
 
-    import ui.ui_helpers
     from modules.scope_session import ScopeSession
 
     session = ScopeSession(
@@ -257,27 +264,26 @@ def _startup_session(scope, monkeypatch):
     # silently never happens, which is exactly the failure this file
     # exists to catch. Running the body inline keeps the sequence ordered
     # and the home's real result observable.
-    def _move_home(axis, wait=False):
+    def _home_fn(axis):
         attempts.append(('home', axis))
         return scope.motion._home_impl()
 
-    def _move_absolute(axis, position, **kwargs):
-        attempts.append(('move', axis, position))
-        scope.motion._move_absolute_impl(axis, position)
+    def _turret_fn(position):
+        attempts.append(('move', 'T', position))
+        scope.motion._move_absolute_impl('T', position)
 
-    monkeypatch.setattr(ui.ui_helpers, 'move_home', _move_home)
-    monkeypatch.setattr(ui.ui_helpers, 'move_absolute', _move_absolute)
-    return session, attempts
+    hooks = {'home_fn': _home_fn, 'turret_fn': _turret_fn}
+    return session, attempts, hooks
 
 
 def test_startup_skips_turret_positioning_after_failed_home(scope, monkeypatch):
     """The cascade in #702: startup homes, the home fails, and startup
     positions the turret anyway -- a real move against an unknown
     reference, and a second error popup on top of the home's own."""
-    session, attempts = _startup_session(scope, monkeypatch)
+    session, attempts, hooks = _startup_session(scope, monkeypatch)
     _fail_home(scope)
 
-    session.start_application_session()
+    session.start_application_session(**hooks)
 
     assert ('home', 'ALL') in attempts, 'startup must still attempt the home'
     turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
@@ -293,9 +299,9 @@ def test_startup_skips_turret_positioning_after_failed_home(scope, monkeypatch):
 def test_startup_positions_turret_after_successful_home(scope, monkeypatch):
     """The control: a good home must still position the turret. A gate
     that refuses everything would pass the test above."""
-    session, attempts = _startup_session(scope, monkeypatch)
+    session, attempts, hooks = _startup_session(scope, monkeypatch)
 
-    session.start_application_session()
+    session.start_application_session(**hooks)
 
     assert ('home', 'ALL') in attempts
     turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']

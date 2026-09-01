@@ -702,14 +702,12 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_idx=0, protocol=False)
 
     def _validate_labware(self, labware: str):
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        scope_configs = ctx.motion_settings.ids['microscope_settings_id'].scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
+        # Asked of the drivers rather than the selected scope model, which a
+        # user can change mid-session -- see set_ui_features_for_scope.
         # If XY motion is available, any type of labware is acceptable
-        if selected_scope_config['XYStage'] is True:
+        if ctx.lumaview.scope.capabilities.has_xy_stage:
             return True, labware
 
         # If XY motion is not available, only Center Plate
@@ -812,11 +810,9 @@ class ProtocolSettings(FloatLayout):
         duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
 
-        scope_configs = ctx.motion_settings.ids['microscope_settings_id'].scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
-        # If the scope has no XY stage, then don't allow the protocol to modify the labware
-        if not selected_scope_config['XYStage']:
+        # If the scope has no XY stage, then don't allow the protocol to modify
+        # the labware. The drivers answer that, not the selected scope model.
+        if not ctx.lumaview.scope.capabilities.has_xy_stage:
             labware = 'Center Plate'
 
         self.ids['capture_period'].text = str(period)
@@ -843,6 +839,10 @@ class ProtocolSettings(FloatLayout):
                 settings[layer]['stim_config']['enabled'] = False
         for layer_name, vals in (layer_settings_from_protocol or {}).items():
             if layer_name not in common_utils.get_layers():
+                logger.warning(
+                    f'[LVP Main  ] Protocol carries settings for unknown layer '
+                    f'{layer_name!r}; that layer is dropped on load.'
+                )
                 continue
             self._apply_layer_settings_row(settings, layer_name, vals)
 
@@ -912,9 +912,9 @@ class ProtocolSettings(FloatLayout):
             layer['acquire'] = acquire
 
         for col, key, caster in (
-            ('Illumination', 'ill_ma', _as_float),
+            ('Illumination', 'illumination_ma', _as_float),
             ('Gain', 'gain_db', _as_float),
-            ('Exposure', 'exp_ms', _as_float),
+            ('Exposure', 'exposure_ms', _as_float),
             ('Sum', 'sum', _as_int),
         ):
             raw = vals.get(col, '')
@@ -959,10 +959,10 @@ class ProtocolSettings(FloatLayout):
             row = {
                 'Layer': layer_name,
                 'Acquire': acquire,
-                'Illumination': layer.get('ill_ma', ''),
+                'Illumination': layer.get('illumination_ma', ''),
                 'Gain': layer.get('gain_db', ''),
                 'Auto_Gain': layer.get('auto_gain', ''),
-                'Exposure': layer.get('exp_ms', ''),
+                'Exposure': layer.get('exposure_ms', ''),
                 'False_Color': layer.get('false_color', ''),
                 'Sum': layer.get('sum', ''),
                 'Stim_Enabled': '',
@@ -1330,7 +1330,7 @@ class ProtocolSettings(FloatLayout):
                     logger.warning(
                         f'[UI] Stim channel {stim_color}: exposure is 0. This may produce no visible pulses.'
                     )
-                illum = sc.get('illumination', 0)
+                illum = sc.get('illumination_ma', 0)
                 if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
                     logger.warning(
                         f'[UI] Stim channel {stim_color}: illumination {illum} mA is invalid (must be > 0). Disabling channel.'

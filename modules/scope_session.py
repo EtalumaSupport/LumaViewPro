@@ -16,11 +16,21 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
+import copy
+import json
+import os
+import threading
+import time
 from typing import TYPE_CHECKING
 
+import modules.app_context as _app_ctx
+import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
+from modules.common_utils import CustomJSONizer
+from modules.exceptions import SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
+from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -50,8 +60,19 @@ class ScopeSession:
         z_ui_update_func=None,
         owns_executors: bool = False,
         metrics_scheduler=None,
+        settings_saved_hook=None,
     ):
         self.settings = settings
+        # The lock lives with the dict it guards. Every host hands the same
+        # dict to whatever else it composes, so a lock held anywhere else
+        # can only guard one of the aliases -- which is no guard at all.
+        # Readers on other threads take a snapshot; writers use
+        # update_settings.
+        self.settings_lock = threading.Lock()
+        # Fired after a successful save, with the snapshot that was
+        # written. The GUI passes its plugin notifier; a headless host
+        # passes nothing, because there is no plugin registry to notify.
+        self._settings_saved_hook = settings_saved_hook
         self.scope = scope
         # The MetricsLogger lives on the scope, but its scheduler is a
         # host choice (Kivy Clock vs threading timers), so the host
@@ -117,11 +138,6 @@ class ScopeSession:
             settings=settings,
             activity_claim=self.activity_claim,
         )
-        # Whether the running configuration declares an XY stage. Written
-        # by the scope-config apply path; motion_enabled derives from it.
-        # Defaults True so bundle-less and headless hosts keep motion
-        # until a config says otherwise.
-        self.xystage_configured = True
         if self.file_io_executor is not None:
             self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
@@ -295,10 +311,16 @@ class ScopeSession:
 
     @property
     def motion_enabled(self) -> bool:
-        """True when user stage motion is allowed: the configuration
-        declares an XY stage and no run lockout holds. Evaluated at
-        read -- there is no cached copy to mis-restore."""
-        return self.xystage_configured and not self.run_lockout
+        """True when user stage motion is allowed: the scope actually has
+        an XY stage and no run lockout holds. Evaluated at read -- there
+        is no cached copy to mis-restore.
+
+        The stage fact is read from the driver rather than from the
+        configured scope model. The model is user-editable while the
+        app runs, so a copy of it kept here goes stale the moment
+        someone selects a different scope, and then reports stage
+        motion available on a scope that has no stage."""
+        return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
     def add_run_state_listener(self, listener) -> None:
         """Register a run-state transition listener and level-sync it.
@@ -351,7 +373,7 @@ class ScopeSession:
         if scope is None:
             import modules.lumascope_api as lumascope_api
 
-            scope = lumascope_api.Lumascope()
+            scope = lumascope_api.Lumascope(configured_model=settings.get('microscope'))
             # connect() leaves the camera configured but NOT grabbing (the
             # camera-lifecycle start gate). The GUI releases the gate in its
             # own bring-up; for a scope THIS session constructed there is no
@@ -492,18 +514,24 @@ class ScopeSession:
                 # the same file the GUI reads (current.json first, then
                 # settings.json) so headless state matches the running app,
                 # instead of hardcoding settings.json and ignoring live state.
-                import json
-
-                from modules.settings_init import _resolve_settings_path
-
+                # The same preparation the GUI runs -- shape check, folds,
+                # repairs, default merge -- not just the file read. Reading
+                # alone yields a dict that parses and is silently missing
+                # whatever newer releases added to the template.
+                #
+                # A missing file is normal (fresh install) and resolves to an
+                # empty config. An unusable one is not: the GUI answers that by
+                # asking the user, and there is nobody to ask here. Returning
+                # the template instead would hand an L2 caller a plausible
+                # config that is not theirs, so it surfaces.
                 try:
-                    settings_path = _resolve_settings_path(source_path)
-                    with open(settings_path) as f:
-                        settings = json.load(f)
+                    settings, _rejected = settings_init.prepare_settings(
+                        logger, source_path, fall_back_to_template=False
+                    )
                 except FileNotFoundError:
                     settings = {}
 
-        scope = lumascope_api.Lumascope(simulate=True)
+        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
         # Release the camera start gate: connect() leaves the sim camera
         # configured but NOT grabbing, and this factory is the whole
         # bring-up for the simulated session -- without the release every
@@ -595,6 +623,162 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self.settings)
+
+    def get_settings_snapshot(self) -> dict:
+        """A deep copy of the settings dict, taken under the lock.
+
+        A worker thread takes one of these at task entry and reads from it
+        for the rest of the task, rather than reading a dict another
+        thread may be part-way through rewriting.
+        """
+        with self.settings_lock:
+            return copy.deepcopy(self.settings)
+
+    def update_settings(self, key, value) -> None:
+        """Write one top-level settings key under the lock.
+
+        The write path for any caller that is not on the host's own
+        thread. Reads may go straight to `settings`; a write that skips
+        this can tear a snapshot being taken concurrently.
+        """
+        with self.settings_lock:
+            self.settings[key] = value
+
+    def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
+        """Make position 1's assignment the session's starting objective.
+
+        This method is not part of the L2 API surface: the hosting
+        environment calls it once per startup/reconnect before settings
+        are consumed; an L2 caller changes objectives through the
+        selection surface.
+
+        Startup leaves the turret at position 1 (homing puts it there),
+        so the stored objective_id is a leftover from the previous
+        session, not a fact about what sits in the light path: a session
+        that ended on another slot, or an assignment reset, leaves it
+        naming glass the turret does not hold -- and the pixel size
+        derived from it is stamped into the scale bar and saved-image
+        metadata. Whatever position 1 holds IS the starting objective;
+        call this before anything consumes settings.
+
+        Args:
+            model_has_turret: The DECLARED model's turret flag
+                (scopes.json), not live capabilities -- a scope whose
+                motorboard is dead reports no axes, and that
+                broken-hardware case is exactly when the stale
+                objective would otherwise survive. No-op when False:
+                on non-turret models objective_id is the user's free
+                choice.
+        """
+        if not model_has_turret:
+            return
+        turret_objectives = self.settings.get('turret_objectives') or {}
+        slot1_objective = turret_objectives.get(1)
+        if slot1_objective is None:
+            # Nothing assigned at the starting position: keep the stored
+            # objective rather than inventing one; the unassigned-slot
+            # prompt owns resolving this with the user.
+            return
+        if self.settings.get('objective_id') == slot1_objective:
+            return
+        logger.info(
+            f'[Session  ] Starting objective follows turret position 1: '
+            f'{slot1_objective!r} (stored selection was '
+            f'{self.settings.get("objective_id")!r})'
+        )
+        with self.settings_lock:
+            self.settings['objective_id'] = slot1_objective
+
+    def settings_are_provisional(self) -> bool:
+        """Is the app running on defaults nobody has agreed to keep?
+
+        True while the user's current.json could not be read and no one
+        has decided its fate. While it holds, every save aimed at
+        current.json raises SettingsSaveRefusedError -- resolve with
+        retire_rejected_settings() after the user has chosen to start
+        over.
+        """
+        return settings_init.settings_are_provisional()
+
+    def retire_rejected_settings(self) -> 'str | None':
+        """Resolve the provisional-settings state: retire the unreadable file.
+
+        Moves the unusable current.json aside (renamed, never deleted --
+        it is the user's only copy) so a fresh one can take its place,
+        and clears the provisional state so saves work again. Call only
+        after a human has chosen to start over. Returns the retired
+        path, or None when nothing was provisional.
+        """
+        return settings_init.retire_rejected_current_json()
+
+    def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
+        """Write the settings dict to disk as JSON.
+
+        Refused (raising) when writing would destroy real data: when no
+        hardware was connected this session the sliders sit at their
+        defaults (0.01 ms exposure and the like), and writing those over
+        a user's real per-channel values silently loses them -- a caller
+        that means the save regardless passes force=True, since an API
+        write has no slider behind it to misread.
+
+        Raises:
+            SettingsSaveRefusedError: reason='settings_provisional' when
+                the app is running on the shipped template because
+                current.json could not be read AND the save targets
+                current.json (force does not override; a save aimed at
+                any other destination still writes). reason='no_hardware'
+                when no hardware was connected this session and force is
+                not set.
+        """
+        logger.info('[Session  ] save_settings()')
+
+        # Outside the force gate on purpose: force means "save even though no
+        # hardware was connected", not "save over a file we were told to leave
+        # alone". The settings in memory right now are the shipped template,
+        # loaded because the user's own file could not be read; writing them
+        # to current.json would replace their entire configuration with
+        # defaults. Resolved by retire_rejected_settings() once the user
+        # has actually chosen to start over.
+        if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
+            logger.warning(
+                '[Session  ] save_settings: refused -- running on default '
+                'settings because current.json could not be read. Not '
+                'overwriting it until the user decides.'
+            )
+            raise SettingsSaveRefusedError(reason='settings_provisional', file=file)
+
+        if not force:
+            scope = self.scope
+            had_hardware = bool(
+                scope and (scope.camera_connected or scope.motor_connected or scope.led_connected)
+            )
+            if not had_hardware:
+                logger.info(
+                    '[Session  ] save_settings: refused -- no hardware was '
+                    'connected this session (would overwrite real per-channel '
+                    'values with slider defaults). Pass force=True to override.'
+                )
+                raise SettingsSaveRefusedError(reason='no_hardware', file=file)
+
+        if isinstance(file, str) and (file[-5:].lower() != '.json'):
+            file = file + '.json'
+
+        t0 = time.monotonic()
+        settings_snapshot = self.get_settings_snapshot()
+        # Resolve relative paths against source_path instead of relying on CWD
+        if not os.path.isabs(file):
+            file = os.path.join(self.source_path, file)
+        with open(file, 'w') as write_file:
+            json.dump(settings_snapshot, write_file, indent=4, cls=CustomJSONizer)
+        dt = time.monotonic() - t0
+        if dt > 0.1:
+            logger.warning(f'[Session  ] save_settings took {dt * 1000:.0f}ms')
+
+        if self._settings_saved_hook is not None:
+            try:
+                self._settings_saved_hook(settings_snapshot)
+            except Exception:
+                logger.exception('[Session  ] save_settings: saved-hook failed')
 
     def get_current_objective_info(self) -> 'tuple[str, dict]':
         import modules.config_helpers as config_helpers
@@ -693,10 +877,24 @@ class ScopeSession:
                 'periodic metrics stay off'
             )
             return
+        # Cadence resolution, in precedence order: an explicit setting wins
+        # everywhere (a bench operator asking for a specific interval must be
+        # honoured even on an engineering machine); otherwise engineering mode
+        # takes the sub-minute bench cadence; otherwise nothing is passed and
+        # the logger's own hourly default applies.
+        #
+        # The engineering flag is read off the app context, not
+        # settings['mode']: the engineering plugin can flip it during plugin
+        # load, so the settings file and the live flag disagree on exactly the
+        # machines that care. Plugin load completes before metrics start, and
+        # an unset context (headless, REST, tests) reads as False -- production
+        # cadence, which is the safe direction.
         start_kwargs = {}
         interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
+        elif getattr(_app_ctx.ctx, 'engineering_mode', False):
+            start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
         metrics_logger.start(self._metrics_scheduler, **start_kwargs)
         self._metrics_started = True
 
@@ -750,7 +948,13 @@ class ScopeSession:
         bundle.file_io_executor.shutdown(wait=False)
         bundle.worker_pool.shutdown(wait=False)
 
-    def start_application_session(self, *, disable_homing: bool = False) -> None:
+    def start_application_session(
+        self,
+        *,
+        disable_homing: bool = False,
+        home_fn=None,
+        turret_fn=None,
+    ) -> None:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
 
         Replaces the inline blocks in lumaviewpro.py:on_start AND
@@ -779,12 +983,27 @@ class ScopeSession:
             disable_homing: If True, skip the home step but still run
                 turret-positioning. Matches the App's ``--no-home``
                 CLI flag semantics.
+            home_fn: Callable taking an axis name and returning whether
+                the home succeeded. Defaults to the motion API.
+            turret_fn: Callable taking a turret position. Defaults to
+                the motion API.
+
+        The two motion callables are injected the same way the metrics
+        scheduler is: the hosting environment supplies its own, and the
+        API default is what everything else gets. The Kivy app passes
+        the ``ui_helpers`` wrappers, which drive the turret through the
+        widget that also reconciles the objective, spinner and button
+        state -- policy that lives in the UI and has no API equivalent
+        yet. Defaulting to the API instead of importing the UI is what
+        lets a headless caller run this at all: the widget path reaches
+        ``ctx.motion_settings``, which is None until a widget tree
+        exists, so before injection this method could not run outside
+        the GUI despite the docstring above promising it could.
         """
-        # Local import to avoid circular import at module load -- ui_helpers
-        # imports many UI modules but the functions used here (move_home,
-        # move_absolute) operate on the scope and don't actually
-        # need a GUI surface.
-        from ui.ui_helpers import move_home, move_absolute
+        if home_fn is None:
+            home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
+        if turret_fn is None:
+            turret_fn = lambda position: self.scope.motion.move_turret(position)
 
         # Wait for the home's result and honor it. Turret positioning is
         # an absolute move against the reference frame the home was
@@ -792,7 +1011,7 @@ class ScopeSession:
         # secondary cascade users report -- a second error on top of the
         # home's own, for motion that could never have been correct. The
         # home already notified, so this stays a log.
-        if not disable_homing and not move_home('ALL', wait=True):
+        if not disable_homing and not home_fn('ALL'):
             logger.error(
                 'Homing did not succeed -- skipping startup turret '
                 'positioning; the stage reference is unknown'
@@ -800,23 +1019,13 @@ class ScopeSession:
             return
 
         if self.scope.capabilities.has_turret:
-            objective_id = self.settings.get('objective_id')
-            turret_position = self.scope.motion.get_turret_position_for_objective_id(
-                objective_id=objective_id,
-                persisted_position=self.settings.get('turret_position'),
-            )
-            if turret_position is None:
-                DEFAULT_POSITION = 1
-                logger.info(
-                    f'Turret position for set objective {objective_id} not '
-                    f'in turret objectives configuration. Setting to '
-                    f'position {DEFAULT_POSITION}'
-                )
-                turret_position = DEFAULT_POSITION
-
-            self.settings['turret_position'] = turret_position
-            move_absolute(
-                axis='T',
-                position=turret_position,
-                wait_until_complete=True,
-            )
+            # Every session starts at position 1: the objective was
+            # already adopted from that slot, so positioning anywhere
+            # else would split the claimed optics from the physical
+            # glass. After a real home this move is a physical no-op,
+            # but it still must be issued -- it is the only startup
+            # path that highlights the turret button, and with homing
+            # disabled it is the only T positioning at all.
+            START_POSITION = 1
+            self.settings['turret_position'] = START_POSITION
+            turret_fn(START_POSITION)

@@ -1,106 +1,262 @@
 {
-    "Lumi": {
-        "Focus": true,
-        "XYStage": false,
-        "Turret": false,
-        "Layers": {
-            "Lumi": true,
-            "Fluorescence": false,
-            "Darkfield": false,
-            "Brightfield": true,
-            "PhaseContrast": true
-        }
-    },
-    "LS820": {
-        "Focus": true,
-        "XYStage": false,
-        "Turret": false,
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": true,
-            "Darkfield": true,
-            "Brightfield": true,
-            "PhaseContrast": true
-        }
-    },
-    "LS850": {
-        "Focus": true,
-        "XYStage": true,
-        "Turret": false,
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": true,
-            "Darkfield": true,
-            "Brightfield": true,
-            "PhaseContrast": true
-        }
-    },
-    "LS850-0": {
-        "Focus": true,
-        "XYStage": true,
-        "Turret": false,
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": false,
-            "Darkfield": false,
-            "Brightfield": true,
-            "PhaseContrast": false
-        }
-    },
-    "LS850T": {
-        "Focus": true,
-        "XYStage": true,
-        "Turret": true,
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": true,
-            "Darkfield": true,
-            "Brightfield": true,
-            "PhaseContrast": true
-        }
-    },
-    "LS850T-0": {
-        "Focus": true,
-        "XYStage": true,
-        "Turret": true,
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": false,
-            "Darkfield": false,
-            "Brightfield": true,
-            "PhaseContrast": true
-        }
-    },
-    "LS620": {
-        "Focus": false,
-        "XYStage": false,
-        "Turret": false,
-        "Optics": {
-            "LensFocalLength": 47.8,
-            "PixelSize": 2.2
+    "LayerOrder": [
+        "BF",
+        "PC",
+        "DF",
+        "Blue",
+        "Green",
+        "Red",
+        "Lumi"
+    ],
+    "Models": {
+        "Lumi": {
+            "Focus": true,
+            "XYStage": false,
+            "Turret": false,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "PC",
+                    "display_name": "Phase Contrast",
+                    "led_channel": 4,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Lumi",
+                    "display_name": "Lumi",
+                    "led_channel": null,
+                    "excitation_nm": null
+                }
+            ]
         },
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": true,
-            "Darkfield": false,
-            "Brightfield": true,
-            "PhaseContrast": false
-        }
-    },
-    "LS560": {
-        "Focus": false,
-        "XYStage": false,
-        "Turret": false,
-        "Optics": {
-            "LensFocalLength": 47.8,
-            "PixelSize": 2.2
+        "LS820": {
+            "Focus": true,
+            "XYStage": false,
+            "Turret": false,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "PC",
+                    "display_name": "Phase Contrast",
+                    "led_channel": 4,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "DF",
+                    "display_name": "Darkfield",
+                    "led_channel": 5,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Blue",
+                    "display_name": "Blue",
+                    "led_channel": 0,
+                    "excitation_nm": 405
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                },
+                {
+                    "key_name": "Red",
+                    "display_name": "Red",
+                    "led_channel": 2,
+                    "excitation_nm": 589
+                }
+            ],
+            "Filterset": "405/488/589"
         },
-        "Layers": {
-            "Lumi": false,
-            "Fluorescence": true,
-            "Darkfield": false,
-            "Brightfield": true,
-            "PhaseContrast": false
+        "LS850": {
+            "Focus": true,
+            "XYStage": true,
+            "Turret": false,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "PC",
+                    "display_name": "Phase Contrast",
+                    "led_channel": 4,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "DF",
+                    "display_name": "Darkfield",
+                    "led_channel": 5,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Blue",
+                    "display_name": "Blue",
+                    "led_channel": 0,
+                    "excitation_nm": 405
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                },
+                {
+                    "key_name": "Red",
+                    "display_name": "Red",
+                    "led_channel": 2,
+                    "excitation_nm": 589
+                }
+            ],
+            "Filterset": "405/488/589"
+        },
+        "LS850-0": {
+            "Focus": true,
+            "XYStage": true,
+            "Turret": false,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                }
+            ]
+        },
+        "LS850T": {
+            "Focus": true,
+            "XYStage": true,
+            "Turret": true,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "PC",
+                    "display_name": "Phase Contrast",
+                    "led_channel": 4,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "DF",
+                    "display_name": "Darkfield",
+                    "led_channel": 5,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Blue",
+                    "display_name": "Blue",
+                    "led_channel": 0,
+                    "excitation_nm": 405
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                },
+                {
+                    "key_name": "Red",
+                    "display_name": "Red",
+                    "led_channel": 2,
+                    "excitation_nm": 589
+                }
+            ],
+            "Filterset": "405/488/589"
+        },
+        "LS850T-0": {
+            "Focus": true,
+            "XYStage": true,
+            "Turret": true,
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "Brightfield",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "PC",
+                    "display_name": "Phase Contrast",
+                    "led_channel": 4,
+                    "excitation_nm": null
+                }
+            ]
+        },
+        "LS620": {
+            "Focus": false,
+            "XYStage": false,
+            "Turret": false,
+            "Optics": {
+                "LensFocalLength": 47.8,
+                "PixelSize": 2.2
+            },
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "BF-Phase",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Blue",
+                    "display_name": "Blue",
+                    "led_channel": 0,
+                    "excitation_nm": 405
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                },
+                {
+                    "key_name": "Red",
+                    "display_name": "Red",
+                    "led_channel": 2,
+                    "excitation_nm": 589
+                }
+            ],
+            "Filterset": "405/488/589"
+        },
+        "LS560": {
+            "Focus": false,
+            "XYStage": false,
+            "Turret": false,
+            "Optics": {
+                "LensFocalLength": 47.8,
+                "PixelSize": 2.2
+            },
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "BF-Phase",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                }
+            ],
+            "Filterset": "405/488/589"
         }
     }
 }

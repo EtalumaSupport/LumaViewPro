@@ -52,6 +52,17 @@ RUNTIME_ONLY_PER_LAYER = {
     'frame': {'native_width', 'native_height'},
 }
 
+# Per-layer keys a load-time migration renames, exempt on EVERY layer rather
+# than under one named entry the way RUNTIME_ONLY_PER_LAYER works -- all seven
+# layers carry them. A current.json of any age may still hold the old
+# spellings until its next clean shutdown; migrate_layer_key_names_dict moves
+# them at load. Like MIGRATED_TOP_LEVEL they must never come back in
+# settings.json, where they would resurrect the retired schema:
+# - ill_ma / exp_ms: renamed to illumination_ma / exposure_ms when the
+#   storage dict became the L2 API surface and its keys became the names
+#   callers write.
+MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms'}
+
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
     reason='data/current.json is runtime-written and gitignored; parity '
@@ -76,6 +87,17 @@ def test_settings_defaults_carry_no_runtime_only_keys():
     exemption) or runtime state leaked into the defaults file (remove the key).
     """
     settings = _load_settings()
+    resurrected_layer = sorted(
+        f'{key}.{sub}'
+        for key, value in settings.items()
+        if isinstance(value, dict)
+        for sub in MIGRATED_PER_LAYER & set(value)
+    )
+    assert not resurrected_layer, (
+        f'migrated-away per-layer keys reappeared in settings.json: '
+        f'{resurrected_layer} -- the load-time migration retired these; '
+        'shipping a default would resurrect the retired schema'
+    )
     leaked_top = RUNTIME_ONLY_TOP_LEVEL & set(settings)
     assert not leaked_top, (
         f'runtime-only keys leaked into settings.json: {sorted(leaked_top)} -- '
@@ -124,7 +146,7 @@ def test_per_layer_key_parity():
             if isinstance(s_val, dict) != isinstance(c_val, dict):
                 drift.append(f'{key}: dict in one file, {type(c_val).__name__} in the other')
             continue
-        allowed = RUNTIME_ONLY_PER_LAYER.get(key, set())
+        allowed = RUNTIME_ONLY_PER_LAYER.get(key, set()) | MIGRATED_PER_LAYER
         current_only = set(c_val) - set(s_val) - allowed
         if current_only:
             drift.append(f'{key}: current-only sub-keys {sorted(current_only)}')

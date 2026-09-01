@@ -65,12 +65,14 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(
-            layer_settings['ill_ma'], common_utils.max_decimal_precision('illumination')
+            layer_settings['illumination_ma'], common_utils.max_decimal_precision('illumination')
         )
         sum_count = layer_settings['sum']
         gain = round(layer_settings['gain_db'], common_utils.max_decimal_precision('gain'))
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
-        exposure = round(layer_settings['exp_ms'], common_utils.max_decimal_precision('exposure'))
+        exposure = round(
+            layer_settings['exposure_ms'], common_utils.max_decimal_precision('exposure')
+        )
         focus = layer_settings['focus']
 
         layer_configs[layer] = {
@@ -174,6 +176,18 @@ def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, d
     objective_id = settings['objective_id']
     objective = objective_helper.get_objective_info(objective_id=objective_id)
     return objective_id, objective
+
+
+def model_has_turret(scopes: dict, settings: dict) -> bool:
+    """Does the DECLARED microscope model have a turret?
+
+    Declared -- the settings' model looked up in the scopes catalogue --
+    rather than live capability, deliberately: a dead motorboard reports
+    no axes, and that is exactly when a stale stored objective must not
+    survive startup adoption.
+    """
+    scope_config = scopes.get(settings.get('microscope'))
+    return bool(scope_config and scope_config.get('Turret'))
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +348,12 @@ def log_system_metrics(settings: dict):
         except Exception:
             resolved = pathlib.Path.home()  # Fallback to home dir for metrics
     path = str(resolved)
-    metrics = common_utils.system_metrics(path=path)
+    # `is True`, not truthiness: nothing validates the settings files, so a
+    # hand-edited value of the STRING "false" would otherwise read truthy and
+    # switch on a probe that can stall the process for hundreds of ms a tick.
+    # Any non-boolean reads as off, which is the safe direction.
+    collect_open_files = settings.get('profiling', {}).get('open_files_enabled') is True
+    metrics = common_utils.system_metrics(path=path, collect_open_files=collect_open_files)
     free_space = common_utils.check_disk_space(path=path)
 
     if free_space < 1024:  # Less than 1 GB
@@ -389,11 +408,17 @@ def log_system_metrics(settings: dict):
         )
 
     # OS handles + open files count. Watch for steady upward trend.
+    # Three states, three renderings: a count, -1 for a probe that ran and
+    # failed, and "off" for one nobody asked to run. Collapsing the last two
+    # onto -1 would make a deliberate configuration read as a malfunction in
+    # every log a reader ever opens.
     handles = metrics.get('os_handles', -1)
-    open_files = metrics.get('open_files_count', -1)
+    open_files_measured = 'open_files_count' in metrics
+    open_files = metrics['open_files_count'] if open_files_measured else -1
     if handles >= 0 or open_files >= 0:
         metrics_logger.info(
-            f'[HANDLE METRICS] handles={handles} | open_files={open_files}',
+            f'[HANDLE METRICS] handles={handles} | '
+            f'open_files={open_files if open_files_measured else "off"}',
         )
 
     # Thread count. Should plateau ~20-25; growth means executor leak.

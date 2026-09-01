@@ -39,14 +39,20 @@ class ScopeInitConfig:
 
     @classmethod
     def from_settings(
-        cls, settings, labware, scope_config: dict | None = None
+        cls, settings, labware, scope_config: dict | None = None, layer_identity=None
     ) -> 'ScopeInitConfig':
         """Build config from LVP settings dict and labware object.
 
         scope_config: the entry for the active scope from scopes.json
-        (e.g. ``{"Focus": false, "XYStage": false, "Turret": false,
-        "Layers": {...}}``). When provided, drives expects_motion /
-        expects_led for the partial-hardware notification filter.
+        (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).
+        When provided, drives expects_motion for the partial-hardware
+        notification filter.
+
+        layer_identity: the scope's resolved layer identity snapshot.
+        When provided, drives expects_led: identity carrying at least one
+        LED-driving layer means an LED board is expected, so its absence
+        deserves the notification. Identity outranks the scopes.json
+        entry here because a unit's own config can differ from its model.
         """
         binning_size = binning.binning_size_str_to_int(
             text=settings.get('binning', {}).get('size', '1x1')
@@ -56,15 +62,16 @@ class ScopeInitConfig:
         )['capture_depth']
         if scope_config is None:
             expects_motion = True
-            expects_led = True
         else:
             expects_motion = bool(
                 scope_config.get('Focus')
                 or scope_config.get('XYStage')
                 or scope_config.get('Turret')
             )
-            layers = scope_config.get('Layers', {})
-            expects_led = bool(layers) and any(layers.values())
+        if layer_identity is None:
+            expects_led = True
+        else:
+            expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
             labware=labware,
             objective_id=settings.get('objective_id', '4x'),

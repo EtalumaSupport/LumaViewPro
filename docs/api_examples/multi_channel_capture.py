@@ -23,11 +23,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 from modules.lumascope_api import Lumascope
 
 
-# Channel configurations: color name, LED current (mA), exposure time (ms)
+# Channel configurations: channel name, LED current (mA), exposure time (ms)
 CHANNELS = [
-    {'color': 'Blue', 'mA': 50, 'exposure_ms': 200},
-    {'color': 'Green', 'mA': 80, 'exposure_ms': 150},
-    {'color': 'Red', 'mA': 100, 'exposure_ms': 100},
+    {'channel': 'Blue', 'illumination_ma': 50, 'exposure_ms': 200},
+    {'channel': 'Green', 'illumination_ma': 80, 'exposure_ms': 150},
+    {'channel': 'Red', 'illumination_ma': 100, 'exposure_ms': 100},
 ]
 
 
@@ -41,12 +41,12 @@ def main():
 
     # Capture each fluorescence channel
     for ch in CHANNELS:
-        color = ch['color']
-        print(f'\n--- Channel: {color} ---')
+        channel = ch['channel']
+        print(f'\n--- Channel: {channel} ---')
 
         # Configure LED illumination for this channel (mA)
-        scope.illumination.led_on(channel=color, mA=ch['mA'])
-        print(f'  LED on: {ch["mA"]} mA')
+        scope.illumination.led_on(channel=ch['channel'], illumination_ma=ch['illumination_ma'])
+        print(f'  LED on: {ch["illumination_ma"]} mA')
 
         # Set exposure time (ms)
         scope.imaging.set_exposure_ms(ch['exposure_ms'])
@@ -57,14 +57,14 @@ def main():
         # rejected as a capture fault -- derived from commanded state.
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
-            print(f'  ERROR: Failed to capture {color} channel')
+            print(f'  ERROR: Failed to capture {channel} channel')
             continue
 
         print(f'  Captured: shape={image.shape}, dtype={image.dtype}')
         print(f'  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}')
 
-        # Turn off this channel before switching colors
-        scope.illumination.led_off(channel=color)
+        # Turn off this channel before switching channels
+        scope.illumination.led_off(channel=channel)
 
     # Turn off all LEDs and disconnect
     scope.illumination.leds_off()

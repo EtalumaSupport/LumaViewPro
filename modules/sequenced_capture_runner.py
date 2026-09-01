@@ -521,6 +521,31 @@ class SequencedCaptureRunner:
                     states[layer] = settings[layer]['autofocus']
         return states
 
+    def _refuse_exclusive_activity(self, holder: str | None) -> None:
+        """Refuse this run because an exclusive activity holds the session claim.
+
+        Shared by the prepare-time look and the start-time claim so the two
+        phases cannot describe the same holder in two different ways.
+        """
+        if holder == 'recording':
+            title = 'Recording Active'
+            message = (
+                'A video recording is in progress. Stop it or let it finish, then start the run.'
+            )
+        else:
+            title = 'Another Activity Running'
+            message = (
+                'Another exclusive activity is using the microscope. '
+                'Let it finish, then start the run.'
+            )
+        self._refuse(
+            reason='exclusive_activity_running',
+            title=title,
+            message=message,
+            holder=holder,
+            holder_trigger=(self._run_trigger_source if holder == 'protocol' else None),
+        )
+
     def _acquire_led_lease_for_run(self):
         """Acquire the run's LED lease; a live holder fails the run.
 
@@ -643,6 +668,22 @@ class SequencedCaptureRunner:
                     holder='protocol',
                     holder_trigger=self._run_trigger_source,
                 )
+
+        # A foreign exclusive activity (a video recording) is the durable,
+        # user-actionable reason a run cannot start, and start()'s claim is
+        # the only thing that used to see it -- so a prepare() refused for
+        # the transient file drain below reported "files still writing,
+        # please wait" while the recording was the real blocker and waiting
+        # could never clear it. Look before the transient gates so the
+        # refusal names what the user has to act on. Only a FOREIGN holder
+        # is read here: a 'protocol' holder is this run subsystem's own
+        # claim, which already_running and the file-drain gates describe
+        # with better messages. The claim is still TAKEN in start() under
+        # the run lock -- prepare() stays a no-op, and an activity that
+        # begins after this look is caught there.
+        activity_holder = self._activity_claim.owner
+        if activity_holder is not None and activity_holder != 'protocol':
+            self._refuse_exclusive_activity(activity_holder)
 
         if self.file_io_executor.is_protocol_queue_active():
             # Module layer must not popup-with-buttons, so the refusal only
@@ -874,26 +915,7 @@ class SequencedCaptureRunner:
                 )
 
             if not self._activity_claim.try_claim('protocol'):
-                holder = self._activity_claim.owner
-                if holder == 'recording':
-                    title = 'Recording Active'
-                    message = (
-                        'A video recording is in progress. Stop it or let it '
-                        'finish, then start the run.'
-                    )
-                else:
-                    title = 'Another Activity Running'
-                    message = (
-                        'Another exclusive activity is using the microscope. '
-                        'Let it finish, then start the run.'
-                    )
-                self._refuse(
-                    reason='exclusive_activity_running',
-                    title=title,
-                    message=message,
-                    holder=holder,
-                    holder_trigger=(self._run_trigger_source if holder == 'protocol' else None),
-                )
+                self._refuse_exclusive_activity(self._activity_claim.owner)
             self._activity_claim_held = True
 
             self._reset_vars()

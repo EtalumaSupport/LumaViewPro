@@ -57,7 +57,7 @@ def main():
         return
 
     # Configure illumination
-    scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)
+    scope.illumination.led_on(channel=LED_COLOR, illumination_ma=LED_MA)
     scope.imaging.set_exposure_ms(EXPOSURE_MS)
     print(f'LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms')
 

@@ -153,7 +153,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     ill = scope.illumination
     holder = ill.acquire_led_lease('protocol', alive=lambda: True)
     assert holder is not None
-    ill.led_on(channel=ill.color2ch('Blue'), mA=120.0, owner='protocol')
+    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='protocol')
 
     runner = _af_runner(scope)
     iterations = []

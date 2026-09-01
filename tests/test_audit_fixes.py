@@ -243,21 +243,21 @@ class TestLedOnValidation:
 
     def test_rejects_channel_out_of_range(self, sim_scope):
         with pytest.raises(ValueError, match='channel'):
-            sim_scope.illumination.led_on(channel=99, mA=10)
+            sim_scope.illumination.led_on(channel=99, illumination_ma=10)
 
     def test_rejects_negative_current(self, sim_scope):
         with pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, mA=-1)
+            sim_scope.illumination.led_on(channel=0, illumination_ma=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
         with pytest.raises(ValueError, match='current'):
             sim_scope.illumination.led_on(
                 channel=0,
-                mA=sim_scope.capabilities.led_max_ma + 1,
+                illumination_ma=sim_scope.capabilities.led_max_ma + 1,
             )
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.illumination.led_on(channel=0, mA=50)
+        sim_scope.illumination.led_on(channel=0, illumination_ma=50)
 
 
 class TestMoveAbsolutePositionValidation:
@@ -412,36 +412,69 @@ from modules.app_context import AppContext
 
 
 class TestSettingsSnapshot:
-    """Verify thread-safe settings access on AppContext."""
+    """Thread-safe settings access, on the session that owns the store.
+
+    The dict and the lock live together on the session; the app context
+    forwards to it rather than holding a second pair.
+    """
+
+    def _session(self, settings):
+        from modules.scope_session import ScopeSession
+
+        return ScopeSession.create_headless(settings=settings)
 
     def test_snapshot_is_deep_copy(self):
-        ctx = AppContext(settings={'display': {'brightness': 80}})
-        snap = ctx.get_settings_snapshot()
+        session = self._session({'display': {'brightness': 80}})
+        snap = session.get_settings_snapshot()
 
         snap['display']['brightness'] = 999
         snap['new_key'] = True
 
-        assert ctx.settings['display']['brightness'] == 80
-        assert 'new_key' not in ctx.settings
+        assert session.settings['display']['brightness'] == 80
+        assert 'new_key' not in session.settings
 
     def test_update_settings_writes_value(self):
-        ctx = AppContext(settings={})
-        ctx.update_settings('live_folder', '/tmp/test')
-        assert ctx.settings['live_folder'] == '/tmp/test'
+        session = self._session({})
+        session.update_settings('live_folder', '/tmp/test')
+        assert session.settings['live_folder'] == '/tmp/test'
 
     def test_update_settings_overwrites_existing(self):
-        ctx = AppContext(settings={'live_folder': '/old'})
-        ctx.update_settings('live_folder', '/new')
-        assert ctx.settings['live_folder'] == '/new'
+        session = self._session({'live_folder': '/old'})
+        session.update_settings('live_folder', '/new')
+        assert session.settings['live_folder'] == '/new'
 
     def test_snapshot_after_update(self):
-        ctx = AppContext(settings={})
-        ctx.update_settings('key', 'value1')
-        snap = ctx.get_settings_snapshot()
-        ctx.update_settings('key', 'value2')
+        session = self._session({})
+        session.update_settings('key', 'value1')
+        snap = session.get_settings_snapshot()
+        session.update_settings('key', 'value2')
 
         assert snap['key'] == 'value1'
-        assert ctx.settings['key'] == 'value2'
+        assert session.settings['key'] == 'value2'
+
+    def test_context_forwards_to_the_session_store(self):
+        """One dict and one lock -- reachable two ways, stored once.
+
+        A second store on the context would drift from the session's the
+        moment either side wrote, and nothing would report the mismatch.
+        """
+        session = self._session({'live_folder': '/x'})
+        ctx = AppContext(session=session)
+
+        assert ctx.settings is session.settings
+        assert ctx.settings_lock is session.settings_lock
+
+        ctx.update_settings('live_folder', '/y')
+        assert session.settings['live_folder'] == '/y'
+
+    def test_context_without_a_session_refuses_rather_than_defaulting(self):
+        """An empty dict here would read as "nothing configured" and be wrong."""
+        ctx = AppContext()
+
+        with pytest.raises(AttributeError, match='no session'):
+            _ = ctx.settings
+        with pytest.raises(AttributeError, match='no session'):
+            _ = ctx.settings_lock
 
 
 # ===========================================================================
@@ -1266,13 +1299,36 @@ class TestIssue606_TurretObjectiveValidation:
     Fix: warn on select, block protocol run.
     """
 
-    def test_select_objective_validates_turret(self):
-        """select_objective source must check turret assignments."""
-        import pathlib
+    def test_select_objective_detects_unassigned_turret_objective(self):
+        """select_objective must still DETECT the condition.
 
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        assert 'Objective Not in Turret' in source, (
-            'select_objective must warn when objective not in turret (#606)'
+        It no longer raises a dialog for it. Selecting an objective the
+        turret does not hold is the first half of assigning it -- the user
+        picks the objective, then presses Set -- so the dialog interrupted
+        the workflow that resolves the condition, and said the selection had
+        been refused when the write below it always went through.
+
+        The half of #606 that prevents harm is the protocol-run block, pinned
+        by the sibling test below: an unassigned objective still cannot reach
+        a run.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        import ui.vertical_control as vc
+
+        # Round-tripped through the AST so the assertion sees CODE, not
+        # prose: a raw source match here failed on a comment that happened
+        # to contain the word it was looking for.
+        src = ast.unparse(
+            ast.parse(textwrap.dedent(inspect.getsource(vc.VerticalControl.select_objective)))
+        )
+        assert 'turret_objectives' in src, (
+            'select_objective must still detect an objective with no turret position'
+        )
+        assert 'notifications.warning' not in src, (
+            'detection must reach the log, not a dialog: this fires mid-assignment'
         )
 
     def test_is_protocol_valid_checks_turret(self):
@@ -2737,28 +2793,38 @@ class TestIssue710_LumiLS820PlateViewRestored:
         )
 
     def test_crosshair_gated_on_xy_stage_capability(self):
-        # The restored plate graphic must NOT show a crosshair on XYStage=false
-        # scopes -- there is no live XY position to indicate. The per-frame
-        # crosshair update is gated on the static self._has_xy_stage capability,
-        # NOT on self._motion_enabled (the transient run/interaction lock) --
-        # otherwise the crosshair vanishes whenever a protocol runs.
+        # The restored plate graphic must NOT show a crosshair on a scope with
+        # no XY stage -- there is no live XY position to indicate. What this
+        # pins is where the gate's truth COMES FROM: the driver capability,
+        # read live. A gate fed from a copy is how a scope-model change once
+        # put a crosshair on a stage-less scope.
         import ast
         import pathlib
 
         tree = ast.parse(pathlib.Path('ui/stage.py').read_text())
-        found = False
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.If)
-                and 'self._has_xy_stage' in ast.unparse(node.test)
-                and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
-                and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
-            ):
-                found = True
-                break
-        assert found, (
-            'the per-frame crosshair update must be gated on self._has_xy_stage '
-            'so XYStage=false scopes show no crosshair'
+        # The crosshair sits inside an outer `if position_available:`, so every
+        # enclosing If also contains the body markers -- collect them all and
+        # require that ONE of the nested gates is the capability check.
+        gates = [
+            ast.unparse(node.test)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
+            and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
+        ]
+        assert gates, 'the per-frame crosshair update is no longer a gated If'
+        assert any('_xy_stage_present()' in gate for gate in gates), (
+            f'the crosshair gate must derive from the scope XY capability; found {gates!r}'
+        )
+
+        helper = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == '_xy_stage_present'
+        )
+        assert 'capabilities.has_xy_stage' in ast.unparse(helper), (
+            '_xy_stage_present must read the capability off the live scope, so a '
+            'reconnect onto different hardware cannot leave a stale answer behind'
         )
 
     def test_crosshair_not_gated_on_run_lock(self):
@@ -2766,7 +2832,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
         # self._motion_enabled. That flag is cleared while a protocol/scan runs
         # (the interaction lock), so gating the crosshair on it makes the
         # crosshair disappear during a Protocol Run on a scope that has an XY
-        # stage. The crosshair gate belongs to the static stage capability.
+        # stage. The crosshair gate belongs to the XY stage capability.
         import ast
         import pathlib
 
@@ -2780,7 +2846,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
                 raise AssertionError(
                     'the live crosshair update must not be gated on '
                     'self._motion_enabled (the transient run lock); gate it on '
-                    'self._has_xy_stage so it stays visible during a run'
+                    'the XY stage capability so it stays visible during a run'
                 )
 
     def test_lumi_and_ls820_have_xystage_false(self):
@@ -2791,7 +2857,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
 
         # pin-justified: data/scopes.json is the shipped capability matrix;
         # the values are the contract.
-        scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
+        scopes = json.loads(pathlib.Path('data/scopes.json').read_text())['Models']
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
         assert scopes['Lumi']['XYStage'] is False, (
@@ -3188,7 +3254,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
-        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, channel, x, y, z: {}
+        )
         image_save.save_image(
             SimpleNamespace(
                 imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
@@ -3197,7 +3265,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             save_folder=str(tmp_path),
             file_root='fc_',
             append='BF',
-            color='BF',
+            channel='BF',
+            false_color_on=False,
             tail_id_mode=None,
             save_encoding='rgb',
             significant_bits=8,
@@ -3232,7 +3301,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
-            use_color='BF',
             output_format='TIFF',
         )
         assert recorded, 'write_capture must reach save_image'
@@ -3453,7 +3521,6 @@ class TestPIW2_DisksUsageDeduped:
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
-            use_color='BF',
             output_format='TIFF',
         )
         assert aborts == [1], 'low disk must abort the protocol'
@@ -3979,7 +4046,13 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
+        out = image_save.save_live_image(
+            scope,
+            save_folder=str(tmp_path),
+            save_encoding='8bit',
+            channel='BF',
+            false_color_on=False,
+        )
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'
@@ -4089,7 +4162,7 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
             # The API-level *_fast tier is gone; the driver keeps its own
             # *_fast methods, which do not touch frame validity because
             # they never reach this layer.
-            'led_on': lambda: illum.led_on(channel=0, mA=10),
+            'led_on': lambda: illum.led_on(channel=0, illumination_ma=10),
             'led_off': lambda: illum.led_off(channel=0),
             'leds_off': lambda: illum.leds_off(),
         }
@@ -4131,7 +4204,9 @@ def _sim_backed_imaging():
     # as dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(get_led_states=lambda: {}, color2ch=lambda c: None)
+    scope.illumination = SimpleNamespace(
+        get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
+    )
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
@@ -9350,7 +9425,7 @@ class TestSessionLedOnArgNameIsMa:
         # proving the value reaches the LED state.
         color = sim_scope.illumination.ch2color(0)
         for method_name in ('led_on', 'led_on_async'):
-            getattr(sim_scope.illumination, method_name)(channel=0, mA=42.0)
+            getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
             assert sim_scope.illumination.get_led_ma(color) == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
@@ -9657,7 +9732,7 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 
         sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=50)
         with _pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, mA=51)
+            sim_scope.illumination.led_on(channel=0, illumination_ma=51)
 
 
 class TestRuntimeStateSetObjective:
@@ -10204,7 +10279,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         doc = self._doc()
         for sig in (
             'on_position(axis',
-            'on_led(color',
+            'on_led(channel',
             'on_camera(param',
             'on_frame(image',
         ):
@@ -10243,7 +10318,7 @@ class TestGetLedStateShape:
 
     def test_get_led_state_on_includes_owner(self):
         scope = self._scope()
-        scope.illumination.led_on(channel='Green', mA=125.0, owner='audit_test')
+        scope.illumination.led_on(channel='Green', illumination_ma=125.0, owner='audit_test')
         state = scope.illumination.get_led_state('Green')
         assert state['enabled'] is True
         assert state['illumination_ma'] == 125.0
@@ -10262,7 +10337,7 @@ class TestGetLedStateShape:
 
     def test_get_led_states_on_channel_carries_owner(self):
         scope = self._scope()
-        scope.illumination.led_on(channel='Red', mA=42.5, owner='restore_pre')
+        scope.illumination.led_on(channel='Red', illumination_ma=42.5, owner='restore_pre')
         states = scope.illumination.get_led_states()
         assert states['Red']['enabled'] is True
         assert states['Red']['illumination_ma'] == 42.5
@@ -10309,6 +10384,7 @@ class TestProtocolCleanupLedRestoreKey:
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         apply_calls = []
         kwargs = _run_cleanup_kwargs(
             leds_state_at_end='return_to_original',
@@ -10380,6 +10456,40 @@ class TestPreReleaseFutureWarning:
         assert len(future_warnings) == 1, (
             f'PRE-RELEASE FutureWarning must fire once-per-process; '
             f'saw {len(future_warnings)} for 3 Lumascope constructions.'
+        )
+
+    def test_app_owned_construction_does_not_warn(self):
+        """The warning tells a caller its code may break under a future
+        release. LumaViewPro's own GUI ships in the same commit as the API,
+        so it has no such exposure -- and the warning reached the user's
+        console on every launch instead."""
+        import warnings
+        from modules.lumascope_api import Lumascope
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True, warn_pre_release=False)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert not future_warnings, (
+            'an app-owned construction must not fire the SDK pre-release warning'
+        )
+
+    def test_opting_out_does_not_disarm_the_warning_for_others(self):
+        """The once-per-process latch must not be spent by the opt-out. The
+        GUI constructs a scope at startup; if that consumed the latch, an
+        in-process SDK consumer afterwards would never be warned -- the
+        opt-out would silently become a global disable."""
+        import warnings
+        from modules.lumascope_api import Lumascope
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True, warn_pre_release=False)
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert len(future_warnings) == 1, (
+            f'an SDK consumer after an app-owned construction must still be '
+            f'warned exactly once; saw {len(future_warnings)}'
         )
 
     def test_scope_session_create_headless_fires_warning(self):
@@ -10992,6 +11102,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         matches the running app."""
         import importlib.util
         import json
+        import pathlib
 
         import modules.settings_init as settings_init
         from modules.scope_session import ScopeSession
@@ -11013,8 +11124,17 @@ class TestHeadlessSettingsResolutionMatchesGui:
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
-        (tmp_path / 'data' / 'current.json').write_text(json.dumps({'marker': 'from-current'}))
-        (tmp_path / 'data' / 'settings.json').write_text(json.dumps({'marker': 'from-settings'}))
+        # Both files are real settings files carrying a marker, not bare
+        # marker dicts: headless preparation validates and shape-checks the
+        # way the GUI's does, so a one-key stand-in is rejected before the
+        # resolution this test is about ever gets to matter.
+        shipped = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'settings.json'
+        with open(shipped) as f:
+            template = json.load(f)
+        from_current = dict(template, marker='from-current')
+        from_settings = dict(template, marker='from-settings')
+        (tmp_path / 'data' / 'current.json').write_text(json.dumps(from_current))
+        (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
         session = ScopeSession.create_headless(source_path=str(tmp_path))
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '
@@ -12152,7 +12272,7 @@ class TestEmergencyShutdownBoundedLeds_F6:
         is not the observable -- the hardware-off command is."""
         illum = sim_scope.illumination
         driver = sim_scope._led_driver
-        illum.led_on(channel=0, mA=10)
+        illum.led_on(channel=0, illumination_ma=10)
         assert any(ma > 0 for ma in driver._channel_states.values()), (
             'precondition: at least one LED on at the driver'
         )

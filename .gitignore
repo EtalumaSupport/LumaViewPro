@@ -29,7 +29,6 @@ scripts/appBuild/buildvenv/
 scripts/appBuild/.build_config
 .claude/
 .venv/
-data/
 generated_tiles_current_compare/
 results_current_compare/
 grids/
@@ -38,6 +37,8 @@ generated_tiles_current_10x10/
 results_current_10x10/
 actual_tile_data/
 recent_issue/
+.hypothesis/
+.ruff_cache/
 
 # Local-only internal documentation and stitching benchmarks.
 # These remain available in this working copy but are not shared from this repository.

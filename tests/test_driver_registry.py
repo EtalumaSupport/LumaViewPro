@@ -11,6 +11,7 @@ Lumascope.__init__. These tests cover:
      before the real FX2 driver lands in Stage 3.
 """
 
+import logging
 import threading
 
 # Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
@@ -168,6 +169,95 @@ class TestDriverRegistryUnit:
         # Best-effort cleanup must run on the rejected candidate.
         assert disconnect_called == [True]
 
+    def test_auto_skips_connected_but_unresponsive_drivers(self):
+        """A board whose port opened but which answers nothing must not be
+        selected. is_connected() stays True for a board that returned zero
+        bytes to the whole connect-time reset, so without a responsiveness
+        gate the registry hands back a driver that rejects every command
+        until a hardware power cycle -- one user-visible failure per command
+        for the rest of the session.
+        """
+        reg = DriverRegistry('fake')
+
+        disconnect_called = []
+
+        @reg.register('mute', priority=100)
+        class Mute:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return False
+
+            def disconnect(self):
+                disconnect_called.append(True)
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return True
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Works)
+        assert disconnect_called == [True]
+
+    def test_auto_falls_back_to_null_when_all_real_unresponsive(self):
+        """Every real driver connected-but-mute must reach the null
+        fallback, so the subsystem reports as absent rather than as a board
+        that fails every command it is given.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('mute', priority=100)
+        class Mute:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return False
+
+            def disconnect(self):
+                pass
+
+        @reg.register('null', priority=0)
+        class Null:
+            def __init__(self, **kw):
+                pass
+
+            def is_connected(self) -> bool:
+                return False
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Null)
+
+    def test_driver_without_is_responsive_is_still_selected(self):
+        """The hook is optional: a driver that does not implement it (every
+        camera driver today) must not be rejected for its absence.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('legacy', priority=100)
+        class Legacy:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+        assert isinstance(reg.create('auto'), Legacy)
+
     def test_auto_falls_back_to_null_when_all_real_disconnected(self):
         """When every real driver is found-but-not-connected (e.g. all
         ports held by Thonny) the registry must reach the null fallback,
@@ -224,6 +314,29 @@ class TestDriverRegistryUnit:
 
         instance = reg.create('auto')
         assert isinstance(instance, Works)
+
+    def test_selected_driver_is_named_at_info(self, caplog):
+        """A driver that WINS says so at INFO.
+
+        Only the failure branches used to log, so the winner could be
+        identified only by the absence of a fallback warning -- and the
+        Null* drivers announce themselves at debug, so on a
+        default-level field log the selected driver was underivable.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('winner', priority=100)
+        class Winner:
+            def __init__(self, **kw):
+                pass
+
+        with caplog.at_level(logging.INFO):
+            reg.create('auto')
+
+        rendered = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+        assert any('fake' in m and 'Winner' in m for m in rendered), (
+            f'selected driver not named at INFO; got: {rendered}'
+        )
 
     def test_simulate_mode_only_considers_simulators(self):
         reg = DriverRegistry('fake')
@@ -384,9 +497,9 @@ class TestRegistryAccommodatesCompositeHardware:
                 self._conn = FakeConn.get()
                 self.found = True
 
-            def led_on(self, channel, mA, **kw):
+            def led_on(self, channel, illumination_ma, **kw):
                 with self._conn.lock:
-                    self._conn.commands_sent.append(('led', channel, mA))
+                    self._conn.commands_sent.append(('led', channel, illumination_ma))
 
         @local_cam_reg.register('fake_lvc', priority=50)
         class FakeLVCCamera:
