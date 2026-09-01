@@ -402,11 +402,19 @@ def show_objective_selection_popup(
     # (the same mechanism the kv spinners use), match their option font,
     # and cap the dropdown so a long catalogue scrolls instead of
     # growing.
+    # Width is constrained too, not just height: an unconstrained Spinner
+    # in this layout takes size_hint_x=1 and stretches to the whole popup,
+    # which is a control several times wider than the longest objective
+    # name it ever shows. The dropdown inherits the spinner's width, so
+    # this sizes both. Centred because a fixed width in a vertical
+    # BoxLayout otherwise pins to the left edge.
     spinner = Spinner(
         text=current_objective_id,
         values=objectives,
-        size_hint_y=None,
+        size_hint=(None, None),
+        width='220dp',
         height='30dp',
+        pos_hint={'center_x': 0.5},
         font_size='12sp',
         sync_height=True,
         option_cls=_CompactSpinnerOption,
