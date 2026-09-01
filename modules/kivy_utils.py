@@ -6,6 +6,10 @@ ui_dispatch function that is set by the GUI layer at startup.
 Non-GUI contexts (tests, headless, REST) get direct invocation.
 """
 
+from collections.abc import Callable
+
+from lvp_logger import logger
+
 # Global UI dispatcher -- set by lumaviewpro.py at startup to
 # Clock.schedule_once. Default is direct invocation.
 _ui_dispatcher = None
@@ -22,7 +26,7 @@ def set_ui_dispatcher(dispatcher):
     _ui_dispatcher = dispatcher
 
 
-def schedule_ui(func, timeout=0):
+def schedule_ui(func: Callable, timeout: float = 0) -> None:
     """Schedule a function on the UI thread, or call directly if no GUI.
 
     Same signature as Clock.schedule_once -- func receives dt argument.
@@ -35,4 +39,10 @@ def schedule_ui(func, timeout=0):
             try:
                 func(0)
             except Exception:
-                pass
+                # Deliberately more forgiving than the GUI branch, which
+                # re-raises: a REST or headless caller must not be killed
+                # by one bad UI callback. The failure still has to be
+                # visible -- discarding it made a throwing protocol or
+                # recording callback produce no record at all, so the run
+                # looked like it had succeeded.
+                logger.exception('[KivyUtils] scheduled UI callback failed')
