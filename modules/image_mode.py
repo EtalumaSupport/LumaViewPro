@@ -31,11 +31,20 @@ IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
 IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
 IMAGE_MODE_12BIT_FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
-# The sequenced-output format that swaps per-step TIFF writes for a
-# post-run per-well stack build. The value matches the UI spinner label
-# and settings files verbatim, so it cannot be renamed without a
-# settings migration.
+# The sequenced-output formats, spelled as the UI spinner and the settings
+# files hold them verbatim -- none can be renamed without a settings
+# migration. OUTPUT_FORMAT_HYPERSTACK swaps per-step TIFF writes for a
+# post-run per-well stack build.
+OUTPUT_FORMAT_TIFF = 'TIFF'
+OUTPUT_FORMAT_OME_TIFF = 'OME-TIFF'
+OUTPUT_FORMAT_JPG = 'JPG'
 OUTPUT_FORMAT_HYPERSTACK = 'OME-TIFF Hyperstack'
+
+# The sequenced formats a post-run merge can read its per-channel frames
+# back out of. JPG is lossy and unreadable by the merge's loader; the
+# hyperstack build leaves a per-well stack with no 2D per-channel frame to
+# merge at all. A run whose product is a merge resolves to one of these.
+MERGEABLE_SEQUENCED_FORMATS = frozenset({OUTPUT_FORMAT_TIFF, OUTPUT_FORMAT_OME_TIFF})
 
 # Save-encoding tokens -- the derived on-disk shape, independent of the mode label.
 SAVE_ENCODING_8BIT = '8bit'

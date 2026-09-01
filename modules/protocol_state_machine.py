@@ -16,6 +16,7 @@ class SequencedCaptureRunMode(enum.Enum):
     SINGLE_SCAN = 'single_scan'
     SINGLE_ZSTACK = 'single_zstack'
     SINGLE_AUTOFOCUS_SCAN = 'single_autofocus_scan'
+    SINGLE_COMPOSITE = 'single_composite'
 
 
 class ProtocolState(enum.Enum):

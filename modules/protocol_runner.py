@@ -191,6 +191,69 @@ class ProtocolRunner:
             callbacks=callbacks,
         )
 
+    def run_composite(
+        self,
+        sequence_name: str = 'composite',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+    ) -> None:
+        """Capture one frame per acquiring channel and merge them.
+
+        A composite is a single-position run through the same engine as
+        every other run kind: one step per channel at the current stage
+        position, each at its own stored focus, followed by the merge that
+        combines them into one image.
+
+        The channel set, the capture format and the depth all come from the
+        settings snapshot rather than from any widget, so a headless caller
+        gets the same run a GUI click does.
+
+        The merged artifact is the run's real product, so it -- not the
+        capture's end -- is what this reports once the merge is wired in;
+        until then the run's completion is observed through the callbacks
+        and wait_for_completion, as with the other run kinds.
+
+        Args:
+            sequence_name: Name for the output folder.
+            parent_dir: Parent directory for output (defaults to
+                settings['live_folder']/ProtocolData).
+            callbacks: Optional dict of callback functions.
+
+        Raises:
+            ProtocolRunRefusedError: Fewer than two channels are set to
+                capture an image, so nothing could be merged; or the
+                runner refused the run itself (already running, files
+                still writing, hardware not connected).
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.settings
+        input_config = config_helpers.get_composite_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            position=self.session.get_current_plate_position(),
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
+            run_trigger_source='api_composite',
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=(
+                config_helpers.get_composite_image_capture_config_from_settings(settings)
+            ),
+            enable_image_saving=True,
+            callbacks=callbacks,
+            # A composite is an interactive act on a scope the user is
+            # standing at: it hands the illumination back the way it was
+            # found, rather than forcing every channel dark the way an
+            # unattended scan does.
+            leds_state_at_end='return_to_original',
+        )
+
     def _run(
         self,
         protocol: Protocol,
@@ -203,6 +266,7 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
+        leds_state_at_end: str = 'off',
     ):
         """Internal: configure and launch the sequenced capture executor.
 
@@ -287,7 +351,7 @@ class ProtocolRunner:
             autogain_settings=autogain_settings,
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
-            leds_state_at_end='off',
+            leds_state_at_end=leds_state_at_end,
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )

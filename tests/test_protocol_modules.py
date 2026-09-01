@@ -42,6 +42,7 @@ class TestSequencedCaptureRunMode:
             'single_scan',
             'single_zstack',
             'single_autofocus_scan',
+            'single_composite',
         }
 
     def test_enum_access_by_name(self):

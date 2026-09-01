@@ -817,7 +817,7 @@ class ScopeSession:
         """
         return self.objective_helper.get_objective_info(objective_id=objective_id)
 
-    def get_current_plate_position(self) -> 'dict | None':
+    def get_current_plate_position(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_plate_position(
