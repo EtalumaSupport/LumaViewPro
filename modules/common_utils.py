@@ -1291,7 +1291,7 @@ def _self_process():
     return _SELF_PROC
 
 
-def system_metrics(path='/', *, collect_open_files):
+def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
     """Return a one-shot snapshot of process and host resource state.
 
     Used by `log_system_metrics()`. Failures on individual metrics

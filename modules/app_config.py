@@ -32,7 +32,7 @@ def _iter_settings_files(source_path: str | pathlib.Path | None = None):
     yield data_dir / 'settings.json'
 
 
-def load_log_level(source_path: str | pathlib.Path | None = None):
+def load_log_level(source_path: str | pathlib.Path | None = None) -> None:
     """Read log level from settings and apply to the root LVP logger."""
     for settings_file in _iter_settings_files(source_path):
         try:
@@ -73,7 +73,7 @@ def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
     return DEFAULT_LVP_LOCK_PORT
 
 
-def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None):
+def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None) -> None:
     """Enable autofocus score logging if configured in settings."""
     for settings_file in _iter_settings_files(source_path):
         try:

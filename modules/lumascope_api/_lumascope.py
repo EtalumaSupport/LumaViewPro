@@ -50,6 +50,10 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import CameraSettingRejected
 from modules.scope_capabilities import ScopeCapabilities
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.layer_record import LayerIdentity
 
 # Import additional libraries
 import logging as _logging
@@ -660,7 +664,7 @@ class Lumascope:
 
     def refresh_layer_identity(
         self, configured_model: str | None = None, override_model: str | None = None
-    ):
+    ) -> 'LayerIdentity':
         """Re-resolve layer identity and atomically replace the snapshot.
 
         Args:

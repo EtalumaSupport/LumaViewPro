@@ -1692,7 +1692,9 @@ class Protocol:
         return steps_df
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path, tiling_configs_file_loc: pathlib.Path | None):
+    def from_file(
+        cls, file_path: pathlib.Path, tiling_configs_file_loc: pathlib.Path | None
+    ) -> 'Protocol | bool':
         """
         Returns Protocol object loaded from file on success
         Raises ProtocolFormatError on format issues

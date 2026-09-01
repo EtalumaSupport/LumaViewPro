@@ -232,7 +232,15 @@ class WinUsbDevice:
             raise RuntimeError(f'QueryPipe failed: {kernel32.GetLastError()}')
         return pipe_info
 
-    def control_transfer(self, request_type, request, value, index, data=b'', length=0):
+    def control_transfer(
+        self,
+        request_type: int,
+        request: int,
+        value: int,
+        index: int,
+        data: bytes = b'',
+        length: int = 0,
+    ) -> bytes | int:
         pkt = WINUSB_SETUP_PACKET()
         pkt.RequestType = request_type
         pkt.Request = request

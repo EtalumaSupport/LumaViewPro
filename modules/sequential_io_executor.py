@@ -8,7 +8,7 @@
 from concurrent.futures import CancelledError
 import itertools
 import queue
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from lvp_logger import logger
 from lib import profile_trace
 from modules.notification_center import notifications
@@ -214,7 +214,7 @@ IOTask
 SLOW_TASK_BUDGET_ATTR = 'slow_task_budget_s'
 
 
-def slow_task_budget(seconds: float):
+def slow_task_budget(seconds: float) -> Callable:
     """Declare, at the def site, how long this command may legitimately run.
 
     A command that physically takes longer than the default -- full homing, a
@@ -324,7 +324,7 @@ class IOTask:
         self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
         self.pass_result = pass_result
 
-    def run(self):
+    def run(self) -> tuple:
         try:
             threading.current_thread().name = self.name
             if not callable(self.action):
@@ -672,7 +672,7 @@ class SequentialIOExecutor:
             return False
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
-    def put(self, task: IOTask, return_future: bool = False):
+    def put(self, task: IOTask, return_future: bool = False) -> object | None:
         """Add an IOTask to the default execution queue.
 
         Return value reports the enqueue outcome so a caller can tell whether
@@ -787,7 +787,7 @@ class SequentialIOExecutor:
             return fut
         return PROTOCOL_ENQUEUED
 
-    def protocol_put(self, task: IOTask, return_future: bool = False):
+    def protocol_put(self, task: IOTask, return_future: bool = False) -> object | None:
         """Add an IOTask to the protocol execution queue.
 
         The protocol queue only drains while a protocol is in session (after
@@ -874,10 +874,10 @@ class SequentialIOExecutor:
         self,
         task: IOTask,
         *,
-        should_abort,
+        should_abort: Callable[[], bool],
         stall_timeout_s: float,
         return_future: bool = False,
-    ):
+    ) -> object | None:
         """Blocking counterpart to protocol_put: wait for a queue slot
         instead of dropping the task.
 

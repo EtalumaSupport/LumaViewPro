@@ -883,18 +883,18 @@ class ProtocolImageWriter:
 
     def write_capture(
         self,
-        save_folder=None,
-        name=None,
-        output_format=None,
+        save_folder: str | None = None,
+        name: str | None = None,
+        output_format: str | None = None,
         *,
-        step=None,
-        captured_image=None,
-        step_index=None,
-        scan_count=None,
-        capture_time=None,
-        enable_image_saving=True,
-        separate_folder_per_channel=False,
-    ):
+        step: object | None = None,
+        captured_image: CapturedFrame | None = None,
+        step_index: int | None = None,
+        scan_count: int | None = None,
+        capture_time: datetime.datetime | None = None,
+        enable_image_saving: bool = True,
+        separate_folder_per_channel: bool = False,
+    ) -> None:
         """Write a captured still image to disk and record it in the run log.
 
         Runs on the file-IO thread. Encoding, depth, and JPEG quality come

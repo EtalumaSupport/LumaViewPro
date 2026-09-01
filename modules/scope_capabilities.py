@@ -33,12 +33,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
 from modules.path_utils import resolve_data_file
+
+if TYPE_CHECKING:
+    from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
+    from modules.layer_record import LayerIdentity
 
 
 def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
@@ -282,7 +286,12 @@ class ScopeCapabilities:
 
     @classmethod
     def from_drivers(
-        cls, motion, led, camera, led_max_ma: int = LED_MAX_MA, layer_identity=None
+        cls,
+        motion: MotorBoardProtocol,
+        led: LEDBoardProtocol,
+        camera: object | None,
+        led_max_ma: int = LED_MAX_MA,
+        layer_identity: LayerIdentity | None = None,
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 

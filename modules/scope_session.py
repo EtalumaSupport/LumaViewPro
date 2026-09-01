@@ -21,6 +21,7 @@ import json
 import os
 import threading
 import time
+import typing
 from typing import TYPE_CHECKING
 
 import modules.app_context as _app_ctx
@@ -37,6 +38,7 @@ from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
     from modules.protocol_runner import ProtocolRunner
+    from modules.sequential_io_executor import SequentialIOExecutor
 
 
 class ScopeSession:
@@ -350,10 +352,10 @@ class ScopeSession:
         cls,
         settings: dict,
         source_path: str = '.',
-        scope=None,
-        io_executor=None,
-        camera_executor=None,
-    ):
+        scope: object | None = None,
+        io_executor: 'SequentialIOExecutor | None' = None,
+        camera_executor: 'SequentialIOExecutor | None' = None,
+    ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
         This is the main entry point.  Pass in existing objects when the GUI
@@ -487,7 +489,9 @@ class ScopeSession:
         )
 
     @classmethod
-    def create_headless(cls, settings: dict | None = None, source_path: str = '.'):
+    def create_headless(
+        cls, settings: dict | None = None, source_path: str = '.'
+    ) -> 'ScopeSession':
         """Create a headless session with simulated hardware.
 
         Convenience factory for REST API, CLI scripts, and tests.
@@ -634,7 +638,7 @@ class ScopeSession:
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
-    def update_settings(self, key, value) -> None:
+    def update_settings(self, key: str, value: object) -> None:
         """Write one top-level settings key under the lock.
 
         The write path for any caller that is not on the host's own
@@ -952,8 +956,8 @@ class ScopeSession:
         self,
         *,
         disable_homing: bool = False,
-        home_fn=None,
-        turret_fn=None,
+        home_fn: typing.Callable | None = None,
+        turret_fn: typing.Callable | None = None,
     ) -> None:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
 

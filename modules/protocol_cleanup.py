@@ -10,6 +10,7 @@ protocol-decomposition refactor.
 from __future__ import annotations
 
 import threading
+import typing
 from concurrent.futures import CancelledError
 from functools import partial
 from typing import TYPE_CHECKING
@@ -30,6 +31,8 @@ from modules.sequential_io_executor import (
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
+    from modules.protocol import Protocol
+    from modules.sequential_io_executor import SequentialIOExecutor
     from modules.protocol_callbacks import ProtocolCallbacks
 
 
@@ -45,8 +48,8 @@ _RECORD_COMPLETE_STALL_S = 2.0
 def run_cleanup(
     *,
     # State
-    get_state_fn,
-    set_state_fn,
+    get_state_fn: typing.Callable[[], ProtocolState],
+    set_state_fn: typing.Callable[[ProtocolState], None],
     run_lock: threading.Lock,
     scan_in_progress: threading.Event,
     # True when the run died on a fatal fault (stalled writer, dead camera,
@@ -60,26 +63,26 @@ def run_cleanup(
     saved_camera_state: dict,
     return_to_position: dict | None,
     disable_saving_artifacts: bool,
-    protocol,
-    protocol_execution_record,
+    protocol: Protocol,
+    protocol_execution_record: object,
     # Dependencies
     scope: Lumascope,
     callbacks: ProtocolCallbacks,
     # Executor functions
-    apply_led_transition_fn,
-    default_move_fn,
-    cancel_scheduled_events_fn,
+    apply_led_transition_fn: typing.Callable,
+    default_move_fn: typing.Callable,
+    cancel_scheduled_events_fn: typing.Callable[[], None],
     # IO executors
-    io_executor,
-    autofocus_thread,
-    file_io_executor,
-    camera_executor,
+    io_executor: SequentialIOExecutor,
+    autofocus_thread: object,
+    file_io_executor: SequentialIOExecutor,
+    camera_executor: SequentialIOExecutor,
     # Mutable flag -- set to False when done
-    set_run_in_progress_fn,
+    set_run_in_progress_fn: typing.Callable[[bool], None],
     logger_name: str = 'SequencedCaptureRunner',
     # Terminal outcome the run_complete subscribers receive
     run_status: str,
-):
+) -> None:
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status

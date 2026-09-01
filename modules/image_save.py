@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime
 import os
 import pathlib
+import typing
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -247,7 +248,13 @@ def generate_image_save_path(
     return path
 
 
-def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
+def generate_image_metadata(
+    scope: Lumascope,
+    channel: str,
+    x: float | None,
+    y: float | None,
+    z: float | None,
+) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
     Args:
@@ -493,9 +500,9 @@ def prepare_image_for_saving(
     append: str,
     tail_id_mode: str,
     output_format: str,
-    x,
-    y,
-    z,
+    x: float | None,
+    y: float | None,
+    z: float | None,
     *,
     channel: str,
     significant_bits: int,
@@ -557,19 +564,20 @@ def prepare_image_for_saving(
 
 def save_image(
     scope: Lumascope,
-    array,
-    save_folder='./capture',
-    file_root='img_',
-    append='ms',
-    tail_id_mode='increment',
+    array: np.ndarray,
+    save_folder: str = './capture',
+    file_root: str = 'img_',
+    append: str = 'ms',
+    # None is a real caller value: it selects the no-tail filename form.
+    tail_id_mode: str | None = 'increment',
     *,
     channel: str,
     false_color_on: bool,
     save_encoding: str,
     output_format: str = 'TIFF',
-    x=None,
-    y=None,
-    z=None,
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
@@ -715,10 +723,10 @@ def save_image(
 
 def save_live_image(
     scope: Lumascope,
-    save_folder='./capture',
-    file_root='img_',
-    append='ms',
-    tail_id_mode='increment',
+    save_folder: str = './capture',
+    file_root: str = 'img_',
+    append: str = 'ms',
+    tail_id_mode: str | None = 'increment',
     force_to_8bit: bool = True,
     output_format: str = 'TIFF',
     earliest_image_ts: datetime.datetime | None = None,
@@ -726,7 +734,7 @@ def save_live_image(
     all_ones_check: bool = False,
     sum_count: int = 1,
     sum_delay_s: float = 0,
-    sum_iteration_callback=None,
+    sum_iteration_callback: typing.Callable | None = None,
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
     jpeg_quality: int = 90,
