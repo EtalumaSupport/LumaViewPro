@@ -23,6 +23,25 @@ from unittest.mock import MagicMock
 from modules.image_mode import ImageCaptureConfig
 
 
+def wait_until_not_running(session, timeout: float = 5.0) -> bool:
+    """Wait for a finished run to release the activity claim.
+
+    `run_complete` fires DURING cleanup; the claim -- and with it
+    `session.is_protocol_running` -- releases at cleanup END, a moment
+    later. A test that waits on the callback and then asserts the state
+    immediately is asserting mid-teardown, and passes or fails on timing.
+
+    Shared because two test modules assert this same state after a
+    completed run, and a second copy is a second thing to drift.
+    """
+    deadline = time.monotonic() + timeout
+    while session.is_protocol_running:
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def protocol_step(**overrides):
     """A scan_iterate-shaped step dict (plain dict, not pandas Series)."""
     step = {

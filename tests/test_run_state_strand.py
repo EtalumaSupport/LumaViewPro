@@ -40,6 +40,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
+from tests.protocol_drives import wait_until_not_running
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
@@ -204,7 +205,10 @@ class TestClaimRefusalLeavesNoState:
             assert done.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a claim refusal must start and complete'
             )
-            assert not session.is_protocol_running
+            # run_complete fires mid-cleanup; the claim releases at its
+            # end. Asserting straight off the callback reads teardown
+            # in progress and turns this into a coin flip.
+            assert wait_until_not_running(session)
         finally:
             if claim_held:
                 session.activity_claim.release('recording')
