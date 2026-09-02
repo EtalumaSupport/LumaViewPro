@@ -285,7 +285,8 @@ class StackBuilder(ProtocolPostProcessor):
             return image_utils.read_tiff_depth_and_timestamp(path)
         except Exception as ex:
             raise CaptureError(
-                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
+                'unreadable_input_frame',
             ) from ex
 
     @staticmethod
@@ -302,7 +303,8 @@ class StackBuilder(ProtocolPostProcessor):
             return image_utils.load_pixels(path, collapse_legacy_false_color=False)
         except Exception as ex:
             raise CaptureError(
-                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
+                'unreadable_input_frame',
             ) from ex
 
     @staticmethod
@@ -432,7 +434,8 @@ class StackBuilder(ProtocolPostProcessor):
                         f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
                         f'this stack is {stack_dtype}: mixed pixel types cannot share one '
                         f'hyperstack. Re-capture the well at one bit depth or build each '
-                        f'capture group separately.'
+                        f'capture group separately.',
+                        'mixed_pixel_types',
                     )
 
                 yield image

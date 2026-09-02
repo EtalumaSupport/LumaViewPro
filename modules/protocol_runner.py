@@ -315,10 +315,11 @@ class ProtocolRunner:
         if settled is None:
             raise CaptureError(
                 f'the composite did not report an outcome within '
-                f'{merge_timeout_s:.0f}s; the run or its merge is wedged'
+                f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
+                'merge_timeout',
             )
         if not settled.merged:
-            raise CaptureError(f'no composite was produced ({settled.reason})')
+            raise CaptureError(f'no composite was produced ({settled.reason})', settled.reason)
         return settled.artifact_path
 
     def _run(

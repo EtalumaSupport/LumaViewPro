@@ -128,16 +128,19 @@ class TestCompositeOutcomeIsObservable:
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert reason in str(excinfo.value), (
-            'the failure must name its machine-readable cause, so a caller '
-            'can tell an aborted run from a failed merge from a timeout'
+        assert excinfo.value.reason == reason, (
+            'the failure must CARRY its machine-readable cause, so a caller '
+            'can tell an aborted run from a failed merge from a timeout '
+            'without pattern-matching the prose'
         )
+        assert reason in str(excinfo.value), 'the human-readable message still names it too'
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
         runner = self._runner_whose_merge(None)
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite(merge_timeout_s=0.05)
+        assert excinfo.value.reason == 'merge_timeout'
         assert 'wedged' in str(excinfo.value)
 
     def test_a_refused_run_reaches_the_caller_as_a_refusal(self):
