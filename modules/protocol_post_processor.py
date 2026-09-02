@@ -4,6 +4,7 @@ import abc
 import datetime
 import pathlib
 import time
+import typing
 
 import pandas as pd
 
@@ -28,6 +29,15 @@ _MULTI_FRAME_REQUIREMENT = {
     PostFunction.COMPOSITE: 'multiple channels per scan position',
     PostFunction.STITCHED: 'multiple tile positions per scan',
 }
+
+
+class ProgressSurface(typing.Protocol):
+    """The attended lifecycle surface: whatever renders a percentage and a
+    status line while a folder is processed. The loader writes these two
+    attributes and nothing else, so any widget carrying them will do."""
+
+    progress: float
+    text: str
 
 
 class ProtocolPostProcessor(abc.ABC):
@@ -140,25 +150,31 @@ class ProtocolPostProcessor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup=None,
+        popup: ProgressSurface | None = None,
+        announce: bool = True,
         **kwargs: dict,
     ) -> dict:
         """Run this operation over a captured folder; return the result dict.
 
-        The popup is the attended lifecycle surface (the caller renders
-        progress and completion). When no popup is supplied the run is
-        UNATTENDED, so the notification bus becomes the surface: a start
+        Three lifecycle surfaces. The popup is the attended one (the
+        caller renders progress and completion). With no popup the run is
+        UNATTENDED and the notification bus becomes the surface: a start
         notice once the group count is known, and a completion or failure
         message on every exit path -- inherited by every subclass, so no
-        unattended operation can finish (or fail) silently.
+        unattended batch can finish (or fail) silently. ``announce=False``
+        is the third: the caller owns the surface itself, as a run kind
+        that settles its own outcome does, so the loader says nothing and
+        the caller reports success or failure once, in its own words. With
+        a popup supplied ``announce`` has nothing to silence.
         """
         result = self._load_folder_inner(
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
             popup=popup,
+            announce=announce,
             **kwargs,
         )
-        if popup is None:
+        if popup is None and announce:
             self._notify_unattended_result(result)
         return result
 
@@ -203,7 +219,8 @@ class ProtocolPostProcessor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup=None,
+        popup: ProgressSurface | None = None,
+        announce: bool = True,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -302,7 +319,7 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
-        if popup is None:
+        if popup is None and announce:
             # Unattended run: announce the start so a multi-minute build is
             # not a silent hang; the paired completion/failure message is
             # emitted by the load_folder wrapper.

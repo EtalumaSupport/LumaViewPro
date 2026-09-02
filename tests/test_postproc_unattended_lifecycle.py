@@ -58,7 +58,7 @@ def _images_df():
     return pd.DataFrame(rows)
 
 
-def _drive(processor, tmp_path, monkeypatch, popup=None):
+def _drive(processor, tmp_path, monkeypatch, popup=None, **load_kwargs):
     post_record = MagicMock()
     post_record.file_exists_in_records.return_value = False
     monkeypatch.setattr(
@@ -72,7 +72,9 @@ def _drive(processor, tmp_path, monkeypatch, popup=None):
             'protocol': None,
         },
     )
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, popup=popup)
+    return processor.load_folder(
+        path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, popup=popup, **load_kwargs
+    )
 
 
 def _capture_notifications(monkeypatch):
@@ -121,3 +123,15 @@ def test_unattended_all_groups_failed_is_loud(tmp_path, monkeypatch):
     assert len(errors) == 1, f'exactly one failure notification expected; saw {captured}'
     assert errors[0][1].endswith('Save Failed')
     assert result['message'] in errors[0][2]
+
+
+def test_caller_owned_surface_gets_no_lifecycle_notices(tmp_path, monkeypatch):
+    # A run kind that settles its own outcome (the composite merge) owns
+    # the surface: neither the start notice nor the result notice may
+    # speak for it, on success or on failure.
+    captured = _capture_notifications(monkeypatch)
+    ok = _drive(_FakePostProcessor(), tmp_path, monkeypatch, popup=None, announce=False)
+    failed = _drive(_FakePostProcessor(fail_groups=True), tmp_path, monkeypatch, announce=False)
+
+    assert ok['status'] is True and failed['status'] is False
+    assert captured == [], f'announce=False must silence the loader; saw {captured}'

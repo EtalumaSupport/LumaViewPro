@@ -1368,14 +1368,26 @@ class SequencedCaptureRunner:
         )
         has_turret = self._scope.capabilities.has_turret
 
+        def _fail(reason: str, detail: str) -> None:
+            # The one place a merge failure becomes visible: one log line,
+            # one notification, one resolved outcome -- the shape a run
+            # refusal uses, so a caller waiting on the outcome never
+            # re-notifies. Success is silent by design: the saved folder
+            # is the record, and the button handed the UI back at run end.
+            from modules.notification_center import notifications
+
+            logger.error(f'[{self.LOGGER_NAME}] Composite merge failed ({reason}): {detail}')
+            notifications.error('Protocol', 'Composite Failed', detail)
+            outcome.resolve(token, MergeOutcome(False, None, reason))
+
         # Decline-to-start is TOTAL: anything that makes a merge impossible
         # settles here and now, rather than leaving the outcome armed with
         # nothing on its way to resolve it.
         if run_dir is None:
-            outcome.resolve(token, MergeOutcome(False, None, 'no_run_dir'))
+            _fail('no_run_dir', 'The run has no directory to merge from.')
             return None
         if thresholds is None:
-            outcome.resolve(token, MergeOutcome(False, None, 'no_composite_config'))
+            _fail('no_composite_config', 'The run carries no composite thresholds.')
             return None
 
         def _merge():
@@ -1383,30 +1395,40 @@ class SequencedCaptureRunner:
                 from modules.composite_generation import CompositeGeneration
                 from modules.path_utils import get_source_root
 
+                # The loader is told the run owns the surface: its own
+                # unattended-batch notices would otherwise open a modal at
+                # start and another at the end of every composite.
                 result = CompositeGeneration(has_turret=has_turret).load_folder(
                     path=run_dir,
                     tiling_configs_file_loc=get_source_root() / 'data' / 'tiling.json',
                     output_format=output_format,
                     brightness_thresholds_percent=thresholds,
+                    announce=False,
                 )
-                paths = result.get('artifact_paths') or []
-                if result.get('status') and paths:
-                    outcome.resolve(token, MergeOutcome(True, paths[0], ''))
-                else:
-                    outcome.resolve(
-                        token,
-                        MergeOutcome(False, None, result.get('reason') or 'merge_failed'),
-                    )
-            except Exception:
-                logger.error(f'[{self.LOGGER_NAME}] Composite merge failed', exc_info=True)
-                outcome.resolve(token, MergeOutcome(False, None, 'merge_error'))
+            except Exception as ex:
+                logger.error(f'[{self.LOGGER_NAME}] Composite merge raised', exc_info=True)
+                _fail('merge_error', f'The merge failed with {type(ex).__name__}: {ex}')
+                return
+            paths = result.get('artifact_paths') or []
+            if result.get('status') and paths:
+                logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
+                outcome.resolve(token, MergeOutcome(True, paths[0], ''))
+            elif result.get('status'):
+                _fail('merge_failed', 'The merge finished without producing a composite file.')
+            else:
+                _fail(
+                    result.get('reason') or 'merge_failed',
+                    result.get('message') or 'See lumaviewpro.log for details.',
+                )
 
         return self._spawn_post_run_step(
             name='composite-merge',
             wait_fn=lambda: writer is None or writer.wait_for_still_writes(_MERGE_DRAIN_BOUND_S),
             build_fn=_merge,
-            on_wait_expired=lambda: outcome.resolve(
-                token, MergeOutcome(False, None, 'merge_timeout')
+            on_wait_expired=lambda: _fail(
+                'merge_timeout',
+                f"The run's frames did not finish writing within "
+                f'{_MERGE_DRAIN_BOUND_S:.0f} s; nothing was merged.',
             ),
         )
 
