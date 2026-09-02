@@ -280,3 +280,59 @@ class TestStartComposite:
             f'both merges must succeed: {first_settled}, {second_settled}'
         )
         assert first_settled.artifact_path != second_settled.artifact_path
+
+
+class TestTheEngineMatchesTheWorkerItReplaces:
+    """The run kind's merged output equals what the GUI worker produced.
+
+    The worker is being deleted, so the question is whether anything about
+    the image changes for a user who clicks the same button. Both paths turn
+    out to funnel through the SAME build_composite -- the blend was never
+    duplicated -- so what is actually being compared here is the two
+    orchestrators' INPUT assembly: which frames are chosen, at what depth,
+    and with which thresholds. That is where a divergence could hide, and it
+    would show up as different pixels.
+
+    Array equality, not a visual check: a threshold applied on the wrong
+    scale still looks like a composite.
+    """
+
+    def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
+        import numpy as np
+
+        from modules.composite_builder import build_composite
+
+        _session, runner, tmp_path = composite_session
+
+        artifact = pathlib.Path(
+            runner.run_composite(sequence_name='equiv', parent_dir=str(tmp_path))
+        )
+        run_dir = _run_dir(tmp_path)
+
+        frames = {}
+        for path in run_dir.glob('*.tiff'):
+            for channel in _ACQUIRING:
+                if channel in path.name:
+                    frames[channel] = tf.imread(path)
+        assert set(frames) == set(_ACQUIRING), f'missing per-channel frames: {sorted(frames)}'
+
+        transmitted = frames['BF']
+        fluorescence = {name: arr for name, arr in frames.items() if name != 'BF'}
+
+        # The worker read its threshold as an absolute value on the OUTPUT
+        # 8-bit scale, and the settings carry a percentage, so the conversion
+        # is part of what is being compared.
+        thresholds = dict.fromkeys(fluorescence, 25 / 100 * 255)
+
+        expected = build_composite(
+            channel_images=fluorescence,
+            significant_bits=8 if transmitted.dtype == np.uint8 else 12,
+            transmitted_image=transmitted,
+            brightness_thresholds=thresholds,
+        )
+
+        assert np.array_equal(tf.imread(artifact), expected), (
+            'the run kind produced a different composite than build_composite '
+            'does from the same on-disk frames; the orchestrators disagree '
+            'about depth, channel selection, or threshold scale'
+        )
