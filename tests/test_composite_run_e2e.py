@@ -22,6 +22,7 @@ leaves the rest of this file green. Only the test that delays the write
 holds that wait down.
 """
 
+import contextlib
 import pathlib
 import time
 
@@ -39,14 +40,24 @@ from tests.test_composite_run_config import _settings as _base_settings
 _ACQUIRING = ('BF', 'Blue')
 
 
-def _headless_settings(tmp_path):
+def headless_settings(
+    tmp_path,
+    acquiring=_ACQUIRING,
+    sequenced_format=OUTPUT_FORMAT_TIFF,
+    live_format=OUTPUT_FORMAT_TIFF,
+):
     """The composite config fixture, plus what a real RUN needs on top.
 
     ``test_composite_run_config`` owns the layer shape; assembly is all it
     needs. A run also has to know where to write, where the stage is
     relative to the plate, and what each layer's blend threshold is.
+
+    The channel set and the two output formats are parameters because the
+    other headless composite files vary exactly those: which channels
+    light, how few is too few, and which preference the composite follows.
     """
-    settings = _base_settings(acquiring=_ACQUIRING, sequenced_format=OUTPUT_FORMAT_TIFF)
+    settings = _base_settings(acquiring=acquiring, sequenced_format=sequenced_format)
+    settings['image_output_format']['live'] = live_format
     for layer in settings:
         if isinstance(settings[layer], dict) and 'acquire' in settings[layer]:
             settings[layer]['composite_brightness_threshold'] = 25
@@ -92,12 +103,17 @@ def _complete_the_bring_up(session, settings):
     session.scope.initialize(ScopeInitConfig.from_settings(settings, plate))
 
 
-@pytest.fixture
-def composite_session(tmp_path):
-    """A headless session on simulated hardware, ready to run a composite."""
+@contextlib.contextmanager
+def open_composite_session(settings):
+    """A headless session on simulated hardware, ready to run a composite.
+
+    Yields ``(session, runner)`` with the executors started and the scope
+    homed, and tears both down on exit. The other headless composite files
+    build their own settings and open the session through this, so there
+    is exactly one description of what a ready headless scope is.
+    """
     from modules.scope_session import ScopeSession
 
-    settings = _headless_settings(tmp_path)
     session = ScopeSession.create_headless(settings=settings)
     _complete_the_bring_up(session, settings)
 
@@ -110,13 +126,19 @@ def composite_session(tmp_path):
     session.start_executors()
     runner = session.create_protocol_runner()
     try:
-        yield session, runner, tmp_path
+        yield session, runner
     finally:
         runner.shutdown()
         session.shutdown()
 
 
-def _run_dir(tmp_path):
+@pytest.fixture
+def composite_session(tmp_path):
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        yield session, runner, tmp_path
+
+
+def single_run_dir(tmp_path):
     """The single timestamped run directory the run created."""
     dirs = [p for p in tmp_path.iterdir() if p.is_dir()]
     assert len(dirs) == 1, f'expected exactly one run directory, found {dirs}'
@@ -150,7 +172,7 @@ class TestCompositeRunEndToEnd:
 
         runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        run_dir = _run_dir(tmp_path)
+        run_dir = single_run_dir(tmp_path)
         frames = sorted(p.name for p in run_dir.glob('*.tiff'))
         assert len(frames) == len(_ACQUIRING), (
             f'expected one frame per acquiring channel {_ACQUIRING}, found {frames}'
@@ -167,7 +189,7 @@ class TestCompositeRunEndToEnd:
 
         artifact = pathlib.Path(runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)))
 
-        assert _run_dir(tmp_path) in artifact.parents, (
+        assert single_run_dir(tmp_path) in artifact.parents, (
             f'{artifact} is not inside the run directory that produced it'
         )
 
@@ -214,7 +236,7 @@ class TestCompositeRunEndToEnd:
         _session, runner, tmp_path = composite_session
         artifact = pathlib.Path(runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)))
 
-        run_dir = _run_dir(tmp_path)
+        run_dir = single_run_dir(tmp_path)
         frames = sorted(p.name for p in run_dir.glob('*.tiff'))
         assert len(frames) == len(_ACQUIRING), (
             f'the merge consumed a directory still filling: {frames}'
@@ -307,7 +329,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         artifact = pathlib.Path(
             runner.run_composite(sequence_name='equiv', parent_dir=str(tmp_path))
         )
-        run_dir = _run_dir(tmp_path)
+        run_dir = single_run_dir(tmp_path)
 
         frames = {}
         for path in run_dir.glob('*.tiff'):
