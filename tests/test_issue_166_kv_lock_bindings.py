@@ -239,6 +239,11 @@ STOP_TOGGLES = (
     'run_protocol_btn',
     'autofocus_id',
     'zstack_aqr_btn',
+    # A composite is a run like any other, so its button is its own stop
+    # control. record_btn is NOT the precedent to copy here: it carries
+    # app.run_lockout, which is true during a composite's own run and would
+    # swallow the second click.
+    'composite_btn',
 )
 
 
