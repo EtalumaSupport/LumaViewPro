@@ -17,7 +17,6 @@ from modules.config_ui_getters import (
     get_current_frame_dimensions,
     get_image_capture_config_from_ui,
     get_selected_labware,
-    get_sequenced_capture_config_from_ui,
     get_stim_configs,
     get_zstack_params,
     get_zstack_positions,
@@ -146,8 +145,6 @@ class ZStack(FloatLayout):
             # _zstack_progress (below) overwrites this with "Z {n}/{total}"
             # as soon as the protocol_step_runner starts the first slice.
             self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
-
-            config = get_sequenced_capture_config_from_ui()
 
             labware_id, _ = get_selected_labware()
             objective_id, _ = ctx.session.get_current_objective_info()
