@@ -561,7 +561,6 @@ class ProtocolStepRunner:
             'axis': axis,
             'position': position,
             'wait_until_complete': False,
-            'overshoot_enabled': False,
         }
         if p._io_executor is None:
             p._scope.motion._move_absolute_impl(**kwargs)
