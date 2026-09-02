@@ -21,11 +21,14 @@ from modules import gui_logger
 from modules.composite_builder import build_composite
 from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
-from modules.sequential_io_executor import IOTask, PRIORITY_MED
+from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
     live_histo_off,
     live_histo_reverse,
+    reset_title,
+    run_with_refusal_boundary,
     set_last_save_folder,
+    set_title_event_text,
 )
 
 logger = logging.getLogger('LVP.ui.composite_capture')
@@ -228,91 +231,143 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+        """Start a composite run, or stop the one already running.
+
+        A composite is a sequenced run like a scan or a z-stack, so this
+        is a run starter and nothing more. It states no run parameters and
+        assembles no config: everything the run needs is settings the
+        engine already reads, and duplicating that assembly here is what
+        put a second composite implementation in the GUI to begin with.
+
+        Only the concerns the engine cannot own stay here. It cannot know
+        the toggle was clicked a second time, it does not share the guard
+        that makes the two capture buttons mutually exclusive, and it has
+        no refusal for a camera that is connected but not yet streaming.
+        Everything else -- a rival run, files still draining, too few
+        channels -- is the engine's refusal to raise, not this starter's
+        to pre-check.
+        """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
+        composite_btn = self.ids['composite_btn']
+        runner = ctx.session.create_protocol_runner()
 
+        # The button is its own stop control, so a second click means stop.
+        # It reads as one of two things: a toggle already back to 'normal',
+        # or a click arriving while this starter's own run is live. The
+        # trigger source is what separates the second case from a click
+        # during someone ELSE's run, which must fall through to the engine
+        # and be refused rather than aborting a run this button never
+        # started.
+        #
+        # Reset goes onto the worker pool at high priority because the pool
+        # runs exactly one worker: a stop that queued behind ordinary work
+        # would not arrive until that work finished, which is the thing the
+        # user is trying to interrupt.
+        if composite_btn.state == 'normal' or (
+            runner.is_running() and runner.run_trigger_source() == 'composite'
+        ):
+            ctx.worker_pool.put(IOTask(action=runner.reset, priority=PRIORITY_HIGH))
+            return
+
+        # Every gate below puts the toggle back before returning. Left
+        # 'down', it makes the NEXT click read as the second click of a
+        # pair, and that click is swallowed as an abort of a run that was
+        # never started.
         if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
+            composite_btn.state = 'normal'
             return
-        # Same camera-connected gate as live_capture -- see comment there.
-        if not getattr(ctx.scope, 'camera_connected', True):
-            from modules.notification_center import notifications
 
+        from modules.notification_center import notifications
+
+        if not getattr(ctx.scope, 'camera_connected', True):
             notifications.warning(
                 'Camera',
                 'Camera not connected',
                 'Cannot capture composite -- camera is not connected. '
                 'Check USB and reconnect, then try again.',
             )
+            composite_btn.state = 'normal'
             return
-        # Every refusal must precede _capturing.set(): only the worker's
-        # finally clears the guard, so a return after set() has no clearer
-        # and wedges BOTH capture buttons for the process lifetime.
-        if not ctx.scope.imaging.active_cached:
-            from modules.notification_center import notifications
 
+        if not ctx.scope.imaging.active_cached:
             notifications.warning(
                 'Camera',
                 'Camera not active',
                 'Cannot capture composite -- the camera is not streaming. '
                 'Wait for the camera to start, then try again.',
             )
+            composite_btn.state = 'normal'
             return
+
+        # Set only once every gate above has passed, and cleared in exactly
+        # one place per outcome: the finally below for anything that does
+        # not reach a live run, and the run's own completion for anything
+        # that does. A guard left set is permanent -- both capture entry
+        # points return at their is_set() check before enqueuing the work
+        # whose completion would clear it -- so a path with no clearer
+        # disables both capture buttons for the life of the process. That
+        # is why the clear sits in a finally rather than at each exit: the
+        # refusal boundary only catches the typed refusal, and a
+        # programming error at the call site raises straight past it.
         CompositeCapture._capturing.set()
+        started = False
+        try:
+            live_histo_off()
+            set_title_event_text('Compositing...')
 
-        z_stage_present = not ctx.disable_homing
+            settings = ctx.settings
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Composites'
 
-        logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
-
-        # Log per-channel settings for composite debugging
-        settings = ctx.settings
-        for layer in (
-            *common_utils.get_transmitted_layers(),
-            *common_utils.get_fluorescence_layers(),
-        ):
-            ls = settings.get(layer, {})
-            if ls.get('acquire') == 'image':
-                logger.info(
-                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exposure_ms")}ms, '
-                    f'ill={ls.get("illumination_ma")}mA, sum={ls.get("sum", 1)}, '
-                    f'threshold={ls.get("composite_brightness_threshold", "?")}%'
+            def _start():
+                nonlocal started
+                runner.start_composite(
+                    sequence_name='composite',
+                    parent_dir=parent_dir,
+                    callbacks={'run_complete': self._composite_finished},
+                    run_trigger_source='composite',
                 )
+                started = True
+                # Only reachable once the run is committed, so the saved
+                # folder can only ever name THIS run's directory.
+                set_last_save_folder(dir=runner.run_dir())
 
-        initial_layer = common_utils.get_opened_layer(ctx.image_settings)
+            # A refusal has already been logged and shown to the user by the
+            # engine's funnel; there is nothing left to report, only the
+            # cosmetics to undo, and the finally does that.
+            run_with_refusal_boundary(_start, on_refused=lambda: None)
+        except Exception as e:
+            logger.error(f'[LVP Main  ] composite_capture failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
 
-        if ctx.scope.illumination.get_led_state(initial_layer)['enabled']:
-            led_restore_state = True
-        else:
-            led_restore_state = False
+            show_notification_popup(title='Error', message=str(e))
+        finally:
+            if not started:
+                self._composite_finished()
 
-        live_histo_off()
+    def _composite_finished(self, **kwargs):
+        """Hand the UI back after a composite ends or never starts.
 
-        # Resolve the image mode on the main thread (reads UI widgets) and pass
-        # the derived facts into the worker, which runs off-thread and must not
-        # touch Kivy widgets.
-        from modules.config_ui_getters import get_image_capture_config_from_ui
+        One handler for both, because every step is level-based rather
+        than a guess about what the run did: the reconcile reads the LED
+        driver instead of assuming, and the histogram and title helpers
+        are idempotent. A second handler for the not-started path would
+        be the same five lines with one omitted.
 
-        image_capture_config = get_image_capture_config_from_ui()
-        capture_depth = image_capture_config.capture_depth
-        save_encoding = image_capture_config.save_encoding
-
-        # Run hardware-blocking work on worker_pool at MED priority so it
-        # doesn't freeze the UI or contend with io_executor. HIGH-priority
-        # abort/cleanup tasks still jump ahead. Composite capture is
-        # bounded (~seconds) so it doesn't starve LOW background work.
-        ctx.worker_pool.put(
-            IOTask(
-                action=self._composite_capture_worker,
-                kwargs={
-                    'z_stage_present': z_stage_present,
-                    'initial_layer': initial_layer,
-                    'led_restore_state': led_restore_state,
-                    'capture_depth': capture_depth,
-                    'save_encoding': save_encoding,
-                },
-                priority=PRIORITY_MED,
-            )
-        )
+        This fires at RUN end, not merge end. The merged file lands about
+        a second later, exactly as it does for every other run kind; a
+        button that waited for it would be the only one in the app that
+        did.
+        """
+        self.ids['composite_btn'].state = 'normal'
+        reset_title()
+        live_histo_reverse()
+        # The run's LED restore has settled by now, so reconcile every
+        # enable toggle to what the driver actually reports: a restore that
+        # emits no LED events leaves the buttons stale otherwise.
+        _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
+        CompositeCapture._capturing.clear()
 
     def _composite_capture_worker(
         self,
