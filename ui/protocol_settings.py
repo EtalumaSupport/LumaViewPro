@@ -54,6 +54,7 @@ from ui.ui_helpers import (
     set_recording_title,
     set_title_event_text,
     set_writing_title,
+    text_input_debounced,
     update_autofocus_selection_after_protocol,
 )
 from ui.progress_popup import show_popup
@@ -290,7 +291,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
-        gui_logger.text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
+        text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -323,7 +324,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
-        gui_logger.text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
+        text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -357,7 +358,7 @@ class ProtocolSettings(FloatLayout):
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
-        gui_logger.text_input_debounced('CAPTURE_ROOT', sanitized)
+        text_input_debounced('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
     def select_labware(self, labware: str | None = None):

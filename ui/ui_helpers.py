@@ -10,10 +10,12 @@ re-exports everything for existing callers.
 import logging
 import typing
 
+from kivy.clock import Clock
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
+from modules import gui_logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
@@ -343,6 +345,38 @@ def live_histo_reverse():
     if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
+
+
+_text_input_debounce_timers: dict = {}
+_TEXT_INPUT_DEBOUNCE_S: float = 1.5
+
+
+def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_DEBOUNCE_S) -> None:
+    """Log a text field's value once the user has stopped typing.
+
+    Each call cancels the previous pending log for ``name`` and schedules a
+    fresh one ``delay_s`` out, so per-character ``on_text`` traffic collapses
+    to the single committed value. Used by the protocol period / duration /
+    capture-root fields and the manual-video max-fps / max-duration fields,
+    all of which fire per character.
+
+    Lives here rather than beside the other gui_interactions entries because
+    the debounce needs the Kivy Clock and modules/ carries no GUI imports.
+    """
+    existing = _text_input_debounce_timers.pop(name, None)
+    if existing is not None:
+        try:
+            existing.cancel()
+        except Exception:
+            # A timer that already fired cannot be cancelled; the emit has
+            # happened and popping it above is all the cleanup there is.
+            pass
+
+    def _emit(_dt):
+        _text_input_debounce_timers.pop(name, None)
+        gui_logger.text_input(name, value)
+
+    _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
 
 
 # ============================================================================

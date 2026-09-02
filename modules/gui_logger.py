@@ -95,38 +95,19 @@ def popup_response(title: str, response: str) -> None:
     _log.info(f'POPUP_RESPONSE {one_line(response)} | {one_line(title)}')
 
 
-_debounce_timers: dict = {}
-_debounce_default_delay_s: float = 1.5
+def text_input(name: str, value: object) -> None:
+    """Log a text field's final committed value.
 
+    Callers debounce before calling: ``on_text`` fires per keystroke, and
+    only the value the user stopped on belongs in gui_interactions.log.
+    The debounce needs a GUI timer, so it lives GUI-side; the log line's
+    shape stays here with every other entry in this module.
 
-def text_input_debounced(name: str, value, delay_s: float = _debounce_default_delay_s) -> None:
-    """Debounced text-input final-value log.
-
-    Each call cancels the previous pending log for ``name`` and
-    schedules a fresh one ``delay_s`` seconds out. After the user
-    stops typing for ``delay_s``, the final value logs as
-    ``TEXT_INPUT <name> <value>``. Cheap typing during the delay
-    window does NOT produce per-keystroke entries -- only the final
-    committed value reaches gui_interactions.log.
-
-    Used by per-keystroke handlers like protocol period / duration /
-    capture-root and the manual-video max-fps / max-duration fields
-    where on_text fires per-character.
+    ``value`` is whatever the field holds -- text from the protocol fields,
+    a parsed number from the video ones -- and is only interpolated, so it
+    is typed by what this needs of it rather than by today's callers.
     """
-    from kivy.clock import Clock
-
-    existing = _debounce_timers.pop(name, None)
-    if existing is not None:
-        try:
-            existing.cancel()
-        except Exception:
-            pass
-
-    def _emit(_dt):
-        _debounce_timers.pop(name, None)
-        _log.info(f'TEXT_INPUT {name} {value}')
-
-    _debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
+    _log.info(f'TEXT_INPUT {name} {value}')
 
 
 def window_event(event_name: str, detail: str = '') -> None:
