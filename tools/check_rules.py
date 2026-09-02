@@ -1094,9 +1094,15 @@ _MECHANISM_ID_RE = re.compile(r'\bM(\d+)\b')
 # deliberately NOT a definition: it reads like one to a skimming human and
 # would otherwise satisfy the check while specifying nothing.
 _MECHANISM_DEF_RE = re.compile(r'^(?:#{2,6}\s+M(?P<h>\d+)\b|\*\*M(?P<b>\d+)\s*--)')
+# Every alternative anchors the DEFERRAL sense. A bare \bcarries\b was tried
+# here and matched ordinary technical prose -- "the task carries no callback",
+# "the outcome carries no channel list" -- so a mechanism whose spec was fully
+# self-contained got rejected for using the word. Only the parenthesised form,
+# the carry-unchanged form and the explicit from-rev forms actually mean "the
+# specification lives in a revision that is not this document".
 _SELF_REVISION_REF_RE = re.compile(
-    r'\bas\s+rev\s+\d+|\bcarry\s+unchanged\b|\bcarries\b|'
-    r'\bunchanged\s+from\s+rev\b',
+    r'\bas\s+rev\s+\d+|\bcarr(?:y|ies)\s+unchanged\b|\(\s*carries\s*\)|'
+    r'\bcarr(?:y|ies)\s+(?:over\s+)?from\s+rev\b|\bunchanged\s+from\s+rev\b',
     re.IGNORECASE,
 )
 
