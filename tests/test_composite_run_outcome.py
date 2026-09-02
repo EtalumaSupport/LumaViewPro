@@ -103,7 +103,7 @@ class TestCompositeOutcomeIsObservable:
         if outcome is not None:
             token = settled.arm()
             settled.resolve(token, outcome)
-        runner._executor.merge_outcome.return_value = settled
+        runner._executor.start.return_value = settled
         return runner
 
     def test_run_composite_returns_the_merged_artifact_path(self):
@@ -140,9 +140,18 @@ class TestCompositeOutcomeIsObservable:
             runner.run_composite(merge_timeout_s=0.05)
         assert 'wedged' in str(excinfo.value)
 
-    def test_a_run_that_was_never_committed_raises(self):
-        runner = _runner()
-        runner._executor.merge_outcome.return_value = None
+    def test_a_refused_run_reaches_the_caller_as_a_refusal(self):
+        # "Started, but with no outcome to wait on" is no longer a state
+        # that can occur: start() either commits and hands back this run's
+        # own outcome, or refuses. What the caller must never do is wait on
+        # a run that does not exist, and that is still pinned here -- the
+        # refusal has to arrive as a refusal rather than as a merge failure.
+        from modules.exceptions import ProtocolRunRefusedError
 
-        with pytest.raises(CaptureError):
+        runner = _runner()
+        runner._executor.start.side_effect = ProtocolRunRefusedError(
+            'already_running', 'Run refused', 'Another run is already in progress.'
+        )
+
+        with pytest.raises(ProtocolRunRefusedError):
             runner.run_composite()

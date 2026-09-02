@@ -236,3 +236,47 @@ class TestCompositeRunEndToEnd:
         assert first.exists() and second.exists(), (
             f'both composites must survive: {first.exists()}, {second.exists()}'
         )
+
+
+class TestStartComposite:
+    """The non-blocking half: assembly and launch without the wait."""
+
+    def test_the_trigger_token_is_the_callers(self, composite_session):
+        # A constant here instead of a parameter would make a GUI click
+        # during an API composite read as that run's OWN second click, so
+        # the click would abort someone else's run instead of being refused.
+        _session, runner, tmp_path = composite_session
+
+        outcome = runner.start_composite(
+            sequence_name='start_token',
+            parent_dir=str(tmp_path),
+            run_trigger_source='composite',
+        )
+        assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
+        assert runner.run_trigger_source() == 'composite'
+
+    def test_the_api_entry_point_keeps_its_own_token(self, composite_session):
+        _session, runner, tmp_path = composite_session
+
+        runner.run_composite(sequence_name='api_token', parent_dir=str(tmp_path))
+
+        assert runner.run_trigger_source() == 'api_composite'
+
+    def test_each_run_gets_the_outcome_it_started(self, composite_session):
+        # The outcome used to be read back off the executor after start
+        # returned. A run that fails at start releases its activity claim
+        # synchronously, so a rival can commit in between and the caller
+        # ends up waiting on the rival's run. Handing the object back from
+        # start is what makes that unrepresentable.
+        _session, runner, tmp_path = composite_session
+
+        first = runner.start_composite(sequence_name='own_1', parent_dir=str(tmp_path))
+        first_settled = first.wait(timeout_s=120)
+        second = runner.start_composite(sequence_name='own_2', parent_dir=str(tmp_path))
+        second_settled = second.wait(timeout_s=120)
+
+        assert first is not second, "the second run reused the first run's outcome object"
+        assert first_settled.merged and second_settled.merged, (
+            f'both merges must succeed: {first_settled}, {second_settled}'
+        )
+        assert first_settled.artifact_path != second_settled.artifact_path

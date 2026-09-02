@@ -896,7 +896,7 @@ class SequencedCaptureRunner:
             composite_thresholds_percent=composite_thresholds_percent,
         )
 
-    def start(self, plan: RunPlan) -> None:
+    def start(self, plan: RunPlan) -> 'RunMergeOutcome':
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -913,6 +913,11 @@ class SequencedCaptureRunner:
         this plan's completion callbacks while the other, live activity
         is mid-flight -- clearing running-state the live activity still
         owns.
+
+        Returns:
+            This run's merge outcome. Already resolved for every run kind
+            that has no merge, so a caller always gets an answer rather
+            than the bound.
 
         Raises:
             ProtocolRunRefusedError: reason 'already_running' for the
@@ -989,7 +994,15 @@ class SequencedCaptureRunner:
             # caller that never started a run cannot wait on one. It must
             # exist BEFORE the run flag is set, because setting the flag is
             # what lets reset() drive cleanup into a finally that reads it.
-            self._merge_outcome = RunMergeOutcome()
+            #
+            # Bound to a local as well, and the local is what start() returns:
+            # a caller then holds the outcome belonging to the run it actually
+            # started. Reading the attribute back afterwards is a race -- a run
+            # that fails at start releases the activity claim synchronously, so
+            # a rival can commit in between and the caller waits on the rival's
+            # run instead of its own.
+            outcome = RunMergeOutcome()
+            self._merge_outcome = outcome
 
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
@@ -1091,6 +1104,10 @@ class SequencedCaptureRunner:
                 raise dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc)
+
+        # Reached on the failed-at-start path too, where the unwind has
+        # already resolved the outcome: the caller waits and is told at once.
+        return outcome
 
     def _setup_run_dir(self) -> None:
         """Create and initialize the run directory; raise on failure.
