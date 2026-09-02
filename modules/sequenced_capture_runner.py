@@ -262,7 +262,7 @@ class SequencedCaptureRunner:
         _grease_redistribution_event: that gate is owned by the grease task
         itself (it always set()s on completion-or-failure, and the enqueue path
         set()s when the task never runs), so re-setting it here would race a
-        grease move still in flight when the period is zero (continuous mode).
+        grease move still in flight between back-to-back scans.
         """
         self._curr_step = 0
         # Monotonic time of this scan's first completed capture; None until
@@ -331,16 +331,33 @@ class SequencedCaptureRunner:
         max_scans: int | None,
     ) -> int:
         if run_mode in (SequencedCaptureRunMode.FULL_PROTOCOL,):
-            # Protocol.from_file permits period==0 as a "valid single-scan
-            # marker"; protocol_time_estimator handles it. Treating it as
-            # 1 scan here matches that contract -- otherwise a valid TSV
-            # silently no-ops on Start with a ZeroDivisionError logged
-            # but no popup.
-            period_s = protocol.period()
-            if period_s == 0:
+            # Period 0 is the loader's single-scan marker (Manual Z-Stack
+            # and single-shot capture write it), and a duration shorter
+            # than one period still runs its first scan: the run loop
+            # captures scan 1 at t=0 before any period elapses. Both are
+            # timedeltas, compared in seconds -- a timedelta is never equal
+            # to the integer 0 -- and divided as timedeltas, which is exact
+            # where float seconds would drop a scan on some ratios.
+            period = protocol.period()
+            duration = protocol.duration()
+            if period.total_seconds() == 0:
                 n_scans = 1
+                single_scan_reason = 'the capture period is 0'
             else:
-                n_scans = int(protocol.duration() / period_s)
+                n_scans = max(1, int(duration / period))
+                single_scan_reason = (
+                    f'the duration ({duration}) is shorter than the capture period ({period})'
+                    if duration < period
+                    else None
+                )
+            if single_scan_reason is not None:
+                from modules.notification_center import notifications
+
+                notifications.notice(
+                    'Protocol',
+                    'Single Scan',
+                    f'This run performs a single scan because {single_scan_reason}.',
+                )
 
             if max_scans is not None:
                 n_scans = min(n_scans, max_scans)

@@ -11218,11 +11218,15 @@ class TestProtocolPeriodZeroDoesNotCrashFullProtocolMode:
     """
 
     def _make_protocol_stub(self, *, duration: float, period: float):
+        # Seconds in, timedeltas out: Protocol.period() returns a timedelta,
+        # and the int stubs this class first shipped with let the period==0
+        # guard pass green while the production type sailed past it.
+        import datetime
         from unittest.mock import MagicMock
 
         proto = MagicMock()
-        proto.duration.return_value = duration
-        proto.period.return_value = period
+        proto.duration.return_value = datetime.timedelta(seconds=duration)
+        proto.period.return_value = datetime.timedelta(seconds=period)
         return proto
 
     def test_period_zero_returns_one_scan(self):

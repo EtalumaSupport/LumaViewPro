@@ -94,7 +94,11 @@ def scr_run_kwargs(**overrides):
     protocol = MagicMock()
     protocol.num_steps.return_value = 1
     protocol.validate_for_run.return_value = []
-    protocol.period.return_value = 0
+    # Real timedeltas: Protocol.period() never returns an int, and a stub
+    # that did once let a zero-period guard pass green against a type the
+    # production path never produces.
+    protocol.period.return_value = datetime.timedelta(0)
+    protocol.duration.return_value = datetime.timedelta(hours=1)
     protocol.copy_for_execution.return_value = protocol
     kwargs = {
         'protocol': protocol,
