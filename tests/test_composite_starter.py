@@ -40,6 +40,7 @@ sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
 
 import modules.app_context as _app_ctx
 from modules.exceptions import ProtocolRunRefusedError
+from tests.scope_fakes import spec_scope
 import ui.composite_capture as cc
 
 
@@ -70,8 +71,7 @@ def runner():
 @pytest.fixture
 def app_ctx(runner, tmp_path):
     saved = getattr(_app_ctx, 'ctx', None)
-    scope = MagicMock()
-    scope.camera_connected = True
+    scope = spec_scope(camera_connected=True)
     scope.imaging.active_cached = True
     session = MagicMock()
     session.create_protocol_runner.return_value = runner

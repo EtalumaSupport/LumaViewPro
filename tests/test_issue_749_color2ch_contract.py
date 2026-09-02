@@ -236,20 +236,16 @@ class TestDarkFloorKeysOnLedDrivability:
         kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
         assert 'dark_floor_check' not in kwargs
 
-    def test_composite_loop_gates_led_and_dark_floor_together(self):
-        # Source pins (reformat-tolerant single-line fragments): the
-        # composite worker is not driveable under the mocked-kivy test env.
-        src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
-        assert 'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0' in (
-            src
-        ), 'composite loop must compute LED drivability once'
-        assert 'dark_floor_check' not in src, (
-            'the composite must not post the dark-floor fact; the capture '
-            'derives it from commanded LED state'
-        )
-        assert 'if layer not in common_utils.get_transmitted_layers():' not in src, (
-            'the vacuously-true not-transmitted guard must not gate led_on'
-        )
+    def test_composite_step_posts_no_dark_floor_fact(self):
+        # A composite is a run kind now, so its channels reach the camera
+        # through this writer instead of a GUI loop carrying its own copy of
+        # the rule. The source pins that guarded that loop retired with it:
+        # they asserted against a file whose composite code no longer exists,
+        # which passes for the wrong reason. The invariant is pinned here
+        # instead, on the one path every capture takes, and the drivability
+        # half is pinned behaviourally by TestCaptureAbortWording below.
+        kwargs, _, _ = self._run_capture({'Color': 'Blue', 'Illumination': 50.0})
+        assert 'dark_floor_check' not in kwargs
 
     def test_live_capture_reads_no_settings_predicate(self):
         # The manual live capture used to derive the dark-floor expectation
