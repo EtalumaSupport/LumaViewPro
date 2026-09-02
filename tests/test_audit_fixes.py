@@ -212,13 +212,20 @@ class TestDomainExceptions:
             HardwareError,
             ProtocolError,
             ConfigError,
-            CaptureError,
         ],
     )
     def test_raise_and_catch_with_message(self, exc_cls):
         msg = f'test message for {exc_cls.__name__}'
         with pytest.raises(exc_cls, match=msg):
             raise exc_cls(msg)
+
+    def test_capture_error_carries_a_reason_beside_its_message(self):
+        # CaptureError left the message-only group above when it gained a
+        # required failure code: a caller mapping failures onto responses
+        # reads the code, and the prose stays for the human.
+        with pytest.raises(CaptureError, match='test message') as excinfo:
+            raise CaptureError('test message', 'test_reason')
+        assert excinfo.value.reason == 'test_reason'
 
 
 # ===========================================================================
