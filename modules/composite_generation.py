@@ -335,7 +335,14 @@ class CompositeGeneration(ProtocolPostProcessor):
                         ome=ome,
                         color='Composite',
                         significant_bits=metadata['significant_bits'],
-                        save_encoding=image_utils.resolve_output_save_encoding(img),
+                        # A merged composite is a viewing product, always
+                        # 8-bit RGB, so its encoding follows from that and
+                        # not from the live image mode: the merge runs
+                        # inside the engine on every run kind, headless
+                        # included, where there is no live mode to read.
+                        save_encoding=image_mode.save_encoding_for_derived_output(
+                            img, image_mode.IMAGE_MODE_8BIT
+                        ),
                     )
 
         except Exception as e:
@@ -477,7 +484,10 @@ class CompositeGeneration(ProtocolPostProcessor):
             ome=(format == 'ome-tiff'),
             color='Composite',
             significant_bits=metadata['significant_bits'],
-            save_encoding=image_utils.resolve_output_save_encoding(img),
+            # 8-bit RGB by ruling, as above.
+            save_encoding=image_mode.save_encoding_for_derived_output(
+                img, image_mode.IMAGE_MODE_8BIT
+            ),
         )
 
         return {

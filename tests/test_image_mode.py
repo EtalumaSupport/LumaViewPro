@@ -847,19 +847,19 @@ def test_resolve_output_save_encoding_reads_image_mode_ssot():
     used to hide in maybe_apply_false_color's settings read."""
     from unittest import mock
 
-    import modules.image_utils as image_utils
+    import modules.derived_output_encoding as derived_output_encoding
 
     arr = np.zeros((4, 4), dtype=np.uint16)
 
     rgb_ctx = mock.MagicMock()
     rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
     with mock.patch('modules.app_context.ctx', rgb_ctx):
-        assert image_utils.resolve_output_save_encoding(arr) == 'rgb'
+        assert derived_output_encoding.resolve_output_save_encoding(arr) == 'rgb'
 
     sci_ctx = mock.MagicMock()
     sci_ctx.settings = {'image_mode': '12bit_scientific'}
     with mock.patch('modules.app_context.ctx', sci_ctx):
-        assert image_utils.resolve_output_save_encoding(arr) == 'right_aligned'
+        assert derived_output_encoding.resolve_output_save_encoding(arr) == 'right_aligned'
 
 
 def test_resolve_output_save_encoding_degrades_without_context():
@@ -868,12 +868,15 @@ def test_resolve_output_save_encoding_degrades_without_context():
     on a None settings lock -- there is no user image_mode to honor."""
     from unittest import mock
 
-    import modules.image_utils as image_utils
+    import modules.derived_output_encoding as derived_output_encoding
 
     with mock.patch('modules.app_context.ctx', None):
-        assert image_utils.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint8)) == '8bit'
         assert (
-            image_utils.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint16))
+            derived_output_encoding.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint8))
+            == '8bit'
+        )
+        assert (
+            derived_output_encoding.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint16))
             == 'right_aligned'
         )
 
@@ -885,6 +888,7 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
     regression)."""
     from unittest import mock
 
+    import modules.derived_output_encoding as derived_output_encoding
     import modules.image_utils as image_utils
 
     out_path = tmp_path / 'derived_blue.tiff'
@@ -893,7 +897,7 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
     rgb_ctx = mock.MagicMock()
     rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
     with mock.patch('modules.app_context.ctx', rgb_ctx):
-        encoding = image_utils.resolve_output_save_encoding(data)
+        encoding = derived_output_encoding.resolve_output_save_encoding(data)
         image_utils.write_tiff(
             data=data,
             file_loc=out_path,

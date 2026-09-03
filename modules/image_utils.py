@@ -1783,30 +1783,6 @@ def get_imagej_lut(colormap: LvpColormap):
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
-def resolve_output_save_encoding(array: np.ndarray) -> str:
-    """The save encoding for a derived output, resolved from the live image_mode.
-
-    Derived-product writers (stitch / zproject / composite) consult the one
-    image_mode SSOT for their on-disk encoding, so a stitched fluorescence image
-    honors the user's false-color choice exactly as a freshly captured frame
-    does. This is the explicit replacement for the implicit settings read that
-    used to hide inside maybe_apply_false_color's None default.
-    """
-    # Function-local import breaks the image_utils <-> app_context cycle;
-    # app_context imports image_utils at module load.
-    from modules import app_context as _app_ctx
-
-    # No live app context means no user image_mode to consult (headless /
-    # pre-init), so the only meaningful encoding is the verbatim dtype-based
-    # one. Production post-processing always runs with a context set.
-    if _app_ctx.ctx is None:
-        return image_mode.encoding_for_array(array)
-
-    with _app_ctx.ctx.settings_lock:
-        mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
-    return image_mode.save_encoding_for_derived_output(array, mode)
-
-
 def maybe_apply_false_color(
     data: np.ndarray,
     color: str,
