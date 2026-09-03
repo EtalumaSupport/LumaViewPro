@@ -28,7 +28,6 @@ import pathlib
 import threading
 import typing
 
-import modules.common_utils as common_utils
 import modules.image_mode as image_mode_module
 from modules.exceptions import CaptureError, ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol
@@ -397,20 +396,6 @@ class ProtocolRunner:
 
         merged_callbacks['run_complete'] = _on_complete
 
-        # Restore autofocus via settings dict (safe: called on protocol thread completion)
-        settings = self.session.settings
-        merged_callbacks.setdefault(
-            'restore_autofocus_state',
-            lambda layer, value: settings[layer].__setitem__('autofocus', value),
-        )
-
-        # Snapshot autofocus states before handing off to the protocol thread
-        initial_autofocus_states = {
-            layer: settings[layer]['autofocus']
-            for layer in common_utils.get_layers()
-            if layer in settings
-        }
-
         plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
@@ -425,7 +410,9 @@ class ProtocolRunner:
             return_to_position=return_to_position,
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
-            initial_autofocus_states=initial_autofocus_states,
+            autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                self.session.settings, self.session.settings_lock
+            ),
             **config_helpers.get_sequenced_run_settings(self.session.settings, run_mode=run_mode),
         )
 

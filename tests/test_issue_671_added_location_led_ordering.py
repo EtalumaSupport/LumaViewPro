@@ -69,6 +69,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -294,15 +295,7 @@ def _run_protocol(executor, protocol, tmp_path):
         max_scans=1,
         callbacks=callbacks,
         leds_state_at_end='off',
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)
 

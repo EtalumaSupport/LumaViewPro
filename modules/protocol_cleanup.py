@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from modules.autofocus_thread import AutofocusThread
+    from modules.config_helpers import AutofocusSnapshot
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
     from modules.protocol_callbacks import ProtocolCallbacks
@@ -62,7 +63,7 @@ def run_cleanup(
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
-    original_autofocus_states: dict,
+    autofocus_snapshot: AutofocusSnapshot,
     saved_camera_state: dict,
     return_to_position: dict | None,
     disable_saving_artifacts: bool,
@@ -236,27 +237,19 @@ def run_cleanup(
         cleanup_errors.append(f'Restore layer shader: {type(ex).__name__}: {ex}')
 
     # --- Restore autofocus states ---
-    # Guard against None / empty (the common case when no AF was active
-    # for this scan). Without the guard, iteration on None raised
-    # `'NoneType' object is not subscriptable` and fired ERROR every
-    # scan, burying real failure signal under thousands of spurious lines.
-    if not original_autofocus_states:
+    # Empty states (the common case when no AF was active for this scan)
+    # skip the restore with one debug line. Iterating an absent snapshot
+    # once fired ERROR every scan, burying real failure signal under
+    # thousands of spurious lines; the snapshot is required now, so only
+    # the empty case remains. The restorer rides the snapshot: the run
+    # writes back to the same dict it was read from, whichever process
+    # owns it.
+    if not autofocus_snapshot.states:
         logger.debug('[PROTOCOL] No autofocus states to restore')
     else:
         try:
-            for layer, layer_data in original_autofocus_states.items():
-                if callbacks.restore_autofocus_state:
-                    callbacks.restore_autofocus_state(layer=layer, value=layer_data)
-                else:
-                    import modules.app_context as _app_ctx
-                    from modules.settings_init import settings
-
-                    ctx = _app_ctx.ctx
-                    if ctx is not None:
-                        with ctx.settings_lock:
-                            settings[layer]['autofocus'] = layer_data
-                    else:
-                        settings[layer]['autofocus'] = layer_data
+            for layer, layer_data in autofocus_snapshot.states.items():
+                autofocus_snapshot.restore(layer=layer, value=layer_data)
                 if callbacks.reset_autofocus_btns:
                     _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
         except Exception as ex:

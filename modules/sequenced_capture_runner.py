@@ -20,7 +20,6 @@ from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.lumascope_api import Lumascope
 
-import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
@@ -36,9 +35,8 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
 import threading
 
-import modules.app_context as _app_ctx
 import modules.stack_builder as stack_builder
-from modules.settings_init import settings
+from modules.config_helpers import AutofocusSnapshot
 
 # How often the post-run hyperstack waiter re-checks the protocol file
 # queue. The build must not start until every per-step file has flushed
@@ -110,7 +108,7 @@ class RunPlan:
     update_z_pos_from_autofocus: bool
     leds_state_at_end: str
     video_as_frames: bool
-    initial_autofocus_states: dict | None
+    autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
     return_to_position: dict | None
     stage_offset: dict
@@ -555,17 +553,6 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
-    def get_initial_autofocus_states(self, layer_configs: dict | None = None):
-        states = {}
-        ctx = _app_ctx.ctx
-        for layer in common_utils.get_layers():
-            if layer_configs and layer in layer_configs:
-                states[layer] = layer_configs[layer].get('autofocus', False)
-            else:
-                with ctx.settings_lock:
-                    states[layer] = settings[layer]['autofocus']
-        return states
-
     def _refuse_exclusive_activity(self, holder: str | None) -> None:
         """Refuse this run because an exclusive activity holds the session claim.
 
@@ -668,6 +655,8 @@ class SequencedCaptureRunner:
         sequence_name: str,
         image_capture_config: image_mode.ImageCaptureConfig,
         autogain_settings: dict,
+        *,
+        autofocus_snapshot: AutofocusSnapshot,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
@@ -679,7 +668,6 @@ class SequencedCaptureRunner:
         update_z_pos_from_autofocus: bool = False,
         leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
-        initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
         bf_af_for_fluorescence: bool = False,
         timestamp_overlay: bool = True,
@@ -920,7 +908,10 @@ class SequencedCaptureRunner:
             update_z_pos_from_autofocus=update_z_pos_from_autofocus,
             leds_state_at_end=leds_state_at_end,
             video_as_frames=video_as_frames,
-            initial_autofocus_states=copy.deepcopy(initial_autofocus_states),
+            # The states freeze with the plan; the restorer is a function,
+            # which deepcopy leaves as the same object, so it keeps writing
+            # the live session dict at cleanup.
+            autofocus_snapshot=copy.deepcopy(autofocus_snapshot),
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
@@ -1008,7 +999,7 @@ class SequencedCaptureRunner:
             # snapshots must not leak into that unwind.
             self._original_led_states = None
             self._saved_camera_state = None
-            self._original_autofocus_states = plan.initial_autofocus_states
+            self._autofocus_snapshot = plan.autofocus_snapshot
             # No AFE.reset() here -- AFE.run()'s own _reset_state() on
             # entry handles stale state, and self._af_future is reset at
             # scan start in protocol_run_loop. An external reset() here
@@ -1068,8 +1059,6 @@ class SequencedCaptureRunner:
             # Snapshot hardware state for restoration after protocol
             self._original_led_states = self._scope.illumination.get_led_states()
             self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
-            if self._original_autofocus_states is None:
-                self._original_autofocus_states = self.get_initial_autofocus_states()
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
@@ -1503,7 +1492,7 @@ class SequencedCaptureRunner:
                 fatal_abort=self._fatal_abort_event.is_set(),
                 leds_state_at_end=self._leds_state_at_end,
                 original_led_states=self._original_led_states,
-                original_autofocus_states=self._original_autofocus_states,
+                autofocus_snapshot=self._autofocus_snapshot,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
                 return_to_position=self._return_to_position,
                 disable_saving_artifacts=self._disable_saving_artifacts,

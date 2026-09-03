@@ -52,6 +52,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -166,20 +167,21 @@ class TestStandaloneAfDeliversCharacterizationData:
                 callbacks={
                     'go_to_step': lambda **kw: None,
                     'move_position': lambda axis: None,
-                    'restore_autofocus_state': lambda **kw: None,
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },
                 leds_state_at_end='off',
-                initial_autofocus_states={
-                    'BF': True,
-                    'PC': False,
-                    'DF': False,
-                    'Red': False,
-                    'Green': False,
-                    'Blue': False,
-                    'Lumi': False,
-                },
+                autofocus_snapshot=autofocus_snapshot(
+                    states={
+                        'BF': True,
+                        'PC': False,
+                        'DF': False,
+                        'Red': False,
+                        'Green': False,
+                        'Blue': False,
+                        'Lumi': False,
+                    },
+                ),
             )
             runner.start(plan)
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'

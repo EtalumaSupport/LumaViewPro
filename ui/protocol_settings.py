@@ -1725,6 +1725,9 @@ class ProtocolSettings(FloatLayout):
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=True,
                     leds_state_at_end='off',
+                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                        settings, ctx.settings_lock
+                    ),
                     # The autofocus scan must NOT hold the excitation LED
                     # across focus moves (photobleaching) and saves nothing;
                     # the helper's autofocus-scan branch forces both off.
@@ -2264,9 +2267,6 @@ class ProtocolSettings(FloatLayout):
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,
-                'restore_autofocus_state': lambda layer, value: settings[layer].__setitem__(
-                    'autofocus', value
-                ),
                 'restore_layer_shader': restore_layer_shader_for_open_accordion,
             }
         )
@@ -2277,11 +2277,6 @@ class ProtocolSettings(FloatLayout):
 
         image_capture_config = get_image_capture_config_from_ui()
         autogain_settings = get_auto_gain_settings()
-
-        # Snapshot autofocus states from settings on the UI thread before passing to protocol thread
-        initial_autofocus_states = {
-            layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()
-        }
 
         plan = sequenced_capture_runner.prepare(
             protocol=self._protocol,
@@ -2297,7 +2292,9 @@ class ProtocolSettings(FloatLayout):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end='off',
-            initial_autofocus_states=initial_autofocus_states,
+            autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                settings, ctx.settings_lock
+            ),
             **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
         if commit_ui_state is not None:

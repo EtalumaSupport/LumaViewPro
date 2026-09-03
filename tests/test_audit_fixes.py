@@ -1465,6 +1465,7 @@ class TestG3_AutofocusFailureNotification:
 # ---------------------------------------------------------------------------
 
 from tests.protocol_drives import (
+    autofocus_snapshot as _autofocus_snapshot,
     bare_capture_runner as _bare_capture_runner,
     scr_run_kwargs as _scr_run_kwargs,
 )
@@ -1671,7 +1672,7 @@ def _run_cleanup_kwargs(**overrides):
         'fatal_abort': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
-        'original_autofocus_states': {},
+        'autofocus_snapshot': _autofocus_snapshot(states={}),
         'saved_camera_state': {},
         'return_to_position': None,
         'disable_saving_artifacts': True,
@@ -1721,9 +1722,8 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             apply_led_transition_fn=_raiser('led'),
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=_raiser('shader'),
-                restore_autofocus_state=_raiser('af'),
             ),
-            original_autofocus_states={'BF': True},
+            autofocus_snapshot=_autofocus_snapshot(states={'BF': True}, restore=_raiser('af')),
             saved_camera_state={'tag': 'protocol'},
             disable_saving_artifacts=False,
             protocol_execution_record=MagicMock(),

@@ -43,6 +43,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -201,15 +202,7 @@ def _run_one_still(executor, tmp_path, config):
             'move_position': lambda axis: None,
         },
         leds_state_at_end='off',
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'

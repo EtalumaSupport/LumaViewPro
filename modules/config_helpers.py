@@ -7,9 +7,11 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
+import dataclasses
 import datetime
 import os
 import pathlib
+import threading
 import typing
 
 import psutil
@@ -168,6 +170,52 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'video_max_fps': settings.get('video', {}).get('max_fps', 0),
         'ag_ae_max_exposure_ms': settings.get('ag_ae_max_exposure_ms', {}),
     }
+
+
+@dataclasses.dataclass(frozen=True)
+class AutofocusSnapshot:
+    """The per-layer autofocus flags a run starts from, coupled to the one
+    callable that puts them back at cleanup.
+
+    Coupled on purpose. States without a restorer is the shape that left
+    a headless run unable to put the session's autofocus flags back: the
+    engine fell back to a process-wide settings store that is unset
+    outside the GUI, and the failure was swallowed into a cleanup
+    warning. With both fields required that shape cannot be built, so
+    no gate at prepare and no fallback at cleanup is needed.
+
+    ``restore`` is called as ``restore(layer=<str>, value=<bool>)``, once
+    per layer in ``states``.
+    """
+
+    states: dict
+    restore: typing.Callable
+
+
+def autofocus_snapshot_from_settings(
+    settings: dict, settings_lock: threading.Lock
+) -> AutofocusSnapshot:
+    """Snapshot every catalogue layer's autofocus flag, with its restorer.
+
+    The read holds the settings lock so the snapshot is one consistent
+    view, and the restorer takes the same lock for its write, so every
+    run path restores locked (the API path had no lock before this).
+    The lock is the session's; the GUI reaches the same object through
+    its context, so a caller passes whichever handle it holds.
+
+    Unguarded on purpose: settings are schema-gated before they are
+    read, so a catalogue layer missing from the dict is corruption. A
+    snapshot that quietly skipped such a layer would also quietly skip
+    its restore; raising here stops the run before it is prepared.
+    """
+    with settings_lock:
+        states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
+
+    def restore(*, layer: str, value) -> None:
+        with settings_lock:
+            settings[layer]['autofocus'] = value
+
+    return AutofocusSnapshot(states=states, restore=restore)
 
 
 def get_manual_video_max_duration(settings: dict) -> float:

@@ -32,6 +32,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCa
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
+from tests.protocol_drives import autofocus_snapshot
 from unittest.mock import MagicMock
 
 
@@ -316,15 +317,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
         leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
     executor.start(plan)
@@ -1501,15 +1494,7 @@ class TestExecuteCancellation:
             max_scans=1,
             callbacks=callbacks,
             leds_state_at_end='off',
-            initial_autofocus_states={
-                'BF': False,
-                'PC': False,
-                'DF': False,
-                'Red': False,
-                'Green': False,
-                'Blue': False,
-                'Lumi': False,
-            },
+            autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
 
@@ -1971,15 +1956,7 @@ class TestExecutorEdgeCases:
                 max_scans=1,
                 callbacks={'run_complete': lambda **kw: done.set()},
                 leds_state_at_end='off',
-                initial_autofocus_states={
-                    'BF': False,
-                    'PC': False,
-                    'DF': False,
-                    'Red': False,
-                    'Green': False,
-                    'Blue': False,
-                    'Lumi': False,
-                },
+                autofocus_snapshot=autofocus_snapshot(),
             )
         assert not done.is_set(), 'run_complete must not fire for a refused run'
         assert not real_executor.run_in_progress(), (

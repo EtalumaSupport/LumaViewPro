@@ -261,6 +261,9 @@ class ZStack(FloatLayout):
                     callbacks=callbacks,
                     return_to_position=initial_position,
                     leds_state_at_end='return_to_original',
+                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                        settings, ctx.settings_lock
+                    ),
                     **config_helpers.get_sequenced_run_settings(
                         settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
                     ),

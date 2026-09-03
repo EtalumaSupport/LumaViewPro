@@ -38,7 +38,6 @@ class ProtocolCallbacks:
     autofocus_in_progress: Callable | None = None  # () -> None
     autofocus_complete: Callable | None = None  # () -> None  (UI notification)
     reset_autofocus_btns: Callable | None = None  # () -> None
-    restore_autofocus_state: Callable | None = None  # (layer=, value=) -> None
 
     # --- Motion / position ---
     move_position: Callable | None = None  # (axis: str) -> None

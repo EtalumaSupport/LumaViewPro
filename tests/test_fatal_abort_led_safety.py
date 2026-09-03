@@ -30,6 +30,7 @@ from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED
+from tests.protocol_drives import autofocus_snapshot
 
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_protocol_modules import _FakeExecutor
@@ -145,7 +146,7 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
         fatal_abort=fatal_abort,
         leds_state_at_end=leds_state_at_end,
         original_led_states={'Blue': {'enabled': True, 'illumination_ma': 42.0}},
-        original_autofocus_states={},
+        autofocus_snapshot=autofocus_snapshot(states={}),
         saved_camera_state=None,
         return_to_position=None,
         disable_saving_artifacts=True,
