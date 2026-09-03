@@ -29,7 +29,6 @@ import numpy as np
 
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
-import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -158,11 +157,11 @@ def get_next_save_path(scope: Lumascope, path) -> str:
 
 def generate_image_save_path(
     scope: Lumascope,
-    save_folder,
-    file_root,
-    append,
-    tail_id_mode,
-    output_format,
+    save_folder: pathlib.Path | str,
+    file_root: str | None,
+    append: str,
+    tail_id_mode: str | None,
+    output_format: str,
 ) -> pathlib.Path:
     """Generate a unique save path for an image given the naming inputs.
 
@@ -171,9 +170,9 @@ def generate_image_save_path(
     ``None`` returns the bare path).
 
     Args:
-        scope: Read for ``motion._last_turret_position`` when
-            engineering mode is active. The engineering-mode flag itself
-            lives on the app context, not on scope.
+        scope: Handed through to ``get_next_save_path``, which keeps it
+            for signature uniformity with the other free functions here;
+            not read by this one either.
         save_folder: Directory to save into (str or Path).
         file_root: Filename prefix.
         append: String appended to filename (e.g. color label).
@@ -193,12 +192,6 @@ def generate_image_save_path(
 
     if file_root is None:
         file_root = ''
-
-    # Append turret position in engineering mode. ctx may be unset in
-    # bare-fixture tests; getattr fallback keeps the default branch.
-    engineering_mode = getattr(_app_ctx.ctx, 'engineering_mode', False)
-    if engineering_mode and scope.motion._last_turret_position is not None:
-        append = f'{append}_T{scope.motion._last_turret_position}'
 
     if output_format == 'OME-TIFF':
         file_extension = '.ome.tiff'

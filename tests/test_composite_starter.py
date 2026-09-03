@@ -81,6 +81,9 @@ def app_ctx(runner, tmp_path):
         settings={'live_folder': str(tmp_path)},
         worker_pool=MagicMock(),
         ui_listener_bridge=MagicMock(),
+        # The starter hands the context's live flag to the run; production's
+        # context always carries it.
+        engineering_mode=False,
     )
     yield _app_ctx.ctx
     _app_ctx.ctx = saved

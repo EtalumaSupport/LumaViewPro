@@ -261,6 +261,7 @@ class ZStack(FloatLayout):
                     callbacks=callbacks,
                     return_to_position=initial_position,
                     leds_state_at_end='return_to_original',
+                    engineering_mode=ctx.engineering_mode,
                     autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                         settings, ctx.settings_lock
                     ),

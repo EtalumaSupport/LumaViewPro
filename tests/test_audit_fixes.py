@@ -3141,6 +3141,7 @@ def _bare_protocol_writer(**overrides):
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
         'video_max_fps': 0,
+        'engineering_mode': False,
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)

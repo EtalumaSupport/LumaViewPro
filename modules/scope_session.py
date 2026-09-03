@@ -74,6 +74,7 @@ class ScopeSession:
         owns_executors: bool = False,
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
+        engineering_mode: bool = False,
     ):
         self.settings = settings
         # The lock lives with the dict it guards. Every host hands the same
@@ -112,6 +113,12 @@ class ScopeSession:
         self.coordinate_transformer = coordinate_transformer
         self.objective_helper = objective_helper
         self.source_path = source_path
+        # The mode this session was built in, never written afterwards. The
+        # GUI's live flag lives on its own context and is flipped by a
+        # plugin after the session exists, so a GUI run passes that flag
+        # itself; this is the store a headless run reads, the only one such
+        # a process has.
+        self.engineering_mode = engineering_mode
         # Every host hands its bundle in (the session re-registers it on
         # the scope at every rebind), so bundle-presence says nothing
         # about who owns the executor topology's teardown -- that fact is
@@ -509,7 +516,10 @@ class ScopeSession:
 
     @classmethod
     def create_headless(
-        cls, settings: dict | None = None, source_path: str = '.'
+        cls,
+        settings: dict | None = None,
+        source_path: str = '.',
+        engineering_mode: bool = False,
     ) -> 'ScopeSession':
         """Create a headless session with simulated hardware.
 
@@ -583,6 +593,7 @@ class ScopeSession:
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
             owns_executors=True,
+            engineering_mode=engineering_mode,
         )
 
     @staticmethod

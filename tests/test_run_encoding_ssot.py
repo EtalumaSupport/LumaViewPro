@@ -279,6 +279,7 @@ class TestOneRunOneEncoding:
             image_capture_config=config,
             timestamp_overlay=True,
             video_max_fps=0,
+            engineering_mode=False,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

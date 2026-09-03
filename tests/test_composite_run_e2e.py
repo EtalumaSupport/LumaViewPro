@@ -105,7 +105,7 @@ def _complete_the_bring_up(session, settings):
 
 
 @contextlib.contextmanager
-def open_composite_session(settings, source_path='.'):
+def open_composite_session(settings, source_path='.', engineering_mode=False):
     """A headless session on simulated hardware, ready to run a composite.
 
     Yields ``(session, runner)`` with the executors started and the scope
@@ -114,13 +114,17 @@ def open_composite_session(settings, source_path='.'):
     is exactly one description of what a ready headless scope is.
 
     ``source_path`` is the installation root the session resolves its data
-    files against, defaulted to the same '.' ``create_headless`` uses so a
-    caller with no opinion is unaffected. A caller that HAS one states it
-    here rather than composing a second session shape beside this one.
+    files against, and ``engineering_mode`` the mode the session records
+    itself as built in; both default to what ``create_headless`` defaults
+    to, so a caller with no opinion is unaffected. A caller that HAS one
+    states it here rather than composing a second session shape beside
+    this one.
     """
     from modules.scope_session import ScopeSession
 
-    session = ScopeSession.create_headless(settings=settings, source_path=source_path)
+    session = ScopeSession.create_headless(
+        settings=settings, source_path=source_path, engineering_mode=engineering_mode
+    )
     _complete_the_bring_up(session, settings)
 
     scope = session.scope

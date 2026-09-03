@@ -1725,6 +1725,7 @@ class ProtocolSettings(FloatLayout):
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=True,
                     leds_state_at_end='off',
+                    engineering_mode=ctx.engineering_mode,
                     autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                         settings, ctx.settings_lock
                     ),
@@ -2292,6 +2293,7 @@ class ProtocolSettings(FloatLayout):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end='off',
+            engineering_mode=ctx.engineering_mode,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 settings, ctx.settings_lock
             ),

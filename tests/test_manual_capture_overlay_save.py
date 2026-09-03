@@ -152,20 +152,55 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
         """Structural: the mode gate cannot be reintroduced quietly.
 
         A behavioural test only covers the modes it is run in; this pins that
-        the capture path has no opinion about the build mode at all. Walks the
+        no save call sits under a branch on the build mode. The module may
+        still READ the flag -- it hands the live value to the composite run
+        as a run value, and names a manual capture's turret position under
+        it -- but WHICH files get written follows from the overlays that are
+        switched on, never from how the application was built. Walks the
         AST rather than the text, so a mention in a comment is not a failure
-        and an attribute read cannot hide behind reformatting.
+        and a branch cannot hide behind reformatting.
         """
+
+        def _reads_the_mode(expr):
+            # A plain attribute read, or the ``getattr(ctx, 'engineering_mode', ...)``
+            # form the engine's own retired reads used.
+            return any(
+                (isinstance(n, ast.Attribute) and n.attr == 'engineering_mode')
+                or (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Name)
+                    and n.func.id == 'getattr'
+                    and len(n.args) >= 2
+                    and isinstance(n.args[1], ast.Constant)
+                    and n.args[1].value == 'engineering_mode'
+                )
+                for n in ast.walk(expr)
+            )
+
+        def _save_calls(nodes):
+            for node in nodes:
+                for inner in ast.walk(node):
+                    if isinstance(inner, ast.Call):
+                        func = inner.func
+                        name = (
+                            func.attr
+                            if isinstance(func, ast.Attribute)
+                            else getattr(func, 'id', None)
+                        )
+                        if name in ('save_image', 'save_live_image'):
+                            yield inner.lineno
+
         tree = parse_module('ui/composite_capture.py')
-        offenders = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute) and node.attr == 'engineering_mode'
-        ]
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and _reads_the_mode(node.test):
+                offenders.extend(_save_calls(node.body + node.orelse))
+            elif isinstance(node, ast.IfExp) and _reads_the_mode(node.test):
+                offenders.extend(_save_calls([node.body, node.orelse]))
         assert not offenders, (
-            f'ui/composite_capture.py reads engineering_mode at line(s) '
-            f'{offenders}. What a capture writes follows from which overlays '
-            'are switched on, not from how the application was built.'
+            f'ui/composite_capture.py chooses a save call on engineering_mode at '
+            f'line(s) {offenders}. What a capture writes follows from which '
+            'overlays are switched on, not from how the application was built.'
         )
 
 

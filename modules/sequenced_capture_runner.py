@@ -122,6 +122,11 @@ class RunPlan:
     video_max_fps: int
     # Flat per-class AG/AE exposure ceilings ({'fluorescence': 150.0, ...}).
     ag_ae_max_exposure_ms: dict
+    # Whether the run names its files with the turret position. Stated by
+    # the caller from the store its world owns -- the GUI's live flag, or
+    # the mode a headless session was built in -- so the engine never
+    # reaches for the GUI's context to learn it.
+    engineering_mode: bool
     # Per-layer blend thresholds the post-run merge needs, snapshotted by
     # the caller that has the settings. Carried on the plan rather than
     # read at merge time: the merge runs on a worker thread after the run,
@@ -675,6 +680,7 @@ class SequencedCaptureRunner:
         video_max_fps: int = 0,
         ag_ae_max_exposure_ms: dict | None = None,
         composite_thresholds_percent: dict | None = None,
+        engineering_mode: bool = False,
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
@@ -921,6 +927,7 @@ class SequencedCaptureRunner:
             video_max_fps=video_max_fps,
             ag_ae_max_exposure_ms=copy.deepcopy(ag_ae_max_exposure_ms or {}),
             composite_thresholds_percent=composite_thresholds_percent,
+            engineering_mode=engineering_mode,
         )
 
     def start(self, plan: RunPlan) -> 'RunMergeOutcome':
@@ -992,6 +999,7 @@ class SequencedCaptureRunner:
             self._timestamp_overlay = plan.timestamp_overlay
             self._video_max_fps = plan.video_max_fps
             self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms
+            self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
             self._run_trigger_source = plan.run_trigger_source
@@ -1087,6 +1095,7 @@ class SequencedCaptureRunner:
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
+                engineering_mode=self._engineering_mode,
             )
 
             self.camera_executor.disable()

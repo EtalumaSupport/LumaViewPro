@@ -201,6 +201,7 @@ class ProtocolRunner:
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_composite',
+        engineering_mode: bool | None = None,
     ) -> RunMergeOutcome:
         """Assemble a composite run and launch it, returning once committed.
 
@@ -220,6 +221,10 @@ class ProtocolRunner:
                 it: were a GUI click to record the API's token, a click
                 during an API composite would read as that run's own and
                 abort the API caller instead of being refused.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames. A GUI caller passes its live flag, which
+                a plugin may have flipped after the session was built; None
+                reads the mode the session was built in.
 
         Returns:
             The run's merge outcome, to wait on or to ignore.
@@ -258,6 +263,7 @@ class ProtocolRunner:
             # unattended scan does.
             leds_state_at_end='return_to_original',
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
+            engineering_mode=engineering_mode,
         )
 
     def run_composite(
@@ -266,6 +272,7 @@ class ProtocolRunner:
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
         merge_timeout_s: float = 900.0,
+        engineering_mode: bool | None = None,
     ) -> str:
         """Capture one frame per acquiring channel and merge them.
 
@@ -292,6 +299,9 @@ class ProtocolRunner:
             merge_timeout_s: Upper bound on the whole capture-and-merge
                 wait. Covers the run itself, so it is longer than the
                 merge's own internal drain bound.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames; None reads the mode the session was
+                built in.
 
         Returns:
             The path of the merged composite.
@@ -309,6 +319,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             callbacks=callbacks,
+            engineering_mode=engineering_mode,
         )
         settled = outcome.wait(timeout_s=merge_timeout_s)
         if settled is None:
@@ -335,6 +346,7 @@ class ProtocolRunner:
         return_to_position: dict | None = None,
         leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
+        engineering_mode: bool | None = None,
     ):
         """Internal: configure and launch the sequenced capture executor.
 
@@ -385,6 +397,12 @@ class ProtocolRunner:
 
         autogain_settings = config_helpers.get_auto_gain_settings(self.session.settings)
 
+        # The session's as-built mode is the default; only a caller holding
+        # a LIVE flag (the GUI, whose plugin flips it after the session
+        # exists) has a reason to say otherwise.
+        if engineering_mode is None:
+            engineering_mode = self.session.engineering_mode
+
         merged_callbacks = dict(callbacks or {})
         # Wire up a completion callback
         user_complete = merged_callbacks.get('run_complete')
@@ -410,6 +428,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
+            engineering_mode=engineering_mode,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock
             ),

@@ -80,6 +80,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         timestamp_overlay=True,
         video_max_fps=0,
+        engineering_mode=False,
     )
     recorded = []
     monkeypatch.setattr(
@@ -321,10 +322,8 @@ def test_load_accepts_unique_steps(tmp_path):
 class _MinimalScope:
     """Bare-bones scope stand-in for generate_image_save_path tests.
 
-    `generate_image_save_path` reads `scope.motion._last_turret_position`
-    only when engineering mode is active; tests run with `_app_ctx.ctx`
-    unset, so the engineering-mode branch is never entered and the
-    `motion` attribute is not exercised here.
+    `generate_image_save_path` hands the scope through to the collision
+    helper, which does not read it either, so a bare object is enough.
     """
 
 

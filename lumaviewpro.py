@@ -1044,6 +1044,7 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
             settings_saved_hook=_notify_plugins_of_settings_save,
+            engineering_mode=ENGINEERING_MODE,
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner
 

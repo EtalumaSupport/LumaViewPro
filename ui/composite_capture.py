@@ -324,6 +324,7 @@ class CompositeCapture(FloatLayout):
                     parent_dir=parent_dir,
                     callbacks={'run_complete': self._composite_finished},
                     run_trigger_source='composite',
+                    engineering_mode=ctx.engineering_mode,
                 )
                 started = True
                 # Only reachable once the run is committed, so the saved
