@@ -27,7 +27,8 @@ import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import iter_package_modules, parse_module
+from tests.scope_fakes import spec_scope
 
 # ui.ui_helpers imports Kivy's clock and a widget; conftest mocks ``kivy`` but
 # not its submodules, so the two it needs are stubbed the way the other GUI
@@ -38,7 +39,7 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 
 def _writer(callbacks):
     writer = ProtocolImageWriter(
-        scope=MagicMock(),
+        scope=spec_scope(),
         callbacks=callbacks,
         aborted=threading.Event(),
         file_io_executor=MagicMock(),
@@ -206,8 +207,7 @@ class TestEveryGuiRunStarterSpreadsTheHelper:
         prepare or start_composite must spread the helper somewhere in its
         body (directly, or through the dict it builds and hands down)."""
         offenders = []
-        for path in sorted((REPO_ROOT / 'ui').glob('*.py')):
-            tree = ast.parse(path.read_text())
+        for rel, tree in iter_package_modules(('ui',)):
             # Outermost scopes only: a starter builds its dict in the method
             # and hands it down to a nested closure that calls prepare, so the
             # method is the unit that must carry the spread.
@@ -220,7 +220,7 @@ class TestEveryGuiRunStarterSpreadsTheHelper:
             ]
             for node in outer:
                 if _passes_callbacks_to_a_run(node) and not _spreads_the_helper(node):
-                    offenders.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno} {node.name}')
+                    offenders.append(f'{rel}:{node.lineno} {node.name}')
         assert not offenders, (
             'these GUI run starters hand callbacks to a run without spreading '
             f'live_display_callbacks(): {offenders}'
@@ -228,13 +228,23 @@ class TestEveryGuiRunStarterSpreadsTheHelper:
 
     def test_the_dead_display_key_is_gone_everywhere(self):
         """``update_scope_display`` was a field nothing read and three no-op
-        lambdas feeding it; none of the four may come back."""
-        hits = []
-        for root in ('modules', 'ui'):
-            for path in sorted((REPO_ROOT / root).rglob('*.py')):
-                if 'update_scope_display' in path.read_text():
-                    hits.append(str(path.relative_to(REPO_ROOT)))
-        if 'update_scope_display' in (REPO_ROOT / 'lumaviewpro.py').read_text():
+        lambdas feeding it; none of the four may come back, as a name, an
+        attribute, a dict key or a keyword."""
+
+        def _names_it(tree) -> bool:
+            for n in ast.walk(tree):
+                if isinstance(n, ast.Name) and n.id == 'update_scope_display':
+                    return True
+                if isinstance(n, ast.Attribute) and n.attr == 'update_scope_display':
+                    return True
+                if isinstance(n, ast.Constant) and n.value == 'update_scope_display':
+                    return True
+                if isinstance(n, ast.keyword) and n.arg == 'update_scope_display':
+                    return True
+            return False
+
+        hits = [rel for rel, tree in iter_package_modules(('modules', 'ui')) if _names_it(tree)]
+        if _names_it(parse_module('lumaviewpro.py')):
             hits.append('lumaviewpro.py')
         assert not hits, f'update_scope_display survives in {hits}'
 

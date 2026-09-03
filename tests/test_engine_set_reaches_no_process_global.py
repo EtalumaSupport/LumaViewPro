@@ -26,9 +26,8 @@ a module by design.
 
 import ast
 import pathlib
-import re
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, parse_module
 
 ENGINE_ROOT_MODULE = 'modules.sequenced_capture_runner'
 
@@ -39,30 +38,58 @@ ALLOWED_CONTEXT_READERS = frozenset({'modules.config_helpers', 'modules.metrics_
 # the simulated motor board's default model, read once at scope construction.
 ALLOWED_SETTINGS_BINDERS = frozenset({'modules.lumascope_api._lumascope'})
 
-_CONTEXT_IMPORT = re.compile(
-    r'import\s+modules\.app_context|from\s+modules\s+import\s+app_context|'
-    r'from\s+modules\.app_context\s+import'
-)
-# A BIND of the global -- not a function that re-reads the settings FILE,
-# which imports a different name from the same module.
-_SETTINGS_BIND = re.compile(r'from\s+modules\.settings_init\s+import\s+settings\b')
+
+def _rel_path(name: str) -> str:
+    return name.replace('.', '/') + '.py'
 
 
 def _module_path(name: str) -> pathlib.Path:
-    return REPO_ROOT / (name.replace('.', '/') + '.py')
+    return REPO_ROOT / _rel_path(name)
 
 
-def _imports_of(path: pathlib.Path) -> set[str]:
-    """Every module name an import statement in the file names, at any scope."""
-    tree = ast.parse(path.read_text())
+def _import_nodes(name: str):
+    """Every import statement in the module, at any scope."""
+    for node in ast.walk(parse_module(_rel_path(name))):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            yield node
+
+
+def _imports_of(name: str) -> set[str]:
+    """Every module name an import statement in the module names."""
     out = set()
-    for node in ast.walk(tree):
+    for node in _import_nodes(name):
         if isinstance(node, ast.Import):
             out.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+        elif node.module and node.level == 0:
             out.add(node.module)
             out.update(f'{node.module}.{alias.name}' for alias in node.names)
     return out
+
+
+def _reaches_context(name: str) -> bool:
+    """``import modules.app_context``, ``from modules import app_context`` or
+    ``from modules.app_context import ...``, at any scope."""
+    for node in _import_nodes(name):
+        if isinstance(node, ast.Import):
+            if any(alias.name == 'modules.app_context' for alias in node.names):
+                return True
+        elif node.module == 'modules.app_context' or (
+            node.module == 'modules' and any(a.name == 'app_context' for a in node.names)
+        ):
+            return True
+    return False
+
+
+def _binds_settings(name: str) -> bool:
+    """``from modules.settings_init import settings`` -- a BIND of the global,
+    not a function that re-reads the settings FILE, which imports a different
+    name from the same module."""
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == 'modules.settings_init'
+        and any(alias.name == 'settings' for alias in node.names)
+        for node in _import_nodes(name)
+    )
 
 
 def engine_set() -> set[str]:
@@ -76,15 +103,9 @@ def engine_set() -> set[str]:
             continue
         seen.add(name)
         stack.extend(
-            dep
-            for dep in _imports_of(_module_path(name))
-            if dep.startswith('modules.') and dep not in seen
+            dep for dep in _imports_of(name) if dep.startswith('modules.') and dep not in seen
         )
     return seen
-
-
-def _matching(pattern: re.Pattern, modules: set[str]) -> set[str]:
-    return {name for name in modules if pattern.search(_module_path(name).read_text())}
 
 
 def test_the_walk_reaches_the_engine():
@@ -106,7 +127,7 @@ def test_the_walk_reaches_the_engine():
 
 
 def test_only_the_allowed_modules_reach_the_application_context():
-    readers = _matching(_CONTEXT_IMPORT, engine_set())
+    readers = {name for name in engine_set() if _reaches_context(name)}
     assert readers == set(ALLOWED_CONTEXT_READERS), (
         f'engine-set modules reaching modules.app_context: {sorted(readers)}; '
         f'allowed: {sorted(ALLOWED_CONTEXT_READERS)}'
@@ -114,7 +135,7 @@ def test_only_the_allowed_modules_reach_the_application_context():
 
 
 def test_only_the_allowed_module_binds_the_settings_global():
-    binders = _matching(_SETTINGS_BIND, engine_set())
+    binders = {name for name in engine_set() if _binds_settings(name)}
     assert binders == set(ALLOWED_SETTINGS_BINDERS), (
         f'engine-set modules binding settings_init.settings: {sorted(binders)}; '
         f'allowed: {sorted(ALLOWED_SETTINGS_BINDERS)}'
