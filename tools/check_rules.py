@@ -58,6 +58,9 @@ Firmware-only (doc_status family):
                 `## Status` section (WARN if absent) and an edit to such a
                 doc must touch that section (BLOCK)
     plan_truth_base -- plan docs carry a `Truth base` row in Status (WARN)
+    plan_undefined_mechanism -- a plan's Stages section may only
+                schedule mechanisms the same document defines in
+                self-contained text (BLOCK)
     daily_log_rulings -- new DAILY_LOG-shard entries carry a `**Rulings:**`
                 line (WARN)
     daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
@@ -1083,6 +1086,114 @@ def _check_plan_truth_base(content: str, path: str) -> list[Violation]:
     ]
 
 
+_STAGES_HEADING_RE = re.compile(r'^##+\s+Stages\b', re.IGNORECASE)
+_MECHANISM_ID_RE = re.compile(r'\bM(\d+)\b')
+# A definition is a HEADING, in either of the two shapes these documents
+# use -- a markdown heading, or the bold-lead-plus-em-dash convention. Bold
+# prose that merely opens with an id ("**M9 is built but UNCOMMITTED**") is
+# deliberately NOT a definition: it reads like one to a skimming human and
+# would otherwise satisfy the check while specifying nothing.
+_MECHANISM_DEF_RE = re.compile(r'^(?:#{2,6}\s+M(?P<h>\d+)\b|\*\*M(?P<b>\d+)\s*--)')
+# Every alternative anchors the DEFERRAL sense. A bare \bcarries\b was tried
+# here and matched ordinary technical prose -- "the task carries no callback",
+# "the outcome carries no channel list" -- so a mechanism whose spec was fully
+# self-contained got rejected for using the word. Only the parenthesised form,
+# the carry-unchanged form and the explicit from-rev forms actually mean "the
+# specification lives in a revision that is not this document".
+_SELF_REVISION_REF_RE = re.compile(
+    r'\bas\s+rev\s+\d+|\bcarr(?:y|ies)\s+unchanged\b|\(\s*carries\s*\)|'
+    r'\bcarr(?:y|ies)\s+(?:over\s+)?from\s+rev\b|\bunchanged\s+from\s+rev\b',
+    re.IGNORECASE,
+)
+
+
+def _defined_mechanism_ids(content: str) -> set[str]:
+    """Mechanism ids this document defines in self-contained text.
+
+    A definition is a bold heading naming EXACTLY ONE id whose body does
+    not defer to a previous revision of this same file. Both carve-outs
+    are load-bearing:
+
+    - A heading merging several ids ("**M6 / M7 / M9 -- ...**") reads as
+      a definition and is not one; only the first id is even nameable
+      from it, and none of the three gets a spec.
+    - A body saying "as rev 4" or "carry unchanged" points at a revision
+      that, under the rewrite-fresh doc rule, stops existing on the next
+      revision. The pointer is dangling the moment it is written.
+    """
+    defined: set[str] = set()
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        m = _MECHANISM_DEF_RE.match(line)
+        if m is None:
+            continue
+        mid = m.group('h') or m.group('b')
+        heading_end = line.find('**', 2)
+        heading = line[: heading_end if heading_end > 0 else len(line)]
+        if len(set(_MECHANISM_ID_RE.findall(heading))) != 1:
+            continue
+        body = [line]
+        for nxt in lines[i + 1 :]:
+            if _MECHANISM_DEF_RE.match(nxt) or nxt.startswith('##'):
+                break
+            body.append(nxt)
+        if _SELF_REVISION_REF_RE.search('\n'.join(body)):
+            continue
+        defined.add(mid)
+    return defined
+
+
+def _check_plan_undefined_mechanism(content: str, path: str) -> list[Violation]:
+    """BLOCK when a stage schedules a mechanism the plan never defines.
+
+    An approved plan is a build order. A stage naming a mechanism whose
+    spec is absent hands the builder an undefined symbol, and the gap is
+    invisible at approval time because the stage line reads complete.
+
+    This is not hypothetical. One plan reached APPROVED naming three
+    mechanisms in a stage whose entire specification had decayed, over
+    four rewrites of a single file, from full text to a pointer at a
+    prior revision to a merged heading with no body at all. The build
+    stalled months later and the specs had to be recovered from a
+    superseded revision in git history -- which is also where the review
+    that approved it would have had to look.
+    """
+    if not _is_plan_doc(path):
+        return []
+    lines = content.splitlines()
+    stage_lines: list[tuple[int, str]] = []
+    in_stages = False
+    for ln, line in enumerate(lines, start=1):
+        if line.startswith('#'):
+            in_stages = bool(_STAGES_HEADING_RE.match(line))
+            continue
+        if in_stages:
+            stage_lines.append((ln, line))
+    if not stage_lines:
+        return []
+    defined = _defined_mechanism_ids(content)
+    violations: list[Violation] = []
+    seen: set[str] = set()
+    for ln, line in stage_lines:
+        for mid in _MECHANISM_ID_RE.findall(line):
+            if mid in defined or mid in seen:
+                continue
+            seen.add(mid)
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'plan_undefined_mechanism',
+                    f'stage schedules M{mid} but this document never defines '
+                    f'it in self-contained text; a spec that lives only in a '
+                    f'prior revision is gone the next time the file is '
+                    f"rewritten -- restore M{mid}'s specification here",
+                )
+            )
+    return violations
+
+
 _DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
 _RULINGS_LINE_RE = re.compile(r'^\*\*Rulings\b', re.IGNORECASE)
 _DAILY_LOG_RE = re.compile(r'(?:^|/)docs/DAILY_LOG(?:_\d{4}-\d{2})?\.md$')
@@ -1331,6 +1442,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations: list[Violation] = []
     violations.extend(_check_rule_45(content, path, added))
     violations.extend(_check_plan_truth_base(content, path))
+    violations.extend(_check_plan_undefined_mechanism(content, path))
     violations.extend(_check_daily_log_rulings(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))

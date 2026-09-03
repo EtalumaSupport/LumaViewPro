@@ -311,14 +311,22 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
 
     ome_out = tmp_path / 'comp_ome.tiff'
     CompositeGeneration._create_composite_image(
-        path=tmp_path, df=df, output_file_loc=ome_out, output_format='OME-TIFF'
+        path=tmp_path,
+        df=df,
+        brightness_thresholds_percent={},
+        output_file_loc=ome_out,
+        output_format='OME-TIFF',
     )
     with tf.TiffFile(str(ome_out)) as t:
         assert t.ome_metadata is not None, 'OME-TIFF format must produce OME metadata'
 
     plain_out = tmp_path / 'comp_plain.tiff'
     CompositeGeneration._create_composite_image(
-        path=tmp_path, df=df, output_file_loc=plain_out, output_format='TIFF'
+        path=tmp_path,
+        df=df,
+        brightness_thresholds_percent={},
+        output_file_loc=plain_out,
+        output_format='TIFF',
     )
     with tf.TiffFile(str(plain_out)) as t:
         assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'

@@ -83,7 +83,8 @@ def write_video_frame(
     if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
         raise CaptureError(
             f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
-            'with an unrecognized image-mode encoding'
+            'with an unrecognized image-mode encoding',
+            'unknown_save_encoding',
         )
     # Rendering value, permanently: it collapses to 'BF' whenever false color
     # is off, so it stops naming the channel that was imaged. Nothing derived
@@ -558,19 +559,19 @@ def prepare_image_for_saving(
 
 def save_image(
     scope: Lumascope,
-    array,
-    save_folder='./capture',
-    file_root='img_',
-    append='ms',
-    tail_id_mode='increment',
+    array: np.ndarray | None,
+    save_folder: pathlib.Path | str = './capture',
+    file_root: str = 'img_',
+    append: str = 'ms',
+    tail_id_mode: str | None = 'increment',
     *,
     channel: str,
     false_color_on: bool,
     save_encoding: str,
     output_format: str = 'TIFF',
-    x=None,
-    y=None,
-    z=None,
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
@@ -620,7 +621,8 @@ def save_image(
     if array is None:
         raise CaptureError(
             'Camera did not return an image. The capture was skipped; '
-            'the protocol will retry on the next step.'
+            'the protocol will retry on the next step.',
+            'no_frame_returned',
         )
 
     # The one place the two facts meet, and they meet on the rendering side

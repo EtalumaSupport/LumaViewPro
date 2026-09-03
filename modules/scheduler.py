@@ -26,6 +26,8 @@ import threading
 from typing import Protocol, runtime_checkable
 from collections.abc import Callable
 
+from lvp_logger import logger
+
 
 # Type alias for a tick callback. Schedulers may invoke either
 # ``cb()`` (no-arg) OR ``cb(dt)`` (Kivy convention). Implementations
@@ -109,7 +111,12 @@ class _PeriodicTimer:
                 try:
                     self._on_error(e)
                 except Exception:
-                    pass
+                    # An error handler that itself throws must not replace
+                    # the error it was handed, nor stop the timer re-arming
+                    # below -- but discarding it hid a broken on_error
+                    # completely, so the original failure and the handler's
+                    # both vanished.
+                    logger.exception(f'[Scheduler ] on_error callback failed while handling: {e}')
         finally:
             # Re-arm only if not cancelled while we were running.
             if not self._cancelled.is_set():

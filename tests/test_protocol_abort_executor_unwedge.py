@@ -115,6 +115,10 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
         file_io_executor=file_io,
         _release_scan_led_lease=lambda: None,
         _release_activity_claim=lambda: None,
+        # Same reason as the two above: the skip path settles the run's
+        # merge outcome before releasing, and this test is about executor
+        # teardown, not the outcome.
+        _settle_merge_outcome=lambda run_status: None,
     )
     # run_status feeds the end-reason plumbing on the full cleanup path;
     # the skip path under test never reads it.

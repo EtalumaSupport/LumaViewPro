@@ -30,6 +30,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+from modules.run_outcome import MergeOutcome, RunMergeOutcome
 
 from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
@@ -44,6 +45,13 @@ from modules.settings_init import settings
 # (a stack built mid-flush would silently miss planes), and queue-idle is
 # a poll-only signal.
 _HYPERSTACK_QUEUE_POLL_S = 0.5
+
+# How long a composite merge waits for the run's own frames to reach disk
+# before giving up and reporting a typed timeout. Bounded because a wedged
+# writer must not hold an L2 caller open forever; generous because the
+# alternative -- merging a directory that is still filling -- silently
+# produces a composite missing a channel.
+_MERGE_DRAIN_BOUND_S = 600.0
 
 
 """
@@ -106,6 +114,12 @@ class RunPlan:
     keep_led_between_steps: bool
     return_to_position: dict | None
     stage_offset: dict
+    # Per-layer blend thresholds the post-run merge needs, snapshotted by
+    # the caller that has the settings. Carried on the plan rather than
+    # read at merge time: the merge runs on a worker thread after the run,
+    # where reading live settings is both unavailable headless and a
+    # different value than the run was configured with.
+    composite_thresholds_percent: dict | None = None
 
 
 # Constructor sentinel: distinguishes "omitted -- build a local loader"
@@ -248,7 +262,7 @@ class SequencedCaptureRunner:
         _grease_redistribution_event: that gate is owned by the grease task
         itself (it always set()s on completion-or-failure, and the enqueue path
         set()s when the task never runs), so re-setting it here would race a
-        grease move still in flight when the period is zero (continuous mode).
+        grease move still in flight between back-to-back scans.
         """
         self._curr_step = 0
         # Monotonic time of this scan's first completed capture; None until
@@ -269,6 +283,10 @@ class SequencedCaptureRunner:
         self._run_dir = None
         self._run_trigger_source = None
         self._image_writer = None
+        # Nulled, not replaced: the next run's start() builds a fresh one
+        # under the run lock. A run that never started must leave nothing
+        # for a caller to wait on.
+        self._merge_outcome = None
         self._run_in_progress_event.clear()
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
@@ -313,16 +331,33 @@ class SequencedCaptureRunner:
         max_scans: int | None,
     ) -> int:
         if run_mode in (SequencedCaptureRunMode.FULL_PROTOCOL,):
-            # Protocol.from_file permits period==0 as a "valid single-scan
-            # marker"; protocol_time_estimator handles it. Treating it as
-            # 1 scan here matches that contract -- otherwise a valid TSV
-            # silently no-ops on Start with a ZeroDivisionError logged
-            # but no popup.
-            period_s = protocol.period()
-            if period_s == 0:
+            # Period 0 is the loader's single-scan marker (Manual Z-Stack
+            # and single-shot capture write it), and a duration shorter
+            # than one period still runs its first scan: the run loop
+            # captures scan 1 at t=0 before any period elapses. Both are
+            # timedeltas, compared in seconds -- a timedelta is never equal
+            # to the integer 0 -- and divided as timedeltas, which is exact
+            # where float seconds would drop a scan on some ratios.
+            period = protocol.period()
+            duration = protocol.duration()
+            if period.total_seconds() == 0:
                 n_scans = 1
+                single_scan_reason = 'the capture period is 0'
             else:
-                n_scans = int(protocol.duration() / period_s)
+                n_scans = max(1, int(duration / period))
+                single_scan_reason = (
+                    f'the duration ({duration}) is shorter than the capture period ({period})'
+                    if duration < period
+                    else None
+                )
+            if single_scan_reason is not None:
+                from modules.notification_center import notifications
+
+                notifications.notice(
+                    'Protocol',
+                    'Single Scan',
+                    f'This run performs a single scan because {single_scan_reason}.',
+                )
 
             if max_scans is not None:
                 n_scans = min(n_scans, max_scans)
@@ -636,6 +671,7 @@ class SequencedCaptureRunner:
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
+        composite_thresholds_percent: dict | None = None,
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
@@ -874,9 +910,10 @@ class SequencedCaptureRunner:
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
+            composite_thresholds_percent=composite_thresholds_percent,
         )
 
-    def start(self, plan: RunPlan) -> None:
+    def start(self, plan: RunPlan) -> 'RunMergeOutcome':
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -893,6 +930,11 @@ class SequencedCaptureRunner:
         this plan's completion callbacks while the other, live activity
         is mid-flight -- clearing running-state the live activity still
         owns.
+
+        Returns:
+            This run's merge outcome. Already resolved for every run kind
+            that has no merge, so a caller always gets an answer rather
+            than the bound.
 
         Raises:
             ProtocolRunRefusedError: reason 'already_running' for the
@@ -937,6 +979,7 @@ class SequencedCaptureRunner:
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
             self._stage_offset = plan.stage_offset
+            self._composite_thresholds_percent = plan.composite_thresholds_percent
             self._run_trigger_source = plan.run_trigger_source
             # Failure-safe defaults: a setup failure below unwinds through
             # the normal run cleanup, which reads these; a prior run's stale
@@ -962,6 +1005,21 @@ class SequencedCaptureRunner:
             # inter-scan wait. Wall-clock timestamps for filenames and
             # records are taken separately where needed.
             self._start_t = time.monotonic()
+
+            # Created here, inside the gate-and-commit lock and after both
+            # refusals: a refused start leaves no outcome object at all, so a
+            # caller that never started a run cannot wait on one. It must
+            # exist BEFORE the run flag is set, because setting the flag is
+            # what lets reset() drive cleanup into a finally that reads it.
+            #
+            # Bound to a local as well, and the local is what start() returns:
+            # a caller then holds the outcome belonging to the run it actually
+            # started. Reading the attribute back afterwards is a race -- a run
+            # that fails at start releases the activity claim synchronously, so
+            # a rival can commit in between and the caller waits on the rival's
+            # run instead of its own.
+            outcome = RunMergeOutcome()
+            self._merge_outcome = outcome
 
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
@@ -1063,6 +1121,10 @@ class SequencedCaptureRunner:
                 raise dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc)
+
+        # Reached on the failed-at-start path too, where the unwind has
+        # already resolved the outcome: the caller waits and is told at once.
+        return outcome
 
     def _setup_run_dir(self) -> None:
         """Create and initialize the run directory; raise on failure.
@@ -1193,6 +1255,44 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
+    def _settle_merge_outcome(self, run_status: str) -> None:
+        """Arm the merge on a completed run; settle it on any other ending.
+
+        Only a composite run has a merge, so every other run kind settles
+        immediately -- a caller waiting on a scan's outcome gets an answer
+        rather than the bound.
+
+        Never raises: it runs inside cleanup's finally ahead of the
+        activity-claim release, and a raise here would leak the claim and
+        refuse every future run and recording.
+        """
+        outcome = getattr(self, '_merge_outcome', None)
+        if outcome is None:
+            return
+        try:
+            if run_status != 'completed':
+                outcome.resolve_if_pending(run_status)
+                return
+            if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
+                outcome.resolve_if_pending('not_a_composite_run')
+                return
+            if self._start_composite_merge(outcome) is None:
+                # Either something already settled the run, or the merge
+                # declined to start and said why. Both leave the outcome
+                # resolved; neither leaves it armed with nothing coming.
+                outcome.resolve_if_pending('merge_not_started')
+        except Exception:
+            logger.error(
+                f'[{self.LOGGER_NAME}] Failed to settle the merge outcome; '
+                'resolving it so no caller waits on a run that ended',
+                exc_info=True,
+            )
+            outcome.force_resolve('cleanup_error')
+
+    def merge_outcome(self) -> 'RunMergeOutcome | None':
+        """This run's merge outcome, or None when no run has started."""
+        return getattr(self, '_merge_outcome', None)
+
     def _release_activity_claim(self):
         """Release the run's exclusivity claim (idempotent).
 
@@ -1228,12 +1328,141 @@ class SequencedCaptureRunner:
             return None
         has_turret = self._scope.capabilities.has_turret
 
-        def _wait_and_build():
+        def _wait_for_queue() -> bool:
             while self.file_io_executor.is_protocol_queue_active():
                 time.sleep(_HYPERSTACK_QUEUE_POLL_S)
-            stack_builder.build_hyperstacks_for_run(run_dir=run_dir, has_turret=has_turret)
+            return True
 
-        thread = threading.Thread(target=_wait_and_build, name='hyperstack-build', daemon=True)
+        return self._spawn_post_run_step(
+            name='hyperstack-build',
+            wait_fn=_wait_for_queue,
+            build_fn=lambda: stack_builder.build_hyperstacks_for_run(
+                run_dir=run_dir, has_turret=has_turret
+            ),
+        )
+
+    def _start_composite_merge(self, outcome: RunMergeOutcome) -> threading.Thread | None:
+        """Merge this run's per-channel frames, then settle the outcome.
+
+        Runs only for a composite run that reached 'completed'. Every exit
+        settles the outcome through the arming token -- success, a merge
+        that produced nothing, a raise, or the write bound expiring -- so a
+        caller blocked on the result is always released with a real answer
+        rather than a timeout it has to interpret.
+
+        The run's objects are captured BY VALUE here, at arming: the next
+        run's start() nulls these fields, and a merge still running would
+        otherwise follow them onto the successor run's directory.
+        """
+        token = outcome.arm()
+        if token is None:
+            return None
+
+        run_dir = self._run_dir
+        writer = self._image_writer
+        thresholds = self._composite_thresholds_percent
+        output_format = (
+            self._image_capture_config.output_format_sequenced
+            if self._image_capture_config is not None
+            else image_mode.OUTPUT_FORMAT_TIFF
+        )
+        has_turret = self._scope.capabilities.has_turret
+
+        def _fail(reason: str, detail: str) -> None:
+            # The one place a merge failure becomes visible: one log line,
+            # one notification, one resolved outcome -- the shape a run
+            # refusal uses, so a caller waiting on the outcome never
+            # re-notifies. Success is silent by design: the saved folder
+            # is the record, and the button handed the UI back at run end.
+            from modules.notification_center import notifications
+
+            logger.error(f'[{self.LOGGER_NAME}] Composite merge failed ({reason}): {detail}')
+            notifications.error('Protocol', 'Composite Failed', detail)
+            outcome.resolve(token, MergeOutcome(False, None, reason))
+
+        # Decline-to-start is TOTAL: anything that makes a merge impossible
+        # settles here and now, rather than leaving the outcome armed with
+        # nothing on its way to resolve it.
+        if run_dir is None:
+            _fail('no_run_dir', 'The run has no directory to merge from.')
+            return None
+        if thresholds is None:
+            _fail('no_composite_config', 'The run carries no composite thresholds.')
+            return None
+
+        def _merge():
+            try:
+                from modules.composite_generation import CompositeGeneration
+                from modules.path_utils import get_source_root
+
+                # The loader is told the run owns the surface: its own
+                # unattended-batch notices would otherwise open a modal at
+                # start and another at the end of every composite.
+                result = CompositeGeneration(has_turret=has_turret).load_folder(
+                    path=run_dir,
+                    tiling_configs_file_loc=get_source_root() / 'data' / 'tiling.json',
+                    output_format=output_format,
+                    brightness_thresholds_percent=thresholds,
+                    announce=False,
+                )
+            except Exception as ex:
+                logger.error(f'[{self.LOGGER_NAME}] Composite merge raised', exc_info=True)
+                _fail('merge_error', f'The merge failed with {type(ex).__name__}: {ex}')
+                return
+            paths = result.get('artifact_paths') or []
+            if result.get('status') and paths:
+                logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
+                outcome.resolve(token, MergeOutcome(True, paths[0], ''))
+            elif result.get('status'):
+                _fail('merge_failed', 'The merge finished without producing a composite file.')
+            else:
+                _fail(
+                    result.get('reason') or 'merge_failed',
+                    result.get('message') or 'See lumaviewpro.log for details.',
+                )
+
+        return self._spawn_post_run_step(
+            name='composite-merge',
+            wait_fn=lambda: writer is None or writer.wait_for_still_writes(_MERGE_DRAIN_BOUND_S),
+            build_fn=_merge,
+            on_wait_expired=lambda: _fail(
+                'merge_timeout',
+                f"The run's frames did not finish writing within "
+                f'{_MERGE_DRAIN_BOUND_S:.0f} s; nothing was merged.',
+            ),
+        )
+
+    def _spawn_post_run_step(
+        self,
+        *,
+        name: str,
+        wait_fn,
+        build_fn,
+        on_wait_expired=None,
+    ) -> threading.Thread:
+        """Run a post-run build on a daemon thread once the run's files land.
+
+        The one owner of the wait-then-build shape both post-run steps need
+        -- the per-well stack build and the composite merge. Each supplies
+        its own wait, because they wait on different things: the stack build
+        polls the whole protocol file queue and never gives up, while the
+        merge waits on its own run's write count under a bound. Sharing the
+        thread lifecycle rather than the wait keeps one place responsible
+        for the daemon flag and the thread name a stall report prints.
+
+        wait_fn returns False when its bound expires, in which case the
+        build does NOT run and on_wait_expired says so instead: building
+        from a directory that is still filling produces a silently
+        incomplete artifact.
+        """
+
+        def _wait_and_build():
+            if wait_fn():
+                build_fn()
+            elif on_wait_expired is not None:
+                on_wait_expired()
+
+        thread = threading.Thread(target=_wait_and_build, name=name, daemon=True)
         thread.start()
         return thread
 
@@ -1323,6 +1552,17 @@ class SequencedCaptureRunner:
                         f'[{self.LOGGER_NAME}] Cleanup: forced LED extinguish failed',
                         exc_info=True,
                     )
+            # Settle (or arm) the run's merge outcome before the releases
+            # below. Cleanup runs TWICE on a normal run -- the loop's
+            # 'completed' call, then the safety net's 'failed' call whose
+            # early return sits inside the try -- so this must be
+            # arm-or-first-wins, never a plain assignment: the second pass
+            # carries a contradictory status and would otherwise report
+            # 'failed' over a real merge result on every successful run.
+            # Non-raising by construction, because the claim release below
+            # has to run whatever happens here; a raise would leak the claim
+            # and refuse every future run.
+            self._settle_merge_outcome(run_status)
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
             # the next run. After run_cleanup, not before: apply(RUN_END) runs

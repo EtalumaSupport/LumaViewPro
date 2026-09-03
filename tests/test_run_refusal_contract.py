@@ -550,7 +550,19 @@ RUNNER_REFUSAL_COVERAGE = {
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
+    # Raised at composite config assembly, before the engine is reached at
+    # all -- a composite the merge could not produce is refused where the
+    # channel count is known.
+    'composite_needs_two_channels': ('tests/test_composite_run_config.py::TestTwoChannelFloor'),
 }
+
+# Every module that raises a run refusal. The census below reads all of
+# them, so a reason introduced outside the runner is covered too -- the
+# vocabulary is the contract, not the file it happens to live in.
+REFUSING_MODULES = (
+    'modules/sequenced_capture_runner.py',
+    'modules/config_helpers.py',
+)
 
 
 class TestRefusalNotifyOnceFunnel:
@@ -690,31 +702,36 @@ class TestRefusalNotifyOnceFunnel:
 
 
 def test_every_runner_refusal_reason_is_covered():
-    """Census guard: the coverage map above matches the runner's source.
+    """Census guard: the coverage map above matches production source.
 
-    Collects every reason literal the runner feeds to its _refuse funnel
-    (or a direct ProtocolRunRefusedError construction) and diffs the set
-    against RUNNER_REFUSAL_COVERAGE, in both directions. This is what
-    makes the notify-once suite's enumeration unmissable instead of
-    remembered: exclusive_activity_running shipped with zero coverage
-    because nothing coupled the scenario list to the runner's vocabulary.
+    Collects every reason literal fed to a _refuse funnel (or a direct
+    ProtocolRunRefusedError construction) across REFUSING_MODULES and
+    diffs the set against RUNNER_REFUSAL_COVERAGE, in both directions.
+    This is what makes the notify-once suite's enumeration unmissable
+    instead of remembered: exclusive_activity_running shipped with zero
+    coverage because nothing coupled the scenario list to the refusal
+    vocabulary.
     """
-    import modules.sequenced_capture_runner as runner_mod
+    from tests import ast_seams
 
-    tree = ast.parse(pathlib.Path(runner_mod.__file__).read_text())
     raised = set()
 
     class ReasonCollector(ast.NodeVisitor):
         def visit_Call(self, node):
             callee = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
-            if callee in ('_refuse', 'ProtocolRunRefusedError'):
+            # Any _refuse* funnel, not one exact spelling: a second refusal
+            # site naming its funnel for what it refuses would otherwise be
+            # invisible to this census, which is the drift it exists to stop.
+            is_funnel = callee is not None and callee.startswith('_refuse')
+            if is_funnel or callee == 'ProtocolRunRefusedError':
                 for kw in node.keywords:
                     if kw.arg == 'reason' and isinstance(kw.value, ast.Constant):
                         raised.add(kw.value.value)
             self.generic_visit(node)
 
-    ReasonCollector().visit(tree)
-    assert raised, 'found no refusal reasons in the runner source; the scan is broken'
+    for rel_path in REFUSING_MODULES:
+        ReasonCollector().visit(ast_seams.parse_module(rel_path))
+    assert raised, 'found no refusal reasons in production source; the scan is broken'
 
     uncovered = raised - set(RUNNER_REFUSAL_COVERAGE)
     assert not uncovered, (

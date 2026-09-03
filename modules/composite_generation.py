@@ -1,19 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import os
 import pathlib
 
 import pandas as pd
 
-import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.composite_builder import build_composite
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
+from modules.exceptions import ConfigError
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
-from modules.settings_init import settings
 from lvp_logger import logger
 
 
@@ -65,7 +64,15 @@ class CompositeGeneration(ProtocolPostProcessor):
             )
         )
 
-        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
+        # The extension follows the run's chosen container, matching what the
+        # capture path writes: an OME composite named plain .tiff reads as a
+        # different format than it is, and the readers that branch on the
+        # double extension would take the wrong path.
+        if kwargs.get('output_format') == image_mode.OUTPUT_FORMAT_OME_TIFF:
+            extension = '.ome.tiff'
+        else:
+            extension = '.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}{extension}'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -100,10 +107,17 @@ class CompositeGeneration(ProtocolPostProcessor):
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
         output_format = kwargs.get('output_format', 'TIFF')
+        if 'brightness_thresholds_percent' not in kwargs:
+            raise ConfigError(
+                'composite generation requires brightness_thresholds_percent; '
+                'the caller snapshots it from settings, because this runs on a '
+                'worker thread that must not read live configuration'
+            )
         return PostProcResult.from_group_result(
             CompositeGeneration._create_composite_image(
                 path=path,
                 df=df[['Filepath', 'Color']],
+                brightness_thresholds_percent=kwargs['brightness_thresholds_percent'],
                 output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
                 output_format=output_format,
             )
@@ -142,9 +156,21 @@ class CompositeGeneration(ProtocolPostProcessor):
     def _create_composite_image(
         path: pathlib.Path,
         df: pd.DataFrame,
+        brightness_thresholds_percent: dict,
         output_file_loc: pathlib.Path | None = None,
         output_format: str = 'TIFF',
     ):
+        """Merge one group's per-channel frames into a single composite.
+
+        brightness_thresholds_percent maps each fluorescence layer to the
+        percentage below which its pixels are not composited onto a
+        transmitted base. It is a required argument rather than a settings
+        read: this runs unattended on a worker thread with no GUI, and the
+        module-level settings global it used to read is published only by
+        the app bootstrap, so every headless caller found it None and
+        crashed at the threshold lookup. Passing the values in makes the
+        headless and GUI paths identical by construction.
+        """
 
         BF_present = False
         BF_channel = ''
@@ -185,6 +211,27 @@ class CompositeGeneration(ProtocolPostProcessor):
         # The composite's own depth, set from the built array (always 8-bit).
         # Distinct from output_depth, which is the INPUT depth driving downconvert.
         composite_significant_bits = None
+
+        # Validated before the try, not inside it: a missing threshold is the
+        # caller omitting an argument, and the try below turns everything it
+        # catches into a per-group error dict -- which would report a coding
+        # mistake as "every image group failed". Only checked when a
+        # transmitted base is present, since that is the only case that
+        # blends and therefore the only case that consults a threshold.
+        if BF_present:
+            missing = sorted(
+                layer
+                for layer in df['Color']
+                if layer != BF_channel
+                and layer in common_utils.get_image_layers()
+                and layer not in brightness_thresholds_percent
+            )
+            if missing:
+                raise ConfigError(
+                    f'composite generation needs a brightness threshold for '
+                    f'{", ".join(missing)}; the caller supplies one per '
+                    f'fluorescence layer so the merge cannot silently pick its own'
+                )
 
         error = None
         status = True
@@ -241,13 +288,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # Compute brightness threshold on the composite's 8-bit output
                 # scale (build_composite downconverts the channels to 8-bit).
                 if BF_present:
-                    ctx = _app_ctx.ctx
-                    if ctx is not None:
-                        with ctx.settings_lock:
-                            threshold = settings[layer]['composite_brightness_threshold']
-                    else:
-                        threshold = settings[layer]['composite_brightness_threshold']
-                    brightness_thresholds[layer] = threshold / 100 * 255
+                    brightness_thresholds[layer] = brightness_thresholds_percent[layer] / 100 * 255
 
             if not channel_images and transmitted_image is None:
                 status = False
@@ -336,6 +377,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         blue_path: pathlib.Path | None = None,
         transmitted_path: pathlib.Path | None = None,
         transmitted_layer: str | None = None,
+        brightness_thresholds_percent: dict | None = None,
         format: str = 'tiff',
     ) -> dict:
         """Build a composite from per-channel mono TIFFs at the given paths.
@@ -401,9 +443,13 @@ class CompositeGeneration(ProtocolPostProcessor):
         # format-aware kwargs. Absolute paths in df['Filepath'] survive
         # the `path / row['Filepath']` join inside _create_composite_image
         # (pathlib discards the left operand when the right is absolute).
+        # Thresholds are only consulted when a transmitted base is present;
+        # an empty mapping with one supplied raises rather than defaulting,
+        # so a caller that means to blend cannot get an unstated threshold.
         result = CompositeGeneration._create_composite_image(
             path=pathlib.Path('.'),
             df=df,
+            brightness_thresholds_percent=brightness_thresholds_percent or {},
             output_file_loc=None,
         )
 
@@ -439,8 +485,3 @@ class CompositeGeneration(ProtocolPostProcessor):
             'error': None,
             'image': img,
         }
-
-
-if __name__ == '__main__':
-    composite_gen = CompositeGeneration(has_turret=False)
-    composite_gen.load_folder(pathlib.Path(os.getenv('SAMPLE_IMAGE_FOLDER')))

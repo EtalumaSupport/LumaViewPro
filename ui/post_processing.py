@@ -27,6 +27,7 @@ from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
 from modules.video_builder import VideoBuilder
+import modules.common_utils as common_utils
 from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
@@ -363,8 +364,17 @@ class CompositeGenControls(BoxLayout):
         # The manual button has no run config, so the composite output format
         # follows the sequenced-capture setting (least astonishment, no new
         # UI control). Threaded the same way ZProjector threads its method.
+        # Both values are snapshotted here, on the click, rather than read
+        # inside the worker: the generation runs off the UI thread with no
+        # access to live settings, and the thresholds it needs are per-layer
+        # user configuration.
         with ctx.settings_lock:
             output_format = ctx.settings['image_output_format']['sequenced']
+            brightness_thresholds_percent = {
+                layer: ctx.settings[layer]['composite_brightness_threshold']
+                for layer in common_utils.get_layers()
+                if 'composite_brightness_threshold' in ctx.settings.get(layer, {})
+            }
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
@@ -376,7 +386,10 @@ class CompositeGenControls(BoxLayout):
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
                     popup,
                 ),
-                kwargs={'output_format': output_format},
+                kwargs={
+                    'output_format': output_format,
+                    'brightness_thresholds_percent': brightness_thresholds_percent,
+                },
                 callback=self.composite_gen_callback,
                 cb_args=(popup, status_map),
                 pass_result=True,

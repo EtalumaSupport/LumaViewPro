@@ -144,7 +144,15 @@ class TilingConfig:
     def default_config(self) -> str:
         return self._available_configs['metadata']['default']
 
-    def no_tiling_label(self) -> str:
+    @staticmethod
+    def no_tiling_label() -> str:
+        """The label for a single, un-tiled field of view.
+
+        Static because it names a fixed point in the label vocabulary
+        rather than reading the loaded config: callers that need "no
+        tiling" while assembling a run config get it without loading
+        tiling.json, and there is still only one spelling of it.
+        """
         return '1x1'
 
     def _calc_range(

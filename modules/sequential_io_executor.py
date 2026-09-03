@@ -1140,6 +1140,19 @@ class SequentialIOExecutor:
                                 self._live_inflight -= 1
                     if profile_trace.ENABLE_PROFILE_TRACE:
                         task._t_dequeue = time.monotonic()
+                    # Claim the task the moment it leaves the queue, not after
+                    # the checks below. A task already dequeued but not yet
+                    # recorded as running belongs to neither half of the busy
+                    # predicates (queue non-empty, or a task is running), so a
+                    # waiter sampling in that window is told the run's writes
+                    # are finished while the last one has not started -- the
+                    # stack build then reads a directory missing its final
+                    # plane, and the next run's files_writing gate admits a
+                    # run over a write still in flight. Claiming here covers
+                    # both queues; erring busy costs a waiter at most one
+                    # task's runtime, which is the honest direction.
+                    self._running_task_started_monotonic = time.monotonic()
+                    self.running_task = task
                 except queue.Empty:
                     if self.pending_shutdown:
                         return
@@ -1174,11 +1187,14 @@ class SequentialIOExecutor:
                     # listeners re-read it.
                     self._fire_protocol_idle_listeners()
                 if self.pending_shutdown:
+                    # Drop the claim taken at dequeue: this task will never
+                    # run, and a claim left on a stopping worker answers
+                    # "busy" forever to anything still polling.
+                    self.running_task = None
+                    self._running_task_started_monotonic = None
                     return
 
                 task._ui_dispatch = self._ui_dispatch
-                self._running_task_started_monotonic = time.monotonic()
-                self.running_task = task
 
                 run_result = None
                 run_exc = None

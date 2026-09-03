@@ -422,7 +422,7 @@ Rate and duration come from the run's settings snapshot at start: `video.max_fps
 
 Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape, with machine-readable `reason` codes `recording_active` (another recording is live) and `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim).
 
-Both refusal errors say busy-with-what: `holder` carries the exclusive-activity owner at refusal time (`'protocol'` or `'recording'`, None for refusals that are not claim-shaped), and `holder_trigger` carries the holding run's `run_trigger_source` when the holder is a run (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
+Both refusal errors say busy-with-what: `holder` carries the exclusive-activity owner at refusal time (`'protocol'` or `'recording'`, None for refusals that are not claim-shaped), and `holder_trigger` carries the holding run's `run_trigger_source` when the holder is a run (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
@@ -1321,41 +1321,43 @@ scope.disconnect()
 
 ### Multi-channel composite
 
+A composite is a run kind, not a loop you write. One step per channel set
+to acquire an image, each at its own stored focus, followed by the merge --
+through the same engine as every other run, so it produces a run directory
+and an execution record like any scan.
+
 ```python
-from modules.composite_builder import build_composite
-from modules.image_save import save_image
+runner = session.create_protocol_runner()
 
-channel_images = {}
-for channel, illumination_ma, exposure_ms, gain_db in [
-    ('Blue',  200, 100, 15),
-    ('Green', 150,  80, 12),
-    ('Red',   180,  90, 10),
-]:
-    scope.imaging.set_exposure_ms(exposure_ms)
-    scope.imaging.set_gain_db(gain_db)
-    scope.illumination.led_on(channel, illumination_ma)
-    channel_images[channel] = scope.imaging.capture_and_wait()
-    scope.illumination.led_off(channel)
-
-# Transmitted (brightfield) base image
-scope.imaging.set_exposure_ms(2.0)
-scope.imaging.set_gain_db(1.0)
-scope.illumination.led_on('BF', 100)
-bf_image = scope.imaging.capture_and_wait()
-scope.illumination.leds_off()
-
-composite = build_composite(
-    channel_images=channel_images,
-    transmitted_image=bf_image,
-    brightness_thresholds={'Blue': 20, 'Green': 15, 'Red': 10},
-)
-
-save_image(scope, array=composite, save_folder='./output',
-           file_root='composite', channel='Composite', false_color_on=False,
-           save_encoding='8bit', significant_bits=8, output_format='TIFF')
+# Which channels take part, their illumination, exposure, gain and blend
+# thresholds all come from the settings snapshot. Set them there rather
+# than passing them here, so a headless caller and a GUI click run the
+# same composite.
+artifact_path = runner.run_composite(sequence_name='composite')
+print(f'merged composite: {artifact_path}')
 ```
 
-`build_composite` accepts fluorescence keys `'Red'`, `'Green'`, `'Blue'`, `'Lumi'`.
+`run_composite` blocks until the merge settles and returns the merged
+file's path, so a missing artifact cannot be mistaken for a success. To
+launch one without waiting, call `runner.start_composite(...)`, which
+returns the run's merge outcome to wait on or ignore.
+
+It raises `ProtocolRunRefusedError` when the run is refused before
+anything is committed -- fewer than two channels set to acquire an image,
+a rival run holding the scope, or files still draining -- and
+`CaptureError` when the run happened but produced no composite.
+
+**`CaptureError.reason` is a failure code, not a refusal.** It names what
+went wrong after the run committed (`merge_timeout`, `merge_failed`,
+`aborted`, ...) and is not a member of the refusal family described under
+Refusals: a refusal means nothing changed, while a `CaptureError` means the
+run ran and did not produce the artifact.
+
+To merge frames you already hold in memory, `build_composite` is the
+underlying helper; it accepts fluorescence keys `'Red'`, `'Green'`,
+`'Blue'`, `'Lumi'`, takes `significant_bits` for the input depth, and reads
+`brightness_thresholds` on the OUTPUT 8-bit scale (absolute values 0-255,
+not percentages).
 
 ### Z-stack
 

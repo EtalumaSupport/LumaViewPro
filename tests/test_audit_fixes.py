@@ -212,13 +212,20 @@ class TestDomainExceptions:
             HardwareError,
             ProtocolError,
             ConfigError,
-            CaptureError,
         ],
     )
     def test_raise_and_catch_with_message(self, exc_cls):
         msg = f'test message for {exc_cls.__name__}'
         with pytest.raises(exc_cls, match=msg):
             raise exc_cls(msg)
+
+    def test_capture_error_carries_a_reason_beside_its_message(self):
+        # CaptureError left the message-only group above when it gained a
+        # required failure code: a caller mapping failures onto responses
+        # reads the code, and the prose stays for the human.
+        with pytest.raises(CaptureError, match='test message') as excinfo:
+            raise CaptureError('test message', 'test_reason')
+        assert excinfo.value.reason == 'test_reason'
 
 
 # ===========================================================================
@@ -11211,11 +11218,15 @@ class TestProtocolPeriodZeroDoesNotCrashFullProtocolMode:
     """
 
     def _make_protocol_stub(self, *, duration: float, period: float):
+        # Seconds in, timedeltas out: Protocol.period() returns a timedelta,
+        # and the int stubs this class first shipped with let the period==0
+        # guard pass green while the production type sailed past it.
+        import datetime
         from unittest.mock import MagicMock
 
         proto = MagicMock()
-        proto.duration.return_value = duration
-        proto.period.return_value = period
+        proto.duration.return_value = datetime.timedelta(seconds=duration)
+        proto.period.return_value = datetime.timedelta(seconds=period)
         return proto
 
     def test_period_zero_returns_one_scan(self):
@@ -11485,6 +11496,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             result = CompositeGeneration._create_composite_image(
                 path=tmp,
                 df=df,
+                brightness_thresholds_percent={},
                 output_file_loc=protocol_tiff,
             )
             assert result['status'] is True, (
@@ -11535,6 +11547,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             result = CompositeGeneration._create_composite_image(
                 path=tmp,
                 df=df,
+                brightness_thresholds_percent={},
                 output_file_loc=None,
             )
             assert result['status'] is True

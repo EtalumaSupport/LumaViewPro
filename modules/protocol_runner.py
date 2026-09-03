@@ -30,9 +30,14 @@ import typing
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode_module
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import CaptureError, ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol
-from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
+from modules.run_outcome import RunMergeOutcome
+from modules.sequenced_capture_runner import (
+    RunPlan,
+    SequencedCaptureRunner,
+    SequencedCaptureRunMode,
+)
 
 from lvp_logger import logger
 
@@ -191,6 +196,132 @@ class ProtocolRunner:
             callbacks=callbacks,
         )
 
+    def start_composite(
+        self,
+        sequence_name: str = 'composite',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+        run_trigger_source: str = 'api_composite',
+    ) -> RunMergeOutcome:
+        """Assemble a composite run and launch it, returning once committed.
+
+        Split out of run_composite so a caller that must not block -- a GUI
+        click on the thread that draws the button -- gets the same assembly
+        without the wait. The alternative was for such a caller to build the
+        run config itself, which is the duplicate composite implementation
+        this run kind exists to retire.
+
+        Args:
+            sequence_name: Name for the output folder.
+            parent_dir: Parent directory for output (defaults to
+                settings['live_folder']/ProtocolData).
+            callbacks: Optional dict of callback functions.
+            run_trigger_source: Provenance recorded on the run. A parameter
+                rather than a constant because the rival-run check compares
+                it: were a GUI click to record the API's token, a click
+                during an API composite would read as that run's own and
+                abort the API caller instead of being refused.
+
+        Returns:
+            The run's merge outcome, to wait on or to ignore.
+
+        Raises:
+            ProtocolRunRefusedError: Fewer than two channels are set to
+                capture an image, so nothing could be merged; or the
+                runner refused the run itself (already running, files
+                still writing, hardware not connected).
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.settings
+        input_config = config_helpers.get_composite_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            position=self.session.get_current_plate_position(),
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        return self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
+            run_trigger_source=run_trigger_source,
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=(
+                config_helpers.get_composite_image_capture_config_from_settings(settings)
+            ),
+            enable_image_saving=True,
+            callbacks=callbacks,
+            # A composite is an interactive act on a scope the user is
+            # standing at: it hands the illumination back the way it was
+            # found, rather than forcing every channel dark the way an
+            # unattended scan does.
+            leds_state_at_end='return_to_original',
+            composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
+        )
+
+    def run_composite(
+        self,
+        sequence_name: str = 'composite',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+        merge_timeout_s: float = 900.0,
+    ) -> str:
+        """Capture one frame per acquiring channel and merge them.
+
+        A composite is a single-position run through the same engine as
+        every other run kind: one step per channel at the current stage
+        position, each at its own stored focus, followed by the merge that
+        combines them into one image.
+
+        The channel set, the capture format and the depth all come from the
+        settings snapshot rather than from any widget, so a headless caller
+        gets the same run a GUI click does.
+
+        The merged artifact is the run's real product, so this BLOCKS until
+        the merge settles and returns where the artifact landed. A run that
+        reported 'completed' while the merged file was missing would be
+        indistinguishable from a successful one to every headless caller,
+        which is the boundary this run kind exists to fix.
+
+        Args:
+            sequence_name: Name for the output folder.
+            parent_dir: Parent directory for output (defaults to
+                settings['live_folder']/ProtocolData).
+            callbacks: Optional dict of callback functions.
+            merge_timeout_s: Upper bound on the whole capture-and-merge
+                wait. Covers the run itself, so it is longer than the
+                merge's own internal drain bound.
+
+        Returns:
+            The path of the merged composite.
+
+        Raises:
+            ProtocolRunRefusedError: Fewer than two channels are set to
+                capture an image, so nothing could be merged; or the
+                runner refused the run itself (already running, files
+                still writing, hardware not connected).
+            CaptureError: The run finished but produced no composite. The
+                error names the machine-readable reason, so a caller can
+                tell an aborted run from a failed merge from a timeout.
+        """
+        outcome = self.start_composite(
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            callbacks=callbacks,
+        )
+        settled = outcome.wait(timeout_s=merge_timeout_s)
+        if settled is None:
+            raise CaptureError(
+                f'the composite did not report an outcome within '
+                f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
+                'merge_timeout',
+            )
+        if not settled.merged:
+            raise CaptureError(f'no composite was produced ({settled.reason})', settled.reason)
+        return settled.artifact_path
+
     def _run(
         self,
         protocol: Protocol,
@@ -203,8 +334,13 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
+        leds_state_at_end: str = 'off',
+        composite_thresholds_percent: dict | None = None,
     ):
         """Internal: configure and launch the sequenced capture executor.
+
+        Returns:
+            The committed run's merge outcome.
 
         Raises:
             ConfigError: image_capture_config was not provided; raised
@@ -287,7 +423,8 @@ class ProtocolRunner:
             autogain_settings=autogain_settings,
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
-            leds_state_at_end='off',
+            leds_state_at_end=leds_state_at_end,
+            composite_thresholds_percent=composite_thresholds_percent,
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
@@ -305,7 +442,7 @@ class ProtocolRunner:
         completion_was_set = self._completion_event.is_set()
         self._completion_event.clear()
         try:
-            self._executor.start(plan)
+            return self._executor.start(plan)
         except ProtocolRunRefusedError:
             if completion_was_set:
                 self._completion_event.set()
@@ -352,9 +489,9 @@ class ProtocolRunner:
         """
         return self._executor.prepare(**kwargs)
 
-    def start(self, plan) -> None:
+    def start(self, plan: RunPlan) -> RunMergeOutcome:
         """Forward to the engine's start() -- the commitment point."""
-        self._executor.start(plan)
+        return self._executor.start(plan)
 
     def reset(self) -> None:
         """Unwind the current run without tearing the runner down.

@@ -119,6 +119,17 @@ class ProtocolImageWriter:
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
+        # Still-image writes this run has handed to the file queue but not
+        # yet seen land. A post-run step that reads the run's frames back
+        # off disk needs a per-RUN answer; the executor's queue predicate
+        # answers for whatever is queued, so waiting on it would hold this
+        # run's post-step open across the next run's writes. A writer is
+        # built per run, so the count is naturally run-scoped -- the same
+        # reason the video steps carry their own counters.
+        self._still_pending = 0
+        self._still_pending_lock = threading.Lock()
+        self._still_drained = threading.Event()
+        self._still_drained.set()
 
     def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
@@ -174,6 +185,40 @@ class ProtocolImageWriter:
         discard); frames already on disk stay."""
         for step in self._video_steps:
             step.discard_pending()
+
+    @property
+    def still_pending_writes(self) -> int:
+        """Still-image writes this run owes the disk."""
+        with self._still_pending_lock:
+            return self._still_pending
+
+    def _owe_still_write(self) -> None:
+        with self._still_pending_lock:
+            self._still_pending += 1
+            self._still_drained.clear()
+
+    def _settle_still_write(self) -> None:
+        """Retire one owed write, however it ended.
+
+        Called from the write task's own finally, so a failed or raising
+        write settles exactly like a successful one: a debt that outlives
+        its write would hold a post-run step open for the whole of its
+        bound waiting on a frame that is never coming.
+        """
+        with self._still_pending_lock:
+            self._still_pending -= 1
+            if self._still_pending <= 0:
+                self._still_pending = 0
+                self._still_drained.set()
+
+    def wait_for_still_writes(self, timeout_s: float) -> bool:
+        """Block until this run's still-image writes land. Bounded.
+
+        Returns False on expiry rather than raising or waiting forever: a
+        wedged writer is exactly the case a post-run step must survive, and
+        the caller turns the False into its own typed outcome.
+        """
+        return self._still_drained.wait(timeout=timeout_s)
 
     def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
         """Block until every video step's drain and finish complete.
@@ -383,9 +428,26 @@ class ProtocolImageWriter:
         kwargs.setdefault('scan_count', scan_count)
         kwargs.setdefault('capture_time', capture_time)
         kwargs.setdefault('name', name)
+
+        # The debt is settled by the task itself rather than inside
+        # write_capture, so it retires on every ending -- including a raise
+        # that never reaches write_capture's own epilogue. functools.wraps
+        # keeps the action's name, which is what a stall report prints to
+        # say which write is stuck.
+        @functools.wraps(self.write_capture)
+        def _write_and_settle(**task_kwargs):
+            try:
+                return self.write_capture(**task_kwargs)
+            finally:
+                self._settle_still_write()
+
+        # Owed before the hand-off, never after: a task the worker picks up
+        # immediately would otherwise run and settle a debt not yet counted,
+        # driving the count negative and marking the run drained early.
+        self._owe_still_write()
         result = self._file_io_executor.protocol_put_wait(
             IOTask(
-                action=self.write_capture,
+                action=_write_and_settle,
                 kwargs=kwargs,
                 silent_on_failure=True,
                 slow_task_threshold_sec=slow_task_threshold_sec,
@@ -393,6 +455,14 @@ class ProtocolImageWriter:
             should_abort=self._aborted.is_set,
             stall_timeout_s=WRITE_STALL_FATAL_S,
         )
+        if result is PROTOCOL_QUEUE_WEDGED or result is None:
+            # Every non-acceptance lands here: a wedged queue, a wait
+            # cancelled by abort, and a refused submit (disabled executor or
+            # no run in session), which returns a bare None. The executor
+            # never took the task, so nothing will run its finally -- retire
+            # the debt here or the run ends owing a write that cannot arrive
+            # and the post-run step waits out its whole bound.
+            self._settle_still_write()
         if result is PROTOCOL_QUEUE_WEDGED:
             stuck = self._file_io_executor.describe_running_task()
             self._abort_run_fatal(

@@ -350,6 +350,9 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
         'message': 'Success.',
         'new_count': 0,
         'output_root': str(tmp_path),
+        # Everything was already in the record, so nothing was produced this
+        # run -- the empty list is the honest answer, not a missing key.
+        'artifact_paths': [],
         'accounting_note': '',
     }
     assert processor.algorithm_calls == [], 'already-recorded outputs are skipped, not regenerated'

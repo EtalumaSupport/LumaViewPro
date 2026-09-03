@@ -10,13 +10,16 @@ used by LumaViewPro, the REST API, or standalone scripts.
 import datetime
 import os
 import pathlib
+import typing
 
 import psutil
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.objectives_loader import ObjectiveLoader
+from modules.tiling_config import TilingConfig
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -993,6 +996,179 @@ def build_sequenced_capture_config(values: dict) -> dict:
     if 'positions' in values:
         config['positions'] = values['positions']
     return config
+
+
+# The step Label / Well every composite channel shares. Protocol.from_config
+# requires a name on an explicit position, and the merge groups its inputs by
+# it -- one constant name is what puts every channel in one group.
+COMPOSITE_POSITION_NAME = 'Composite'
+
+# A merge needs at least two channels to combine: the merge skips groups of
+# one, so a single-channel composite produces no artifact at all.
+COMPOSITE_MIN_CHANNELS = 2
+
+
+def get_composite_channels(settings: dict) -> list:
+    """The channels a composite run captures, in capture order.
+
+    Every layer set to acquire an image contributes one step, except that
+    at most ONE transmitted channel is carried: brightfield, phase and
+    darkfield all occupy the same slot in the merged image, so a second
+    one has nowhere to go. The first acquiring transmitted layer wins,
+    matching the order the layer catalogue presents them in.
+
+    Read from the settings snapshot rather than the open accordion: a
+    composite must assemble with every layer collapsed, and a headless
+    caller has no accordion at all.
+
+    Raises:
+        ProtocolRunRefusedError: fewer than two channels would be
+            captured, so no merged artifact could be produced.
+    """
+    transmitted = [
+        layer
+        for layer in common_utils.get_transmitted_layers()
+        if settings[layer]['acquire'] == 'image'
+    ]
+    others = [
+        layer
+        for layer in (
+            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_luminescence_layers(),
+        )
+        if settings[layer]['acquire'] == 'image'
+    ]
+    channels = transmitted[:1] + others
+
+    if len(channels) < COMPOSITE_MIN_CHANNELS:
+        _refuse_composite(
+            reason='composite_needs_two_channels',
+            title='Not Enough Channels',
+            message=(
+                f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, but '
+                f'{len(channels)} is set to capture an image. Turn on another channel '
+                'and try again.'
+            ),
+        )
+    return channels
+
+
+def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn':
+    """Log, notify once, and raise -- the composite assembly's refusal funnel.
+
+    Mirrors the runner's refusal contract so a caller reconciles a
+    config-stage refusal exactly as it does an engine-stage one, and an
+    API caller gets the same typed error either way.
+    """
+    logger.error(f'[Composite] Run refused ({reason}): {message}')
+    from modules.notification_center import notifications
+
+    notifications.warning('Composite', title, message)
+    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+
+
+def get_composite_blend_thresholds(settings: dict) -> dict:
+    """Per-layer blend thresholds the post-run merge needs, as percentages.
+
+    Snapshotted from settings by the caller that has them, because the
+    merge runs on a worker thread after the run: reading settings there is
+    unavailable headless and would in any case be a later value than the
+    run was configured with.
+    """
+    return {
+        layer: settings[layer]['composite_brightness_threshold']
+        for layer in common_utils.get_layers()
+        if 'composite_brightness_threshold' in settings.get(layer, {})
+    }
+
+
+def get_composite_image_capture_config_from_settings(
+    settings: dict,
+) -> image_mode.ImageCaptureConfig:
+    """The capture/save intent for a composite run.
+
+    Two departures from the user's sequenced settings, both forced by what
+    the merge consumes:
+
+    - The format follows the user's sequenced preference whenever the merge
+      can read it back, and is otherwise overridden to OME-TIFF with the
+      substitution logged -- a silent one leaves a user wondering why their
+      composite is not the format they picked.
+    - Capture is 8-bit: the merge downconverts to 8-bit regardless, so a
+      12-bit acquisition would spend exposure time on depth the merged
+      artifact discards.
+    """
+    output_format = settings.get('image_output_format', {})
+    requested = output_format.get('sequenced', image_mode.OUTPUT_FORMAT_TIFF)
+    if requested in image_mode.MERGEABLE_SEQUENCED_FORMATS:
+        resolved = requested
+    else:
+        resolved = image_mode.OUTPUT_FORMAT_OME_TIFF
+        logger.info(
+            f'[Composite] Sequenced output format {requested!r} cannot be merged; '
+            f'this run saves {resolved!r} instead.'
+        )
+
+    return image_mode.ImageCaptureConfig.from_image_mode(
+        image_mode.IMAGE_MODE_8BIT,
+        output_format_live=output_format.get('live', image_mode.OUTPUT_FORMAT_TIFF),
+        output_format_sequenced=resolved,
+        jpg_quality=settings.get('jpg_quality', 90),
+    )
+
+
+def get_composite_capture_config_from_settings(
+    settings: dict,
+    objective_helper: ObjectiveLoader,
+    position: dict,
+) -> dict:
+    """Build the input_config for a composite run at *position*.
+
+    A composite is the degenerate sequenced run: one position, one step per
+    acquiring channel, no z-stack and no tiling -- either would multiply the
+    steps and leave the merge several frames per channel to choose between.
+
+    The position's z is deliberately None. Protocol.from_config falls
+    through a missing z to each layer's own stored focus, which is what puts
+    every channel in ITS focal plane; a numeric z would pin all of them to
+    whatever plane the stage happened to be at and silently discard the
+    per-channel focus the user set.
+
+    Raises:
+        ProtocolRunRefusedError: fewer than two channels are set to
+            capture, so no merged artifact could be produced.
+    """
+    channels = get_composite_channels(settings)
+    objective_id, _ = get_current_objective_info(settings, objective_helper)
+
+    composite_position = {
+        'x': position['x'],
+        'y': position['y'],
+        'z': None,
+        'name': COMPOSITE_POSITION_NAME,
+    }
+
+    return build_sequenced_capture_config(
+        {
+            'labware_id': settings.get('protocol', {}).get('labware', ''),
+            'objective_id': objective_id,
+            'zstack_params': {},
+            'use_zstacking': False,
+            'tiling': TilingConfig.no_tiling_label(),
+            'tiling_overlap_percent': 0.0,
+            'layer_configs': get_layer_configs(settings, specific_layers=channels),
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            # No stimulation. Protocol.from_config stamps this one value onto
+            # every step, so a non-empty dict here would fire the stim
+            # hardware at the sample during a composite -- which capturing a
+            # multi-channel image has never done and nobody asked it to.
+            'stim_config': {},
+            'positions': [composite_position],
+        }
+    )
 
 
 def get_sequenced_capture_config_from_settings(

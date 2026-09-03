@@ -131,7 +131,12 @@ class TestKvBindingTopology:
             )
 
     def test_camera_bar_buttons_take_the_derived_lock(self):
-        for btn in ('live_folder_btn', 'live_btn', 'capture_btn', 'composite_btn'):
+        # composite_btn is deliberately absent: it starts a run of its own,
+        # so it follows the starter idiom (clickable during its own run, the
+        # second click aborting) and is pinned with the other stop toggles in
+        # test_issue_166_kv_lock_bindings.py. Re-adding it here would assert
+        # the binding that strands its abort.
+        for btn in ('live_folder_btn', 'live_btn', 'capture_btn'):
             idx = KV_SRC.find(f'id: {btn}')
             assert idx > 0, btn
             snippet = KV_SRC[idx : idx + 120]

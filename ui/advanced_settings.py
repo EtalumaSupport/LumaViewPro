@@ -22,6 +22,7 @@ from kivy.uix.popup import Popup
 import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
+from ui.ui_helpers import text_input_debounced
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
@@ -182,7 +183,7 @@ class AdvancedSettings(Popup):
             return
         settings.setdefault('video', {})
         settings['video']['max_fps'] = value
-        gui_logger.text_input_debounced('VIDEO_MAX_FPS', value)
+        text_input_debounced('VIDEO_MAX_FPS', value)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -206,7 +207,7 @@ class AdvancedSettings(Popup):
             return
         settings.setdefault('video', {})
         settings['video']['max_duration_seconds'] = value
-        gui_logger.text_input_debounced('VIDEO_MAX_DURATION_S', value)
+        text_input_debounced('VIDEO_MAX_DURATION_S', value)
 
     def update_video_timestamp_overlay(self):
         settings = _app_ctx.ctx.settings

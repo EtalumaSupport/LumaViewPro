@@ -49,9 +49,22 @@ class SettingsSaveRefusedError(ConfigError):
 
 
 class CaptureError(Exception):
-    """Image capture, save, or processing failure."""
+    """Image capture, save, or processing failure.
 
-    pass
+    Attributes:
+        reason: Machine-readable failure code for callers that map
+            failures to responses (REST status codes, UI branches).
+            Without it a caller has to regex the prose to tell a timeout
+            from a failed merge from a camera that returned nothing.
+
+    ``reason`` is required rather than defaulted. A default would let a
+    new raise site stay untyped while every caller still had to guess
+    which raises carry a usable code and which carry a placeholder.
+    """
+
+    def __init__(self, message: str, reason: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 class ProtocolRunRefusedError(ProtocolError):
@@ -124,8 +137,7 @@ class RecordingRefusedError(CaptureError):
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ):
-        super().__init__(f'{reason}: {message}')
-        self.reason = reason
+        super().__init__(f'{reason}: {message}', reason)
         self.title = title
         self.message = message
         self.holder = holder

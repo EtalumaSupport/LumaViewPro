@@ -378,7 +378,6 @@ from modules.app_config import (
 # strip these as unused; the per-file ignore in pyproject.toml ([tool.ruff.lint
 # .per-file-ignores] "lumaviewpro.py" lists F401) silences that. Do not remove
 # any of these without first grepping ui/*.kv for the class name.
-from ui.composite_capture import CompositeCapture
 from ui.file_dialogs import FileChooseBTN, FileOrFolderChooseBTN, FileSaveBTN, FolderChooseBTN
 from ui.histogram import Histogram
 from ui.image_settings import (

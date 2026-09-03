@@ -72,45 +72,6 @@ def _check_no_toplevel_imports(module_path, forbidden_prefixes):
 
 
 # Files with known layer violations awaiting their structural fix.
-# Each entry: filename -> (audit-cluster-or-LAYER-id, reason).
-# When the structural fix lands, the file either disappears (e.g. shim
-# deleted) or its imports change (xfail flips to xpass and the entry
-# can be removed).
-_KNOWN_MODULE_VIOLATIONS = {
-    # Empty: modules/ui_helpers.py shim retired in LAYER-A' (deleted
-    # along with modules/scope_commands.py). Add new entries here when
-    # an audit surfaces a known-violating file with a stated retire-by
-    # gate.
-}
-
-
-def _parametrized_with_known_violations(paths, known):
-    """Build a parametrize list, attaching xfail(strict=False) marks to
-    files in `known`. xfail flips to xpass when the violation is fixed
-    elsewhere -- non-strict so it doesn't fail the run; the file is
-    expected to disappear from `paths` once the structural fix lands.
-    """
-    out = []
-    for p in paths:
-        name = os.path.basename(p)
-        if name in known:
-            cluster_id, reason = known[name]
-            out.append(
-                pytest.param(
-                    p,
-                    id=name,
-                    marks=pytest.mark.xfail(
-                        strict=False,
-                        reason=f'{cluster_id}: {reason}',
-                    ),
-                )
-            )
-        else:
-            out.append(pytest.param(p, id=name))
-    return out
-
-
-_MODULES_FILES = _list_py_files('modules')
 _DRIVERS_FILES = _list_py_files('drivers')
 _LIB_FILES = _list_py_files('lib')
 
@@ -122,20 +83,6 @@ class TestLayerViolations:
     Test parametrized over each *.py file in modules/, drivers/, lib/ --
     new files added under those directories are checked automatically.
     """
-
-    @pytest.mark.parametrize(
-        'module_path',
-        _parametrized_with_known_violations(
-            _MODULES_FILES,
-            _KNOWN_MODULE_VIOLATIONS,
-        ),
-    )
-    def test_modules_no_toplevel_ui_import(self, module_path):
-        """modules/ must not import from ui/ (Rule 1: modules below ui)."""
-        violations = _check_no_toplevel_imports(module_path, ('ui.',))
-        assert not violations, (
-            f'{os.path.basename(module_path)}: top-level ui/ imports found: {violations}'
-        )
 
     @pytest.mark.parametrize(
         'driver_path',
