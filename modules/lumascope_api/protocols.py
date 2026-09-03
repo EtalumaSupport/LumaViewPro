@@ -60,7 +60,8 @@ class ProtocolsAPI:
         here, and the run engine takes it from here at run start for the
         post-run composite merge and hyperstack build, so a headless run
         reads the same tiling config the session was built with instead
-        of whatever the process's script root holds.
+        of whatever the process's script root holds. An engine seam, not
+        part of the L2 API surface: a caller never needs the path itself.
         """
 
         if self._source_path is None:
