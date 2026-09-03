@@ -516,6 +516,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     )
     return SimpleNamespace(
         runtime_state=runtime_state,
+        capabilities=SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None),
         imaging=imaging,
         diagnostics=SimpleNamespace(
             get_microscope_model=lambda: 'LS720-SIM',

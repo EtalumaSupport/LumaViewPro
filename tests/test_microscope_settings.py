@@ -492,10 +492,12 @@ class TestFrameSizeMirrorChain:
         # delivered geometry.
         assert fov_refreshes == [{'width': 1896, 'height': 1900}]
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_ctx):
+    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
         from types import SimpleNamespace
 
+        import modules.app_context as app_context
         import modules.common_utils as common_utils_real
+        import modules.config_ui_getters as config_ui_getters_real
 
         settings = {'frame': {'width': 1896, 'height': 1900}, 'objective_id': '4x'}
         objective = {'focal_length': 9.0}
@@ -504,12 +506,16 @@ class TestFrameSizeMirrorChain:
             session=SimpleNamespace(
                 get_objective_info=lambda objective_id: objective,
             ),
+            # The GUI getter resolves the scale off the LIVE scope.
+            lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
         )
+        monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
             '_refresh_fov_labels',
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'common_utils': common_utils_real,
+                'config_ui_getters': config_ui_getters_real,
                 'get_binning_from_ui': lambda: 1,
             },
         )
@@ -525,6 +531,7 @@ class TestFrameSizeMirrorChain:
             focal_length=objective['focal_length'],
             frame_size={'width': 1896, 'height': 1900},
             binning_size=1,
+            capabilities=scale_capabilities,
         )
         assert ids['field_of_view_width_id'].text == str(round(expected_fov['width'], 0))
         assert ids['field_of_view_height_id'].text == str(round(expected_fov['height'], 0))

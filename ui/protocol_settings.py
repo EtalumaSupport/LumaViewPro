@@ -468,6 +468,7 @@ class ProtocolSettings(FloatLayout):
                 labware=labware,
                 stage_offset=stage_offset,
                 overlap_percent=overlap_percent,
+                capabilities=ctx.lumaview.scope.capabilities,
             )
 
             tiles_skipped = tile_status['tiles_skipped']

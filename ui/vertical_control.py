@@ -7,6 +7,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.config_ui_getters as config_ui_getters
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
@@ -302,7 +303,7 @@ class VerticalControl(BoxLayout):
             # The optics that set image scale change here and nowhere else in
             # a session; recording them now is what lets a returned bundle
             # explain the scale baked into its own images.
-            common_utils.log_resolved_optics(
+            config_ui_getters.log_resolved_optics(
                 objective_id=objective_id,
                 focal_length=objective['focal_length'],
                 binning_size=binning_size,
@@ -310,7 +311,7 @@ class VerticalControl(BoxLayout):
 
             # Update UI FOV
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            fov_size = common_utils.get_field_of_view(
+            fov_size = config_ui_getters.get_field_of_view(
                 focal_length=objective['focal_length'],
                 frame_size=settings['frame'],
                 binning_size=binning_size,

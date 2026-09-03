@@ -45,6 +45,10 @@ def _metadata_scope(chunks, chunk_reads=None):
     )
     return SimpleNamespace(
         runtime_state=runtime_state,
+        # The metadata takes its scale from the scope's optics; a stub that
+        # reports none writes no scale, exactly as a real scope with unknown
+        # optics does.
+        capabilities=SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None),
         imaging=SimpleNamespace(
             _binning_size=1,
             get_live_camera_settings=lambda: {

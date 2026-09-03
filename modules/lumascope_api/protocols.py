@@ -136,11 +136,13 @@ class ProtocolsAPI:
             return Protocol.from_config(
                 input_config=input_config,
                 tiling_configs_file_loc=tcfg,
+                capabilities=self._scope.capabilities,
             )
         if empty_config is not None:
             return Protocol.create_empty(
                 config=empty_config,
                 tiling_configs_file_loc=tcfg,
+                capabilities=self._scope.capabilities,
             )
         return Protocol(
             tiling_configs_file_loc=tcfg,

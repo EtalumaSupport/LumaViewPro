@@ -2405,7 +2405,7 @@ class ImagingAPI:
         dark_floor_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback=None,
+        sum_iteration_callback: Callable | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
@@ -2700,6 +2700,7 @@ class ImagingAPI:
                 binning_size=self._binning_size,
                 color=scale_bar.get('color'),
                 significant_bits=significant_bits,
+                capabilities=self._scope.capabilities,
             )
 
         if need_8bit:
@@ -2715,7 +2716,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback=None,
+        sum_iteration_callback: Callable | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
@@ -2809,6 +2810,7 @@ class ImagingAPI:
                 binning_size=self._binning_size,
                 color=scale_bar.get('color'),
                 significant_bits=frame_significant_bits,
+                capabilities=self._scope.capabilities,
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:

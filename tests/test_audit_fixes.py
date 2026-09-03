@@ -4196,8 +4196,9 @@ def _sim_backed_imaging():
     """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
 
     The API object builds its own locks and frame_validity, so the scope
-    stub only needs the camera-driver slot the _driver property resolves
-    plus runtime_state (read by get_image's scale-bar gate).
+    stub only needs the camera-driver slot the _driver property resolves,
+    runtime_state (read by get_image's scale-bar gate) and capabilities
+    (the optics the scale bar's pixel size is resolved from).
     """
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
@@ -4219,6 +4220,7 @@ def _sim_backed_imaging():
     scope.illumination = SimpleNamespace(
         get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
     )
+    scope.capabilities = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam

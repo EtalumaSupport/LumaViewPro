@@ -6,6 +6,7 @@ import functools
 import json
 import pathlib
 import re
+from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -21,6 +22,9 @@ import modules.image_utils as image_utils
 from fractions import Fraction
 
 from lvp_logger import logger, version
+
+if TYPE_CHECKING:
+    from modules.scope_capabilities import ScopeCapabilities
 
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
@@ -2585,13 +2589,14 @@ def _compute_scale_bar_overlay(
 
 
 def add_scale_bar(
-    image,
+    image: np.ndarray,
     objective: dict,
     binning_size: int,
     color: str | None = None,
     *,
     significant_bits: int,
-):
+    capabilities: 'ScopeCapabilities',
+) -> np.ndarray:
     global _scale_bar_cache
 
     height, width = image.shape[0], image.shape[1]
@@ -2603,7 +2608,9 @@ def add_scale_bar(
     # A scale bar is a measurement claim; without a known pixel size there is
     # nothing to claim. Draw nothing rather than a bar of invented length.
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'], binning_size=binning_size
+        focal_length=objective['focal_length'],
+        binning_size=binning_size,
+        capabilities=capabilities,
     )
     if pixel_size_um is None:
         return image

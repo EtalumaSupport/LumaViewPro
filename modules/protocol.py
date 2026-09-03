@@ -11,7 +11,7 @@ import os
 import pathlib
 import re
 import copy
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
 from modules.exceptions import ConfigError, ProtocolError
@@ -23,6 +23,10 @@ from modules.tiling_config import TilingConfig
 from modules.objectives_loader import ObjectiveLoader
 from modules.zstack_config import ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
+
+if TYPE_CHECKING:
+    import modules.labware as labware_module
+    from modules.scope_capabilities import ScopeCapabilities
 
 coordinate_transformer = CoordinateTransformer()
 
@@ -1105,12 +1109,19 @@ class Protocol:
         binning_size: int,
         curr_step_idx: int,
         axes_config: dict,
-        labware,
-        stage_offset,
+        labware: 'labware_module.WellPlate',
+        stage_offset: dict,
         overlap_percent: float = 0.0,
+        *,
+        capabilities: 'ScopeCapabilities',
     ) -> dict:
-        "Returns status dict"
-        'If'
+        """Expand every step into a tile grid; returns a status dict.
+
+        The tile spacing derives from each step's objective and the scope's
+        optics, so the caller that owns the scope hands its capabilities in;
+        a protocol is a data object handed a scale, never one that finds a
+        scope.
+        """
 
         status = {
             'tiles_skipped': 0,
@@ -1154,6 +1165,7 @@ class Protocol:
                     frame_size=frame_dimensions,
                     fill_factor=fill_factor,
                     binning_size=binning_size,
+                    capabilities=capabilities,
                 )
             except ConfigError:
                 # Scale unknown is a scope-wide condition, not a per-step bounds
@@ -1337,8 +1349,13 @@ class Protocol:
         return status
 
     @classmethod
-    def from_config(cls, input_config: dict, tiling_configs_file_loc: pathlib.Path):
-
+    def from_config(
+        cls,
+        input_config: dict,
+        tiling_configs_file_loc: pathlib.Path,
+        *,
+        capabilities: 'ScopeCapabilities',
+    ) -> 'Protocol':
         tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         positions = input_config.get('positions')
@@ -1373,6 +1390,7 @@ class Protocol:
             frame_size=frame_dimensions,
             fill_factor=fill_factor,
             binning_size=binning_size,
+            capabilities=capabilities,
         )
 
         config = {
@@ -1564,8 +1582,9 @@ class Protocol:
         cls,
         config: dict,
         tiling_configs_file_loc: pathlib.Path,
-    ):
-
+        *,
+        capabilities: 'ScopeCapabilities',
+    ) -> 'Protocol':
         tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         labware_id = config['labware_id']
@@ -1594,7 +1613,9 @@ class Protocol:
         }
 
         return cls.from_config(
-            input_config=input_config, tiling_configs_file_loc=tiling_configs_file_loc
+            input_config=input_config,
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            capabilities=capabilities,
         )
 
     @staticmethod

@@ -115,7 +115,11 @@ class _FakeScope:
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
-        self.capabilities = SimpleNamespace(has_turret=False)
+        # A scope that reports no optics: the recording start resolves its
+        # scale off these and writes none, the honest-degradation path.
+        self.capabilities = SimpleNamespace(
+            has_turret=False, pixel_size_um=None, lens_focal_length_mm=None
+        )
 
 
 def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):

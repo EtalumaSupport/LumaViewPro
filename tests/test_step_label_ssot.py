@@ -218,7 +218,7 @@ def test_zstack_children_keep_parent_label():
         assert name == f'Treatment_10x_BF_Z{i}', name
 
 
-def test_tiling_children_keep_parent_label(scale_ctx):
+def test_tiling_children_keep_parent_label(scale_capabilities):
     from modules.labware_loader import WellPlateLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')
@@ -236,6 +236,7 @@ def test_tiling_children_keep_parent_label(scale_ctx):
         labware=labware,
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
+        capabilities=scale_capabilities,
     )
     assert status['tiles_skipped'] == 0
     steps = proto.steps()

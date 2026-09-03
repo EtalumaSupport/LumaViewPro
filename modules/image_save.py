@@ -242,7 +242,9 @@ def generate_image_save_path(
     return path
 
 
-def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
+def generate_image_metadata(
+    scope: Lumascope, channel: str, x: float | None, y: float | None, z: float | None
+) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
     Args:
@@ -302,6 +304,7 @@ def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
         binning_size=scope.imaging._binning_size,
+        capabilities=scope.capabilities,
     )
     # A scope with no known pixel size writes no scale rather than an invented
     # one -- the writer omits PhysicalSizeX and the resolution tag when this is

@@ -70,7 +70,7 @@ def _build_input_config(previous_well_z=None):
     return cfg
 
 
-def test_protocol_from_config_applies_previous_well_z(scale_ctx):
+def test_protocol_from_config_applies_previous_well_z(scale_capabilities):
     """(well, channel) entries get their carried-over Z; others fall back.
 
     The carry-over is keyed by (well, channel) so each channel keeps its own
@@ -79,7 +79,9 @@ def test_protocol_from_config_applies_previous_well_z(scale_ctx):
     from modules.protocol import Protocol
 
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 5.0, ('B2', 'BF'): 7.5})
-    protocol = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS)
+    protocol = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    )
     df = protocol.steps()
 
     a1_z = df.loc[df['Well'] == 'A1', 'Z'].iloc[0]
@@ -93,12 +95,14 @@ def test_protocol_from_config_applies_previous_well_z(scale_ctx):
     )
 
 
-def test_protocol_from_config_no_previous_well_z_falls_through(scale_ctx):
+def test_protocol_from_config_no_previous_well_z_falls_through(scale_capabilities):
     """No previous_well_z key -> every well uses layer_config focus."""
     from modules.protocol import Protocol
 
     cfg = _build_input_config()  # no previous_well_z
-    protocol = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS)
+    protocol = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    )
     df = protocol.steps()
 
     # Every well's z is the layer focus (100.0).
@@ -108,12 +112,14 @@ def test_protocol_from_config_no_previous_well_z_falls_through(scale_ctx):
     )
 
 
-def test_protocol_from_config_empty_previous_well_z_falls_through(scale_ctx):
+def test_protocol_from_config_empty_previous_well_z_falls_through(scale_capabilities):
     """Empty dict treated the same as missing key."""
     from modules.protocol import Protocol
 
     cfg = _build_input_config(previous_well_z={})
-    protocol = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS)
+    protocol = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    )
     df = protocol.steps()
     assert (df['Z'] == 100.0).all()
 

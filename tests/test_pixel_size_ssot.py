@@ -8,7 +8,6 @@ the scope's optics declare. These pin the corrected resolution order
 value, the LS850T no-op, and the honest-None degradation on the save path.
 """
 
-import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -74,43 +73,35 @@ class TestResolutionOrder:
 
 class TestEffectivePixelSize:
     @staticmethod
-    def _install_scale(monkeypatch, pixel_size_um, lens_focal_length_mm):
-        import modules.app_context as app_context
-
-        scope = SimpleNamespace(
-            capabilities=SimpleNamespace(
-                pixel_size_um=pixel_size_um, lens_focal_length_mm=lens_focal_length_mm
-            )
-        )
-        monkeypatch.setattr(
-            app_context,
-            'ctx',
-            app_context.AppContext(
-                scope=scope,
-                session=SimpleNamespace(settings={}, settings_lock=threading.Lock()),
-            ),
+    def _optics(pixel_size_um, lens_focal_length_mm):
+        return SimpleNamespace(
+            pixel_size_um=pixel_size_um, lens_focal_length_mm=lens_focal_length_mm
         )
 
-    def test_ls620_effective_pixel_size_at_20x(self, monkeypatch):
+    def test_ls620_effective_pixel_size_at_20x(self):
         # The bench-measured value: 2.2 / (47.8 / 9.0) = 0.41423 at 20x
         # (focal_length 9.0). The old 2.0 fallback gave 0.37657.
-        self._install_scale(monkeypatch, 2.2, 47.8)
-        assert common_utils.get_pixel_size(focal_length=9.0, binning_size=1) == pytest.approx(
-            0.41423, abs=1e-4
-        )
+        assert common_utils.get_pixel_size(
+            focal_length=9.0, binning_size=1, capabilities=self._optics(2.2, 47.8)
+        ) == pytest.approx(0.41423, abs=1e-4)
 
-    def test_ls850t_effective_pixel_size_unchanged_at_20x(self, monkeypatch):
-        self._install_scale(monkeypatch, 2.0, 47.8)
-        assert common_utils.get_pixel_size(focal_length=9.0, binning_size=1) == pytest.approx(
-            0.37657, abs=1e-4
-        )
+    def test_ls850t_effective_pixel_size_unchanged_at_20x(self):
+        assert common_utils.get_pixel_size(
+            focal_length=9.0, binning_size=1, capabilities=self._optics(2.0, 47.8)
+        ) == pytest.approx(0.37657, abs=1e-4)
 
-    def test_no_scale_returns_none_not_a_guess(self, monkeypatch):
-        self._install_scale(monkeypatch, None, None)
-        assert common_utils.get_pixel_size(focal_length=9.0, binning_size=1) is None
+    def test_no_scale_returns_none_not_a_guess(self):
+        optics = self._optics(None, None)
+        assert (
+            common_utils.get_pixel_size(focal_length=9.0, binning_size=1, capabilities=optics)
+            is None
+        )
         assert (
             common_utils.get_field_of_view(
-                focal_length=9.0, frame_size={'width': 100, 'height': 100}, binning_size=1
+                focal_length=9.0,
+                frame_size={'width': 100, 'height': 100},
+                binning_size=1,
+                capabilities=optics,
             )
             is None
         )

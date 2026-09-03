@@ -10,8 +10,8 @@ bar). The geometry is now rendered with a nonzero sentinel so the mask captures
 the bar+text location, and the real value (0 for black) is written there.
 
 Scale-bar rendering is pure numpy/cv2, so this runs without the Kivy app. It
-does need a scale, though: get_pixel_size reads the pixel size from the active
-scope (no hardcoded fallback), which the scale_ctx fixture supplies.
+does need a scale, though: add_scale_bar takes the scope's optics (no hardcoded
+fallback), which the scale_capabilities fixture supplies.
 """
 
 from __future__ import annotations
@@ -24,16 +24,27 @@ import modules.image_utils as image_utils
 _OBJECTIVE = {'focal_length': 10.0, 'magnification': 20}
 
 
+_OPTICS = None
+
+
 @pytest.fixture(autouse=True)
-def _scale(scale_ctx):
+def _scale(scale_capabilities):
     """Every test here draws a scale bar, which needs a known pixel size."""
-    return scale_ctx
+    global _OPTICS
+    _OPTICS = scale_capabilities
+    yield
+    _OPTICS = None
 
 
 def _add(image, color):
     image_utils._scale_bar_cache = {}  # module-global cache; isolate each call
     return image_utils.add_scale_bar(
-        image=image, objective=_OBJECTIVE, binning_size=1, color=color, significant_bits=8
+        image=image,
+        objective=_OBJECTIVE,
+        binning_size=1,
+        color=color,
+        significant_bits=8,
+        capabilities=_OPTICS,
     )
 
 
@@ -69,6 +80,7 @@ def _add_depth(image, color, significant_bits):
         binning_size=1,
         color=color,
         significant_bits=significant_bits,
+        capabilities=_OPTICS,
     )
 
 

@@ -12,13 +12,16 @@ import platform
 import re
 import threading
 import time as _time
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import psutil
 
 from lvp_logger import logger
 from modules.video_cadence import effective_recording_fps
+
+if TYPE_CHECKING:
+    from modules.scope_capabilities import ScopeCapabilities
 
 
 # ---------------------------------------------------------------------------
@@ -610,25 +613,26 @@ def to_int(val) -> int | None:
 def get_pixel_size(
     focal_length: float,
     binning_size: int,
+    *,
+    capabilities: 'ScopeCapabilities',
 ) -> float | None:
     """Effective um/pixel for the given objective focal length and binning.
 
-    Reads the tube focal length and sensor pixel size from the active scope's
-    capabilities (the single source of truth for image scale). Returns None
-    when there is no active scope, or when the scope cannot report its optics
-    (unknown camera, no declared optics) -- callers then degrade honestly (no
-    scale bar, no field of view, no PhysicalSizeX) rather than using an
-    invented scale. There is deliberately no hardcoded fallback: a guessed
-    pixel size is written into every image and cannot be told from a measured
-    one.
-    """
-    import modules.app_context as _app_ctx
+    Reads the tube focal length and sensor pixel size from the scope
+    capabilities the caller hands in (the single source of truth for image
+    scale). Returns None when the scope cannot report its optics (unknown
+    camera, no declared optics) -- callers then degrade honestly (no scale
+    bar, no field of view, no PhysicalSizeX) rather than using an invented
+    scale. There is deliberately no hardcoded fallback: a guessed pixel size
+    is written into every image and cannot be told from a measured one.
 
-    ctx = _app_ctx.ctx
-    if ctx is None or ctx.scope is None:
-        return None
-    tube_focal_length = ctx.scope.capabilities.lens_focal_length_mm
-    pixel_width = ctx.scope.capabilities.pixel_size_um
+    The capabilities are required, never looked up: every producer of a
+    scale holds the scope it is imaging with, and a lookup through a
+    process-wide store answered None for every headless run, so every
+    headless image was written with no scale.
+    """
+    tube_focal_length = capabilities.lens_focal_length_mm
+    pixel_width = capabilities.pixel_size_um
     if tube_focal_length is None or pixel_width is None:
         return None
     magnification = tube_focal_length / focal_length
@@ -637,63 +641,17 @@ def get_pixel_size(
     return um_per_pixel * binning_size
 
 
-def log_resolved_optics(objective_id: str, focal_length: float, binning_size: int) -> None:
-    """Record the optics behind image scale, at the moment they are chosen.
-
-    Scale is written into every frame, hyperstack and still as a real
-    PhysicalSizeX, but the values producing it are read off the scope and
-    consumed in process -- so a returned support bundle could only show the
-    shipped default templates, which describe what ships rather than what this
-    scope is set to. On a bench unit the two disagreed in the fourth decimal,
-    which is the size of error a wrong-measurement report is about.
-
-    The um/px comes from get_pixel_size rather than being recomputed, so the
-    logged number cannot drift from the one written into the images. A scope
-    that cannot report its optics still logs, naming the missing input: "no
-    scale" is the condition a returned bundle most needs explained.
-    """
-    import modules.app_context as _app_ctx
-
-    ctx = _app_ctx.ctx
-    scope = None if ctx is None else ctx.scope
-    capabilities = None if scope is None else scope.capabilities
-    tube_focal_length = None if capabilities is None else capabilities.lens_focal_length_mm
-    pixel_width = None if capabilities is None else capabilities.pixel_size_um
-
-    um_per_pixel = get_pixel_size(focal_length=focal_length, binning_size=binning_size)
-
-    if um_per_pixel is None:
-        missing = [
-            name
-            for name, value in (
-                ('active scope', scope),
-                ('tube lens focal length', tube_focal_length),
-                ('sensor pixel size', pixel_width),
-            )
-            if value is None
-        ]
-        logger.warning(
-            f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
-            f'binning={binning_size} -- no image scale available, missing: '
-            f'{", ".join(missing)}. Images from this scope carry no PhysicalSizeX.'
-        )
-        return
-
-    logger.info(
-        f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
-        f'tube_focal_length={tube_focal_length}mm sensor_pixel_size={pixel_width}um '
-        f'binning={binning_size} -> {um_per_pixel}um/px'
-    )
-
-
 def get_field_of_view(
     focal_length: float,
     frame_size: dict,
     binning_size: int,
+    *,
+    capabilities: 'ScopeCapabilities',
 ) -> dict | None:
     um_per_pixel = get_pixel_size(
         focal_length=focal_length,
         binning_size=binning_size,
+        capabilities=capabilities,
     )
     # No scale, no field of view. A fabricated extent reads downstream as a
     # measurement (tiling steps, FOV readouts); None is the honest signal that
