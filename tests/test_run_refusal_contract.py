@@ -27,6 +27,9 @@ Covered here:
    carries the matching reason code.
 5. A run prepared without the autofocus snapshot it would restore from
    is refused at the signature, so no partial run reaches disk.
+6. A run whose data root cannot be resolved fails at start -- one
+   notification, the terminal callback, nothing left on disk -- rather
+   than proceeding and failing later on a post-run background thread.
 
 The caller-ordering half of the contract (UI starters commit
 running-state only between prepare and start, inside the shared
@@ -79,6 +82,9 @@ TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 def _make_simulated_scope():
     s = Lumascope(simulate=True)
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -755,6 +761,92 @@ class TestAutofocusSnapshotIsRequiredToPrepare:
             f'no run started, so no terminal callback may fire; got {run_complete.call_args_list}'
         )
         assert not runner.run_in_progress()
+
+
+# ---------------------------------------------------------------------------
+# 6. A run that cannot resolve its data root fails at start.
+# ---------------------------------------------------------------------------
+
+
+class TestARunThatCannotResolveItsDataRootFailsAtStart:
+    """The run's data root is resolved at start, on the caller's thread.
+
+    The post-run merge and stack build both read data/tiling.json, and
+    both run on a daemon thread long after start() returned. A scope
+    whose source path was never registered cannot answer for that file
+    at all -- so resolving it late means the run captures a full plate
+    and then fails where nobody is waiting. Resolving it at start makes
+    the failure the caller's: the run never commits to disk, the
+    terminal callback carries failed_at_start, and the user is told
+    once.
+    """
+
+    def test_an_unresolvable_data_root_fails_the_run_at_start(self, tmp_path, monkeypatch):
+        import modules.notification_center as notification_center
+        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+
+        notified = []
+        monkeypatch.setattr(
+            notification_center.notifications,
+            'error',
+            lambda *args, **kwargs: notified.append(args),
+        )
+
+        output_dir = tmp_path / 'out'
+        runner = bare_capture_runner()
+        runner._scope.protocols.tiling_configs_path.side_effect = RuntimeError(
+            'scope.protocols.load_protocol/create_protocol require '
+            'scope.protocols.register_source_path() to have been called.'
+        )
+        # A post-run step spawned here would carry the failure onto a
+        # daemon thread, which is the shape this contract replaces.
+        spawned = []
+        monkeypatch.setattr(
+            runner, '_spawn_post_run_step', lambda **kwargs: spawned.append(kwargs['name'])
+        )
+
+        completions = []
+        plan = runner.prepare(
+            **scr_run_kwargs(
+                parent_dir=output_dir,
+                disable_saving_artifacts=False,
+                callbacks={
+                    'run_complete': lambda **kw: completions.append(kw),
+                    'go_to_step': lambda **kw: None,
+                },
+            )
+        )
+        # start() resolves the outcome rather than raising, so the caller
+        # is released with an answer on this path like every other.
+        runner.start(plan)
+
+        runner._scope.protocols.tiling_configs_path.assert_called_once_with()
+        assert len(completions) == 1, (
+            'the terminal callback must fire exactly once for a run that '
+            f'could not resolve its data root; got {completions}'
+        )
+        assert completions[0].get('status') == 'failed_at_start', (
+            f'run_complete must carry the failed-at-start status; got {completions[0]}'
+        )
+        failed_to_start = [args for args in notified if 'Run failed to start' in args]
+        assert len(failed_to_start) == 1, (
+            f'the user must be told once that the run failed to start; got {notified}'
+        )
+        assert notified == failed_to_start, (
+            f'a failed-at-start run raises exactly that one error; got {notified}'
+        )
+        # The path is resolved BEFORE the run directory is created, so a
+        # run that cannot resolve it leaves no half-made directory behind.
+        assert not output_dir.exists() or not list(output_dir.iterdir()), (
+            'a run that failed before it could resolve its data root must '
+            f'leave the capture location untouched; found {list(output_dir.iterdir())}'
+        )
+        assert not runner.run_in_progress(), (
+            'a run that failed at start must not stay marked in progress'
+        )
+        assert not spawned, (
+            f'a run that never captured anything has nothing to post-process; got {spawned}'
+        )
 
 
 def test_every_runner_refusal_reason_is_covered():

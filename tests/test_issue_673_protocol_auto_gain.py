@@ -118,6 +118,9 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
 @pytest.fixture
 def scope():
     s = home_sim_scope(Lumascope(simulate=True))
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

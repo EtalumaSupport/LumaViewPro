@@ -1635,7 +1635,11 @@ class TestRule14_A7_HyperstackBuildNotify:
         builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
         monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
 
-        stack_builder_module.build_hyperstacks_for_run(run_dir=pathlib.Path('.'), has_turret=False)
+        stack_builder_module.build_hyperstacks_for_run(
+            run_dir=pathlib.Path('.'),
+            has_turret=False,
+            tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
+        )
 
         assert captured, 'the build failure must surface the failure popup'
         assert captured[0][1] == 'Hyperstack build failed', (

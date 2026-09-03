@@ -289,6 +289,7 @@ class SequencedCaptureRunner:
 
     def _reset_vars(self):
         self._run_dir = None
+        self._tiling_configs_file_loc = None
         self._run_trigger_source = None
         self._image_writer = None
         # Nulled, not replaced: the next run's start() builds a fresh one
@@ -1045,6 +1046,13 @@ class SequencedCaptureRunner:
 
             notifications.set_protocol_running(True)
 
+            # Resolved once here, before anything touches the disk, so a
+            # scope with no registered source path fails the run at start
+            # with no run directory left behind -- rather than raising
+            # later on the post-run daemon thread, where nothing is
+            # watching. Both post-run steps take the value captured here.
+            self._tiling_configs_file_loc = self._scope.protocols.tiling_configs_path()
+
             self._setup_run_dir()
 
             # The LED lease covers the whole scan so live UI illumination
@@ -1313,6 +1321,7 @@ class SequencedCaptureRunner:
         if run_dir is None:
             return None
         has_turret = self._scope.capabilities.has_turret
+        tiling_configs_file_loc = self._tiling_configs_file_loc
 
         def _wait_for_queue() -> bool:
             while self.file_io_executor.is_protocol_queue_active():
@@ -1323,7 +1332,9 @@ class SequencedCaptureRunner:
             name='hyperstack-build',
             wait_fn=_wait_for_queue,
             build_fn=lambda: stack_builder.build_hyperstacks_for_run(
-                run_dir=run_dir, has_turret=has_turret
+                run_dir=run_dir,
+                has_turret=has_turret,
+                tiling_configs_file_loc=tiling_configs_file_loc,
             ),
         )
 
@@ -1353,6 +1364,7 @@ class SequencedCaptureRunner:
             else image_mode.OUTPUT_FORMAT_TIFF
         )
         has_turret = self._scope.capabilities.has_turret
+        tiling_configs_file_loc = self._tiling_configs_file_loc
 
         def _fail(reason: str, detail: str) -> None:
             # The one place a merge failure becomes visible: one log line,
@@ -1379,14 +1391,13 @@ class SequencedCaptureRunner:
         def _merge():
             try:
                 from modules.composite_generation import CompositeGeneration
-                from modules.path_utils import get_source_root
 
                 # The loader is told the run owns the surface: its own
                 # unattended-batch notices would otherwise open a modal at
                 # start and another at the end of every composite.
                 result = CompositeGeneration(has_turret=has_turret).load_folder(
                     path=run_dir,
-                    tiling_configs_file_loc=get_source_root() / 'data' / 'tiling.json',
+                    tiling_configs_file_loc=tiling_configs_file_loc,
                     output_format=output_format,
                     brightness_thresholds_percent=thresholds,
                     announce=False,

@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import pathlib
 
-import modules.app_context as _app_ctx
-
 
 MAX_COLLISION_SUFFIX = 999
 
@@ -109,10 +107,6 @@ def get_source_root(
     """Return the writable user data root for the current app session."""
     if source_path is not None:
         return pathlib.Path(source_path)
-
-    ctx = _app_ctx.ctx
-    if ctx is not None and getattr(ctx, 'source_path', None):
-        return pathlib.Path(ctx.source_path)
 
     script_root = get_script_root()
     if os.name != 'nt' or not (script_root / 'marker.lvpinstalled').exists():

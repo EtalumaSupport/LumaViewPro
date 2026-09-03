@@ -255,6 +255,9 @@ class TestHeadlessProtocolExecution:
             from modules.labware_loader import WellPlateLoader
 
             scope = Lumascope(simulate=True)
+            # The session registers the data root at bring-up; a runner over a
+            # bare scope needs it too, or the run refuses at start.
+            scope.protocols.register_source_path('.')
             # Speed up the simulator for test runtime
             scope._led_driver.set_timing_mode('fast')
             scope._motion_driver.set_timing_mode('fast')

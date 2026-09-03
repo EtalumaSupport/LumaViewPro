@@ -116,12 +116,6 @@ def _read_channel(path) -> str:
 
 def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
     ctx = MagicMock()
-    # A bare MagicMock auto-answers source_path with a Mock, which the
-    # data-root resolution would happily turn into a nonexistent path --
-    # taking the layer vocabulary (and everything derived from it) down
-    # with it. None means "no session override": files resolve from the
-    # real source tree, as production does before a session exists.
-    ctx.source_path = None
     ctx.settings = {
         'live_folder': str(tmp_path),
         'separate_folder_per_channel': False,

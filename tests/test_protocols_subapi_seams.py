@@ -59,7 +59,7 @@ _RETIRED_FROM_LUMASCOPE = (
     'load_protocol',
     'create_protocol',
     'register_source_path',
-    '_tiling_configs_path',
+    'tiling_configs_path',
     'sanitize_step_name',
 )
 
@@ -171,7 +171,7 @@ class TestConstructorsRefuseToGuess:
         scope = _new_scope()
         try:
             scope.protocols.register_source_path('/tmp/lvp-root')
-            assert scope.protocols._tiling_configs_path() == (
+            assert scope.protocols.tiling_configs_path() == (
                 pathlib.Path('/tmp/lvp-root') / 'data' / 'tiling.json'
             )
         finally:

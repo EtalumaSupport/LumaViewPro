@@ -24,6 +24,7 @@ holds that wait down.
 
 import contextlib
 import pathlib
+import shutil
 import time
 
 import pytest
@@ -104,17 +105,22 @@ def _complete_the_bring_up(session, settings):
 
 
 @contextlib.contextmanager
-def open_composite_session(settings):
+def open_composite_session(settings, source_path='.'):
     """A headless session on simulated hardware, ready to run a composite.
 
     Yields ``(session, runner)`` with the executors started and the scope
     homed, and tears both down on exit. The other headless composite files
     build their own settings and open the session through this, so there
     is exactly one description of what a ready headless scope is.
+
+    ``source_path`` is the installation root the session resolves its data
+    files against, defaulted to the same '.' ``create_headless`` uses so a
+    caller with no opinion is unaffected. A caller that HAS one states it
+    here rather than composing a second session shape beside this one.
     """
     from modules.scope_session import ScopeSession
 
-    session = ScopeSession.create_headless(settings=settings)
+    session = ScopeSession.create_headless(settings=settings, source_path=source_path)
     _complete_the_bring_up(session, settings)
 
     scope = session.scope
@@ -357,4 +363,55 @@ class TestTheEngineMatchesTheWorkerItReplaces:
             'the run kind produced a different composite than build_composite '
             'does from the same on-disk frames; the orchestrators disagree '
             'about depth, channel selection, or threshold scale'
+        )
+
+
+class TestTheMergeReadsTheSessionsOwnDataRoot:
+    """The merge's tiling config comes from the root the session holds.
+
+    A session is told where its installation lives, and every file the
+    run reads has to come from there. The merge resolved
+    ``data/tiling.json`` from the process's script root instead, so a
+    session pointed at one installation merged against another one's
+    tiling geometry -- silently, because both roots hold a readable file.
+    Nothing about the merged artifact shows which one was read, so this
+    is asserted at the argument the loader was handed.
+    """
+
+    def test_the_merge_reads_tiling_from_the_root_the_session_was_built_with(
+        self, tmp_path, monkeypatch
+    ):
+        repo_root = pathlib.Path(__file__).resolve().parents[1]
+        data_dir = tmp_path / 'data'
+        data_dir.mkdir()
+        shutil.copy(repo_root / 'data' / 'tiling.json', data_dir / 'tiling.json')
+
+        loads = []
+
+        class _RecordingCompositeGeneration:
+            """The real loader's shape, recording what the merge hands it."""
+
+            def __init__(self, has_turret=False):
+                self.has_turret = has_turret
+
+            def load_folder(self, **kwargs):
+                loads.append(kwargs)
+                artifact = pathlib.Path(kwargs['path']) / 'recorded_composite.tiff'
+                artifact.touch()
+                return {'status': True, 'artifact_paths': [str(artifact)]}
+
+        import modules.composite_generation as composite_generation
+
+        monkeypatch.setattr(
+            composite_generation, 'CompositeGeneration', _RecordingCompositeGeneration
+        )
+
+        settings = headless_settings(tmp_path)
+        with open_composite_session(settings, source_path=str(tmp_path)) as (_session, runner):
+            runner.run_composite(sequence_name='data_root', parent_dir=str(tmp_path))
+
+        assert len(loads) == 1, f'expected exactly one merge for one run; got {len(loads)}'
+        assert loads[0]['tiling_configs_file_loc'] == data_dir / 'tiling.json', (
+            'the merge read its tiling config from outside the root the session '
+            f'was built with: {loads[0]["tiling_configs_file_loc"]}'
         )

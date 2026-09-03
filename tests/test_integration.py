@@ -244,6 +244,9 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     """Create a real Lumascope with simulated hardware."""
     s = Lumascope(simulate=True)
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     # Set timing to fast for test speed
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
