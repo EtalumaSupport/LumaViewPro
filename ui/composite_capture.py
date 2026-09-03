@@ -89,6 +89,19 @@ class CompositeCapture(FloatLayout):
                 # Empty well label (zero-well Blank labware): no leading
                 # underscore from a missing segment.
                 append = f'{well_label}_{layer}' if well_label else layer
+                # In engineering mode the name carries the turret position,
+                # composed by the writer's own renderer so a manual capture
+                # and a protocol step spell it the same way and a filename
+                # reader recognises it. A position the scope has not
+                # reported yet adds nothing.
+                append = common_utils.build_step_name(
+                    common_utils.StepNameComponents(
+                        custom_prefix=append,
+                        turret_position=(
+                            ctx.scope.motion._last_turret_position if ctx.engineering_mode else None
+                        ),
+                    )
+                )
                 # The checkbox answers how the frame is DISPLAYED, and nothing
                 # else. What was imaged is the opened layer, passed separately
                 # below -- reading the channel off this checkbox is what made
