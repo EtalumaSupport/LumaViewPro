@@ -54,7 +54,11 @@ class ProtocolCallbacks:
     reset_title: Callable | None = None  # () -> None
 
     # --- Live UI (set by callers, forwarded as-is) ---
-    update_scope_display: Callable | None = None  # () -> None
+    # Holds a just-saved protocol frame on screen so the user sees what was
+    # saved before the live preview overwrites it. Called DIRECTLY on the
+    # writer's thread, not marshalled to the UI thread: the display does
+    # the expensive conversion inline and schedules only the texture write.
+    hold_protocol_saved_image: Callable | None = None  # (image, significant_bits) -> None
     pause_live_ui: Callable | None = None  # () -> None
     resume_live_ui: Callable | None = None  # () -> None
 

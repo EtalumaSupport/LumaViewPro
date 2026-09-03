@@ -871,14 +871,12 @@ class ProtocolImageWriter:
                     # the user can see the saved frame before the live preview
                     # overwrites it. NOT a delay -- the next protocol save bumps
                     # the hold deadline forward, so display tracks the
-                    # most-recent saved frame in real time. Best-effort; missing
-                    # scope_display (early init / standalone tools) is fine.
+                    # most-recent saved frame in real time. Best-effort: the
+                    # GUI hands the hook in, and one whose display is not built
+                    # yet (early init / standalone tools) may raise here.
                     try:
-                        import modules.app_context as _app_ctx
-
-                        ctx = _app_ctx.ctx
-                        if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
-                            ctx.scope_display.hold_protocol_saved_image(
+                        if self._callbacks.hold_protocol_saved_image:
+                            self._callbacks.hold_protocol_saved_image(
                                 captured_image, frame_significant_bits
                             )
                     except Exception as _e:

@@ -56,6 +56,23 @@ def run_with_refusal_boundary(
 # ============================================================================
 
 
+def live_display_callbacks() -> dict:
+    """The run callbacks that feed the live display, for every GUI run starter.
+
+    One key today: the hold that keeps a just-saved protocol frame on screen.
+    Late-bound on purpose -- the display is resolved when the writer calls,
+    not when the starter builds its dict -- so a run started before the
+    display exists degrades inside the writer's own guard, exactly as the
+    writer's former direct read did, in one place rather than at each
+    starter.
+    """
+    return {
+        'hold_protocol_saved_image': lambda image, significant_bits: (
+            _app_ctx.ctx.scope_display.hold_protocol_saved_image(image, significant_bits)
+        ),
+    }
+
+
 def set_last_save_folder(dir):
     if dir is None:
         return

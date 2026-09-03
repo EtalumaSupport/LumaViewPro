@@ -25,6 +25,7 @@ from modules.tiling_config import TilingConfig
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     move_absolute,
@@ -512,6 +513,7 @@ class VerticalControl(BoxLayout):
             af_sequence = ctx.scope.protocols.create_protocol(input_config=config)
 
             callbacks = {
+                **live_display_callbacks(),
                 'move_position': _handle_ui_update_for_axis,
                 'run_complete': self._autofocus_run_complete,
             }

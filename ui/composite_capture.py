@@ -20,6 +20,7 @@ from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_title,
@@ -335,7 +336,10 @@ class CompositeCapture(FloatLayout):
                 runner.start_composite(
                     sequence_name='composite',
                     parent_dir=parent_dir,
-                    callbacks={'run_complete': self._composite_finished},
+                    callbacks={
+                        **live_display_callbacks(),
+                        'run_complete': self._composite_finished,
+                    },
                     run_trigger_source='composite',
                     engineering_mode=ctx.engineering_mode,
                 )
