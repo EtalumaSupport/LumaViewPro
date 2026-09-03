@@ -19,6 +19,7 @@ import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
 from modules.exceptions import ConfigError, ProtocolRunRefusedError
 from modules.objectives_loader import ObjectiveLoader
+from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 
 # ---------------------------------------------------------------------------
@@ -121,22 +122,51 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
-def get_sequenced_run_settings(settings: dict) -> dict:
+def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunMode) -> dict:
     """Resolve the settings-derived kwargs a sequenced-capture run forwards.
 
-    The single source for the run-parameters a protocol scan reads from the
-    user settings, spread into SequencedCaptureRunner.run() at every call site.
-    Both the GUI scan path and the API protocol path build the run kwargs, and
-    each forwarding a separate hand-picked subset is how they drift: a key
-    present on one path but missing on the other silently changes hardware
-    behavior (LED hold, output layout) for whichever path forgot it. Routing
-    both through here makes the per-path subset one definition, so adding a new
-    run-param cannot reach the runner on only one path.
+    The single source for the run-parameters a run reads from the user
+    settings, spread into SequencedCaptureRunner.prepare() at every call
+    site. The GUI starters and the API protocol path all build the run
+    kwargs, and each forwarding a separate hand-picked subset is how they
+    drift: a key present on one path but missing on the other silently
+    changes hardware behavior (LED hold, output layout, AF ceiling) for
+    whichever path forgot it. Routing every path through here makes the
+    per-path subset one definition, so adding a new run-param cannot reach
+    the runner on only one path -- and a run that has no settings dict at
+    all (headless) cannot silently fall back to defaults the engine
+    invented, because the engine no longer reads settings itself.
+
+    The values are read once here, by the caller that owns the settings,
+    and frozen on the run plan: a mid-run toggle must never make some
+    steps of one scan behave differently from others.
+
+    Two of the reads are nested (``video.timestamp_overlay``,
+    ``video.max_fps``) while the run-value names are flat; the key paths
+    are what the GUI writers use, so a typo here returns the default on
+    every install without failing anything -- keep them exactly as the
+    writers spell them.
+
+    ``run_mode`` carries the one run kind whose values are not the user's:
+    an autofocus scan must NOT hold the excitation LED across focus moves
+    (photobleaching the sample) and saves nothing, so it never keeps the
+    LED between steps and never makes per-channel folders, whatever the
+    settings say. That guarantee lives here, once, rather than as an
+    omission at each autofocus call site.
     """
+    autofocus_scan = run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
     return {
-        'keep_led_between_steps': settings.get('keep_led_between_steps', False),
+        'keep_led_between_steps': (
+            False if autofocus_scan else settings.get('keep_led_between_steps', False)
+        ),
         'video_as_frames': settings.get('video_as_frames', False),
-        'separate_folder_per_channel': settings.get('separate_folder_per_channel', False),
+        'separate_folder_per_channel': (
+            False if autofocus_scan else settings.get('separate_folder_per_channel', False)
+        ),
+        'bf_af_for_fluorescence': settings.get('protocol', {}).get('bf_af_for_fluorescence', False),
+        'timestamp_overlay': settings.get('video', {}).get('timestamp_overlay', True),
+        'video_max_fps': settings.get('video', {}).get('max_fps', 0),
+        'ag_ae_max_exposure_ms': settings.get('ag_ae_max_exposure_ms', {}),
     }
 
 
@@ -151,15 +181,21 @@ def get_manual_video_max_duration(settings: dict) -> float:
     return settings.get('video', {}).get('max_duration_seconds', 300)
 
 
-def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
+def get_ag_ae_max_exposure_ms(layer: str, overrides: dict | None = None) -> float:
     """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
 
     AG/AE is capped per channel class so auto-exposure cannot drive the
     sensor toward its native max on dim scenes. Resolves the layer to its
-    class, then returns the per-install override
-    (settings['ag_ae_max_exposure_ms'][<class>]) when present, else the
+    class, then returns the per-install override when present, else the
     DEFAULT_AG_AE_MAX_EXPOSURE_MS default. Unknown layers fall back to the
     fluorescence cap.
+
+    ``overrides`` is the flat per-class map the settings hold under
+    ``ag_ae_max_exposure_ms`` (``{'fluorescence': 150.0, ...}``), handed
+    in by the caller that owns the settings -- a run carries it on its
+    plan, the live view reads it off the context. It is NOT the whole
+    settings dict: passing that resolves to the table default for every
+    class, silently.
     """
     if layer in common_utils.get_transmitted_layers():
         channel_class = 'transmitted'
@@ -167,8 +203,8 @@ def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float
         channel_class = 'luminescence'
     else:
         channel_class = 'fluorescence'
-    if settings:
-        override = settings.get('ag_ae_max_exposure_ms', {}).get(channel_class)
+    if overrides:
+        override = overrides.get(channel_class)
         if override is not None:
             return float(override)
     return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]

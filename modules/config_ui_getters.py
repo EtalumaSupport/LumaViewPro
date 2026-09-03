@@ -274,7 +274,9 @@ def get_auto_gain_settings() -> dict:
 
 
 def get_ag_ae_max_exposure_ms(layer: str) -> float:
-    return config_helpers.get_ag_ae_max_exposure_ms(layer, _app_ctx.ctx.settings)
+    return config_helpers.get_ag_ae_max_exposure_ms(
+        layer, _app_ctx.ctx.settings.get('ag_ae_max_exposure_ms', {})
+    )
 
 
 def get_protocol_time_params() -> dict:

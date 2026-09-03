@@ -1721,17 +1721,16 @@ class ProtocolSettings(FloatLayout):
                     parent_dir=None,
                     image_capture_config=get_image_capture_config_from_ui(),
                     enable_image_saving=False,
-                    # The autofocus scan deliberately does NOT hold the LED across
-                    # moves (no get_sequenced_run_settings here): keeping the
-                    # excitation LED on during inter-step focus motion would
-                    # photobleach the sample. It also saves nothing, so the
-                    # folder/video params are irrelevant.
-                    separate_folder_per_channel=False,
                     autogain_settings=autogain_settings,
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=True,
                     leds_state_at_end='off',
-                    video_as_frames=settings['video_as_frames'],
+                    # The autofocus scan must NOT hold the excitation LED
+                    # across focus moves (photobleaching) and saves nothing;
+                    # the helper's autofocus-scan branch forces both off.
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+                    ),
                 )
                 commit_ui_state()
                 sequenced_capture_runner.start(plan)
@@ -2299,7 +2298,7 @@ class ProtocolSettings(FloatLayout):
             return_to_position=return_to_position,
             leds_state_at_end='off',
             initial_autofocus_states=initial_autofocus_states,
-            **config_helpers.get_sequenced_run_settings(settings),
+            **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
         if commit_ui_state is not None:
             commit_ui_state()

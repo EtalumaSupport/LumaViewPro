@@ -261,7 +261,9 @@ class ZStack(FloatLayout):
                     callbacks=callbacks,
                     return_to_position=initial_position,
                     leds_state_at_end='return_to_original',
-                    **config_helpers.get_sequenced_run_settings(settings),
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
+                    ),
                 )
                 ctx.sequenced_capture_runner.start(plan)
                 # A refusal raises out of prepare before this line, so the

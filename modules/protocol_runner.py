@@ -426,7 +426,7 @@ class ProtocolRunner:
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
             initial_autofocus_states=initial_autofocus_states,
-            **config_helpers.get_sequenced_run_settings(self.session.settings),
+            **config_helpers.get_sequenced_run_settings(self.session.settings, run_mode=run_mode),
         )
 
         # Run-state truth is the session claim, committed inside

@@ -544,7 +544,9 @@ class VerticalControl(BoxLayout):
                     # never leaves the current position. A fatal abort still
                     # forces dark regardless of this policy.
                     leds_state_at_end='return_to_original',
-                    video_as_frames=settings['video_as_frames'],
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+                    ),
                 )
                 runner.start(plan)
 

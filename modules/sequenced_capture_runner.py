@@ -114,6 +114,16 @@ class RunPlan:
     keep_led_between_steps: bool
     return_to_position: dict | None
     stage_offset: dict
+    # The settings-derived run values, resolved once by the caller that
+    # owns the settings (config_helpers.get_sequenced_run_settings) and
+    # frozen here so a mid-run toggle cannot make some steps of one scan
+    # behave differently from others. The engine never reads settings for
+    # these itself: a headless run gets exactly what its caller resolved.
+    bf_af_for_fluorescence: bool
+    timestamp_overlay: bool
+    video_max_fps: int
+    # Flat per-class AG/AE exposure ceilings ({'fluorescence': 150.0, ...}).
+    ag_ae_max_exposure_ms: dict
     # Per-layer blend thresholds the post-run merge needs, snapshotted by
     # the caller that has the settings. Carried on the plan rather than
     # read at merge time: the merge runs on a worker thread after the run,
@@ -671,6 +681,10 @@ class SequencedCaptureRunner:
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
+        bf_af_for_fluorescence: bool = False,
+        timestamp_overlay: bool = True,
+        video_max_fps: int = 0,
+        ag_ae_max_exposure_ms: dict | None = None,
         composite_thresholds_percent: dict | None = None,
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
@@ -910,6 +924,10 @@ class SequencedCaptureRunner:
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
+            bf_af_for_fluorescence=bf_af_for_fluorescence,
+            timestamp_overlay=timestamp_overlay,
+            video_max_fps=video_max_fps,
+            ag_ae_max_exposure_ms=copy.deepcopy(ag_ae_max_exposure_ms or {}),
             composite_thresholds_percent=composite_thresholds_percent,
         )
 
@@ -978,6 +996,10 @@ class SequencedCaptureRunner:
             self._leds_state_at_end = plan.leds_state_at_end
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
+            self._bf_af_for_fluorescence = plan.bf_af_for_fluorescence
+            self._timestamp_overlay = plan.timestamp_overlay
+            self._video_max_fps = plan.video_max_fps
+            self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
             self._run_trigger_source = plan.run_trigger_source
@@ -1048,31 +1070,6 @@ class SequencedCaptureRunner:
             self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
             if self._original_autofocus_states is None:
                 self._original_autofocus_states = self.get_initial_autofocus_states()
-
-            ctx = _app_ctx.ctx
-            # bf_af_for_fluorescence is snapshotted once per run under
-            # settings_lock so mid-run toggles do not produce inconsistent AF
-            # behavior across steps within one scan; protocol_step_runner
-            # reads p._bf_af_for_fluorescence.
-            if ctx is not None:
-                with ctx.settings_lock:
-                    self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
-                        'bf_af_for_fluorescence', False
-                    )
-                    # Snapshot once per run so a mid-run toggle cannot make
-                    # some video steps stamped and others clean; overlay-on
-                    # is the shipped default.
-                    self._timestamp_overlay = ctx.settings.get('video', {}).get(
-                        'timestamp_overlay', True
-                    )
-                    # Same snapshot discipline for the global rate cap: the
-                    # recording rate and the disk sizing must read one
-                    # per-run value, never live settings mid-run.
-                    self._video_max_fps = ctx.settings.get('video', {}).get('max_fps', 0)
-            else:
-                self._bf_af_for_fluorescence = False
-                self._timestamp_overlay = True
-                self._video_max_fps = 0
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)

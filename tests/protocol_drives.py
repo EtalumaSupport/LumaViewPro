@@ -138,6 +138,7 @@ def scan_ready_runner(step, **state):
     runner._video_as_frames = False
     runner._leds_state_at_end = 'off'
     runner._keep_led_between_steps = False
+    runner._ag_ae_max_exposure_ms = {}
     runner._update_z_pos_from_autofocus = False
     runner._save_autofocus_data = False
     runner._parent_dir = None
