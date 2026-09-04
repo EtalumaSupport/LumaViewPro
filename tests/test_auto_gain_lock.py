@@ -392,3 +392,106 @@ def test_arm_clamps_exposure_above_the_class_cap():
     )
     assert cam._exposure_us == 20000.0
     assert not [m for m in _logged('info') if '[AG ARM]' in m]
+
+
+def test_run_restore_re_arms_the_live_view_arm():
+    """A run's camera-state snapshot records a standing live-view arm and
+    the restore puts the loop back the way the snapshot found it: re-armed
+    when one stood, disarmed when none did and one stands now (an aborted
+    step), untouched by a hand-built snapshot without the field. Every run
+    used to end with the step-end disarm and a restore of gain and exposure
+    only, leaving the loop off while the layer toggle showed on."""
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    snapshot = imaging.save_camera_state('protocol')
+    assert snapshot['auto_gain_arm'] is not None
+    assert imaging._lock_auto_gain_impl().state is not None
+    assert cam._auto_gain_enabled is False
+    imaging.restore_camera_state(snapshot)
+    assert cam._auto_gain_enabled is True
+    assert imaging._auto_gain_arm is not None
+    assert imaging._auto_gain_arm.resume_after_capture is True
+
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    snapshot = imaging.save_camera_state('protocol')
+    assert snapshot['auto_gain_arm'] is None
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    assert cam._auto_gain_enabled is True
+    imaging.restore_camera_state(snapshot)
+    assert cam._auto_gain_enabled is False
+    assert imaging._auto_gain_arm is None
+
+    # A hand-built snapshot without the field: a guard for the future,
+    # green before the field existed as well.
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    imaging.restore_camera_state({'tag': 't', 'exposure_ms': 12.0})
+    assert cam._auto_gain_enabled is True
+    assert imaging.exposure_ms_cached == 12.0
+
+
+def test_restore_re_arm_clamps_a_trimmed_snapshot():
+    """The autofocus trim restores no exposure, so the re-arm sees whatever
+    the sweep left in the cache; above the class ceiling it is clamped like
+    any arm."""
+    imaging, cam = _build_inert()
+    imaging._apply_layer_camera_settings_impl(
+        gain_db=1.0,
+        exposure_ms=20.0,
+        auto_gain=True,
+        auto_gain_settings=AG_SETTINGS_TRANSMITTED,
+        resume_after_capture=True,
+    )
+    snapshot = imaging.save_camera_state('autofocus')
+    imaging._lock_auto_gain_impl()
+    imaging._set_exposure_ms_impl(100.0)
+    trimmed = {'tag': 'autofocus', 'auto_gain_arm': snapshot['auto_gain_arm']}
+    imaging.restore_camera_state(trimmed)
+    assert cam._auto_gain_enabled is True
+    assert cam._exposure_us == 50000.0
+
+
+def test_run_start_owns_a_standing_live_arm():
+    """A run holds a live-view arm that stood when it began: disarmed at
+    start, re-armed by the cleanup restore. Left standing, an auto-gain-off
+    protocol's first capture locked it and re-armed it, and every capture
+    after that did the same -- a run the user set to manual ran auto. The
+    manual autofocus one-shot keeps the arm: it focuses the field the user
+    is watching, live arm included, and its own lock scans at what that arm
+    achieved."""
+    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from tests.protocol_drives import bare_capture_runner
+
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    runner = bare_capture_runner()
+    runner._scope.imaging = imaging
+    runner._saved_camera_state = imaging.save_camera_state('protocol')
+    runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
+    runner._take_auto_gain_arm_for_run()
+    assert cam._auto_gain_enabled is False
+    assert imaging._auto_gain_arm is None
+    assert runner._saved_camera_state['auto_gain_arm'] is not None
+
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    runner = bare_capture_runner()
+    runner._scope.imaging = imaging
+    runner._saved_camera_state = imaging.save_camera_state('protocol')
+    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    runner._take_auto_gain_arm_for_run()
+    assert cam._auto_gain_enabled is True
+    assert imaging._auto_gain_arm is not None
+
+    # The seam: start() takes the arm right after it snapshots the camera.
+    start = ast_seams.find_def(
+        'modules/sequenced_capture_runner.py', 'start', class_name='SequencedCaptureRunner'
+    )
+    assert start is not None
+    attrs = [
+        n.func.attr
+        for n in ast.walk(start)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    ]
+    assert 'save_camera_state' in attrs and '_take_auto_gain_arm_for_run' in attrs
+    assert attrs.index('save_camera_state') < attrs.index('_take_auto_gain_arm_for_run')

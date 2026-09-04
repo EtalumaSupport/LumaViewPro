@@ -3343,13 +3343,16 @@ class ImagingAPI:
 
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
-        """Snapshot the current camera gain and exposure for later restoration.
+        """Snapshot the camera's gain, exposure and auto-gain arm for restoration.
 
         Omit-if-unknown: a field enters the snapshot only when a usable
         value exists (the getters answer last-known-good, so a missing
         field means the value was NEVER successfully read). Restore can
         therefore trust every field it finds, and name the ones it
-        cannot restore.
+        cannot restore. ``auto_gain_arm`` is always present: the standing
+        continuous arm, or None when none stood -- a run that ends with
+        its step-end disarm otherwise leaves the loop off while the layer
+        toggle shows on, until a slider write happens to re-arm it.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
@@ -3382,20 +3385,28 @@ class ImagingAPI:
                 f'never been successfully read; snapshot omits it and the '
                 f'restore will leave exposure unchanged'
             )
+        with self._state_lock:
+            snapshot['auto_gain_arm'] = self._auto_gain_arm
         _api_log.info(
             f'save_camera_state tag={tag}: '
             f'gain={snapshot.get("gain_db", "never-read")} '
-            f'exp={snapshot.get("exposure_ms", "never-read")}'
+            f'exp={snapshot.get("exposure_ms", "never-read")} '
+            f'arm={snapshot["auto_gain_arm"] is not None}'
         )
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
-        """Restore camera gain and exposure from a previously saved state.
+        """Restore camera gain, exposure and auto-gain arm from a saved state.
 
         Fields absent from the snapshot are skipped and named in the log:
         either the caller deliberately trimmed them (autofocus keeps the
         values its run explicitly targeted) or they were never readable at
         save time -- save_camera_state already WARNed about the latter.
+        The auto-gain loop goes back to the snapshot's state after the
+        setters: re-armed when an arm was recorded, disarmed when none was
+        and one stands now (a run aborted between a step's arm and its
+        disarm), untouched when the field is absent. A re-arm clamps the
+        exposure to the class ceiling like any arm.
 
         Args:
             snapshot: Return value from ``save_camera_state``.
@@ -3426,15 +3437,32 @@ class ImagingAPI:
         # needs the line stating what this restore was about to do (a
         # partial restore with no record once misattributed wrong-
         # brightness images to protocol settings).
+        arm_recorded = 'auto_gain_arm' in snapshot
+        arm = snapshot.get('auto_gain_arm')
+        with self._state_lock:
+            standing = self._auto_gain_arm
+        if arm_recorded and arm is not None:
+            arm_action = 're-armed'
+        elif arm_recorded and standing is not None:
+            arm_action = 'disarmed'
+        else:
+            arm_action = 'unchanged'
         _api_log.info(
             f'restore_camera_state tag={tag}: '
             f'gain={gain_db if gain_known else "skipped"} '
-            f'exp={exposure_ms if exposure_known else "skipped"}'
+            f'exp={exposure_ms if exposure_known else "skipped"} '
+            f'arm={arm_action}'
         )
         if gain_known:
             self._set_gain_db_impl(gain_db)
         if exposure_known:
             self._set_exposure_ms_impl(exposure_ms)
+        if arm_action == 're-armed':
+            self._set_auto_gain_impl(
+                True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
+            )
+        elif arm_action == 'disarmed':
+            self._set_auto_gain_impl(False, dict(standing.settings))
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(

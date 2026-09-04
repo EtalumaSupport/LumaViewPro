@@ -15,9 +15,12 @@ resume.
 from __future__ import annotations
 
 import ast
+import contextlib
 import types
 
 import pytest
+
+from modules.exceptions import AutofocusAborted
 
 from tests import ast_seams
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED, _arm, _build
@@ -50,18 +53,31 @@ def test_lock_is_the_first_statement_inside_the_bracket():
     )
 
 
-def test_resume_runs_in_the_finally_outside_the_saved_state_guard():
-    bracket = _the_bracket()
-    resumes = _calls(bracket, '_resume_auto_gain_impl')
-    assert len(resumes) == 1
-    top_level_ifs = [n for n in bracket.finalbody if isinstance(n, ast.If)]
-    hosts = [n for n in top_level_ifs if _calls(n, '_resume_auto_gain_impl')]
-    assert len(hosts) == 1, 'the resume must sit directly in the finally body'
-    host_test = ast.unparse(hosts[0].test)
-    assert 'auto_gain_lock' in host_test and '_saved_camera_state' not in host_test, (
-        f'the resume is guarded by {host_test!r}; it must not hide inside the '
-        'saved-camera-state restore branch, which a refused LED lease skips'
-    )
+def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
+    """The re-arm rides the camera-state restore in the bracket's finally,
+    so an abort exit puts a live-view arm back the same way a completion
+    does. The producer's snapshot is always truthy (the save runs above
+    the try and always carries its tag), so the restore branch cannot be
+    skipped on any exit. A preservation guard on the exit path; the
+    re-arm itself is proven on the API in test_auto_gain_lock."""
+    from modules.lumascope_api.imaging import AutoGainLock, _AutoGainArm
+    from tests.af_drives import af_runner_and_scope, drive_af
+
+    arm = _AutoGainArm(dict(AG_SETTINGS_TRANSMITTED), True)
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
+    runner, scope = af_runner_and_scope()
+    scope.imaging.save_camera_state.return_value = {
+        'tag': 'autofocus',
+        'gain_db': 1.0,
+        'exposure_ms': 10.0,
+        'auto_gain_arm': arm,
+    }
+    scope.imaging._lock_auto_gain_impl.return_value = AutoGainLock(state=None)
+    with contextlib.suppress(AutofocusAborted):
+        drive_af(runner)
+    restored = scope.imaging.restore_camera_state.call_args.args[0]
+    assert restored['auto_gain_arm'] is arm
+    assert scope.imaging._resume_auto_gain_impl.call_count == 0
 
 
 def test_lock_and_resume_pair_on_the_api():

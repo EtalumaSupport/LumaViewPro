@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 _af_log = logging.getLogger('LVP.autofocus')
 
 
+def _describe_restore(restore: dict) -> str:
+    """The restore dict for the log, the arm as a flag rather than its repr."""
+    if not restore:
+        return 'nothing'
+    shown = {k: (v is not None) if k == 'auto_gain_arm' else v for k, v in restore.items()}
+    return str(shown)
+
+
 class AutofocusRunner:
     def __init__(
         self,
@@ -477,14 +485,12 @@ class AutofocusRunner:
                     f'[AF DIAG] Post-AF camera: keeping sweep targets '
                     f'gain={self._camera_gain} exp={self._camera_exposure} '
                     f'source={self._sweep_targets_source}; '
-                    f'restoring {restore or "nothing"} from pre-AF snapshot'
+                    f'restoring {_describe_restore(restore)} from pre-AF snapshot'
                 )
+                # The restore also puts a live-view auto-gain arm back: the
+                # snapshot above recorded it before the lock consumed it, so
+                # every exit -- abort, raise, completion -- re-arms the view.
                 self._scope.imaging.restore_camera_state(restore)
-            # Resume a live-view auto-gain arm on EVERY exit, after the
-            # camera restore, so an aborted or failed sweep never leaves
-            # the view's auto loop silently off.
-            if auto_gain_lock is not None:
-                self._scope.imaging._resume_auto_gain_impl(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
                 f'camera now at gain={self._scope.imaging.get_gain_db()} '

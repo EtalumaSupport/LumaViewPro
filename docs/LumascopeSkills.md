@@ -856,6 +856,8 @@ Symmetric to the LED version, but `restore_camera_state` takes only the snapshot
 
 The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_db` / `exposure_ms` only when a usable value existed at save time (a missing field means that value was never successfully read from the camera; `save_camera_state` logs a warning when it omits one). Use `.get(...)` rather than indexing if you read snapshot fields directly. `restore_camera_state` restores the fields present, quietly skips absent ones (callers may deliberately trim fields they want left at current values), and leaves the camera unchanged for anything it skips.
 
+The snapshot also carries `auto_gain_arm`: the standing continuous auto-gain arm at save time, or `None`. `restore_camera_state` puts the loop back the way the snapshot found it -- re-armed when an arm was recorded (clamping the exposure to the channel class's ceiling like any arm), disarmed when none was recorded and one stands now, untouched when the field is absent. A save/restore pair around your own camera work therefore hands the live view back adjusting if it was adjusting before.
+
 ### Camera listeners
 
 ```python

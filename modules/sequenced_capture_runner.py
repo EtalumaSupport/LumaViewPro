@@ -930,6 +930,24 @@ class SequencedCaptureRunner:
             engineering_mode=engineering_mode,
         )
 
+    def _take_auto_gain_arm_for_run(self) -> None:
+        """Hold a live-view auto-gain arm for the run's duration.
+
+        The snapshot just taken recorded the arm and the cleanup restore
+        re-arms it. Left standing, an auto-gain-off protocol's first
+        capture locks it and, because a live-view arm resumes after a
+        capture, re-arms it -- every capture of a run the user set to
+        manual then runs auto and pays the settle -- and a protocol's
+        first autofocus step scans at the live view's values instead of
+        the step's. The manual autofocus one-shot keeps the arm: it
+        focuses the field the user is watching, live arm included, and
+        its own lock scans at what that arm achieved.
+        """
+        arm = self._saved_camera_state.get('auto_gain_arm')
+        if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+            return
+        self._scope.imaging._set_auto_gain_impl(False, dict(arm.settings))
+
     def start(self, plan: RunPlan) -> 'RunMergeOutcome':
         """Commit to the prepared run and dispatch it.
 
@@ -1075,6 +1093,7 @@ class SequencedCaptureRunner:
             # Snapshot hardware state for restoration after protocol
             self._original_led_states = self._scope.illumination.get_led_states()
             self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+            self._take_auto_gain_arm_for_run()
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
