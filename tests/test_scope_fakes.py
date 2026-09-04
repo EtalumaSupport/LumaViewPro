@@ -159,3 +159,13 @@ def test_magicmock_scope_population_does_not_grow():
         'If a bare MagicMock is genuinely required, raise the budget in this '
         'commit and say why.'
     )
+
+
+# Announced at the end of every run (tests/ratchets.py).
+from tests import ratchets as _ratchets
+
+_ratchets.register(
+    'tests: files building a bare MagicMock scope',
+    lambda: len(_files_building_magicmock_scopes()),
+    _MAGICMOCK_SCOPE_FILE_BUDGET,
+)
