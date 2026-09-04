@@ -355,6 +355,23 @@ def pytest_unconfigure(config):
     print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Announce every registered ratchet's current count beside its pin.
+
+    The ratchet tests fail on a wrong count; this prints the numbers
+    whether or not they failed, so every pytest log carries the progress
+    of each migration. Registry: tests/ratchets.py.
+    """
+    from tests import ratchets
+
+    lines = ratchets.summary_lines()
+    if not lines:
+        return
+    terminalreporter.section('ratchets: current count beside its pin (falling is progress)')
+    for line in lines:
+        terminalreporter.line(line)
+
+
 def pytest_collection_modifyitems(config, items):
     """Skip hardware-marked tests unless the matching opt-in flag is set."""
     gates = [
