@@ -1,4 +1,4 @@
 4.0.0-beta33
-2026-09-03 22:01
-slow-frame-noise
-4ce9c18b
+2026-09-03 23:52
+manual-capture-identity
+a05b9dad

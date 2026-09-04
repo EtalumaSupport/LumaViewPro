@@ -21,6 +21,7 @@ from lvp_logger import logger
 from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
+    from modules.lumascope_api.illumination import IlluminationAPI
     from modules.scope_capabilities import ScopeCapabilities
 
 
@@ -581,8 +582,29 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
     return None
 
 
-def get_opened_layer_obj(lumaview_imagesettings):
-    return lumaview_imagesettings.layer_lookup(layer=get_opened_layer(lumaview_imagesettings))
+DEFAULT_LAYER = 'BF'
+
+
+def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | None) -> str:
+    """The channel a manual output imaged: lit LED, else open layer, else BF.
+
+    A lit LED is direct evidence of what is illuminating the sample, so it
+    outranks the open accordion -- a channel can be lit while a different
+    layer's drawer is open, and the light is the truth. The open layer is
+    the tiebreak for luminescence, which images with no LED lit at all and
+    would otherwise be unnameable. With more than one LED lit, the first in
+    the driver's channel order wins.
+
+    get_led_states() returns {} when no LED board is present, so a
+    board-less scope falls through to the layer with no special case.
+
+    Shared by the manual still capture and the manual recording so the two
+    outputs can never disagree about what one frame is.
+    """
+    for color, state in illumination.get_led_states().items():
+        if state.get('enabled'):
+            return color
+    return open_layer or DEFAULT_LAYER
 
 
 def to_bool(val) -> bool:

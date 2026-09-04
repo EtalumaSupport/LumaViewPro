@@ -60,14 +60,42 @@ class CompositeCapture(FloatLayout):
                 'and reconnect, then try again.',
             )
             return
+        # Every widget read happens here, on the main thread, and before
+        # the capture guard is armed: the task runs on the camera executor,
+        # where .ids access is not thread-safe, and a read that raises here
+        # leaves the button live for the next press instead of wedging it
+        # behind a guard no task will ever clear. The open drawer names a
+        # candidate channel only; the task resolves what was imaged.
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        false_color_on = (
+            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
+            if layer is not None
+            else False
+        )
+        use_bullseye = ctx.scope_display.use_bullseye
+        use_crosshairs = ctx.scope_display.use_crosshairs
         CompositeCapture._capturing.set()
         ctx.camera_executor.put(
             IOTask(
-                action=self._live_capture_impl, callback=lambda: CompositeCapture._capturing.clear()
+                action=self._live_capture_impl,
+                kwargs={
+                    'layer': layer,
+                    'false_color_on': false_color_on,
+                    'use_bullseye': use_bullseye,
+                    'use_crosshairs': use_crosshairs,
+                },
+                callback=lambda: CompositeCapture._capturing.clear(),
             )
         )
 
-    def _live_capture_impl(self):
+    def _live_capture_impl(
+        self,
+        *,
+        layer: str | None,
+        false_color_on: bool,
+        use_bullseye: bool,
+        use_crosshairs: bool,
+    ):
         from modules.config_ui_getters import get_image_capture_config_from_ui, get_layer_configs
 
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
@@ -76,46 +104,42 @@ class CompositeCapture(FloatLayout):
         settings = ctx.settings
 
         file_root = 'live_'
-        false_color_on = False
         well_label = ctx.scope.runtime_state.get_well_label()
 
         image_capture_config = get_image_capture_config_from_ui()
         force_to_8bit_pixel_depth = image_capture_config.capture_depth == 8
         save_encoding = image_capture_config.save_encoding
 
-        for layer in common_utils.get_layers():
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-            if not accordion_item_obj.collapse:
-                # Empty well label (zero-well Blank labware): no leading
-                # underscore from a missing segment.
-                append = f'{well_label}_{layer}' if well_label else layer
-                # In engineering mode the name carries the turret position,
-                # composed by the writer's own renderer so a manual capture
-                # and a protocol step spell it the same way and a filename
-                # reader recognises it. A position the scope has not
-                # reported yet adds nothing.
-                append = common_utils.build_step_name(
-                    common_utils.StepNameComponents(
-                        custom_prefix=append,
-                        turret_position=(
-                            ctx.scope.motion._last_turret_position if ctx.engineering_mode else None
-                        ),
-                    )
-                )
-                # The checkbox answers how the frame is DISPLAYED, and nothing
-                # else. What was imaged is the opened layer, passed separately
-                # below -- reading the channel off this checkbox is what made
-                # every false-color-off capture claim to be brightfield while
-                # its own filename said otherwise.
-                false_color_on = layer_obj.ids['false_color'].active
+        # What was imaged is the lit channel, else the open drawer, else
+        # brightfield -- the same three clauses a manual recording uses, so
+        # the two manual outputs can never disagree about one frame. The
+        # false-colour checkbox answers how the frame is DISPLAYED, and
+        # nothing else: it is the open drawer's, and reading the channel off
+        # it is what made every false-color-off capture claim to be
+        # brightfield while its own filename said otherwise.
+        channel = common_utils.resolve_channel_identity(ctx.scope.illumination, layer)
 
-                break
+        # Empty well label (zero-well Blank labware): no leading
+        # underscore from a missing segment.
+        append = f'{well_label}_{channel}' if well_label else channel
+        # In engineering mode the name carries the turret position,
+        # composed by the writer's own renderer so a manual capture
+        # and a protocol step spell it the same way and a filename
+        # reader recognises it. A position the scope has not
+        # reported yet adds nothing.
+        append = common_utils.build_step_name(
+            common_utils.StepNameComponents(
+                custom_prefix=append,
+                turret_position=(
+                    ctx.scope.motion._last_turret_position if ctx.engineering_mode else None
+                ),
+            )
+        )
 
         save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
         separate_folder_per_channel = settings['separate_folder_per_channel']
         if separate_folder_per_channel:
-            save_folder = save_folder / layer
+            save_folder = save_folder / channel
 
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
@@ -126,9 +150,12 @@ class CompositeCapture(FloatLayout):
         # callers tolerate None (already a documented convention).
         sum_iteration_callback = None
 
-        layer_configs = get_layer_configs(specific_layers=layer)
-        sum_delay_s = layer_configs[layer]['exposure_ms'] / 1000
-        sum_count = layer_configs[layer]['sum']
+        # The summing row is the imaged channel's: the frames summed are
+        # that channel's, and the delay is a settle between them. The
+        # filter takes a list; a bare string would match by substring.
+        layer_configs = get_layer_configs(specific_layers=[channel])
+        sum_delay_s = layer_configs[channel]['exposure_ms'] / 1000
+        sum_count = layer_configs[channel]['sum']
 
         # The dark-floor expectation is derived inside the capture from
         # commanded LED state: a live capture judges the frame against what
@@ -140,16 +167,13 @@ class CompositeCapture(FloatLayout):
         # time, so gating the overlaid copy on a build mode meant the screen
         # showed an overlay the capture then declined to save, with nothing
         # reporting the omission.
-        use_bullseye = ctx.scope_display.use_bullseye
-        use_crosshairs = ctx.scope_display.use_crosshairs
-
         if not use_bullseye and not use_crosshairs:
             return save_live_image(
                 ctx.scope,
                 save_folder=save_folder,
                 file_root=file_root,
                 append=append,
-                channel=layer,
+                channel=channel,
                 false_color_on=false_color_on,
                 force_to_8bit=force_to_8bit_pixel_depth,
                 output_format=settings['image_output_format']['live'],
@@ -203,7 +227,7 @@ class CompositeCapture(FloatLayout):
             save_folder=save_folder,
             file_root=file_root,
             append=append,
-            channel=layer,
+            channel=channel,
             false_color_on=false_color_on,
             tail_id_mode=None,
             output_format=settings['image_output_format']['live'],
@@ -231,7 +255,7 @@ class CompositeCapture(FloatLayout):
             save_folder=save_folder,
             file_root=file_root,
             append=f'{append}_overlay',
-            channel=layer,
+            channel=channel,
             false_color_on=false_color_on,
             tail_id_mode=None,
             output_format=settings['image_output_format']['live'],
