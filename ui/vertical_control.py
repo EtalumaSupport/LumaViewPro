@@ -301,15 +301,6 @@ class VerticalControl(BoxLayout):
 
             binning_size = get_binning_from_ui()
 
-            # The optics that set image scale change here and nowhere else in
-            # a session; recording them now is what lets a returned bundle
-            # explain the scale baked into its own images.
-            config_ui_getters.log_resolved_optics(
-                objective_id=objective_id,
-                focal_length=objective['focal_length'],
-                binning_size=binning_size,
-            )
-
             # Update UI FOV
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
             fov_size = config_ui_getters.get_field_of_view(

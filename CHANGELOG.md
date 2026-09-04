@@ -18,6 +18,15 @@
   `start_application_session(disable_homing=True)` performs no startup motion
   at all -- it no longer positions the turret, and no longer raises on an
   unhomed one.
+- **The Session owns the objective question (SDK)**: `session.objective_question()`
+  reports whether the objective is unknowable (never confirmed on this install,
+  or the turret on an unassigned slot) and `session.confirm_objective(...)`
+  answers it; `select_objective`, `assign_turret_objective`,
+  `clear_turret_objective` and `set_turret_position` are the writers. Every
+  member refuses an id that is not exactly a catalogue key. The resolved-optics
+  record (`[Optics   ]`) now fires from the Session at bring-up and on every
+  objective change, so a headless session logs a real scale; a headless turret
+  move onto an unassigned slot logs a warning.
 - **API stability**: Lumascope SDK + REST API are PRE-RELEASE. Subject to
   breaking changes in 4.1 / 4.1.5 / 4.2. See `docs/LumascopeSkills.md`
   preface for the migration plan. Internal LumaViewPro use is not

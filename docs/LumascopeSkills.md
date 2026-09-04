@@ -177,10 +177,25 @@ scope.disconnect()
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`.
+The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. Each writer moves the settings store and the scope's runtime state together and records the resolved optics (`[Optics   ] objective=... -> N um/px`) in the log; every member refuses an id that is not exactly a catalogue key with `ConfigError`, before any write.
 
 ```python
-scope.runtime_state.set_objective('10x Oly')           # the one public setter (session.scope.runtime_state from L2)
+question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
+if question is not None:
+    session.confirm_objective(question.proposed, turret_position=question.turret_position)
+
+session.select_objective('10x Oly')                # True when the objective changed; False for the one held
+session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (ValueError otherwise)
+session.clear_turret_objective(2)
+session.set_turret_position(2)                     # record the slot a move landed on; no-op when unchanged
+```
+
+`objective_question()` is a read: it returns a question when no one has confirmed the objective on this install, or when the declared turret model sits on an unassigned slot. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. A headless turret move that changes the recorded position onto an unassigned slot logs a warning.
+
+Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. Its objective setter is the bare-`Lumascope` form: it writes the scope's runtime state only, not the session's settings, so a Session caller uses `session.select_objective` instead.
+
+```python
+scope.runtime_state.set_objective('10x Oly')           # bare-Lumascope form; a Session caller uses session.select_objective
 
 scope.runtime_state.get_current_objective_id()
 scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
@@ -241,7 +256,7 @@ session.scope.imaging.start_streaming()
 
 Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
 
 For **simulated** (no hardware needed, development / CI):
 

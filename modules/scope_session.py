@@ -17,6 +17,7 @@ Usage
 """
 
 import copy
+import dataclasses
 import json
 import os
 import threading
@@ -50,6 +51,31 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     recording health check, whose entire purpose is loud failure.
     """
     logger.error('[ScopeSession] scheduled callback raised', exc_info=exc)
+
+
+@dataclasses.dataclass(frozen=True)
+class ObjectiveQuestion:
+    """The objective is unknowable; this is what to ask the user.
+
+    Returned by ``ScopeSession.objective_question`` when no one has ever
+    confirmed the objective on this install, or the turret sits on a slot
+    with no assignment. The pixel size derived from the objective is
+    stamped into the scale bar and every saved image's metadata, and a
+    wrong scale cannot be told from a measured one afterwards -- so the
+    session exposes the question instead of assuming silently, and a
+    host renders it however it likes. The answer goes back through
+    ``ScopeSession.confirm_objective``.
+
+    Attributes:
+        turret_position: The slot the answer binds to, or None on a
+            non-turret model.
+        proposed: The catalogue id to offer as the default.
+        choices: The catalogue, in its shipped order.
+    """
+
+    turret_position: int | None
+    proposed: str
+    choices: tuple[str, ...]
 
 
 class ScopeSession:
@@ -778,6 +804,13 @@ class ScopeSession:
             layer_identity=self.scope.layer_identity,
         )
         self.scope.initialize(config)
+        # The objective in place at bring-up never passes through the
+        # selection member, so without this a session that changed
+        # nothing would have no record of the scale it was using.
+        # `initialize` has just validated the id, so the lookup is a dict.
+        objective_id = self.settings['objective_id']
+        info = self.objective_helper.get_objective_info(objective_id=objective_id)
+        self._log_resolved_optics(objective_id, info['focal_length'])
 
     def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
         """Make position 1's assignment the session's starting objective.
@@ -928,6 +961,224 @@ class ScopeSession:
         so a current-only getter cannot serve them.
         """
         return self.objective_helper.get_objective_info(objective_id=objective_id)
+
+    # ------------------------------------------------------------------
+    # The objective: the question, the answer and the plain writers
+    # ------------------------------------------------------------------
+
+    def _require_objective_catalogue(self) -> None:
+        if self.objective_helper is None:
+            raise ConfigError(
+                'the objective catalogue is unavailable: objectives.json did not load '
+                f'under {self.source_path!r}'
+            )
+
+    def objective_question(self) -> 'ObjectiveQuestion | None':
+        """Does the objective need confirming? The question, or None.
+
+        A read, for any host: the GUI renders the answer as a popup, a
+        REST caller reads it as state. Two ways the session cannot know
+        what is in the light path: no person has ever confirmed the
+        objective on this install (the settings template ships a default
+        that would otherwise set image scale silently forever), or the
+        DECLARED turret model's current position has no assignment. The
+        declared model, not the live capability: a dead motorboard
+        reports no axes, and that is exactly when a stale objective must
+        not pass unasked.
+
+        Two conditions withhold an owed question, each leaving one log
+        line per call so a bundle can say why nothing was asked: with no
+        hardware there is nothing in the light path and no capture to
+        stamp; while settings are provisional every write is refused, so
+        an answer given now would be lost -- the host re-asks when they
+        resolve. No line is logged for a returned question: the renderer
+        logs its own show, and a polled read must not log per poll.
+
+        Raises:
+            ConfigError: the catalogue is unavailable or empty, the
+                model catalogue cannot be read, or the stored
+                ``turret_position`` is not a whole number.
+        """
+        import modules.config_helpers as config_helpers
+        from modules import layer_record
+
+        self._require_objective_catalogue()
+        has_turret = config_helpers.model_has_turret(
+            layer_record.load_scope_models(), self.settings
+        )
+        first_run = not self.settings.get('objective_confirmed', False)
+        slots = self.settings.get('turret_objectives') or {}
+        if has_turret:
+            # A stored 0, '' or False reads as position 1, the slot homing
+            # leaves the turret on. Coerced here because nothing types the
+            # value where the file is read, so a hand-edited "2" arrives
+            # as a string.
+            raw = self.settings.get('turret_position') or 1
+            try:
+                position = int(raw)
+            except (TypeError, ValueError):
+                raise ConfigError(f'turret_position must be a whole number, got {raw!r}') from None
+            slot_unassigned = slots.get(position) is None
+        else:
+            position = None
+            slot_unassigned = False
+        if not (first_run or slot_unassigned):
+            return None
+        if self.scope.no_hardware:
+            logger.info('[Session  ] objective question withheld -- no hardware this session')
+            return None
+        if self.settings_are_provisional():
+            logger.info(
+                '[Session  ] objective question deferred -- settings are provisional and '
+                'the answer could not be kept'
+            )
+            return None
+        choices = tuple(self.objective_helper.get_objectives_list())
+        if not choices:
+            raise ConfigError(
+                'the objective catalogue is empty; cannot ask which objective is installed'
+            )
+        proposed = (slots.get(position) if position is not None else None) or self.settings.get(
+            'objective_id'
+        )
+        if proposed not in choices:
+            proposed = choices[0]
+        return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
+
+    def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
+        """Answer the objective question: this objective is in the light path.
+
+        Selects the objective, assigns it to ``turret_position`` when one
+        is given, and records that a person has confirmed the objective
+        on this install. Returns whether the objective changed.
+
+        Raises:
+            ConfigError: ``objective_id`` is not exactly a catalogue key,
+                or the catalogue is unavailable. Nothing is written.
+            ValueError: ``turret_position`` is not a slot number 1-4.
+        """
+        changed = self.select_objective(objective_id)
+        if turret_position is not None:
+            self.assign_turret_objective(turret_position, objective_id)
+        with self.settings_lock:
+            self.settings['objective_confirmed'] = True
+        logger.info(
+            f'[Session  ] objective confirmed: {objective_id!r}'
+            + (f' at turret position {turret_position}' if turret_position is not None else '')
+        )
+        return changed
+
+    def select_objective(self, objective_id: str) -> bool:
+        """Make ``objective_id`` the active objective. Returns whether it changed.
+
+        The one writer of the active objective for every host: the
+        settings store and the scope's runtime state move together, and
+        the resolved optics are recorded, because the pixel size derived
+        here is stamped into every capture. Selecting the objective
+        already held is a no-op -- a programmatic re-selection (a turret
+        move, a settings load) is not a change.
+
+        Raises:
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+                Refused before any write, for every id including the one
+                held: the catalogue loader matches prefixes, so a partial
+                id would otherwise bind silently to the first match, and
+                '' to the first entry.
+        """
+        self._require_objective_catalogue()
+        if objective_id not in self.objective_helper.get_objectives_list():
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        if objective_id == self.settings.get('objective_id'):
+            return False
+        info = self.objective_helper.get_objective_info(objective_id=objective_id)
+        # Selecting an objective the turret does not hold is a normal step
+        # of assigning it: the user picks the objective, then binds it to
+        # a position. Logged, not refused: the moments where an unassigned
+        # objective actually blocks something (creating, modifying, adding
+        # to and running a protocol) each refuse there.
+        assigned = [
+            objective
+            for objective in (self.settings.get('turret_objectives') or {}).values()
+            if objective is not None
+        ]
+        if assigned and objective_id not in assigned:
+            logger.info(
+                f'[Session  ] Objective {objective_id!r} selected with no turret '
+                f'position assigned; assigned objectives are {assigned}'
+            )
+        self.scope.runtime_state.set_objective(objective_id=objective_id)
+        with self.settings_lock:
+            self.settings['objective_id'] = objective_id
+        self._log_resolved_optics(objective_id, info['focal_length'])
+        return True
+
+    def assign_turret_objective(self, position: int, objective_id: str) -> None:
+        """Bind ``objective_id`` to turret slot ``position``.
+
+        Raises:
+            ValueError: ``position`` is not a slot number 1-4.
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+        """
+        self._require_objective_catalogue()
+        self._check_turret_slot(position)
+        if objective_id not in self.objective_helper.get_objectives_list():
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        with self.settings_lock:
+            self.settings['turret_objectives'][position] = objective_id
+        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
+
+    def clear_turret_objective(self, position: int) -> None:
+        """Leave turret slot ``position`` unassigned.
+
+        Raises:
+            ValueError: ``position`` is not a slot number 1-4.
+        """
+        self._check_turret_slot(position)
+        with self.settings_lock:
+            self.settings['turret_objectives'][position] = None
+        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
+
+    @staticmethod
+    def _check_turret_slot(position) -> None:
+        if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
+            raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
+
+    def set_turret_position(self, position: int) -> None:
+        """Record the slot the turret landed on.
+
+        Records, never refuses: the position is a fact of the motion that
+        already happened, and a slot key outside 1-4 is constructible from
+        a hand-edited settings file, so refusing here would only turn a
+        landed move into an error. Recording the position the turret is
+        already on is a no-op. A change onto a slot with no assignment is
+        logged as a warning on a scope with a live turret -- the previous
+        objective would otherwise keep setting the image scale silently;
+        ``objective_question`` then owes the question.
+
+        Raises:
+            TypeError: ``position`` is not an int.
+        """
+        if not isinstance(position, int) or isinstance(position, bool):
+            raise TypeError(f'turret position must be an int, got {position!r}')
+        if position == self.settings.get('turret_position'):
+            return
+        with self.settings_lock:
+            self.settings['turret_position'] = position
+        if (
+            self.scope.capabilities.has_turret
+            and (self.settings.get('turret_objectives') or {}).get(position) is None
+        ):
+            logger.warning(f'[Session  ] turret at position {position} with no objective assigned')
+
+    def _log_resolved_optics(self, objective_id: str, focal_length: float) -> None:
+        import modules.config_helpers as config_helpers
+
+        config_helpers.log_resolved_optics(
+            objective_id,
+            focal_length,
+            self.scope.imaging.get_binning_size(),
+            capabilities=self.scope.capabilities,
+        )
 
     def get_current_plate_position(self) -> dict:
         import modules.config_helpers as config_helpers
@@ -1183,5 +1434,5 @@ class ScopeSession:
             # but it still must be issued -- it is the only startup
             # path that highlights the turret button.
             START_POSITION = 1
-            self.settings['turret_position'] = START_POSITION
+            self.set_turret_position(START_POSITION)
             turret_fn(START_POSITION)

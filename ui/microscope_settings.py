@@ -504,15 +504,6 @@ class MicroscopeSettings(BoxLayout):
 
             objective = ctx.session.get_objective_info(objective_id=objective_id)
 
-            # The objective already in place at launch never passes through
-            # the selection handler, so without this a session that changed
-            # nothing would have no record of the scale it was using.
-            config_ui_getters.log_resolved_optics(
-                objective_id=objective_id,
-                focal_length=objective['focal_length'],
-                binning_size=binning_size,
-            )
-
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
             # have their own FOV-recalc handlers).
