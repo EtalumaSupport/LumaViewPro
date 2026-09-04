@@ -357,3 +357,159 @@ class TestTinyFileConsolidation:
                 except py_compile.PyCompileError as e:
                     errors.append(str(e))
         assert not errors, 'Syntax errors found:\n' + '\n'.join(errors)
+
+
+# ---------------------------------------------------------------------------
+# 6. The GUI is display-only (Rule 2) -- the migration ratchet
+# ---------------------------------------------------------------------------
+#
+# Rule 2's standing ruling: the API owns every piece of logic that can live
+# there and the GUI renders API state, so the GUI stays replaceable and
+# REST/headless callers get identical behaviour for free. The migration
+# that moves existing logic down is in progress; nothing stopped NEW logic
+# from landing in ui/ meanwhile. Two mechanical proxies for logic in the
+# GUI, each pinned by site at introduction:
+#
+#   1. `ui/` importing `modules.*` directly (the architecture rule routes
+#      the GUI to orchestration through the Session layer). Counted per
+#      file, deferred imports included -- an import inside a method is the
+#      commonest shape of GUI-owned logic.
+#   2. `ui/` reaching a private attribute or `_impl` method on the scope
+#      (`ctx.scope.motion._home_turret_impl`, `scope.imaging
+#      ._set_frame_size_impl`): the GUI calling past the API surface into
+#      its internals, which is a decision the API should expose instead.
+#
+# Both pins are EQUALITIES, not ceilings. A count that RISES is new logic in
+# the GUI: move it to the API and expose a getter/setter. A count that FALLS
+# is the migration working: lower the pin in the same commit, so the number
+# can never quietly grow back to a stale ceiling.
+#
+# Neither proxy sees a decision written in ui/ against widget state and the
+# public scope API alone; that class is caught at review, not here.
+
+import ast as _ast
+
+
+def _ui_source_files():
+    return _list_py_files('ui')
+
+
+def _relpath(path):
+    return os.path.relpath(path, _REPO_ROOT)
+
+
+def _ui_modules_import_counts():
+    """{'ui/<file>.py': number of `modules.*` import statements} -- every
+    Import / ImportFrom node in the file, at any nesting depth."""
+    counts = {}
+    for path in _ui_source_files():
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        n = 0
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ImportFrom):
+                if node.module and (node.module == 'modules' or node.module.startswith('modules.')):
+                    n += 1
+            elif isinstance(node, _ast.Import) and any(
+                a.name == 'modules' or a.name.startswith('modules.') for a in node.names
+            ):
+                n += 1
+        if n:
+            counts[_relpath(path)] = n
+    return counts
+
+
+def _ui_private_reach_counts():
+    """{('ui/<file>.py', '_private_name'): count} -- attribute reads of a
+    single-underscore name whose attribute chain passes through `scope`."""
+    counts = {}
+    for path in _ui_source_files():
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Attribute):
+                continue
+            if not node.attr.startswith('_') or node.attr.startswith('__'):
+                continue
+            chain = []
+            value = node.value
+            while isinstance(value, _ast.Attribute):
+                chain.append(value.attr)
+                value = value.value
+            if isinstance(value, _ast.Name):
+                chain.append(value.id)
+            if 'scope' in chain:
+                key = (_relpath(path), node.attr)
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+# Pinned at 530b6093 (beta34). Lower a value in the same commit that moves
+# the logic down; never raise one.
+_UI_MODULES_IMPORT_PIN = {
+    'ui/advanced_settings.py': 9,
+    'ui/composite_capture.py': 9,
+    'ui/file_dialogs.py': 8,
+    'ui/histogram.py': 1,
+    'ui/image_settings.py': 4,
+    'ui/image_utils_kivy.py': 1,
+    'ui/layer_control.py': 14,
+    'ui/main_display.py': 8,
+    'ui/microscope_settings.py': 19,
+    'ui/motion_settings.py': 5,
+    'ui/notification_popup.py': 4,
+    'ui/post_processing.py': 15,
+    'ui/protocol_settings.py': 17,
+    'ui/scope_display.py': 12,
+    'ui/shader.py': 3,
+    'ui/stage.py': 5,
+    'ui/step_navigation.py': 6,
+    'ui/tooltip.py': 1,
+    'ui/ui_helpers.py': 7,
+    'ui/vertical_control.py': 10,
+    'ui/zstack.py': 9,
+}
+
+_UI_PRIVATE_REACH_PIN = {
+    ('ui/advanced_settings.py', '_set_conversion_gain_mode_impl'): 1,
+    ('ui/advanced_settings.py', '_set_line_noise_reduction_impl'): 1,
+    ('ui/composite_capture.py', '_capture_and_wait_impl'): 1,
+    ('ui/composite_capture.py', '_last_turret_position'): 1,
+    ('ui/layer_control.py', '_apply_layer_camera_settings_impl'): 1,
+    ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
+    ('ui/ui_helpers.py', '_move_absolute_impl'): 1,
+    ('ui/vertical_control.py', '_home_turret_impl'): 3,
+    ('ui/vertical_control.py', '_move_turret_impl'): 2,
+}
+
+
+def _ratchet_report(pin, actual, what):
+    """The differences between a pin and the tree, each with its remedy."""
+    lines = []
+    for key in sorted(set(pin) | set(actual), key=str):
+        before, now = pin.get(key, 0), actual.get(key, 0)
+        if now > before:
+            lines.append(
+                f'{key}: {what} rose {before} -> {now}. New logic in the GUI: '
+                f'move it to the API and expose a getter/setter (Rule 2).'
+            )
+        elif now < before:
+            lines.append(f'{key}: {what} fell {before} -> {now}. Lower the pin in this commit.')
+    return lines
+
+
+class TestGuiIsDisplayOnly:
+    """Rule 2's migration ratchet: logic in ui/ does not grow, and the pin
+    tracks every drop."""
+
+    def test_ui_modules_imports_match_the_pin(self):
+        report = _ratchet_report(
+            _UI_MODULES_IMPORT_PIN, _ui_modules_import_counts(), 'modules.* imports'
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_ui_private_reaches_into_scope_match_the_pin(self):
+        report = _ratchet_report(
+            _UI_PRIVATE_REACH_PIN, _ui_private_reach_counts(), 'private reaches'
+        )
+        assert report == [], '\n'.join(report)
