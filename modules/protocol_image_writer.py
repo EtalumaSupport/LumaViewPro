@@ -839,6 +839,12 @@ class ProtocolImageWriter:
                             cause = 'capture deadline expired -- invalidation outran the budget'
                         elif info.get('drain_failed'):
                             cause = 'frame drain failed -- camera delivered no frame'
+                        elif info.get('chunk_rejected'):
+                            cause = (
+                                f'frame chunk never matched the {info["chunk_rejected"]} '
+                                'target -- the camera delivered frames exposed under '
+                                'other settings'
+                            )
                         else:
                             cause = 'camera inactive or not grabbing'
                         self._note_capture_failure(
