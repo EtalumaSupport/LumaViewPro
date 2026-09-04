@@ -925,6 +925,8 @@ Frame validity is the single source of truth for "is the next frame still what I
 
 When continuous auto-gain is armed, `capture_and_wait()` first locks it: the camera's auto loop is switched off, the exposure and gain it landed on become the requested values, and the frame is then verified against them like any manual setting. The outcome is on `scope.imaging.last_capture_info` after the call: `'auto_gain'` is `'CONVERGED'`, `'MAXED'` (exposure pinned at the layer class's ceiling, the scene too dark for the range), `'AT_MINIMUM'` (exposure at or below the class's usable floor, the scene too bright) or `'FAILED'` (the camera reported no usable achieved value, so the frame was captured without an exposure/gain check); `'auto_gain_exposure_ms'` and `'auto_gain_gain_db'` carry the locked values. The limit states are outcomes, not failures: the frame is returned and saved with its achieved values. A live-view arm is re-armed after the capture; a protocol step's arm stays locked until the next step arms again.
 
+A caller that switches auto-gain off and wants to keep what it achieved calls `scope.imaging.lock_auto_gain()`, which returns the same result object: `state` (None when no arm was standing), `exposure_ms` and `gain_db` (the achieved values), and `stored_exposure_ms`, the exposure to store as the manual setting -- the achieved value floored to the channel class's usable floor, decided by the API so every client stores the same value. Limit states and a failed lock under a live-view arm also reach the user through the notification center; a protocol step's arm is logged only.
+
 ```python
 image = scope.imaging.capture_and_wait()
 info = scope.imaging.last_capture_info or {}

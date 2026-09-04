@@ -11,7 +11,6 @@ from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.lumascope_api.imaging import AutoGainConvergence
 import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.exceptions import ProtocolError
@@ -412,7 +411,6 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def update_auto_gain(self, init: bool = False):
-        camera_executor = _app_ctx.ctx.camera_executor
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
@@ -424,23 +422,15 @@ class LayerControl(BoxLayout):
         for item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
             self.ids[item].disabled = state
 
-        # Leaving auto-gain locks the standing arm on the camera lane and
-        # hands its result back; entering it, or program start, records
-        # no arm yet and the lock is a no-op, so one task shape serves
-        # every path.
-        camera_executor.put(
-            IOTask(
-                action=LayerControl._read_auto_gain_lock,
-                args=(self, init),
-                callback=LayerControl.update_auto_gain_cb,
-                cb_args=(self),
-                pass_result=True,
-            )
-        )
-
-    def _read_auto_gain_lock(self, init):
-        # Runs ON the camera worker: bind the impl, never the dispatcher.
-        return (init, _app_ctx.ctx.scope.imaging._lock_auto_gain_impl())
+        # Leaving auto-gain asks the API to lock the standing arm and
+        # hands the result to the write-back below. Program start loads
+        # the stored settings, never the camera's, and entering auto-gain
+        # has nothing to lock (the arm happens in apply_settings), so
+        # neither asks.
+        lock = None
+        if not init and not state:
+            lock = _app_ctx.ctx.scope.imaging.lock_auto_gain()
+        self.update_auto_gain_cb(result=(init, lock))
 
     def update_auto_gain_cb(self, result=None, exception=None):
         settings = _app_ctx.ctx.settings
@@ -451,11 +441,10 @@ class LayerControl(BoxLayout):
         init, lock = result
         state = self.ids['auto_gain'].state == 'down'
 
-        # Program start loads the stored settings, never the camera's; a
-        # toggle ON has no lock to consume (the arm happens in
-        # apply_settings below). Only a toggle OFF that locked a standing
-        # arm writes back what the auto loop achieved.
-        if not init and not state and lock.state is not None:
+        # Only a toggle OFF that locked a standing arm writes back what
+        # the auto loop achieved; the API has already told the user about
+        # a limit state or a failed lock.
+        if not init and not state and lock is not None and lock.state is not None:
             gain = lock.gain_db
             exp = lock.exposure_ms
             # A FAILED lock carries no values; keep the previous settings
@@ -481,39 +470,9 @@ class LayerControl(BoxLayout):
                 settings[self.layer]['exposure_ms'] = stored
                 self.ids['exp_slider'].value = stored
                 self.ids['exp_text'].text = str(round(stored, 2))
-            self._notify_auto_gain_limit(lock)
 
         settings[self.layer]['auto_gain'] = state
         self.apply_settings()
-
-    def _notify_auto_gain_limit(self, lock) -> None:
-        """Tell the user what the slider cannot show: the auto loop ended
-        at a limit of the layer's usable range, or found nothing usable."""
-        from modules.notification_center import notifications
-
-        if lock.state is AutoGainConvergence.MAXED:
-            notifications.info(
-                'Auto-gain',
-                'Exposure at the maximum',
-                f'{self.layer}: auto-exposure reached the {lock.ceiling_ms:g} ms ceiling '
-                f'for this channel and the scene was still too dark. Add light or raise '
-                f'the auto-exposure ceiling in Advanced Settings.',
-            )
-        elif lock.state is AutoGainConvergence.AT_MINIMUM:
-            notifications.info(
-                'Auto-gain',
-                'Exposure at the minimum',
-                f'{self.layer}: auto-exposure settled at {lock.exposure_ms:g} ms, below the '
-                f'{lock.floor_ms:g} ms usable floor for this channel; the setting keeps the '
-                f'floor. The scene is too bright: reduce the light.',
-            )
-        elif lock.state is AutoGainConvergence.FAILED:
-            notifications.warning(
-                'Auto-gain',
-                'Auto-gain did not settle',
-                f'{self.layer}: the camera reported no usable exposure or gain when '
-                f'auto-gain was switched off, so the previous settings were kept.',
-            )
 
     def gain_slider(self):
         settings = _app_ctx.ctx.settings

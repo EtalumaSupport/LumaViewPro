@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import threading
+from unittest.mock import patch
 
 import lvp_logger
 import modules.config_helpers as config_helpers
@@ -246,6 +247,50 @@ def test_live_view_arm_resumes_after_capture():
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert cam._auto_gain_enabled is False
+
+
+def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not():
+    """A limit state reaches an attended user through the notification
+    center from the API itself, so the GUI renders nothing of its own and
+    a headless caller gets the same notice; a protocol step's arm is
+    unattended and gets the log line only."""
+    imaging, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
+    with patch('modules.lumascope_api.imaging.notifications') as notifications:
+        lock = imaging._lock_auto_gain_impl()
+    assert lock.state.value == 'AT_MINIMUM'
+    assert notifications.info.call_count == 1
+    assert '0.4' in notifications.info.call_args.args[2]
+
+    imaging, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    with patch('modules.lumascope_api.imaging.notifications') as notifications:
+        assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
+    assert notifications.info.call_count == 0
+    assert notifications.error.call_count == 0
+
+
+def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user():
+    imaging, cam = _build(ae_lands_on_ms=62.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    cam.chunks_absent = True
+    cam.fail_readback = True
+    with patch('modules.lumascope_api.imaging.notifications') as notifications:
+        assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging.last_capture_info['auto_gain'] == 'FAILED'
+    assert notifications.error.call_count == 1
+
+
+def test_public_lock_runs_the_impl_without_an_executor():
+    """A bare scope with no executor runs the body on the calling thread;
+    the toggle-off path uses this member, never the impl."""
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    lock = imaging.lock_auto_gain()
+    assert lock.state.value == 'CONVERGED'
+    assert lock.stored_exposure_ms == 8.0
+    assert cam._auto_gain_enabled is False
+    assert imaging.lock_auto_gain().state is None
 
 
 def test_class_floor_lives_in_config_helpers():

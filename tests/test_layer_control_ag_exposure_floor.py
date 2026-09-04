@@ -170,9 +170,6 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     fake.ids['exp_text'] = MagicMock()
     fake.ids['exp_text'].text = '0'
     fake.apply_settings = MagicMock()
-    # The notifier is the user-facing half of the lock result; the floor
-    # tests are about the settings write-back only.
-    fake._notify_auto_gain_limit = MagicMock()
     return fake
 
 

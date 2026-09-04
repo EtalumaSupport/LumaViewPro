@@ -950,6 +950,21 @@ class ImagingAPI:
         if not state:
             self._refresh_cache_from_hardware_after_auto()
 
+    def lock_auto_gain(self) -> AutoGainLock:
+        """Lock a standing continuous auto-gain arm and return the result.
+
+        See ``_lock_auto_gain_impl`` for the contract; this adds only the
+        dispatch described on ``_dispatch_camera``. A caller leaving
+        auto-gain stores ``stored_exposure_ms`` / ``gain_db`` as the manual
+        setting; when no arm stands the result's ``state`` is None and
+        nothing was written.
+        """
+        return self._dispatch_camera(
+            self._lock_auto_gain_impl,
+            'lock_auto_gain',
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
     def _lock_auto_gain_impl(self) -> AutoGainLock:
         """Turn a standing continuous auto-gain arm into locked manual values.
 
@@ -991,7 +1006,7 @@ class ImagingAPI:
                 f'usable achieved exposure/gain (exposure={exp_ms} gain={gain}); '
                 'the capture proceeds ungated on exposure and gain'
             )
-            return AutoGainLock(
+            lock = AutoGainLock(
                 AutoGainConvergence.FAILED,
                 None,
                 None,
@@ -1000,6 +1015,8 @@ class ImagingAPI:
                 arm.resume_after_capture,
                 settings,
             )
+            self._notify_auto_gain_outcome(lock)
+            return lock
         exp_ms = float(exp_ms)
         gain = float(gain)
         self._set_exposure_ms_impl(exp_ms)
@@ -1018,7 +1035,7 @@ class ImagingAPI:
             logger.debug(line)
         else:
             logger.info(line)
-        return AutoGainLock(
+        lock = AutoGainLock(
             state,
             exp_ms,
             gain,
@@ -1028,6 +1045,48 @@ class ImagingAPI:
             settings,
             stored_exposure_ms=stored_exposure_after_lock(exp_ms, floor),
         )
+        self._notify_auto_gain_outcome(lock)
+        return lock
+
+    def _notify_auto_gain_outcome(self, lock: AutoGainLock) -> None:
+        """Tell an attended user what the lock found; a protocol run is
+        unattended and gets the log line only.
+
+        A live-view arm (``resume_after_capture``) is the attended case:
+        the user toggled auto-gain off, took a manual capture, or started a
+        manual autofocus. A protocol step's arm is not, and during a run
+        only a fatal, run-aborting error may reach the screen. The limit
+        states are information -- the setting keeps the class floor or
+        ceiling and cannot show the raw value -- and a lock that found
+        nothing usable is an error, because the frame was taken without an
+        exposure check.
+        """
+        if not lock.resume_after_capture:
+            return
+        if lock.state is AutoGainConvergence.MAXED:
+            notifications.info(
+                'Auto-gain',
+                'Exposure at the maximum',
+                f'Auto-exposure reached the {lock.ceiling_ms:g} ms ceiling for this '
+                'channel and the scene was still too dark. Add light or raise the '
+                'auto-exposure ceiling in Advanced Settings.',
+            )
+        elif lock.state is AutoGainConvergence.AT_MINIMUM:
+            notifications.info(
+                'Auto-gain',
+                'Exposure at the minimum',
+                f'Auto-exposure settled at {lock.exposure_ms:g} ms, below the '
+                f'{lock.floor_ms:g} ms usable floor for this channel; the setting keeps '
+                'the floor. The scene is too bright: reduce the light.',
+            )
+        elif lock.state is AutoGainConvergence.FAILED:
+            notifications.error(
+                'Auto-gain',
+                'Auto-gain did not settle',
+                'The camera reported no usable exposure or gain when auto-gain was '
+                'locked, so the previous settings were kept and any capture was taken '
+                'without an exposure check. Check the live view, then try again.',
+            )
 
     def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
