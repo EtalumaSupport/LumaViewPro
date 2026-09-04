@@ -147,3 +147,33 @@ class TestARefusingFactoryLeavesNothingBehind:
         finally:
             io.shutdown()
             cam.shutdown()
+
+
+class TestDisableHomingIsNoStartupMotion:
+    """`disable_homing=True` means no startup motion on any axis: the
+    turret is left where it is, like the stage, and no turret position
+    is recorded. Positioning the turret without a home would drive an
+    absolute move against a reference the caller asked us not to
+    establish."""
+
+    def test_neither_the_home_nor_the_turret_move_is_issued(self, session):
+        attempts = []
+        session.settings['turret_position'] = 3
+
+        session.start_application_session(
+            disable_homing=True,
+            home_fn=lambda axis: attempts.append(('home', axis)) or True,
+            turret_fn=lambda position: attempts.append(('turret', position)),
+        )
+
+        assert attempts == [], f'homing disabled must issue no motion, got {attempts}'
+        assert session.settings['turret_position'] == 3, (
+            'the recorded turret position must be left as it was'
+        )
+
+    def test_a_fresh_session_with_the_default_motion_returns_quietly(self, session):
+        session.settings['turret_position'] = 3
+
+        session.start_application_session(disable_homing=True)
+
+        assert session.settings['turret_position'] == 3

@@ -21,21 +21,10 @@ Deliberately NOT covered: the ~20 zero-caller convenience forwarders
 file for no gain, and a forwarder's behavior is its target's behavior,
 tested where that lives.
 
-`start_application_session` is NOT covered, and the reason is a defect
-rather than a choice. It does `from ui.ui_helpers import move_home,
-move_absolute` -- a module reaching UP into the UI layer. Its
-own comment concedes the functions "operate on the scope and don't
-actually need a GUI surface," which is the admission that they are in
-the wrong layer. Because the test environment mocks Kivy, that import
-cannot resolve here, so the one startup sequence shared by the App and
-headless callers has no session-level test.
-
-This is not a production crash -- Kivy is a hard dependency, so a real
-headless process can import it. The cost is architectural: a REST
-process loads the UI layer to home an axis. Covering it means moving
-those two functions down into the module layer first, which needs a
-caller survey and is tracked as its own change. Testing it by stubbing
-the offending import would cover the workaround instead of the contract.
+`start_application_session` is covered where its motion lives:
+`test_motion_state_gate.py` (the home-then-turret sequence and the
+failed-home gate) and `test_session_bringup.py` (homing disabled means
+no startup motion).
 """
 
 from __future__ import annotations

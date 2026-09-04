@@ -1105,34 +1105,37 @@ class ScopeSession:
         home_fn: typing.Callable | None = None,
         turret_fn: typing.Callable | None = None,
     ) -> None:
-        """LVP-A-5: queue the standard startup home + turret-positioning sequence.
+        """Queue the standard startup home + turret-positioning sequence.
 
-        Replaces the inline blocks in lumaviewpro.py:on_start AND
-        ui/microscope_settings.py reconnect handler -- both previously
-        open-coded the same ALL-axis home + turret-positioning sequence
-        with a Rule-2 single-source-of-truth violation (drift risk if
-        one branch ever updated without the other).
+        The one implementation of the startup motion for every host:
+        the App's launch and its reconnect handler once open-coded the
+        same ALL-axis home + turret-positioning pair, and the two
+        copies drifted.
 
         After this method returns, the io_executor has been told to:
 
-        1. (when ``disable_homing=False``) home ALL axes via ``move_home``.
-           Firmware homes Z, T, X, Y in one routine; on Z-only boards
-           it homes what it has and reports the missing axes.
+        1. home ALL axes via ``move_home``. Firmware homes Z, T, X, Y in
+           one routine; on Z-only boards it homes what it has and
+           reports the missing axes.
 
-        2. (when ``self.scope.capabilities.has_turret`` is True) move T-axis
-           to the position that matches ``settings['objective_id']`` --
-           falls back to position 1 if the objective isn't in the turret
-           config. Updates ``settings['turret_position']`` so later code
-           reads the actual position.
+        2. (when ``self.scope.capabilities.has_turret`` is True) move T
+           to position 1, the slot whose objective was adopted at
+           configure, and record it in ``settings['turret_position']``
+           so later code reads the actual position.
+
+        ``disable_homing=True`` skips BOTH steps: no startup motion on
+        any axis. The turret is left where it is, like the stage axes,
+        and no turret position is recorded -- positioning it without a
+        home would be an absolute move against a reference the caller
+        asked us not to establish. The skip is the requested behaviour,
+        so it is logged, not signalled.
 
         Headless / REST callers can use this exact same call to apply
         the standard startup orchestration without copy-pasting from
         the App.
 
         Args:
-            disable_homing: If True, skip the home step but still run
-                turret-positioning. Matches the App's ``--no-home``
-                CLI flag semantics.
+            disable_homing: If True, issue no startup motion at all.
             home_fn: Callable taking an axis name and returning whether
                 the home succeeded. Defaults to the motion API.
             turret_fn: Callable taking a turret position. Defaults to
@@ -1150,6 +1153,10 @@ class ScopeSession:
         exists, so before injection this method could not run outside
         the GUI despite the docstring above promising it could.
         """
+        if disable_homing:
+            logger.info('startup motion skipped: homing disabled; the turret is left where it is')
+            return
+
         if home_fn is None:
             home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
         if turret_fn is None:
@@ -1161,7 +1168,7 @@ class ScopeSession:
         # secondary cascade users report -- a second error on top of the
         # home's own, for motion that could never have been correct. The
         # home already notified, so this stays a log.
-        if not disable_homing and not home_fn('ALL'):
+        if not home_fn('ALL'):
             logger.error(
                 'Homing did not succeed -- skipping startup turret '
                 'positioning; the stage reference is unknown'
@@ -1174,8 +1181,7 @@ class ScopeSession:
             # else would split the claimed optics from the physical
             # glass. After a real home this move is a physical no-op,
             # but it still must be issued -- it is the only startup
-            # path that highlights the turret button, and with homing
-            # disabled it is the only T positioning at all.
+            # path that highlights the turret button.
             START_POSITION = 1
             self.settings['turret_position'] = START_POSITION
             turret_fn(START_POSITION)
