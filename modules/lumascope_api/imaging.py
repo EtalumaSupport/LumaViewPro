@@ -84,6 +84,15 @@ class AutoGainLock:
     # truth. Decided here so a GUI and a REST caller store the same value.
     stored_exposure_ms: float | None = None
 
+    def __post_init__(self) -> None:
+        # Both achieved values or neither: a consumer that keeps the lock's
+        # gain and a snapshot's exposure would leave a mixed camera state.
+        if (self.exposure_ms is None) != (self.gain_db is None):
+            raise ValueError(
+                'AutoGainLock carries exposure_ms and gain_db together or not at all; '
+                f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
+            )
+
 
 def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
     """The exposure to store as a manual setting after an auto-gain lock."""

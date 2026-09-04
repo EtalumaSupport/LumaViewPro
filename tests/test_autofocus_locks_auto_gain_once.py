@@ -15,6 +15,9 @@ resume.
 from __future__ import annotations
 
 import ast
+import types
+
+import pytest
 
 from tests import ast_seams
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED, _arm, _build
@@ -78,3 +81,65 @@ def test_lock_and_resume_pair_on_the_api():
     imaging._resume_auto_gain_impl(lock)
     assert cam._auto_gain_enabled is True
     assert imaging._auto_gain_arm is not None
+
+
+class _RecordingImaging:
+    """Records the setter writes the sweep's target step makes."""
+
+    def __init__(self):
+        self.writes = []
+
+    def _set_gain_db_impl(self, gain_db):
+        self.writes.append(('gain', gain_db))
+
+    def _set_exposure_ms_impl(self, exposure_ms):
+        self.writes.append(('exposure', exposure_ms))
+
+
+def _runner_with_step_targets(gain_db, exposure_ms):
+    from modules.autofocus_runner import AutofocusRunner
+
+    runner = AutofocusRunner.__new__(AutofocusRunner)
+    runner._scope = types.SimpleNamespace(imaging=_RecordingImaging())
+    runner._camera_gain = gain_db
+    runner._camera_exposure = exposure_ms
+    return runner
+
+
+def test_sweep_scans_at_the_locks_values():
+    """A sweep under a live-view arm scans at the exposure and gain the
+    lock just read from the camera; the step's stored values are stale by
+    construction under an arm (the slider poll reads a cache the arm
+    invalidates), and writing them over the lock scanned a dark field --
+    the first bench sweep ran at 1.0 dB / 2 ms on a scene the loop had
+    settled at 6.8 dB / 50 ms. With no arm, or a FAILED lock carrying no
+    values, the step's values are written as before."""
+    from modules.lumascope_api.imaging import AutoGainConvergence, AutoGainLock
+
+    runner = _runner_with_step_targets(1.0, 2.0)
+    runner._apply_sweep_camera_targets(
+        AutoGainLock(AutoGainConvergence.MAXED, exposure_ms=50.0, gain_db=6.72)
+    )
+    assert runner._scope.imaging.writes == []
+    assert (runner._camera_gain, runner._camera_exposure) == (6.72, 50.0)
+
+    runner = _runner_with_step_targets(1.0, 2.0)
+    runner._apply_sweep_camera_targets(AutoGainLock(state=None))
+    assert runner._scope.imaging.writes == [('gain', 1.0), ('exposure', 2.0)]
+    assert (runner._camera_gain, runner._camera_exposure) == (1.0, 2.0)
+
+    runner = _runner_with_step_targets(1.0, 2.0)
+    runner._apply_sweep_camera_targets(AutoGainLock(AutoGainConvergence.FAILED))
+    assert runner._scope.imaging.writes == [('gain', 1.0), ('exposure', 2.0)]
+
+
+def test_half_populated_lock_is_unconstructible():
+    """A lock carries both achieved values or neither: a lock with one of
+    them would let the sweep keep the lock's gain and the snapshot's
+    exposure, a mixed camera state nothing asked for."""
+    from modules.lumascope_api.imaging import AutoGainConvergence, AutoGainLock
+
+    with pytest.raises(ValueError):
+        AutoGainLock(AutoGainConvergence.CONVERGED, exposure_ms=5.0)
+    with pytest.raises(ValueError):
+        AutoGainLock(AutoGainConvergence.CONVERGED, gain_db=5.0)
