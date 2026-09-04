@@ -293,6 +293,9 @@ class ProtocolStepRunner:
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
                 step['Color'], p._ag_ae_max_exposure_ms
             )
+            p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
+                step['Color']
+            )
             fut = p._io_executor.protocol_put(
                 IOTask(
                     # Run-internal machinery binds the impl per the

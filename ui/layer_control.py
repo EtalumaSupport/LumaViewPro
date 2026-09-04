@@ -22,18 +22,6 @@ logger = logging.getLogger('LVP.ui.layer_control')
 # because BF LED power is lower and longer exposures don't risk photobleaching.
 BF_MAX_ILLUMINATION = 500
 BF_MAX_EXPOSURE_MS = 1000
-FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
-# AG can drive transmitted-channel exposure down to the camera's
-# physical minimum (Pylon ExposureTime.Min ~= 30 us = 0.030 ms on
-# common sensors). Sub-threshold values written back to settings via
-# update_auto_gain_cb then fire the set_exposure_ms(<0.1ms)
-# "value should be in milliseconds" warning on every subsequent
-# apply_settings (visible in beta9 logs as recurring WARNING spam).
-# The threshold matches set_exposure_ms's internal warning gate so
-# AG-feedback values can never trigger it; live AG can still drive
-# the camera lower (the floor applies only to the settings write-back
-# in update_auto_gain_cb).
-TRANSMITTED_MIN_EXPOSURE_MS = 0.1
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
@@ -486,23 +474,21 @@ class LayerControl(BoxLayout):
                 # the previous settings for that field instead.
                 gain_known = common_utils.is_valid_gain_db(gain)
                 exp_known = common_utils.is_valid_exposure_ms(exp)
-                # Clamp exposure to a per-class minimum before writing back
-                # to settings. AG can drive the camera to its physical
-                # minimum (Pylon ~30us on bright samples); writing those
-                # raw values to settings produces (a) nearly-black images
-                # if the user creates protocol steps from these settings,
-                # and (b) recurring set_exposure_ms(<0.1ms) WARNING spam
-                # on every subsequent apply_settings. Fluorescence + lumi
-                # floor at 1ms (sub-ms never realistic in those modes);
-                # transmitted (BF/PC/DF) floor at 0.1ms (the warning
-                # threshold). Live AG output to the camera is untouched.
+                # Clamp exposure to the layer class's usable floor before
+                # writing back to settings. AG can drive the camera to its
+                # physical minimum (Pylon ~30us on bright samples); writing
+                # those raw values to settings produces (a) nearly-black
+                # images if the user creates protocol steps from these
+                # settings, and (b) recurring set_exposure_ms(<0.1ms)
+                # WARNING spam on every subsequent apply_settings. The
+                # floor per class is owned by config_helpers, the same
+                # home as the AG/AE ceiling. Live AG output to the camera
+                # is untouched.
                 if exp_known:
-                    exp_min = self.ids['exp_slider'].min
+                    from modules.config_ui_getters import get_ag_ae_min_exposure_ms
+
+                    exp_min = max(self.ids['exp_slider'].min, get_ag_ae_min_exposure_ms(self.layer))
                     exp_max = self.ids['exp_slider'].max
-                    if self.layer in common_utils.get_image_layers():
-                        exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
-                    else:
-                        exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
                     exp = float(np.clip(exp, exp_min, exp_max))
 
                 if gain_known:
@@ -1339,6 +1325,7 @@ class LayerControl(BoxLayout):
             if not ignore_auto_gain:
                 from modules.config_ui_getters import (
                     get_ag_ae_max_exposure_ms,
+                    get_ag_ae_min_exposure_ms,
                     get_auto_gain_settings,
                 )
 
@@ -1348,6 +1335,10 @@ class LayerControl(BoxLayout):
                 # to the sensor max on dim scenes, washing out brightfield
                 # and making the live auto loop hunt.
                 autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
+                # The class floor rides beside the ceiling so an auto-gain
+                # lock can say whether exposure bottomed out of the
+                # usable range (AT_MINIMUM), not only whether it topped.
+                autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
             camera_executor.put(
                 IOTask(
                     # The task runs ON the camera worker: bind the impl --

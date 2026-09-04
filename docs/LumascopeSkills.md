@@ -923,6 +923,15 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 
 Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, detects any invalidation that lands mid-grab (re-draining and re-grabbing so the result reflects the newest commanded state), bounds the whole settle-and-recheck loop with a deadline (loud None when invalidation outruns it), and verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
 
+When continuous auto-gain is armed, `capture_and_wait()` first locks it: the camera's auto loop is switched off, the exposure and gain it landed on become the requested values, and the frame is then verified against them like any manual setting. The outcome is on `scope.imaging.last_capture_info` after the call: `'auto_gain'` is `'CONVERGED'`, `'MAXED'` (exposure pinned at the layer class's ceiling, the scene too dark for the range), `'AT_MINIMUM'` (exposure at or below the class's usable floor, the scene too bright) or `'FAILED'` (the camera reported no usable achieved value, so the frame was captured without an exposure/gain check); `'auto_gain_exposure_ms'` and `'auto_gain_gain_db'` carry the locked values. The limit states are outcomes, not failures: the frame is returned and saved with its achieved values. A live-view arm is re-armed after the capture; a protocol step's arm stays locked until the next step arms again.
+
+```python
+image = scope.imaging.capture_and_wait()
+info = scope.imaging.last_capture_info or {}
+if info.get('auto_gain') == 'MAXED':
+    print(f"scene too dark for the range: exposure pinned at {info['auto_gain_exposure_ms']} ms")
+```
+
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
 scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draining

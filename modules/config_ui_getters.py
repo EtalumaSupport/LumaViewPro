@@ -361,6 +361,10 @@ def get_ag_ae_max_exposure_ms(layer: str) -> float:
     )
 
 
+def get_ag_ae_min_exposure_ms(layer: str) -> float:
+    return config_helpers.get_ag_ae_min_exposure_ms(layer)
+
+
 def get_protocol_time_params() -> dict:
     protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
     try:
