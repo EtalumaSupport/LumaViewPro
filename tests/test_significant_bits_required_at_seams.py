@@ -78,6 +78,9 @@ def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
         imaging=SimpleNamespace(
             _capture_and_wait_impl=lambda **kw: None,
             capture_frame_depth=lambda array, sum_count=1: 8,
+            # The save reads the capture's evidence record to tell the user
+            # why nothing was saved; a stub that captured nothing has none.
+            last_capture_info=None,
         ),
         illumination=SimpleNamespace(leds_off=lambda: None),
     )
