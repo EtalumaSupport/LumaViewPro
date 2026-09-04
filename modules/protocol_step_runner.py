@@ -309,6 +309,12 @@ class ProtocolStepRunner:
                         'exposure_ms': step['Exposure'],
                         'auto_gain': True,
                         'auto_gain_settings': p._autogain_settings,
+                        # A step's arm is unattended: the capture that locks
+                        # it records the state and moves on -- no notice, no
+                        # re-arm (the step-end disarm below is the only Off
+                        # this path needs). Left at the live-view default,
+                        # every protocol capture re-armed and popped a notice.
+                        'resume_after_capture': False,
                     },
                 ),
                 return_future=True,
