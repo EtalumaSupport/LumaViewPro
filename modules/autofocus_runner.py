@@ -243,21 +243,28 @@ class AutofocusRunner:
             self._saved_z_position = None
         self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
         self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
-        _af_log.info(
-            f'[AF DIAG] Saved pre-AF camera state: '
-            f'gain={self._saved_camera_state.get("gain_db", "?")} '
-            f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
-            f'(step wants gain={self._camera_gain} exp={self._camera_exposure})'
-        )
-        # Apply the step's camera settings so AF scans with correct gain
-        # and exposure rather than inheriting the prior step's values.
-        if self._camera_gain is not None:
-            self._scope.imaging._set_gain_db_impl(self._camera_gain)
-        if self._camera_exposure is not None:
-            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
         last_gc_time = time.monotonic()
         completed_successfully = False
+        auto_gain_lock = None
         try:
+            # A live-view auto-gain arm is locked ONCE for the whole sweep
+            # and resumed in the finally below. Left standing, every sweep
+            # capture would lock and re-arm on its own -- paying the
+            # auto-gain settle at every position -- and the step's gain
+            # and exposure written next would be overridden by the loop.
+            auto_gain_lock = self._scope.imaging._lock_auto_gain_impl()
+            _af_log.info(
+                f'[AF DIAG] Saved pre-AF camera state: '
+                f'gain={self._saved_camera_state.get("gain_db", "?")} '
+                f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
+                f'(step wants gain={self._camera_gain} exp={self._camera_exposure})'
+            )
+            # Apply the step's camera settings so AF scans with correct gain
+            # and exposure rather than inheriting the prior step's values.
+            if self._camera_gain is not None:
+                self._scope.imaging._set_gain_db_impl(self._camera_gain)
+            if self._camera_exposure is not None:
+                self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
             # Acquire the LED lease BEFORE driving illumination below. AF
             # illuminates by calling apply(AF_ENTER) ON this lease; issued
             # before AF holds a lease, a protocol's already-held lease would
@@ -473,6 +480,11 @@ class AutofocusRunner:
                     f'restoring {restore or "nothing"} from pre-AF snapshot'
                 )
                 self._scope.imaging.restore_camera_state(restore)
+            # Resume a live-view auto-gain arm on EVERY exit, after the
+            # camera restore, so an aborted or failed sweep never leaves
+            # the view's auto loop silently off.
+            if auto_gain_lock is not None:
+                self._scope.imaging._resume_auto_gain_impl(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
                 f'camera now at gain={self._scope.imaging.get_gain_db()} '
