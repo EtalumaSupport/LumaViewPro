@@ -327,11 +327,8 @@ class MicroscopeSettings(BoxLayout):
         # model is attached, so re-ask only when the objective is
         # unknowable (never-confirmed install, or the starting position
         # has no assignment).
-        reconnect_has_turret = model_has_turret(self.scopes, settings)
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(
-            lambda dt: vertical_control.maybe_prompt_objective_selection(reconnect_has_turret), 0
-        )
+        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
 
         logger.info('[LVP Main  ] Reconnection complete.')
 

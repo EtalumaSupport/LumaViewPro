@@ -754,14 +754,8 @@ class LumaViewProApp(TooltipMixin, App):
         settings were provisional the question was suppressed because
         its answer could not be kept.
         """
-        import modules.config_helpers as config_helpers
-
-        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
-        model_has_turret = config_helpers.model_has_turret(microscope_settings.scopes, ctx.settings)
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(
-            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
-        )
+        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
 
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.

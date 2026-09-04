@@ -254,13 +254,13 @@ class VerticalControl(BoxLayout):
     def select_objective(self):
         try:
             ctx = _app_ctx.ctx
-            settings = ctx.settings
             objective_id = self.ids['objective_spinner2'].text
 
-            # Idempotent: text matching current settings is not a change, so
-            # skip the hardware calls and notifications. Defends against on_text
-            # firing for programmatic text writes (settings load, restore).
-            if objective_id == settings.get('objective_id'):
+            # on_text fires for programmatic text writes too (settings load,
+            # a turret move, the prompt's own answer); the Session reports
+            # whether anything changed and writes nothing when it did not.
+            changed = ctx.session.select_objective(objective_id)
+            if not changed:
                 return
 
             # Only log objective changes from user interaction, not protocol
@@ -268,54 +268,26 @@ class VerticalControl(BoxLayout):
                 gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
 
-            # Selecting an objective the turret does not hold is a normal step
-            # of assigning it: the user picks the objective, then presses Set to
-            # bind it to the current position. Interrupting the first half to
-            # complain about the second is why this used to pop a dialog saying
-            # the selection had been refused -- which it never was; the write
-            # below always happened. Logged, not raised: the moments where an
-            # unassigned objective actually blocks something (creating,
-            # modifying, adding to and running a protocol) each refuse there,
-            # and those refusals are real.
-            if ctx.lumaview.scope.capabilities.has_turret:
-                turret_objectives = list(settings.get('turret_objectives', {}).values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if assigned and objective_id not in assigned:
-                    logger.info(
-                        f'[LVP Main  ] Objective {objective_id!r} selected with no turret '
-                        f'position assigned; assigned objectives are {assigned}'
-                    )
-
-            # Update objective stored in settings
-            objective = ctx.session.get_objective_info(objective_id=objective_id)
-            with ctx.settings_lock:
-                settings['objective_id'] = objective_id
-
-            # Set objective in lumascope
-            if ctx.lumaview.scope.capabilities.has_turret:
-                ctx.lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
-            ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
-
-            binning_size = get_binning_from_ui()
-
-            # Update UI FOV
-            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            fov_size = config_ui_getters.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=binning_size,
-            )
-            fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
-            microscope_settings_id.ids['field_of_view_width_id'].text = fov_w_text
-            microscope_settings_id.ids['field_of_view_height_id'].text = fov_h_text
+            self._refresh_fov(objective_id)
         except Exception as e:
             logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
             show_notification_popup(title='Error', message=str(e))
+
+    def _refresh_fov(self, objective_id):
+        """Show the field of view the objective gives at the current frame."""
+        ctx = _app_ctx.ctx
+        objective = ctx.session.get_objective_info(objective_id=objective_id)
+        microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
+        fov_size = config_ui_getters.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=ctx.settings['frame'],
+            binning_size=get_binning_from_ui(),
+        )
+        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+        microscope_settings_id.ids['field_of_view_width_id'].text = fov_w_text
+        microscope_settings_id.ids['field_of_view_height_id'].text = fov_h_text
 
     def _reset_run_autofocus_button_cosmetics(self, **kwargs):
         self.ids['autofocus_id'].state = 'normal'
@@ -576,189 +548,127 @@ class VerticalControl(BoxLayout):
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
 
-    def set_turret_objective(self):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        gui_logger.select('TURRET_OBJECTIVE', self.ids['objective_spinner2'].text)
-
-        selected_turret = None
+    def _selected_turret_position(self):
+        """The slot whose button is down, or None when none is."""
         for position in range(1, 5):
             if self.ids[f'turret_pos_{position}_btn'].state == 'down':
-                selected_turret = position
+                return position
+        return None
 
+    def set_turret_objective(self):
+        ctx = _app_ctx.ctx
+        desired_objective_id = self.ids['objective_spinner2'].text
+        gui_logger.select('TURRET_OBJECTIVE', desired_objective_id)
+
+        selected_turret = self._selected_turret_position()
         if selected_turret is None:
             logger.error('VerticalControl] SetTurretObjective] No turret button selected')
             return
 
         try:
-            selected_turret_id = self.ids[f'turret_pos_{selected_turret}_btn']
-
-            # Find magnification of the selected objective
-            desired_objective_id = self.ids['objective_spinner2'].text
             magnification = ctx.session.get_objective_info(objective_id=desired_objective_id)[
                 'magnification'
             ]
-
-            # Change turret text
-            selected_turret_id.text = f'{magnification}x'
-
-            # Update settings. The slot key is the STRING form: this dict is
-            # loaded from JSON, whose object keys are always strings, while
-            # range() hands out ints. Writing the int added a second entry
-            # beside the string one, so every reader keyed by string kept
-            # seeing the old value and the saved file carried a duplicate key.
-            with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][selected_turret] = desired_objective_id
-
-            # Push the new assignment to the microscope -- the settings write
-            # alone does not reach hardware (mirrors select_objective).
-            if ctx.lumaview.scope.capabilities.has_turret:
-                ctx.lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
+            self.ids[f'turret_pos_{selected_turret}_btn'].text = f'{magnification}x'
+            ctx.session.assign_turret_objective(selected_turret, desired_objective_id)
         except Exception as e:
             logger.exception(f'SetTurretObjective] Error: {e}')
             return
 
     def reset_turret_objective(self):
-        settings = _app_ctx.ctx.settings
+        gui_logger.button('RESET_TURRET_OBJECTIVE')
 
-        selected_turret = None
-        for position in range(1, 5):
-            if self.ids[f'turret_pos_{position}_btn'].state == 'down':
-                selected_turret = position
-
+        selected_turret = self._selected_turret_position()
         if selected_turret is None:
             logger.error('VerticalControl] ResetTurretObjective] No turret button selected')
             return
 
         try:
-            selected_turret_id = self.ids[f'turret_pos_{selected_turret}_btn']
-
-            # Change turret text
-            selected_turret_id.text = str(selected_turret)
-
-            # Update settings -- string key, for the reason in
-            # set_turret_objective: an int key writes a second entry instead of
-            # clearing the one readers look at.
-            with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][selected_turret] = None
-
-            # Push the cleared slot to the microscope -- the settings write
-            # alone does not reach hardware (mirrors select_objective).
-            if _app_ctx.ctx.lumaview.scope.capabilities.has_turret:
-                _app_ctx.ctx.lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
+            self.ids[f'turret_pos_{selected_turret}_btn'].text = str(selected_turret)
+            _app_ctx.ctx.session.clear_turret_objective(selected_turret)
         except Exception as e:
             logger.exception(f'ResetTurretObjective] Error: {e}')
             return
 
         # Clearing the assignment at the position the turret is sitting
-        # on leaves the app unable to say what is in the light path --
-        # the previous objective would keep setting the image scale
-        # silently. Ask the user instead.
-        if selected_turret == settings.get('turret_position'):
-            Clock.schedule_once(
-                lambda dt: self.prompt_objective_selection(turret_position=selected_turret), 0
-            )
+        # on leaves the app unable to say what is in the light path; the
+        # Session decides whether that is so and the prompt asks.
+        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
 
-    def prompt_objective_selection(self, turret_position=None):
-        """Ask which objective is in the light path, and apply the answer.
+    def prompt_if_objective_unknown(self):
+        """Ask the Session whether the objective needs confirming; render the answer.
 
-        The pixel size derived from the objective is stamped into the
-        scale bar and every saved image's metadata, and a wrong scale
-        cannot be told from a measured one afterwards -- so when the app
-        cannot know the objective, it asks instead of assuming silently.
-
-        The answer performs the same actions a user does manually:
-        select the objective (spinner -> select_objective), and for a
-        turret position press Set (set_turret_objective) -- every write
-        stays on the production path.
-
-        Args:
-            turret_position: Position the answer binds to (the answer
-                also assigns that slot), or None on non-turret models.
+        The decision is the Session's (first run, or an unassigned slot at
+        the current position; withheld with no hardware and while settings
+        are provisional). This widget only shows the question and hands
+        the choice back. A raise anywhere on the path becomes a
+        notification: this runs on Clock callbacks, where a raise exits
+        the app.
         """
-        ctx = _app_ctx.ctx
-        # Asking is only useful when the answer can matter: with no
-        # hardware there is nothing in the light path and no capture to
-        # stamp, and this cancel-less modal would cover the notice that
-        # explains why nothing works. The flag stays unconfirmed, so the
-        # next hardware session asks.
-        if ctx.lumaview.scope.no_hardware:
-            logger.info('[LVP Main  ] Objective prompt suppressed -- no hardware this session')
-            return
-        # While settings are provisional every settings write is refused,
-        # so an answer given now would be silently lost -- and the modal
-        # would cover the provisional-settings question whose resolution
-        # is what makes the answer saveable. Resolution re-asks.
-        if ctx.session.settings_are_provisional():
-            logger.info(
-                '[LVP Main  ] Objective prompt deferred -- settings are provisional and '
-                'the answer could not be kept'
-            )
-            return
+        try:
+            question = _app_ctx.ctx.session.objective_question()
+            if question is None:
+                return
+            self._render_objective_question(question)
+        except Exception as e:
+            logger.error(f'[UI] objective question failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
 
-        settings = ctx.settings
-        if turret_position is not None:
+            show_notification_popup(
+                title='Objective not confirmed',
+                message=(
+                    'The installed objective could not be confirmed, so the image scale '
+                    f'recorded with captures may be wrong: {e}'
+                ),
+            )
+
+    def _render_objective_question(self, question):
+        """The one popup for the objective question; the answer applies below."""
+        if question.turret_position is not None:
             first_line = (
-                f'Please confirm the objective installed at turret position {turret_position}.'
+                'Please confirm the objective installed at turret position '
+                f'{question.turret_position}.'
             )
         else:
             first_line = 'Please confirm the installed objective.'
         message = f'{first_line}\nThis sets the image scale recorded with every capture.'
-
-        slots = settings.get('turret_objectives') or {}
-        current = (
-            slots.get(turret_position) if turret_position is not None else None
-        ) or settings.get('objective_id')
-
-        self.load_objectives()
-        objectives = list(self.ids['objective_spinner2'].values)
-        if not objectives:
-            logger.error('[LVP Main  ] Objective catalogue empty; cannot prompt for a selection')
-            return
-
-        def _apply(chosen: str):
-            self.ids['objective_spinner2'].text = chosen
-            if turret_position is not None:
-                self.update_all_turret_btn_states(turret_position)
-                self.set_turret_objective()
-            ctx.session.update_settings('objective_confirmed', True)
 
         from ui.notification_popup import show_objective_selection_popup
 
         show_objective_selection_popup(
             title='Objective',
             message=message,
-            objectives=objectives,
-            current_objective_id=current if current in objectives else objectives[0],
-            on_confirm=_apply,
+            objectives=list(question.choices),
+            current_objective_id=question.proposed,
+            on_confirm=lambda chosen: self._apply_objective_answer(
+                chosen, question.turret_position
+            ),
         )
 
-    def maybe_prompt_objective_selection(self, model_has_turret: bool):
-        """Fire the objective prompt if the objective is unknowable.
+    def _apply_objective_answer(self, chosen, turret_position):
+        """Hand the answer to the Session and render what it did."""
+        try:
+            ctx = _app_ctx.ctx
+            changed = ctx.session.confirm_objective(chosen, turret_position=turret_position)
+            if changed and not ctx.session.is_protocol_running:
+                gui_logger.select('OBJECTIVE', chosen)
+            if changed:
+                logger.info('[LVP Main  ] VerticalControl.select_objective()')
+            # on_text reaches select_objective, whose Session call reports
+            # no change and does nothing further.
+            self.ids['objective_spinner2'].text = chosen
+            if changed:
+                self._refresh_fov(chosen)
+            if turret_position is not None:
+                gui_logger.select('TURRET_OBJECTIVE', chosen)
+                self.update_all_turret_btn_states(turret_position)
+                magnification = ctx.session.get_objective_info(objective_id=chosen)['magnification']
+                self.ids[f'turret_pos_{turret_position}_btn'].text = f'{magnification}x'
+        except Exception as e:
+            logger.error(f'[UI] objective answer failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
 
-        Two ways the app cannot know what is in the light path: no
-        person has ever confirmed the objective on this install (the
-        settings template ships a 20x default that would otherwise set
-        image scale silently forever), or the session's turret position
-        has no assignment.
-        """
-        settings = _app_ctx.ctx.settings
-        first_run = not settings.get('objective_confirmed', False)
-        turret_position = None
-        slot_unassigned = False
-        if model_has_turret:
-            position = settings.get('turret_position') or 1
-            slots = settings.get('turret_objectives') or {}
-            slot_unassigned = slots.get(position) is None
-            turret_position = position
-        if first_run or slot_unassigned:
-            self.prompt_objective_selection(turret_position=turret_position)
+            show_notification_popup(title='Error', message=str(e))
 
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False, restore_z=True):
@@ -782,8 +692,10 @@ class VerticalControl(BoxLayout):
                         fut.result(timeout=120)
 
             if not isinstance(selected_position, int) and not isinstance(selected_position, float):
-                if not selected_position.isdigit():
-                    selected_position = 1
+                # A digit string names a slot; anything else falls back to
+                # slot 1. Left as a string, a digit would match no slot in the
+                # loop below and skip the spinner sync and the prompt.
+                selected_position = int(selected_position) if selected_position.isdigit() else 1
             else:
                 selected_position = int(selected_position)
 
@@ -809,11 +721,10 @@ class VerticalControl(BoxLayout):
                 if fut:
                     fut.result(timeout=60)
 
-            # Persist user's explicit turret choice so the next session
+            # Record the user's explicit turret choice so the next session
             # (or any post-home lookup) prefers this position when the
-            # objective at this slot is duplicated elsewhere on the
-            # turret. (#488)
-            settings['turret_position'] = selected_position
+            # objective at this slot is duplicated elsewhere on the turret.
+            ctx.session.set_turret_position(selected_position)
 
             for available_position in range(1, 5):
                 if selected_position == available_position:
@@ -828,26 +739,12 @@ class VerticalControl(BoxLayout):
                     elif not protocol:
                         # The turret is moving to a position with no
                         # assignment: the previous objective would keep
-                        # setting the image scale silently. Ask the user
-                        # what is installed there. (Programmatic
-                        # turret_select on a scope with no turret --
-                        # e.g. the XY-home resync -- must not prompt.)
-                        if ctx.lumaview.scope.capabilities.has_turret:
-                            Clock.schedule_once(
-                                lambda dt: self.prompt_objective_selection(
-                                    turret_position=selected_position
-                                ),
-                                0,
-                            )
-                    else:
-                        # Run validation refuses unassigned step
-                        # objectives, so a protocol move cannot legally
-                        # land here -- and a prompt must never interrupt
-                        # an unattended run. Log loudly instead.
-                        logger.warning(
-                            f'[LVP Main  ] Protocol turret move landed on position '
-                            f'{selected_position} with no objective assigned'
-                        )
+                        # setting the image scale silently. The Session
+                        # decides whether to ask (a declared non-turret
+                        # model, e.g. the XY-home resync, is never asked)
+                        # and has already warned for every host. A prompt
+                        # must never interrupt an unattended run.
+                        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
 
             Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
         except Exception as e:
@@ -872,14 +769,12 @@ class VerticalControl(BoxLayout):
             self.update_turret_btn_state(available_position, state)
 
     def update_turret_gui(self, turret_position):
-        settings = _app_ctx.ctx.settings
-        # Persist the position the turret physically ended up at -- this
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        # Record the position the turret physically ended up at -- this
         # is called after every protocol-driven or step-navigation T
-        # move, so the persisted value tracks reality across moves. (#488)
-        try:
-            settings['turret_position'] = int(turret_position)
-        except (TypeError, ValueError):
-            pass
+        # move, so the recorded value tracks reality across moves.
+        ctx.session.set_turret_position(int(turret_position))
         for available_position in range(1, 5):
             if turret_position == available_position:
                 state = 'down'

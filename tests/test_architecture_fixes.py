@@ -598,8 +598,6 @@ _GUI_ORCHESTRATION_PIN = {
     ('ui/microscope_settings.py', 'initialize'): 1,
     ('ui/microscope_settings.py', 'start_streaming'): 2,
     ('ui/protocol_settings.py', 'set_labware'): 1,
-    ('ui/vertical_control.py', 'set_objective'): 1,
-    ('ui/vertical_control.py', 'set_turret_config'): 3,
 }
 
 _MODULES_CONTEXT_READ_PIN = {

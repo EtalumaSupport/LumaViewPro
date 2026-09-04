@@ -26,8 +26,10 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from modules.scope_session import ScopeSession
+from modules.exceptions import ConfigError
+from modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import find_def, iter_package_modules, parse_module
+from tests.settings_fixtures import complete_settings
 from ui.vertical_control import VerticalControl
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -130,58 +132,54 @@ def settings_are_keepable(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# The VerticalControl stand
+# The VerticalControl stand, on a REAL sim Session
 # ---------------------------------------------------------------------------
-# Borrows the REAL prompt methods off the class (as the sibling prompt
-# test does) so the production body runs; only the Kivy widget tree and
-# the two hardware writes are stood in for.
+# Borrows the REAL renderer methods off the class so the production body
+# runs; only the Kivy widget tree and the FOV refresh are stood in for.
+# The decision (ask / withhold / defer) is the Session's, so every case
+# below runs a real simulated Session rather than scripting the answer.
 
 
 class _Stand:
-    prompt_objective_selection = VerticalControl.prompt_objective_selection
-    maybe_prompt_objective_selection = VerticalControl.maybe_prompt_objective_selection
+    prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
+    _render_objective_question = VerticalControl._render_objective_question
+    _apply_objective_answer = VerticalControl._apply_objective_answer
 
-    def __init__(self, objectives=None):
-        catalogue = CATALOGUE if objectives is None else objectives
-        self.spinner = _FakeWidget(text='', values=list(catalogue))
-        self.ids = {'objective_spinner2': self.spinner}
+    def __init__(self):
+        self.ids = {'objective_spinner2': _FakeWidget(text='')}
+        for position in range(1, 5):
+            self.ids[f'turret_pos_{position}_btn'] = _FakeWidget(text=str(position))
         self.turret_states = []
-        self.set_calls = 0
 
-    def load_objectives(self):
+    def _refresh_fov(self, objective_id):
         pass
 
     def update_all_turret_btn_states(self, position):
         self.turret_states.append(position)
 
-    def set_turret_objective(self):
-        self.set_calls += 1
 
-
-def _install_ctx(monkeypatch, settings, *, no_hardware=False):
-    """App context with the pieces the prompt body reads."""
-    ctx = SimpleNamespace(
-        settings=settings,
-        lumaview=SimpleNamespace(scope=SimpleNamespace(no_hardware=no_hardware)),
-        session=SimpleNamespace(
-            update_settings=lambda key, value: settings.__setitem__(key, value),
-            # The real Session delegate, not a constant: the provisional
-            # gate now asks the session, and the D4 tests below set the
-            # module state the real delegate reads.
-            settings_are_provisional=settings_init.settings_are_provisional,
-        ),
+@pytest.fixture
+def session():
+    """A fresh install on a turret model: unconfirmed, slot 1 unassigned."""
+    built = ScopeSession.create_headless(
+        settings=complete_settings(
+            microscope='LS850T',
+            objective_confirmed=False,
+            turret_position=1,
+            turret_objectives={'1': None, '2': None, '3': None, '4': None},
+            objective_id='20x Oly',
+        )
     )
+    yield built
+    built.shutdown()
+
+
+def _install_ctx(monkeypatch, session, *, no_hardware=False):
+    """App context with the pieces the renderer reads."""
+    session.scope._no_hardware = no_hardware
+    ctx = SimpleNamespace(settings=session.settings, session=session)
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     return ctx
-
-
-def _fresh_install_settings():
-    return {
-        'objective_confirmed': False,
-        'turret_position': 1,
-        'turret_objectives': {1: None},
-        'objective_id': '20x Oly',
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -190,43 +188,52 @@ def _fresh_install_settings():
 
 
 class TestSingleFlight:
-    def test_the_fresh_install_double_fire_opens_one_prompt(self, monkeypatch, popups):
-        """Startup's two gates both fire on a fresh install with an
+    def test_the_fresh_install_double_fire_opens_one_prompt(self, monkeypatch, popups, session):
+        """Startup's gates can fire twice on a fresh install with an
         unassigned slot 1; the user must see ONE question, not two
         stacked modals whose answers race."""
-        _install_ctx(monkeypatch, _fresh_install_settings())
+        _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        stand.prompt_objective_selection(turret_position=1)
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown()
 
         assert len(popups) == 1
 
-    def test_answering_re_arms_the_prompt(self, monkeypatch, popups):
+    def test_answering_re_arms_the_prompt(self, monkeypatch, popups, session):
         """Single-flight, not once-per-process: the next unknowable
         objective still gets asked about."""
-        settings = _fresh_install_settings()
-        _install_ctx(monkeypatch, settings)
+        _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        stand.prompt_objective_selection(turret_position=1)
+        stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] is True
+        assert session.settings['turret_objectives'][1] == '10x Oly'
 
-        stand.prompt_objective_selection(turret_position=2)
+        session.clear_turret_objective(1)
+        stand.prompt_if_objective_unknown()
         assert len(popups) == 2
 
-    def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups):
-        """The catalogue-empty return happens BEFORE the popup exists, so
-        it must not leave the flag set with no popup to clear it."""
-        _install_ctx(monkeypatch, _fresh_install_settings())
-        stand = _Stand(objectives=[])
+    def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups, session):
+        """An empty catalogue is refused by the Session BEFORE the popup
+        exists -- one notification, no modal -- and must not leave the
+        flag set with no popup to clear it."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        errors = []
+        monkeypatch.setattr(
+            notification_popup, 'show_notification_popup', lambda **kw: errors.append(kw['title'])
+        )
+        catalogue = session.objective_helper.get_objectives_list
+        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', lambda: [])
 
-        stand.prompt_objective_selection(turret_position=1)
+        stand.prompt_if_objective_unknown()
         assert popups == []
+        assert len(errors) == 1
 
-        stand.spinner.values = list(CATALOGUE)
-        stand.prompt_objective_selection(turret_position=1)
+        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', catalogue)
+        stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
 
@@ -236,37 +243,36 @@ class TestSingleFlight:
 
 
 class TestNoHardwareSuppression:
-    def test_no_hardware_suppresses_the_objective_prompt(self, monkeypatch, popups):
-        settings = _fresh_install_settings()
-        _install_ctx(monkeypatch, settings, no_hardware=True)
+    def test_no_hardware_suppresses_the_objective_prompt(self, monkeypatch, popups, session):
+        _install_ctx(monkeypatch, session, no_hardware=True)
         stand = _Stand()
 
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
 
         assert popups == []
         # Unanswered, not answered-by-default: the next session with
         # hardware attached has to ask.
-        assert settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is False
 
-    def test_hardware_present_still_prompts(self, monkeypatch, popups):
-        _install_ctx(monkeypatch, _fresh_install_settings(), no_hardware=False)
+    def test_hardware_present_still_prompts(self, monkeypatch, popups, session):
+        _install_ctx(monkeypatch, session, no_hardware=False)
         stand = _Stand()
 
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
 
         assert len(popups) == 1
 
-    def test_suppressed_then_recovered(self, monkeypatch, popups):
+    def test_suppressed_then_recovered(self, monkeypatch, popups, session):
         """Suppression must not latch either -- reconnecting hardware
         mid-session leaves the question still owed."""
-        ctx = _install_ctx(monkeypatch, _fresh_install_settings(), no_hardware=True)
+        _install_ctx(monkeypatch, session, no_hardware=True)
         stand = _Stand()
 
-        stand.prompt_objective_selection(turret_position=1)
+        stand.prompt_if_objective_unknown()
         assert popups == []
 
-        ctx.lumaview.scope.no_hardware = False
-        stand.prompt_objective_selection(turret_position=1)
+        session.scope._no_hardware = False
+        stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
 
@@ -276,22 +282,27 @@ class TestNoHardwareSuppression:
 
 
 class TestTheFlagCannotStrand:
-    def test_raise_inside_apply_does_not_wedge_the_prompt(self, monkeypatch, popups):
-        """The answer is applied AFTER dismiss, so a failure applying it
-        cannot leave the app unable to ever ask again."""
-        _install_ctx(monkeypatch, _fresh_install_settings())
+    def test_raise_inside_apply_does_not_wedge_the_prompt(self, monkeypatch, popups, session):
+        """The answer is applied AFTER dismiss and a failure applying it
+        is shown, not raised -- so it cannot leave the app unable to ever
+        ask again, nor exit it from the popup's callback."""
+        _install_ctx(monkeypatch, session)
         stand = _Stand()
+        shown = []
+        monkeypatch.setattr(
+            notification_popup, 'show_notification_popup', lambda **kw: shown.append(kw)
+        )
 
-        def _boom():
-            raise RuntimeError('turret write failed')
+        def _boom(objective_id, turret_position=None):
+            raise ConfigError('turret write failed')
 
-        monkeypatch.setattr(stand, 'set_turret_objective', _boom)
+        monkeypatch.setattr(session, 'confirm_objective', _boom)
 
-        stand.prompt_objective_selection(turret_position=1)
-        with pytest.raises(RuntimeError):
-            confirm(popups[0], '10x Oly')
+        stand.prompt_if_objective_unknown()
+        confirm(popups[0], '10x Oly')
+        assert len(shown) == 1 and 'turret write failed' in shown[0]['message']
 
-        stand.prompt_objective_selection(turret_position=1)
+        stand.prompt_if_objective_unknown()
         assert len(popups) == 2
 
     def test_the_single_flight_flag_starts_clear(self):
@@ -306,7 +317,7 @@ class TestTheFlagCannotStrand:
 
 
 class TestProvisionalSettings:
-    def test_provisional_settings_suppress_the_objective_prompt(self, monkeypatch, popups):
+    def test_provisional_settings_suppress_the_objective_prompt(self, monkeypatch, popups, session):
         """An answer given now would be refused by the writer, and the
         cancel-less modal would cover the question whose resolution is
         what makes answers saveable again."""
@@ -315,28 +326,27 @@ class TestProvisionalSettings:
             'rejected_current_json',
             ('/data/current.json', 'invalid JSON'),
         )
-        settings = _fresh_install_settings()
-        _install_ctx(monkeypatch, settings)
+        _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
 
         assert popups == []
-        assert settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is False
 
-    def test_resolution_releases_the_prompt(self, monkeypatch, popups, tmp_path):
+    def test_resolution_releases_the_prompt(self, monkeypatch, popups, tmp_path, session):
         rejected = tmp_path / 'current.json'
         rejected.write_text('{ not json')
         monkeypatch.setattr(settings_init, 'rejected_current_json', (str(rejected), 'invalid JSON'))
-        _install_ctx(monkeypatch, _fresh_install_settings())
+        _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
         assert popups == []
 
         settings_init.retire_rejected_current_json()
 
-        stand.maybe_prompt_objective_selection(model_has_turret=True)
+        stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 
     def test_an_answer_after_resolution_reaches_disk(self, tmp_path, monkeypatch):
@@ -430,7 +440,7 @@ class TestOneOpenerOneMessage:
                 if 'show_objective_selection_popup' in _direct_call_names(fn):
                     openers.add((rel_path, qualname))
 
-        assert openers == {('ui/vertical_control.py', 'VerticalControl.prompt_objective_selection')}
+        assert openers == {('ui/vertical_control.py', 'VerticalControl._render_objective_question')}
 
     def test_the_objective_prompt_has_one_message_builder(self):
         """Every trigger asks the same question. A per-trigger message
@@ -438,24 +448,24 @@ class TestOneOpenerOneMessage:
         question read as two different ones."""
         fn = find_def(
             'ui/vertical_control.py',
-            'prompt_objective_selection',
+            '_render_objective_question',
             class_name='VerticalControl',
         )
         assert fn is not None
 
         assert _direct_call_names(fn).count('show_objective_selection_popup') == 1
 
-        identifiers = set()
-        for node in ast.walk(fn):
-            if isinstance(node, ast.Name):
-                identifiers.add(node.id)
-            elif isinstance(node, ast.arg):
-                identifiers.add(node.arg)
-            elif isinstance(node, ast.Attribute):
-                identifiers.add(node.attr)
-            elif isinstance(node, ast.keyword) and node.arg:
-                identifiers.add(node.arg)
-        assert 'first_run' not in identifiers
+    def test_the_question_carries_no_per_trigger_variant(self):
+        """The decision moved into the Session with the flag it reads; the
+        QUESTION it hands the renderer is one shape -- a position, a
+        proposal and the choices -- so the message cannot vary by trigger."""
+        import dataclasses
+
+        assert [f.name for f in dataclasses.fields(ObjectiveQuestion)] == [
+            'turret_position',
+            'proposed',
+            'choices',
+        ]
 
     def test_no_hardcoded_objective_default_in_the_ui(self):
         """The prompt's pre-selection chain is slot -> stored objective ->
@@ -463,12 +473,15 @@ class TestOneOpenerOneMessage:
         fourth, invisible source of the same fact, so no string constant
         may carry one.
 
-        Scoped to ui/ deliberately: the string legitimately appears in
-        modules/lumascope_api/runtime_state.py docstring examples.
+        Scoped to ui/ plus the Session that now owns the chain: the string
+        legitimately appears in modules/lumascope_api/runtime_state.py
+        docstring examples.
         """
+        modules = list(iter_package_modules(['ui']))
+        modules.append(('modules/scope_session.py', parse_module('modules/scope_session.py')))
         offenders = [
             rel_path
-            for rel_path, module in iter_package_modules(['ui'])
+            for rel_path, module in modules
             for node in ast.walk(module)
             if isinstance(node, ast.Constant)
             and isinstance(node.value, str)

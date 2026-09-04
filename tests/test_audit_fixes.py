@@ -1325,13 +1325,14 @@ class TestIssue606_TurretObjectiveValidation:
         import inspect
         import textwrap
 
-        import ui.vertical_control as vc
+        from modules.scope_session import ScopeSession
 
         # Round-tripped through the AST so the assertion sees CODE, not
         # prose: a raw source match here failed on a comment that happened
-        # to contain the word it was looking for.
+        # to contain the word it was looking for. The writer lives on the
+        # Session; the GUI handler only renders its result.
         src = ast.unparse(
-            ast.parse(textwrap.dedent(inspect.getsource(vc.VerticalControl.select_objective)))
+            ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
         )
         assert 'turret_objectives' in src, (
             'select_objective must still detect an objective with no turret position'

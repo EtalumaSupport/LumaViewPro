@@ -1,27 +1,25 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Turret assign/reset buttons must push the config to the microscope.
+"""The turret slot writers must push the config to the microscope.
 
 Bug
 ---
-set_turret_objective and reset_turret_objective updated
-settings['turret_objectives'] but never called set_turret_config(), so the
-assignment/clear persisted to settings while the microscope was never synced.
-Hardware dispatch happened only in select_objective() (the spinner path), not
-on these buttons -- so the buttons silently did half their job.
+The GUI's assign and reset handlers updated settings['turret_objectives']
+but never called set_turret_config(), so the assignment/clear persisted to
+settings while the microscope was never synced. Hardware dispatch happened
+only on the objective-selection path, so the buttons silently did half
+their job.
 
 Fix
 ---
-After the settings write, both handlers now call
-scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
-guarded by capabilities.has_turret, mirroring select_objective().
+The slot writers now live on the Session (assign_turret_objective and
+clear_turret_objective) and each pushes
+scope.runtime_state.set_turret_config(settings['turret_objectives']) after
+the settings write, for every host.
 
 Test approach
 -------------
-The handlers are Kivy-bound (self.ids, _app_ctx.ctx) and cannot run headless,
-so -- as with the other vertical/protocol UI regression tests -- the contract
-is locked structurally: assert each handler's AST contains a set_turret_config
-call. Fails on pre-fix source (no such call). Hardware behavior itself is
-bench-validated.
+The contract is locked structurally: assert each writer's AST contains a
+set_turret_config call. Hardware behavior itself is bench-validated.
 """
 
 from __future__ import annotations
@@ -32,13 +30,13 @@ import pathlib
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-VERTICAL_CONTROL_SRC = REPO / 'ui' / 'vertical_control.py'
+SCOPE_SESSION_SRC = REPO / 'modules' / 'scope_session.py'
 
-DISPATCH_HANDLERS = ['set_turret_objective', 'reset_turret_objective']
+DISPATCH_HANDLERS = ['assign_turret_objective', 'clear_turret_objective']
 
 
 def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
-    tree = ast.parse(VERTICAL_CONTROL_SRC.read_text())
+    tree = ast.parse(SCOPE_SESSION_SRC.read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
@@ -60,7 +58,7 @@ def _calls_attr(method: ast.FunctionDef, attr: str) -> bool:
 
 @pytest.mark.parametrize('handler', DISPATCH_HANDLERS)
 def test_handler_dispatches_turret_config(handler):
-    method = _method_node('VerticalControl', handler)
+    method = _method_node('ScopeSession', handler)
     assert _calls_attr(method, 'set_turret_config'), (
         f'{handler} writes settings but never calls set_turret_config(); the '
         f'microscope never syncs the turret assignment'

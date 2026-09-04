@@ -488,3 +488,81 @@ class TestPopulatedSlotsSurviveTheLoad:
 
         assert rejected is None
         assert settings['turret_objectives'] == {1: '4x Oly', 2: '10x Oly', 3: None, 4: '20x Oly'}
+
+
+# ---------------------------------------------------------------------------
+# The exit criterion: the Session members are the ONLY writers of the four facts
+# ---------------------------------------------------------------------------
+
+_OBJECTIVE_FACTS = {'objective_id', 'turret_objectives', 'turret_position', 'objective_confirmed'}
+
+# Each writer is the one home of its fact for every host; a write anywhere
+# else is a second store the API cannot see.
+_ALLOWED_WRITERS = {
+    ('modules/scope_session.py', 'ScopeSession.select_objective'),
+    ('modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
+    ('modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
+    ('modules/scope_session.py', 'ScopeSession.set_turret_position'),
+    ('modules/scope_session.py', 'ScopeSession.confirm_objective'),
+    ('modules/scope_session.py', 'ScopeSession.adopt_turret_slot1_objective'),
+    ('modules/settings_init.py', '_normalize_turret_slot_keys'),
+}
+
+
+def _innermost_subscript_key(node):
+    """The literal key at the innermost slice of a subscript chain.
+
+    The slot writers are ``settings['turret_objectives'][n] = ...``: the
+    fact's key sits one level in, so a slice-only match on the outer
+    subscript would miss them.
+    """
+    while isinstance(node, ast.Subscript):
+        key = node.slice
+        if isinstance(key, ast.Constant) and key.value in _OBJECTIVE_FACTS:
+            return key.value
+        node = node.value
+    return None
+
+
+def _walk_defs(body, prefix=''):
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            yield from _walk_defs(node.body, f'{prefix}{node.name}.')
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            qualname = f'{prefix}{node.name}'
+            yield qualname, node
+            yield from _walk_defs(node.body, f'{qualname}.')
+
+
+def _writers_of_the_objective_facts():
+    modules = list(iter_package_modules(('modules', 'ui')))
+    modules.append(('lumaviewpro.py', parse_module('lumaviewpro.py')))
+    found = set()
+    for rel_path, tree in modules:
+        for qualname, fn in _walk_defs(tree.body):
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+                    if _innermost_subscript_key(node) is not None:
+                        found.add((rel_path, qualname))
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == 'update_settings'
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value in _OBJECTIVE_FACTS
+                ):
+                    found.add((rel_path, qualname))
+    return found
+
+
+class TestTheSessionIsTheOnlyWriter:
+    def test_no_other_site_writes_an_objective_fact(self):
+        writers = _writers_of_the_objective_facts()
+        assert writers - _ALLOWED_WRITERS == set(), sorted(writers - _ALLOWED_WRITERS)
+
+    def test_the_allowed_writers_still_write(self):
+        # A pin over an empty set proves nothing: every named writer must
+        # still be found writing, or the walk is broken.
+        writers = _writers_of_the_objective_facts()
+        assert _ALLOWED_WRITERS - writers == set(), sorted(_ALLOWED_WRITERS - writers)
