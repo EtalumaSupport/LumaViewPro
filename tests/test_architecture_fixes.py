@@ -384,8 +384,14 @@ class TestTinyFileConsolidation:
 # is the migration working: lower the pin in the same commit, so the number
 # can never quietly grow back to a stale ceiling.
 #
-# Neither proxy sees a decision written in ui/ against widget state and the
-# public scope API alone; that class is caught at review, not here.
+# The import pin is a WEAK proxy for logic: a file keeps an import for its
+# rendering uses after the logic that also used it moves down, so a
+# migration commit may change the import count by nothing at all. It stops
+# growth; it does not measure the migration. Pins 3 and 4 below measure the
+# lifecycle class directly.
+#
+# None of these proxies sees a decision written in ui/ against widget state
+# and the public scope API alone; that class is caught at review, not here.
 
 import ast as _ast
 
@@ -483,16 +489,142 @@ _UI_PRIVATE_REACH_PIN = {
 }
 
 
-def _ratchet_report(pin, actual, what):
+# Proxy 3: the GUI calling the scope's LIFECYCLE and orchestration members
+# directly -- bring-up, streaming, disconnect, the runtime-state setters, and
+# constructing the scope, the session or an autofocus runner. Every one is a
+# step the Session owns for a headless caller; a GUI that performs it is the
+# reason a headless session cannot run the same step. This catches the
+# settings-to-scope bring-up that the import and private-reach pins cannot:
+# it reaches the scope through PUBLIC members with imports the file keeps
+# for other uses. lumaviewpro.py is the GUI's entry point and is counted
+# with ui/.
+_ORCHESTRATION_MEMBERS = frozenset(
+    {'initialize', 'start_streaming', 'stop_streaming', 'disconnect', 'set_acceleration_limit'}
+)
+_ORCHESTRATION_CONSTRUCTORS = frozenset(
+    {
+        'Lumascope',
+        'ScopeSession',
+        'AutofocusRunner',
+        'AutofocusThread',
+        'create_default',
+        'create_headless',
+    }
+)
+
+
+def _gui_source_files():
+    return [*_ui_source_files(), os.path.join(_REPO_ROOT, 'lumaviewpro.py')]
+
+
+def _attribute_chain(node):
+    chain = []
+    value = node
+    while isinstance(value, _ast.Attribute):
+        chain.append(value.attr)
+        value = value.value
+    if isinstance(value, _ast.Name):
+        chain.append(value.id)
+    return chain
+
+
+def _gui_orchestration_counts():
+    """{('<gui file>', '<member or constructor>'): count} -- calls from the
+    GUI to an orchestration member reached through the scope, the session or
+    the app's `lumaview` handle, a `runtime_state.set_*` setter, or one of
+    the orchestration constructors."""
+    counts = {}
+    for path in _gui_source_files():
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            fn = node.func
+            name = None
+            if isinstance(fn, _ast.Name) and fn.id in _ORCHESTRATION_CONSTRUCTORS:
+                name = fn.id
+            elif isinstance(fn, _ast.Attribute):
+                chain = _attribute_chain(fn.value)
+                through_scope = 'scope' in chain or 'session' in chain or 'lumaview' in chain
+                if (
+                    fn.attr in _ORCHESTRATION_CONSTRUCTORS
+                    or (fn.attr in _ORCHESTRATION_MEMBERS and through_scope)
+                    or (fn.attr.startswith('set_') and 'runtime_state' in chain)
+                ):
+                    name = fn.attr
+            if name is not None:
+                key = (_relpath(path), name)
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+# Proxy 4: the lower layer reaching UP into the GUI's context. A `modules/`
+# file that reads `_app_ctx.ctx` is orchestration code that only works when
+# a Kivy app has been built around it -- the mirror of proxy 3, and the
+# other half of what a headless caller trips over. Counted per file.
+
+
+def _modules_context_read_counts():
+    """{'modules/<file>.py': number of `_app_ctx.ctx` attribute reads}."""
+    counts = {}
+    for path in _list_py_files('modules'):
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        n = 0
+        for node in _ast.walk(tree):
+            if (
+                isinstance(node, _ast.Attribute)
+                and node.attr == 'ctx'
+                and isinstance(node.value, _ast.Name)
+                and node.value.id == '_app_ctx'
+            ):
+                n += 1
+        if n:
+            counts[_relpath(path)] = n
+    return counts
+
+
+# Pinned at 38f9a81c. Lower a value in the same commit that moves the step
+# into the Session; never raise one.
+_GUI_ORCHESTRATION_PIN = {
+    ('lumaviewpro.py', 'AutofocusRunner'): 1,
+    ('lumaviewpro.py', 'AutofocusThread'): 1,
+    ('lumaviewpro.py', 'ScopeSession'): 1,
+    ('lumaviewpro.py', 'disconnect'): 1,
+    ('ui/main_display.py', 'Lumascope'): 1,
+    ('ui/microscope_settings.py', 'Lumascope'): 1,
+    ('ui/microscope_settings.py', 'disconnect'): 1,
+    ('ui/microscope_settings.py', 'initialize'): 1,
+    ('ui/microscope_settings.py', 'start_streaming'): 2,
+    ('ui/protocol_settings.py', 'set_labware'): 1,
+    ('ui/vertical_control.py', 'set_objective'): 1,
+    ('ui/vertical_control.py', 'set_turret_config'): 3,
+}
+
+_MODULES_CONTEXT_READ_PIN = {
+    'modules/config_helpers.py': 4,
+    'modules/config_ui_getters.py': 21,
+    'modules/derived_output_encoding.py': 3,
+    'modules/executor_registry.py': 1,
+    'modules/metrics_logger.py': 2,
+    'modules/scope_session.py': 1,
+}
+
+
+_GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
+_MODULES_REMEDY = (
+    'The lower layer is reaching up into the GUI: take the value as an argument (Rule 2).'
+)
+
+
+def _ratchet_report(pin, actual, what, remedy=_GUI_REMEDY):
     """The differences between a pin and the tree, each with its remedy."""
     lines = []
     for key in sorted(set(pin) | set(actual), key=str):
         before, now = pin.get(key, 0), actual.get(key, 0)
         if now > before:
-            lines.append(
-                f'{key}: {what} rose {before} -> {now}. New logic in the GUI: '
-                f'move it to the API and expose a getter/setter (Rule 2).'
-            )
+            lines.append(f'{key}: {what} rose {before} -> {now}. {remedy}')
         elif now < before:
             lines.append(f'{key}: {what} fell {before} -> {now}. Lower the pin in this commit.')
     return lines
@@ -511,5 +643,20 @@ class TestGuiIsDisplayOnly:
     def test_ui_private_reaches_into_scope_match_the_pin(self):
         report = _ratchet_report(
             _UI_PRIVATE_REACH_PIN, _ui_private_reach_counts(), 'private reaches'
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_gui_orchestration_calls_match_the_pin(self):
+        report = _ratchet_report(
+            _GUI_ORCHESTRATION_PIN, _gui_orchestration_counts(), 'orchestration calls'
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_modules_context_reads_match_the_pin(self):
+        report = _ratchet_report(
+            _MODULES_CONTEXT_READ_PIN,
+            _modules_context_read_counts(),
+            '_app_ctx.ctx reads',
+            _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
