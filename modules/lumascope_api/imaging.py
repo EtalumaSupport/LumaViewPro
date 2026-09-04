@@ -76,6 +76,18 @@ class AutoGainLock:
     ceiling_ms: float | None = None
     resume_after_capture: bool = False
     settings: dict | None = None
+    # The exposure a caller STORES as the layer's manual setting after the
+    # lock: the achieved value floored to the class's usable floor. The
+    # auto loop can drive the camera below that floor on a bright scene;
+    # a setting stored that low makes near-black captures on ordinary
+    # scenes, so the store keeps the floor while exposure_ms keeps the
+    # truth. Decided here so a GUI and a REST caller store the same value.
+    stored_exposure_ms: float | None = None
+
+
+def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
+    """The exposure to store as a manual setting after an auto-gain lock."""
+    return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
 
 
 if TYPE_CHECKING:
@@ -1006,7 +1018,16 @@ class ImagingAPI:
             logger.debug(line)
         else:
             logger.info(line)
-        return AutoGainLock(state, exp_ms, gain, floor, ceiling, arm.resume_after_capture, settings)
+        return AutoGainLock(
+            state,
+            exp_ms,
+            gain,
+            floor,
+            ceiling,
+            arm.resume_after_capture,
+            settings,
+            stored_exposure_ms=stored_exposure_after_lock(exp_ms, floor),
+        )
 
     def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
@@ -2392,7 +2413,9 @@ class ImagingAPI:
                         self._resume_auto_gain_impl(lock)
                     return None
 
-            if lock is None and self._auto_gain_arm is not None:
+            if lock is None:
+                # The lock consumes the arm under _state_lock and reports
+                # state None when nothing stood; no unguarded peek first.
                 lock = self._lock_auto_gain_impl()
                 if lock.state is not None:
                     continue

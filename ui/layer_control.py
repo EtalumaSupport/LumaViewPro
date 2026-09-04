@@ -467,22 +467,20 @@ class LayerControl(BoxLayout):
                 self.ids['gain_slider'].value = gain
                 self.ids['gain_text'].text = str(round(gain, 1))
             if exp_known:
-                # The stored setting and the slider keep the layer class's
-                # usable floor: the auto loop can drive the camera to its
-                # physical minimum on a bright scene, and a setting written
-                # that low produces near-black protocol steps on ordinary
-                # scenes and cannot be shown on a fluorescence slider at
-                # all. The floor is owned by config_helpers, beside the
-                # AG/AE ceiling. The raw value reaches the user through
-                # the lock's state below, not through the setting.
-                from modules.config_ui_getters import get_ag_ae_min_exposure_ms
-
-                exp_min = max(self.ids['exp_slider'].min, get_ag_ae_min_exposure_ms(self.layer))
-                exp_max = self.ids['exp_slider'].max
-                floored = float(np.clip(exp, exp_min, exp_max))
-                settings[self.layer]['exposure_ms'] = floored
-                self.ids['exp_slider'].value = floored
-                self.ids['exp_text'].text = str(round(floored, 2))
+                # The API decided what to store (the achieved exposure
+                # floored to the class's usable floor); the display only
+                # keeps it inside this slider's own range. The raw value
+                # reaches the user through the lock's state below.
+                stored = float(
+                    np.clip(
+                        lock.stored_exposure_ms,
+                        self.ids['exp_slider'].min,
+                        self.ids['exp_slider'].max,
+                    )
+                )
+                settings[self.layer]['exposure_ms'] = stored
+                self.ids['exp_slider'].value = stored
+                self.ids['exp_text'].text = str(round(stored, 2))
             self._notify_auto_gain_limit(lock)
 
         settings[self.layer]['auto_gain'] = state

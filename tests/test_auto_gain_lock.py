@@ -20,7 +20,7 @@ and the chunk gate are the production objects.
 
 from __future__ import annotations
 
-import pathlib
+import ast
 import threading
 
 import lvp_logger
@@ -28,8 +28,7 @@ import modules.config_helpers as config_helpers
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-
-REPO = pathlib.Path(__file__).resolve().parent.parent
+from tests import ast_seams
 
 AG_SETTINGS_FLUORESCENCE = {
     'target_brightness': 0.5,
@@ -200,6 +199,21 @@ def test_auto_gain_capture_reports_at_minimum_below_class_floor():
     assert imaging.frame_validity.target('exposure') == 400.0
 
 
+def test_lock_result_carries_the_value_to_store():
+    """The API decides what a caller stores as the manual setting after a
+    lock: the achieved exposure floored to the class's usable floor, so a
+    GUI and a REST caller store the same value."""
+    imaging, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    lock = imaging._lock_auto_gain_impl()
+    assert lock.exposure_ms == 0.4
+    assert lock.stored_exposure_ms == 1.0
+
+    imaging, _cam = _build(ae_lands_on_ms=62.003)
+    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    assert imaging._lock_auto_gain_impl().stored_exposure_ms == 62.003
+
+
 def test_auto_gain_capture_failed_readback_still_captures():
     """No chunks and a failed hardware readback leave nothing to lock: the
     state is FAILED, no exposure/gain target is recorded, the capture still
@@ -241,7 +255,8 @@ def test_class_floor_lives_in_config_helpers():
     assert config_helpers.get_ag_ae_min_exposure_ms('PC') == 0.1
     assert config_helpers.get_ag_ae_min_exposure_ms('Blue') == 1.0
     assert config_helpers.get_ag_ae_min_exposure_ms('Lumi') == 1.0
-    src = (REPO / 'ui' / 'layer_control.py').read_text()
-    assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in src
-    assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in src
-    assert 'get_ag_ae_min_exposure_ms' in src
+    tree = ast_seams.parse_module('ui/layer_control.py')
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in names
+    assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names
+    assert 'get_ag_ae_min_exposure_ms' in names
