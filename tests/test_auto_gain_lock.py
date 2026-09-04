@@ -305,3 +305,15 @@ def test_class_floor_lives_in_config_helpers():
     assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in names
     assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names
     assert 'get_ag_ae_min_exposure_ms' in names
+
+
+def test_converged_lock_leaves_an_info_line():
+    """Every lock state leaves one line in a customer bundle, the normal
+    one included: a converged lock logged only at debug left no trace of
+    what the camera settled at when debug was off."""
+    imaging, _cam = _build(ae_lands_on_ms=62.003)
+    lvp_logger.logger.reset_mock()
+    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=CONVERGED' in m]
+    assert len(lock_lines) == 1, _logged('info')

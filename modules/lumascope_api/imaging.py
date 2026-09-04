@@ -1031,10 +1031,9 @@ class ImagingAPI:
             f'[AG CONVERGE] locked: state={state.value} exposure={exp_ms:.3f} ms '
             f'gain={gain:.2f} dB (class floor={floor} ms ceiling={ceiling} ms)'
         )
-        if state is AutoGainConvergence.CONVERGED:
-            logger.debug(line)
-        else:
-            logger.info(line)
+        # All four states at info: a converged lock logged only at debug left
+        # no trace in a customer bundle of what the camera settled at.
+        logger.info(line)
         lock = AutoGainLock(
             state,
             exp_ms,
