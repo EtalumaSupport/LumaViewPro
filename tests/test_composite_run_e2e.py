@@ -68,42 +68,6 @@ def headless_settings(
     return settings
 
 
-def _complete_the_bring_up(session, settings):
-    """Finish what ``ScopeSession.create_headless`` leaves undone.
-
-    THIS FIXTURE IS A DEFECT MARKER, not a convenience. Every call below is
-    production code that a GUI session runs during bring-up and a headless
-    one never does:
-
-    - ``create`` constructs the three loaders under individual try/except
-      with a notification each; ``create_headless`` constructs none, so its
-      session hands ``None`` to the engine and an L2 caller gets
-      ``AttributeError`` instead of a typed refusal.
-    - ``Lumascope.initialize`` -- documented "call once after construction"
-      -- has two production callers, both in ``ui/microscope_settings.py``.
-      Without it the scope carries no objective, and every image write
-      fails with ``ConfigError: Objective not set`` on the writer thread,
-      so a headless run captures and saves nothing.
-
-    When that bring-up moves where it belongs, this function's body becomes
-    dead and the fixture below should call ``create_headless`` alone. Until
-    then, doing it here is what lets this test exercise the composite
-    wiring rather than re-discover a session-composition gap.
-    """
-    from modules import coord_transformations, labware_loader, objectives_loader
-    from modules.scope_init_config import ScopeInitConfig
-
-    session.objective_helper = objectives_loader.ObjectiveLoader(source_path='.')
-    session.wellplate_loader = labware_loader.WellPlateLoader(source_path='.')
-    session.coordinate_transformer = coord_transformations.CoordinateTransformer()
-    # The engine took its copies at construction, before this ran.
-    session.sequenced_capture_runner._wellplate_loader = session.wellplate_loader
-    session.sequenced_capture_runner._coordinate_transformer = session.coordinate_transformer
-
-    plate = session.wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
-    session.scope.initialize(ScopeInitConfig.from_settings(settings, plate))
-
-
 @contextlib.contextmanager
 def open_composite_session(settings, source_path='.', engineering_mode=False):
     """A headless session on simulated hardware, ready to run a composite.
@@ -125,7 +89,6 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     session = ScopeSession.create_headless(
         settings=settings, source_path=source_path, engineering_mode=engineering_mode
     )
-    _complete_the_bring_up(session, settings)
 
     scope = session.scope
     scope._led_driver.set_timing_mode('fast')
@@ -389,6 +352,10 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
         data_dir = tmp_path / 'data'
         data_dir.mkdir()
         shutil.copy(repo_root / 'data' / 'tiling.json', data_dir / 'tiling.json')
+        # The factory builds the session's helpers from this root and
+        # refuses to configure the scope without them.
+        for name in ('objectives.json', 'labware.json'):
+            shutil.copy(repo_root / 'data' / name, data_dir / name)
 
         loads = []
 

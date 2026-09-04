@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import shutil
 import ast
 import inspect
 import sys
@@ -427,8 +428,9 @@ class TestSettingsSnapshot:
 
     def _session(self, settings):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        return ScopeSession.create_headless(settings=settings)
+        return ScopeSession.create_headless(settings=complete_settings(**settings))
 
     def test_snapshot_is_deep_copy(self):
         session = self._session({'display': {'brightness': 80}})
@@ -11067,12 +11069,13 @@ class TestScopeSessionBuildsFullExecutorBundle:
         # handles), create() must NOT spawn a second bundle.
         from modules.scope_session import ScopeSession
         from modules.sequential_io_executor import SequentialIOExecutor
+        from tests.settings_fixtures import complete_settings
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAMERA_TEST')
         try:
             session = ScopeSession.create(
-                settings={},
+                settings=complete_settings(),
                 io_executor=io,
                 camera_executor=cam,
             )
@@ -11141,6 +11144,8 @@ class TestHeadlessSettingsResolutionMatchesGui:
         from_settings = dict(template, marker='from-settings')
         (tmp_path / 'data' / 'current.json').write_text(json.dumps(from_current))
         (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
+        for name in ('objectives.json', 'labware.json'):
+            shutil.copy(shipped.parent / name, tmp_path / 'data' / name)
         session = ScopeSession.create_headless(source_path=str(tmp_path))
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '

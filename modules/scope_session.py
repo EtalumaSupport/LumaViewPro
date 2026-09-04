@@ -29,7 +29,7 @@ import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.common_utils import CustomJSONizer
-from modules.exceptions import SettingsSaveRefusedError
+from modules.exceptions import SettingsSaveRefusedError, ConfigError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
@@ -398,18 +398,17 @@ class ScopeSession:
 
         _fire_pre_release_warning()
 
+        built_scope = False
         if scope is None:
             import modules.lumascope_api as lumascope_api
 
             scope = lumascope_api.Lumascope(configured_model=settings.get('microscope'))
-            # connect() leaves the camera configured but NOT grabbing (the
-            # camera-lifecycle start gate). The GUI releases the gate in its
-            # own bring-up; for a scope THIS session constructed there is no
-            # other bring-up, so release it here or headless captures time
-            # out forever. Scopes passed in by a caller are that caller's
-            # bring-up responsibility (already released, or deliberately
-            # stopped -- either way not ours to restart).
-            scope.imaging.start_streaming()
+            # The bring-up -- configure from settings, then release the
+            # camera start gate -- happens below, once the session exists,
+            # for a scope THIS factory built. A scope passed in by a caller
+            # is that caller's bring-up responsibility: they call
+            # configure_scope() and start_streaming() themselves.
+            built_scope = True
 
         executor_bundle = None
         if io_executor is None and camera_executor is None:
@@ -429,7 +428,125 @@ class ScopeSession:
         # Service registration (executors, bundle, source path) happens in
         # __init__ for every session-composed scope -- nothing here.
 
-        # Optional helpers -- import and construct if available.
+        wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
+
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+        )
+
+        session = cls(
+            settings=settings,
+            scope=scope,
+            io_executor=io_executor,
+            camera_executor=camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+            executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
+            owns_executors=executor_bundle is not None,
+        )
+        if built_scope:
+            cls._bring_up(session)
+        return session
+
+    @classmethod
+    def create_headless(
+        cls,
+        settings: dict | None = None,
+        source_path: str = '.',
+        engineering_mode: bool = False,
+    ) -> 'ScopeSession':
+        """Create a headless session with simulated hardware.
+
+        Convenience factory for REST API, CLI scripts, and tests.
+        Uses simulated drivers so no physical hardware is needed.
+
+        Builds the full production executor topology (IO + CAMERA + FILE +
+        WORKER_POOL + protocol_thread + scope_display_thread) so headless
+        callers get the same pipelining as lumaviewpro.py instead of a
+        degraded 2-executor subset.
+        """
+        from modules.lumascope_api._lumascope import _fire_pre_release_warning
+        from modules.executor_registry import create_default
+        import modules.lumascope_api as lumascope_api
+
+        _fire_pre_release_warning()
+
+        if settings is None:
+            from modules.settings_init import settings as default_settings
+
+            if default_settings is not None:
+                settings = default_settings.copy()
+            else:
+                # Settings not loaded yet (e.g. headless/test usage) -- resolve
+                # the same file the GUI reads (current.json first, then
+                # settings.json) so headless state matches the running app,
+                # instead of hardcoding settings.json and ignoring live state.
+                # The same preparation the GUI runs -- shape check, folds,
+                # repairs, default merge -- not just the file read. Reading
+                # alone yields a dict that parses and is silently missing
+                # whatever newer releases added to the template.
+                #
+                # A directory with no shipped template is not an installation:
+                # a session configured from an empty dict would have no frame
+                # and no objective, so it refuses here, naming the root. An
+                # unusable current.json surfaces the same way: the GUI answers
+                # that by asking the user, and there is nobody to ask here.
+                try:
+                    settings, _rejected = settings_init.prepare_settings(
+                        logger, source_path, fall_back_to_template=False
+                    )
+                except FileNotFoundError as e:
+                    raise ConfigError(
+                        f'no data/settings.json under {source_path!r}: not an LVP '
+                        'installation root; pass source_path or run from one'
+                    ) from e
+
+        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
+        wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
+
+        executor_bundle = create_default(ui_dispatcher=None)
+
+        # Service registration (executors, bundle, source path) happens in
+        # __init__ for every session-composed scope -- nothing here.
+
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=executor_bundle.camera_executor,
+            io_executor=executor_bundle.io_executor,
+            file_io_executor=executor_bundle.file_io_executor,
+        )
+
+        session = cls(
+            settings=settings,
+            scope=scope,
+            io_executor=executor_bundle.io_executor,
+            camera_executor=executor_bundle.camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+            executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
+            owns_executors=True,
+            engineering_mode=engineering_mode,
+        )
+        cls._bring_up(session)
+        return session
+
+    @staticmethod
+    def _build_helpers(source_path: str) -> tuple:
+        """The three data-file helpers, each guarded so one corrupt file
+        disables one feature with a notification instead of the whole
+        composition. A helper that failed is ``None`` here and refuses at
+        ``configure_scope`` by name."""
         # Every silent helper-init failure has a downstream AttributeError
         # waiting for whichever UI action first reads the missing helper;
         # surface a warning at the failure site so the user knows which
@@ -492,109 +609,38 @@ class ScopeSession:
                 'Check that data/objectives.json exists and is valid.',
             )
 
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
-        )
-
-        return cls(
-            settings=settings,
-            scope=scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            owns_executors=executor_bundle is not None,
-        )
+        return wellplate_loader, coordinate_transformer, objective_helper
 
     @classmethod
-    def create_headless(
-        cls,
-        settings: dict | None = None,
-        source_path: str = '.',
-        engineering_mode: bool = False,
-    ) -> 'ScopeSession':
-        """Create a headless session with simulated hardware.
+    def _bring_up(cls, session: 'ScopeSession') -> None:
+        """Configure the scope a factory built, then release the camera start
+        gate -- in that order, because ``initialize`` applies the capture
+        pixel format synchronously and wants the gate still closed. A raise
+        anywhere in here leaves the caller with no session object to tear
+        down, so this tears down what the factory started before it lets
+        the raise out; a caller's own executor lanes are never touched."""
+        try:
+            session.configure_scope()
+            session.scope.imaging.start_streaming()
+        except BaseException:
+            session._abandon()
+            session.scope.disconnect()
+            raise
 
-        Convenience factory for REST API, CLI scripts, and tests.
-        Uses simulated drivers so no physical hardware is needed.
+    def _abandon(self) -> None:
+        """Stop what a factory started for a session it will not return.
 
-        Builds the full production executor topology (IO + CAMERA + FILE +
-        WORKER_POOL + protocol_thread + scope_display_thread) so headless
-        callers get the same pipelining as lumaviewpro.py instead of a
-        degraded 2-executor subset.
+        Owned executors, the display and protocol threads and the AF thread
+        go through ``shutdown``. A session over caller-passed lanes stops
+        only its own scheduler and AF thread: ``shutdown`` would stop the
+        caller's lanes too, and a lane cannot be restarted.
         """
-        from modules.lumascope_api._lumascope import _fire_pre_release_warning
-        from modules.executor_registry import create_default
-        import modules.lumascope_api as lumascope_api
-
-        _fire_pre_release_warning()
-
-        if settings is None:
-            from modules.settings_init import settings as default_settings
-
-            if default_settings is not None:
-                settings = default_settings.copy()
-            else:
-                # Settings not loaded yet (e.g. headless/test usage) -- resolve
-                # the same file the GUI reads (current.json first, then
-                # settings.json) so headless state matches the running app,
-                # instead of hardcoding settings.json and ignoring live state.
-                # The same preparation the GUI runs -- shape check, folds,
-                # repairs, default merge -- not just the file read. Reading
-                # alone yields a dict that parses and is silently missing
-                # whatever newer releases added to the template.
-                #
-                # A missing file is normal (fresh install) and resolves to an
-                # empty config. An unusable one is not: the GUI answers that by
-                # asking the user, and there is nobody to ask here. Returning
-                # the template instead would hand an L2 caller a plausible
-                # config that is not theirs, so it surfaces.
-                try:
-                    settings, _rejected = settings_init.prepare_settings(
-                        logger, source_path, fall_back_to_template=False
-                    )
-                except FileNotFoundError:
-                    settings = {}
-
-        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
-        # Release the camera start gate: connect() leaves the sim camera
-        # configured but NOT grabbing, and this factory is the whole
-        # bring-up for the simulated session -- without the release every
-        # capture would time out.
-        scope.imaging.start_streaming()
-
-        executor_bundle = create_default(ui_dispatcher=None)
-
-        # Service registration (executors, bundle, source path) happens in
-        # __init__ for every session-composed scope -- nothing here.
-
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            camera_executor=executor_bundle.camera_executor,
-            io_executor=executor_bundle.io_executor,
-            file_io_executor=executor_bundle.file_io_executor,
-        )
-
-        return cls(
-            settings=settings,
-            scope=scope,
-            io_executor=executor_bundle.io_executor,
-            camera_executor=executor_bundle.camera_executor,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            owns_executors=True,
-            engineering_mode=engineering_mode,
-        )
+        if self._owns_executors:
+            self.shutdown()
+            return
+        self._scheduler.shutdown()
+        if self.autofocus_thread is not None:
+            self.autofocus_thread.stop(timeout=2.0)
 
     @staticmethod
     def _build_autofocus_pair(*, scope, camera_executor, io_executor, file_io_executor):
@@ -678,13 +724,68 @@ class ScopeSession:
         with self.settings_lock:
             self.settings[key] = value
 
+    def configure_scope(self) -> None:
+        """Configure the scope from this session's settings -- the bring-up.
+
+        Once, after construction, on a real scope: normalize the turret slot
+        keys a caller-supplied dict may still carry as JSON strings, resolve
+        the declared model's catalogue entry, adopt the slot-1 objective,
+        select the labware, build the init config and run
+        ``Lumascope.initialize``. The factories run this for the scope they
+        build; a host that constructs the session directly, or hands
+        ``create`` its own scope, calls it once itself. Every step runs on
+        the calling thread; nothing here dispatches.
+
+        Raises:
+            ConfigError: a settings key ``initialize`` cannot do without is
+                missing (``frame``, ``objective_id``); ``objective_id`` names
+                no shipped objective; a data file a helper needs is absent or
+                unreadable (``labware.json``, ``objectives.json``); or the
+                model catalogue has no usable ``Models`` section.
+        """
+        import modules.config_helpers as config_helpers
+        from modules import layer_record
+        from modules.scope_init_config import ScopeInitConfig
+
+        # A caller-supplied dict never went through prepare_settings, whose
+        # normalizer is the one boundary between the file's string slot keys
+        # and the runtime's ints; without it the adoption below reads slot 1
+        # as unassigned and silently keeps the stored objective.
+        settings_init._normalize_turret_slot_keys(self.settings)
+        scope_models = layer_record.load_scope_models()
+        scope_config = scope_models.get(self.settings.get('microscope'))
+        self.adopt_turret_slot1_objective(
+            model_has_turret=config_helpers.model_has_turret(scope_models, self.settings)
+        )
+        for helper, data_file in (
+            (self.wellplate_loader, 'labware.json'),
+            (self.objective_helper, 'objectives.json'),
+            (self.coordinate_transformer, 'the coordinate transformer'),
+        ):
+            if helper is None:
+                raise ConfigError(
+                    f'cannot configure the scope: {data_file} did not load under '
+                    f'{self.source_path!r} (see the earlier error); a data root '
+                    'without the shipped files is not an installation'
+                )
+        _labware_id, labware = config_helpers.get_selected_labware_from_settings(
+            self.settings, self.wellplate_loader
+        )
+        config = ScopeInitConfig.from_settings(
+            self.settings,
+            labware,
+            scope_config=scope_config,
+            layer_identity=self.scope.layer_identity,
+        )
+        self.scope.initialize(config)
+
     def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
         """Make position 1's assignment the session's starting objective.
 
-        This method is not part of the L2 API surface: the hosting
-        environment calls it once per startup/reconnect before settings
-        are consumed; an L2 caller changes objectives through the
-        selection surface.
+        This method is not part of the L2 API surface: ``configure_scope``
+        calls it once per bring-up, before settings are consumed, and the
+        reconnect handler calls it the same way; an L2 caller changes
+        objectives through the selection surface.
 
         Startup leaves the turret at position 1 (homing puts it there),
         so the stored objective_id is a leftover from the previous

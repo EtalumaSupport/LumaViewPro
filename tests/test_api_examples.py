@@ -32,6 +32,22 @@ EXAMPLES = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _restore_settings_globals():
+    """An example may load settings the documented way, which publishes
+    them as process globals; the suite's later simulated scopes read the
+    same globals for their model, so restore them after each run."""
+    module = sys.modules.get('modules.settings_init')
+    saved = {
+        name: getattr(module, name, None)
+        for name in ('settings', 'rejected_current_json')
+        if module is not None
+    }
+    yield
+    for name, value in saved.items():
+        setattr(module, name, value)
+
+
 @pytest.mark.parametrize('name', EXAMPLES)
 def test_example_runs_in_suite(name):
     """Run the example's __main__ path in-process under the suite mocks."""

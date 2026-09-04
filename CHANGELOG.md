@@ -2,6 +2,22 @@
 
 ## 4.0.0 (in development)
 
+- **Session factories configure the scope they build (SDK)**: `ScopeSession.create`
+  (when it builds the scope) and `create_headless` now run the settings-to-scope
+  bring-up -- turret slot keys normalized, slot-1 objective adopted, labware
+  selected, `scope.initialize(...)` applied -- and release the camera start
+  gate before returning, so a headless session can save an image without a
+  further `initialize`. New public member `session.configure_scope()` for a
+  caller-passed scope or a directly constructed session.
+
+  **Breaking for SDK callers**: a hand-built settings dict must carry `frame`
+  and `objective_id` (`ConfigError` names the missing key; the old `'4x'`
+  default, which named no shipped objective, is gone); `create_headless()`
+  raises `ConfigError` instead of returning a session on empty settings when
+  `source_path` (default: the CWD) holds no `data/settings.json`; and
+  `start_application_session(disable_homing=True)` performs no startup motion
+  at all -- it no longer positions the turret, and no longer raises on an
+  unhomed one.
 - **API stability**: Lumascope SDK + REST API are PRE-RELEASE. Subject to
   breaking changes in 4.1 / 4.1.5 / 4.2. See `docs/LumascopeSkills.md`
   preface for the migration plan. Internal LumaViewPro use is not

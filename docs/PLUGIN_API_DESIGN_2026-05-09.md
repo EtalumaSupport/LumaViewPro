@@ -393,7 +393,7 @@ GUI / Engineering plugin / REST  ->  Session  ->  Lumascope API  ->
 - Session-scoped facade methods (`led_on`, `led_off`, `leds_off`, `led_on_sync`, `move_absolute`, `move_relative`, `move_home`, etc.) -- thin forwarders over the Lumascope sub-APIs
 - L2 lifecycle (one Session per process for GUI, per REST client for REST, per test fixture for pytest)
 - L2 entry points that GUI / REST / SDK callers all target
-- Settings / executor / protocol-runner composition (`create_protocol_runner`, `start_executors`, `shutdown_executors`, `start_application_session`)
+- Settings / executor / protocol-runner composition (`create_protocol_runner`, `configure_scope`, `start_executors`, `shutdown_executors`, `start_application_session`)
 - Hosting-environment-specific scheduler injection: GUI Session takes `KivyClockScheduler`; REST Session takes `ThreadingTimerScheduler`; CLI Session takes synchronous scheduler; test Session takes per-test scheduler. Pairs with §2.9.
 - **Focus history surface (pass-3 amendment per D12; F-I-1)**: `session.focus.get_well_focus(well, objective)` / `set_well_focus(well, objective, z)` / `narrow_search_range(well, objective)` -- backed by `data/focus_history.json` (per-scope persistent state). This is intentionally on Session, not Lumascope, because it's workflow state that spans protocol runs and lives at the session/workflow level, not the hardware level.
 

@@ -261,6 +261,10 @@ def session(tmp_path, monkeypatch):
     data.mkdir()
     shutil.copy(SHIPPED_TEMPLATE, data / 'settings.json')
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
+    # The factory builds the session's helpers from this root and refuses
+    # to configure the scope without them.
+    for name in ('objectives.json', 'labware.json'):
+        shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
     return ScopeSession.create_headless(source_path=str(tmp_path))

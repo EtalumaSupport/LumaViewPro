@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
@@ -626,7 +628,7 @@ class TestScopeSession:
         # sessions it builds, so it must release the gate itself -- without
         # this, every headless capture times out with no error naming the
         # closed gate.
-        session = ScopeSession.create_headless(settings=_make_settings())
+        session = ScopeSession.create_headless(settings=complete_settings(**_make_settings()))
         try:
             assert session.scope._camera_driver.is_grabbing()
         finally:

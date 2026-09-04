@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
 # sequenced_capture_runner imports it. (Harness mirrors
@@ -119,8 +121,9 @@ class TestClaimRefusalLeavesNoState:
     def test_recording_held_claim_refusal_strands_nothing(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless(settings=_make_session_settings(tmp_path))
-        session.start_executors()
+        session = ScopeSession.create_headless(
+            settings=complete_settings(**_make_session_settings(tmp_path))
+        )
         runner = session.create_protocol_runner()
         claim_held = False
         try:

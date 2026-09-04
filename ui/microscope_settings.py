@@ -366,14 +366,6 @@ class MicroscopeSettings(BoxLayout):
                     )
                 )
 
-            if 'autogain' not in settings['protocol']:
-                settings['protocol']['autogain'] = {
-                    'max_duration_seconds': 1.0,
-                    'target_brightness': 0.3,
-                    'min_gain_db': 0.0,
-                    'max_gain_db': 20.0,
-                }
-
             try:
                 live_folder = pathlib.Path(settings['live_folder'])
                 # Resolve relative paths against Documents app folder when installed,
@@ -495,16 +487,15 @@ class MicroscopeSettings(BoxLayout):
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
 
-            # The stored objective is only a leftover from the previous
-            # session; on turret models the session starts at position 1,
-            # so that slot's assignment is the real starting objective.
-            # Adopt it BEFORE anything below reads settings -- the spinner,
-            # the optics log, the FOV fields, and scope.initialize() all
-            # derive image scale from this value.
-            scope_config = self.scopes.get(settings.get('microscope'))
-            ctx.session.adopt_turret_slot1_objective(
-                model_has_turret=model_has_turret(self.scopes, settings)
-            )
+            # The settings-to-scope bring-up is the Session's: it adopts the
+            # slot-1 objective (the stored one is only a leftover from the
+            # previous session), selects the labware, and runs
+            # scope.initialize(). It runs BEFORE anything below reads
+            # settings -- the spinner, the optics log and the FOV fields all
+            # derive image scale from the objective it writes -- and the
+            # widgets below read only settings, the objective helper and the
+            # frozen capabilities, none of which initialize changes.
+            ctx.session.configure_scope()
             objective_id = settings['objective_id']
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
@@ -551,19 +542,9 @@ class MicroscopeSettings(BoxLayout):
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
 
-            # Single hardware initialization call -- replaces scattered
-            # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
-            # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
-            _labware_id, labware = get_selected_labware()
-            config = ScopeInitConfig.from_settings(
-                settings,
-                labware,
-                scope_config=scope_config,
-                layer_identity=lumaview.scope.layer_identity,
-            )
-            lumaview.scope.initialize(config)
-            # Start gate release (primary startup site): configuration is
-            # applied, so open the gate and fire the single grab.
+            # Start gate release (primary startup site): the Session's
+            # configure_scope() above applied the configuration, so open the
+            # gate and fire the single grab.
             lumaview.scope.imaging.start_streaming()
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -605,8 +586,6 @@ class MicroscopeSettings(BoxLayout):
             # Advanced Settings now; startup just establishes the setting and
             # pushes the persisted state down to every layer via the single
             # owner (which forces it off on unsupported firmware).
-            if 'stimulation_enabled' not in settings:
-                settings['stimulation_enabled'] = False
             self.apply_stimulation_support()
 
             for layer in common_utils.get_layers():

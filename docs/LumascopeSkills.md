@@ -143,7 +143,7 @@ scope.refresh_layer_identity(override_model='LS850T')
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
 
-Then apply runtime configuration (frame size, objective, binning, stage offset). The preferred factory is `ScopeInitConfig.from_settings(settings, labware, scope_config=...)`, which reads from your LVP settings dict; you can also construct one directly:
+Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` / `create_headless` run `session.configure_scope()` before they return (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` or `objective_id` is missing; you can also construct one directly:
 
 ```python
 config = ScopeInitConfig(
@@ -231,6 +231,18 @@ session = ScopeSession.create(settings=settings_init.settings, source_path='.')
 session.start_executors()
 ```
 
+The session comes back **configured**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the slot-1 objective adopted, labware selected, `scope.initialize(...)` applied) and releases the camera start gate, so `save_image` works without a further `initialize`. Note the order: hardware is touched inside `create`, before `start_executors()`. If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself.
+
+```python
+session = ScopeSession.create(settings=settings_init.settings, scope=my_scope)
+session.configure_scope()                 # your scope, your bring-up
+session.scope.imaging.start_streaming()
+```
+
+Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
+
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
+
 For **simulated** (no hardware needed, development / CI):
 
 ```python
@@ -240,16 +252,16 @@ session = ScopeSession.create_headless()
 session.start_executors()
 ```
 
-`create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason.
+`create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you, configures the scope from settings and releases the start gate, so the session it returns can capture and save. `source_path` defaults to the process CWD, which must be an LVP installation root (a `data/` directory with `settings.json`); otherwise it raises `ConfigError` naming the root. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason.
 
 ### Application startup sequence
 
 ```python
 session.start_application_session()                  # home ALL axes, then position turret
-session.start_application_session(disable_homing=True)  # skip homing, still position turret
+session.start_application_session(disable_homing=True)  # skip homing; no startup motion at all
 ```
 
-`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
+`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step and, with it, every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
 ### Reading and persisting configuration
 
@@ -680,9 +692,9 @@ driver is `scope.imaging._driver` (private; reach through the API).
 
 ```python
 # Streaming control. connect() returns the camera CONFIGURED but NOT
-# grabbing; capture/get_image need a live feed, so start it first. In the
-# GUI this happens automatically at startup; headless callers do it
-# explicitly after constructing the scope.
+# grabbing; capture/get_image need a live feed, so start it first. The GUI
+# and the Session factories do this at bring-up, after initialize; a bare
+# Lumascope you constructed yourself needs the explicit call.
 scope.imaging.start_streaming()   # begin the live feed (idempotent; also
                                   # restarts a feed stopped via stop_streaming)
 scope.imaging.stop_streaming()    # stop the feed (get_image then times out)
@@ -1418,7 +1430,7 @@ scope.illumination.leds_off()
 from modules.scope_session import ScopeSession
 from modules.protocol import Protocol
 
-session = ScopeSession.create_headless()    # simulated; use create(settings=…) for hardware
+session = ScopeSession.create_headless()    # simulated, configured; CWD must be an LVP root. create(settings=…) for hardware
 session.start_executors()
 
 protocol = Protocol.from_file(

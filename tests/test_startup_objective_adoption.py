@@ -106,9 +106,9 @@ class TestAdoptionRunsBeforeTheStamps:
     after either build stamps the stale objective into runtime state.
     """
 
-    def _assert_adopts_before_config(self, method_name: str):
-        linenos = _call_linenos('ui/microscope_settings.py', method_name, 'MicroscopeSettings')
-        adopt = linenos.get('ctx.session.adopt_turret_slot1_objective')
+    def _assert_adopts_before_config(self, rel_path, method_name, class_name, adopt_key):
+        linenos = _call_linenos(rel_path, method_name, class_name)
+        adopt = linenos.get(adopt_key)
         build = linenos.get('ScopeInitConfig.from_settings')
         assert adopt is not None, f'{method_name} must adopt the slot-1 objective'
         assert build is not None, f'{method_name} must build ScopeInitConfig'
@@ -117,11 +117,23 @@ class TestAdoptionRunsBeforeTheStamps:
             f'ScopeInitConfig -- the stale objective is already stamped'
         )
 
-    def test_load_settings_adopts_before_config_build(self):
-        self._assert_adopts_before_config('load_settings')
+    def test_configure_scope_adopts_before_config_build(self):
+        # The startup site's bring-up is the Session's now; the GUI calls
+        # configure_scope() where its adopt call used to sit.
+        self._assert_adopts_before_config(
+            'modules/scope_session.py',
+            'configure_scope',
+            'ScopeSession',
+            'self.adopt_turret_slot1_objective',
+        )
 
     def test_reconnect_adopts_before_config_build(self):
-        self._assert_adopts_before_config('reconnect')
+        self._assert_adopts_before_config(
+            'ui/microscope_settings.py',
+            'reconnect',
+            'MicroscopeSettings',
+            'ctx.session.adopt_turret_slot1_objective',
+        )
 
     def test_startup_session_no_longer_looks_up_the_position(self):
         # Startup is position 1 by rule; a lookup keyed on the stored

@@ -16,6 +16,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -595,7 +597,7 @@ class TestSessionActivityClaim:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=settings)
+        session = ScopeSession.create_headless(settings=complete_settings(**settings))
         yield session
         session.shutdown()
 
