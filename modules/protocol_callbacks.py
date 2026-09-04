@@ -38,7 +38,6 @@ class ProtocolCallbacks:
     autofocus_in_progress: Callable | None = None  # () -> None
     autofocus_complete: Callable | None = None  # () -> None  (UI notification)
     reset_autofocus_btns: Callable | None = None  # () -> None
-    restore_autofocus_state: Callable | None = None  # (layer=, value=) -> None
 
     # --- Motion / position ---
     move_position: Callable | None = None  # (axis: str) -> None
@@ -55,7 +54,11 @@ class ProtocolCallbacks:
     reset_title: Callable | None = None  # () -> None
 
     # --- Live UI (set by callers, forwarded as-is) ---
-    update_scope_display: Callable | None = None  # () -> None
+    # Holds a just-saved protocol frame on screen so the user sees what was
+    # saved before the live preview overwrites it. Called DIRECTLY on the
+    # writer's thread, not marshalled to the UI thread: the display does
+    # the expensive conversion inline and schedules only the texture write.
+    hold_protocol_saved_image: Callable | None = None  # (image, significant_bits) -> None
     pause_live_ui: Callable | None = None  # () -> None
     resume_live_ui: Callable | None = None  # () -> None
 

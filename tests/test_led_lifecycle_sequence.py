@@ -66,6 +66,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -234,6 +235,9 @@ class LedSubstream:
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -368,15 +372,7 @@ def _run_protocol(
         max_scans=max_scans,
         callbacks=callbacks,
         leds_state_at_end=leds_state_at_end,
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
     )
     runner.start(plan)
 
@@ -855,15 +851,7 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
         max_scans=1,
         callbacks={'run_complete': on_complete},
         leds_state_at_end='off',
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
     )
     runner.start(plan)
 

@@ -31,6 +31,8 @@ from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
 from lib import profile_trace
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from modules.image_mode import ImageCaptureConfig
     from modules.lumascope_api import Lumascope
     from modules.protocol_callbacks import ProtocolCallbacks
@@ -103,6 +105,12 @@ class ProtocolImageWriter:
         # uncapped). Required so video-step sizing and the recording rate
         # can never read live settings mid-run.
         video_max_fps: float,
+        # Whether this run stamps the turret position into every filename.
+        # A run value the caller states, like the two above: the flag's
+        # live store is the GUI's, and reading it from here left every
+        # headless run's filenames without their turret position. Required
+        # so no writer can silently decide it.
+        engineering_mode: bool,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -116,6 +124,7 @@ class ProtocolImageWriter:
         self._config = image_capture_config
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
+        self._engineering_mode = engineering_mode
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -535,12 +544,12 @@ class ProtocolImageWriter:
 
     def capture(
         self,
-        save_folder,
-        step,
+        save_folder: pathlib.Path,
+        step: pd.Series | dict,
         output_format: str,
-        protocol,
+        protocol: Protocol,
         *,
-        scan_count=None,
+        scan_count: int | None = None,
         sum_count: int = 1,
         enable_image_saving: bool = True,
         autogain_settings: dict | None = None,
@@ -677,13 +686,8 @@ class ProtocolImageWriter:
                 capture_root = ''
 
             # In engineering mode, include turret position in filename.
-            # engineering_mode lives on the app context (ctx); fall back to
-            # False when ctx is unset (bare-fixture test paths).
-            import modules.app_context as _app_ctx_im
-
             turret_pos = None
-            engineering_mode = getattr(_app_ctx_im.ctx, 'engineering_mode', False)
-            if engineering_mode and self._scope.capabilities.has_turret:
+            if self._engineering_mode and self._scope.capabilities.has_turret:
                 try:
                     turret_pos = int(self._scope.motion.get_current_position('T'))
                 except Exception as e:
@@ -867,14 +871,12 @@ class ProtocolImageWriter:
                     # the user can see the saved frame before the live preview
                     # overwrites it. NOT a delay -- the next protocol save bumps
                     # the hold deadline forward, so display tracks the
-                    # most-recent saved frame in real time. Best-effort; missing
-                    # scope_display (early init / standalone tools) is fine.
+                    # most-recent saved frame in real time. Best-effort: the
+                    # GUI hands the hook in, and one whose display is not built
+                    # yet (early init / standalone tools) may raise here.
                     try:
-                        import modules.app_context as _app_ctx
-
-                        ctx = _app_ctx.ctx
-                        if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
-                            ctx.scope_display.hold_protocol_saved_image(
+                        if self._callbacks.hold_protocol_saved_image:
+                            self._callbacks.hold_protocol_saved_image(
                                 captured_image, frame_significant_bits
                             )
                     except Exception as _e:

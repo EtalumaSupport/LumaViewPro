@@ -44,6 +44,7 @@ from modules import gui_logger
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_acquire_ui,
@@ -468,6 +469,7 @@ class ProtocolSettings(FloatLayout):
                 labware=labware,
                 stage_offset=stage_offset,
                 overlap_percent=overlap_percent,
+                capabilities=ctx.lumaview.scope.capabilities,
             )
 
             tiles_skipped = tile_status['tiles_skipped']
@@ -1678,9 +1680,8 @@ class ProtocolSettings(FloatLayout):
             settings = _app_ctx.ctx.settings
 
             callbacks = {
+                **live_display_callbacks(),
                 'move_position': _handle_ui_update_for_axis,
-                # Stage B1: update_scopedisplay retired -- thread runs continuously
-                'update_scope_display': lambda dt=0: None,
                 # Pause live UI during recording-heavy runs for throughput
                 'pause_live_ui': lambda: (
                     ctx.scope_display.stop(),
@@ -1721,17 +1722,20 @@ class ProtocolSettings(FloatLayout):
                     parent_dir=None,
                     image_capture_config=get_image_capture_config_from_ui(),
                     enable_image_saving=False,
-                    # The autofocus scan deliberately does NOT hold the LED across
-                    # moves (no get_sequenced_run_settings here): keeping the
-                    # excitation LED on during inter-step focus motion would
-                    # photobleach the sample. It also saves nothing, so the
-                    # folder/video params are irrelevant.
-                    separate_folder_per_channel=False,
                     autogain_settings=autogain_settings,
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=True,
                     leds_state_at_end='off',
-                    video_as_frames=settings['video_as_frames'],
+                    engineering_mode=ctx.engineering_mode,
+                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                        settings, ctx.settings_lock
+                    ),
+                    # The autofocus scan must NOT hold the excitation LED
+                    # across focus moves (photobleaching) and saves nothing;
+                    # the helper's autofocus-scan branch forces both off.
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+                    ),
                 )
                 commit_ui_state()
                 sequenced_capture_runner.start(plan)
@@ -2255,19 +2259,15 @@ class ProtocolSettings(FloatLayout):
 
         callbacks.update(
             {
+                **live_display_callbacks(),
                 'move_position': _handle_ui_update_for_axis,
                 # LED observer handles UI sync -- no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
-                # Stage B1: update_scopedisplay retired -- thread runs continuously
-                'update_scope_display': lambda dt=0: None,
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,
-                'restore_autofocus_state': lambda layer, value: settings[layer].__setitem__(
-                    'autofocus', value
-                ),
                 'restore_layer_shader': restore_layer_shader_for_open_accordion,
             }
         )
@@ -2278,11 +2278,6 @@ class ProtocolSettings(FloatLayout):
 
         image_capture_config = get_image_capture_config_from_ui()
         autogain_settings = get_auto_gain_settings()
-
-        # Snapshot autofocus states from settings on the UI thread before passing to protocol thread
-        initial_autofocus_states = {
-            layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()
-        }
 
         plan = sequenced_capture_runner.prepare(
             protocol=self._protocol,
@@ -2298,8 +2293,11 @@ class ProtocolSettings(FloatLayout):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end='off',
-            initial_autofocus_states=initial_autofocus_states,
-            **config_helpers.get_sequenced_run_settings(settings),
+            engineering_mode=ctx.engineering_mode,
+            autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                settings, ctx.settings_lock
+            ),
+            **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
         if commit_ui_state is not None:
             commit_ui_state()

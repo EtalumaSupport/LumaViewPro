@@ -34,7 +34,6 @@ from modules.lumascope_api.illumination import (
 )
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
-from modules.settings_init import settings
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -223,8 +222,8 @@ class ProtocolStepRunner:
 
         # BF AF for fluorescence -- read from the runner snapshot so
         # mid-run UI toggles cannot produce inconsistent AF behavior
-        # across steps within one scan. Snapshot is taken in
-        # SequencedCaptureRunner.run() under settings_lock.
+        # across steps within one scan. The value rides the run plan,
+        # resolved by the caller that owns the settings.
         bf_af_for_fluor = getattr(p, '_bf_af_for_fluorescence', False)
         if (
             bf_af_for_fluor
@@ -289,10 +288,10 @@ class ProtocolStepRunner:
             self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
             # arming. Set on the shared settings dict so capture() inherits it.
-            # step['Color'] is the layer; the per-install override is read from
-            # settings.
+            # step['Color'] is the layer; the per-install override map rides
+            # the run plan, so a headless run honours it too.
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-                step['Color'], settings
+                step['Color'], p._ag_ae_max_exposure_ms
             )
             fut = p._io_executor.protocol_put(
                 IOTask(

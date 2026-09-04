@@ -4,12 +4,15 @@ import itertools
 import json
 import pathlib
 import re
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError
+
+if TYPE_CHECKING:
+    from modules.scope_capabilities import ScopeCapabilities
 
 
 def _row_label(index: int) -> str:
@@ -162,6 +165,7 @@ class TilingConfig:
         frame_size: dict[int],
         fill_factor: int,
         binning_size: int,
+        capabilities: 'ScopeCapabilities',
     ) -> dict[dict]:
 
         tiling_mxn = self.get_mxn_size(config_label)
@@ -170,6 +174,7 @@ class TilingConfig:
             focal_length=focal_length,
             frame_size=frame_size,
             binning_size=binning_size,
+            capabilities=capabilities,
         )
         if fov_size is None:
             # Tiling steps are derived from the field of view; a scope that
@@ -204,7 +209,16 @@ class TilingConfig:
         frame_size: dict[int],
         fill_factor: int,
         binning_size: int,
+        *,
+        capabilities: 'ScopeCapabilities',
     ) -> dict:
+        """Tile centre offsets for a grid, from the optics the caller hands in.
+
+        The spacing derives from the field of view, which derives from the
+        scope's optics and the step's objective; the layout holds no scope, so
+        the caller that owns one passes its capabilities. A 1x1 grid needs no
+        spacing and asks nothing of them.
+        """
         tiling_mxn = self.get_mxn_size(config_label)
         if (tiling_mxn['m'] == 1) and (tiling_mxn['n'] == 1):
             # The offset formula below multiplies the step by (index -
@@ -222,6 +236,7 @@ class TilingConfig:
                 frame_size=frame_size,
                 fill_factor=fill_factor,
                 binning_size=binning_size,
+                capabilities=capabilities,
             )
             x_step = ranges['step']['x']
             y_step = ranges['step']['y']

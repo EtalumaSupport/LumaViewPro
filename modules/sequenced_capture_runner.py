@@ -20,7 +20,6 @@ from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.lumascope_api import Lumascope
 
-import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
@@ -36,9 +35,8 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
 import threading
 
-import modules.app_context as _app_ctx
 import modules.stack_builder as stack_builder
-from modules.settings_init import settings
+from modules.config_helpers import AutofocusSnapshot
 
 # How often the post-run hyperstack waiter re-checks the protocol file
 # queue. The build must not start until every per-step file has flushed
@@ -110,10 +108,25 @@ class RunPlan:
     update_z_pos_from_autofocus: bool
     leds_state_at_end: str
     video_as_frames: bool
-    initial_autofocus_states: dict | None
+    autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
     return_to_position: dict | None
     stage_offset: dict
+    # The settings-derived run values, resolved once by the caller that
+    # owns the settings (config_helpers.get_sequenced_run_settings) and
+    # frozen here so a mid-run toggle cannot make some steps of one scan
+    # behave differently from others. The engine never reads settings for
+    # these itself: a headless run gets exactly what its caller resolved.
+    bf_af_for_fluorescence: bool
+    timestamp_overlay: bool
+    video_max_fps: int
+    # Flat per-class AG/AE exposure ceilings ({'fluorescence': 150.0, ...}).
+    ag_ae_max_exposure_ms: dict
+    # Whether the run names its files with the turret position. Stated by
+    # the caller from the store its world owns -- the GUI's live flag, or
+    # the mode a headless session was built in -- so the engine never
+    # reaches for the GUI's context to learn it.
+    engineering_mode: bool
     # Per-layer blend thresholds the post-run merge needs, snapshotted by
     # the caller that has the settings. Carried on the plan rather than
     # read at merge time: the merge runs on a worker thread after the run,
@@ -281,6 +294,7 @@ class SequencedCaptureRunner:
 
     def _reset_vars(self):
         self._run_dir = None
+        self._tiling_configs_file_loc = None
         self._run_trigger_source = None
         self._image_writer = None
         # Nulled, not replaced: the next run's start() builds a fresh one
@@ -545,17 +559,6 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
-    def get_initial_autofocus_states(self, layer_configs: dict | None = None):
-        states = {}
-        ctx = _app_ctx.ctx
-        for layer in common_utils.get_layers():
-            if layer_configs and layer in layer_configs:
-                states[layer] = layer_configs[layer].get('autofocus', False)
-            else:
-                with ctx.settings_lock:
-                    states[layer] = settings[layer]['autofocus']
-        return states
-
     def _refuse_exclusive_activity(self, holder: str | None) -> None:
         """Refuse this run because an exclusive activity holds the session claim.
 
@@ -658,6 +661,8 @@ class SequencedCaptureRunner:
         sequence_name: str,
         image_capture_config: image_mode.ImageCaptureConfig,
         autogain_settings: dict,
+        *,
+        autofocus_snapshot: AutofocusSnapshot,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
@@ -669,9 +674,13 @@ class SequencedCaptureRunner:
         update_z_pos_from_autofocus: bool = False,
         leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
-        initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
+        bf_af_for_fluorescence: bool = False,
+        timestamp_overlay: bool = True,
+        video_max_fps: int = 0,
+        ag_ae_max_exposure_ms: dict | None = None,
         composite_thresholds_percent: dict | None = None,
+        engineering_mode: bool = False,
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
@@ -906,11 +915,19 @@ class SequencedCaptureRunner:
             update_z_pos_from_autofocus=update_z_pos_from_autofocus,
             leds_state_at_end=leds_state_at_end,
             video_as_frames=video_as_frames,
-            initial_autofocus_states=copy.deepcopy(initial_autofocus_states),
+            # The states freeze with the plan; the restorer is a function,
+            # which deepcopy leaves as the same object, so it keeps writing
+            # the live session dict at cleanup.
+            autofocus_snapshot=copy.deepcopy(autofocus_snapshot),
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
+            bf_af_for_fluorescence=bf_af_for_fluorescence,
+            timestamp_overlay=timestamp_overlay,
+            video_max_fps=video_max_fps,
+            ag_ae_max_exposure_ms=copy.deepcopy(ag_ae_max_exposure_ms or {}),
             composite_thresholds_percent=composite_thresholds_percent,
+            engineering_mode=engineering_mode,
         )
 
     def start(self, plan: RunPlan) -> 'RunMergeOutcome':
@@ -978,6 +995,11 @@ class SequencedCaptureRunner:
             self._leds_state_at_end = plan.leds_state_at_end
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
+            self._bf_af_for_fluorescence = plan.bf_af_for_fluorescence
+            self._timestamp_overlay = plan.timestamp_overlay
+            self._video_max_fps = plan.video_max_fps
+            self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms
+            self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
             self._run_trigger_source = plan.run_trigger_source
@@ -986,7 +1008,7 @@ class SequencedCaptureRunner:
             # snapshots must not leak into that unwind.
             self._original_led_states = None
             self._saved_camera_state = None
-            self._original_autofocus_states = plan.initial_autofocus_states
+            self._autofocus_snapshot = plan.autofocus_snapshot
             # No AFE.reset() here -- AFE.run()'s own _reset_state() on
             # entry handles stale state, and self._af_future is reset at
             # scan start in protocol_run_loop. An external reset() here
@@ -1032,6 +1054,13 @@ class SequencedCaptureRunner:
 
             notifications.set_protocol_running(True)
 
+            # Resolved once here, before anything touches the disk, so a
+            # scope with no registered source path fails the run at start
+            # with no run directory left behind -- rather than raising
+            # later on the post-run daemon thread, where nothing is
+            # watching. Both post-run steps take the value captured here.
+            self._tiling_configs_file_loc = self._scope.protocols.tiling_configs_path()
+
             self._setup_run_dir()
 
             # The LED lease covers the whole scan so live UI illumination
@@ -1046,33 +1075,6 @@ class SequencedCaptureRunner:
             # Snapshot hardware state for restoration after protocol
             self._original_led_states = self._scope.illumination.get_led_states()
             self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
-            if self._original_autofocus_states is None:
-                self._original_autofocus_states = self.get_initial_autofocus_states()
-
-            ctx = _app_ctx.ctx
-            # bf_af_for_fluorescence is snapshotted once per run under
-            # settings_lock so mid-run toggles do not produce inconsistent AF
-            # behavior across steps within one scan; protocol_step_runner
-            # reads p._bf_af_for_fluorescence.
-            if ctx is not None:
-                with ctx.settings_lock:
-                    self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
-                        'bf_af_for_fluorescence', False
-                    )
-                    # Snapshot once per run so a mid-run toggle cannot make
-                    # some video steps stamped and others clean; overlay-on
-                    # is the shipped default.
-                    self._timestamp_overlay = ctx.settings.get('video', {}).get(
-                        'timestamp_overlay', True
-                    )
-                    # Same snapshot discipline for the global rate cap: the
-                    # recording rate and the disk sizing must read one
-                    # per-run value, never live settings mid-run.
-                    self._video_max_fps = ctx.settings.get('video', {}).get('max_fps', 0)
-            else:
-                self._bf_af_for_fluorescence = False
-                self._timestamp_overlay = True
-                self._video_max_fps = 0
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
@@ -1093,6 +1095,7 @@ class SequencedCaptureRunner:
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
+                engineering_mode=self._engineering_mode,
             )
 
             self.camera_executor.disable()
@@ -1327,6 +1330,7 @@ class SequencedCaptureRunner:
         if run_dir is None:
             return None
         has_turret = self._scope.capabilities.has_turret
+        tiling_configs_file_loc = self._tiling_configs_file_loc
 
         def _wait_for_queue() -> bool:
             while self.file_io_executor.is_protocol_queue_active():
@@ -1337,7 +1341,9 @@ class SequencedCaptureRunner:
             name='hyperstack-build',
             wait_fn=_wait_for_queue,
             build_fn=lambda: stack_builder.build_hyperstacks_for_run(
-                run_dir=run_dir, has_turret=has_turret
+                run_dir=run_dir,
+                has_turret=has_turret,
+                tiling_configs_file_loc=tiling_configs_file_loc,
             ),
         )
 
@@ -1367,6 +1373,7 @@ class SequencedCaptureRunner:
             else image_mode.OUTPUT_FORMAT_TIFF
         )
         has_turret = self._scope.capabilities.has_turret
+        tiling_configs_file_loc = self._tiling_configs_file_loc
 
         def _fail(reason: str, detail: str) -> None:
             # The one place a merge failure becomes visible: one log line,
@@ -1393,14 +1400,13 @@ class SequencedCaptureRunner:
         def _merge():
             try:
                 from modules.composite_generation import CompositeGeneration
-                from modules.path_utils import get_source_root
 
                 # The loader is told the run owns the surface: its own
                 # unattended-batch notices would otherwise open a modal at
                 # start and another at the end of every composite.
                 result = CompositeGeneration(has_turret=has_turret).load_folder(
                     path=run_dir,
-                    tiling_configs_file_loc=get_source_root() / 'data' / 'tiling.json',
+                    tiling_configs_file_loc=tiling_configs_file_loc,
                     output_format=output_format,
                     brightness_thresholds_percent=thresholds,
                     announce=False,
@@ -1506,7 +1512,7 @@ class SequencedCaptureRunner:
                 fatal_abort=self._fatal_abort_event.is_set(),
                 leds_state_at_end=self._leds_state_at_end,
                 original_led_states=self._original_led_states,
-                original_autofocus_states=self._original_autofocus_states,
+                autofocus_snapshot=self._autofocus_snapshot,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
                 return_to_position=self._return_to_position,
                 disable_saving_artifacts=self._disable_saving_artifacts,

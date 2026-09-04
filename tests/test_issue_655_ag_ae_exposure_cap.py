@@ -68,10 +68,40 @@ def test_default_caps_per_channel_class():
 
 
 def test_settings_override_honored_per_class():
-    settings = {'ag_ae_max_exposure_ms': {'fluorescence': 150}}
-    assert config_helpers.get_ag_ae_max_exposure_ms('Red', settings) == 150.0
+    overrides = {'fluorescence': 150}
+    assert config_helpers.get_ag_ae_max_exposure_ms('Red', overrides) == 150.0
     # A class without an override key falls back to its default.
-    assert config_helpers.get_ag_ae_max_exposure_ms('BF', settings) == 50.0
+    assert config_helpers.get_ag_ae_max_exposure_ms('BF', overrides) == 50.0
+
+
+def test_override_map_is_the_flat_per_class_map():
+    """The resolver is handed the per-class override MAP itself, not the
+    settings dict that contains it. The map is what a run carries and what
+    the GUI getter reads off the app context; a resolver that dug one more
+    level out of a settings dict would silently return the table default
+    for every caller holding only the map. (#655)"""
+    assert config_helpers.get_ag_ae_max_exposure_ms('Blue', {'fluorescence': 123.0}) == 123.0
+
+
+def test_gui_getter_passes_the_override_map(monkeypatch):
+    """The live-view AG/AE arm resolves its ceiling through
+    config_ui_getters, which reads the per-install override map off the app
+    context. This is the regression guard for that caller: it passes today
+    and must keep passing, because the resolver's second parameter takes the
+    per-class map and a caller handing it a whole settings dict would
+    silently fall back to the table default. (#655)"""
+    from types import SimpleNamespace
+
+    import modules.config_ui_getters as config_ui_getters
+
+    monkeypatch.setattr(
+        config_ui_getters._app_ctx,
+        'ctx',
+        SimpleNamespace(settings={'ag_ae_max_exposure_ms': {'fluorescence': 123.0}}),
+    )
+    assert config_ui_getters.get_ag_ae_max_exposure_ms('Blue') == 123.0, (
+        'the GUI getter must reach the per-install fluorescence ceiling'
+    )
 
 
 def test_unknown_layer_falls_back_to_fluorescence_cap():
@@ -198,7 +228,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
 
     monkeypatch.setattr(
         'modules.config_helpers.get_ag_ae_max_exposure_ms',
-        lambda color, settings: 456.0,
+        lambda color, overrides: 456.0,
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
     runner._step_executor.scan_iterate()
@@ -210,6 +240,49 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     assert applies, 'the AG step must queue the apply on the io executor'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
+    )
+
+
+def test_run_carries_the_per_install_cap_from_settings():
+    """A run started over settings carrying a per-install fluorescence
+    ceiling must land that ceiling on the runner. The ceiling travels with
+    the run because the AG arm ticks on the protocol thread, where no
+    process-wide settings store is available -- headless, that store is
+    unset and every cap silently collapses to the table default. (#655)"""
+    from modules.protocol_state_machine import SequencedCaptureRunMode
+    from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+
+    settings = {'ag_ae_max_exposure_ms': {'fluorescence': 123.0}}
+    run_settings = config_helpers.get_sequenced_run_settings(
+        settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
+    )
+    runner = bare_capture_runner()
+    runner.start(runner.prepare(**scr_run_kwargs(), **run_settings))
+    assert runner._ag_ae_max_exposure_ms == {'fluorescence': 123.0}, (
+        'the run must carry the per-install AG/AE override map. (#655)'
+    )
+
+
+def test_protocol_arm_resolves_the_cap_from_the_run():
+    """The AG arm tick must resolve the ceiling from the map the run
+    carries -- no monkeypatched resolver here, so this is the whole chain:
+    a fluorescence step on a run whose override map says 123 ms arms at
+    123 ms, not at the 200 ms fluorescence default. (#655)"""
+    from tests.protocol_drives import protocol_step, scan_ready_runner
+
+    runner = scan_ready_runner(
+        protocol_step(Auto_Gain=True, Color='Blue'),
+        _ag_ae_max_exposure_ms={'fluorescence': 123.0},
+    )
+    runner._step_executor.scan_iterate()
+    applies = [
+        c.args[0]
+        for c in runner._io_executor.protocol_put.call_args_list
+        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
+    ]
+    assert applies, 'the AG step must queue the apply on the io executor'
+    assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
+        "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"
     )
 
 

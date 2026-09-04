@@ -13,6 +13,7 @@ from kivy.uix.boxlayout import BoxLayout
 import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
+import modules.config_ui_getters as config_ui_getters
 from modules import gui_logger
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
@@ -515,7 +516,7 @@ class MicroscopeSettings(BoxLayout):
             # The objective already in place at launch never passes through
             # the selection handler, so without this a session that changed
             # nothing would have no record of the scale it was using.
-            common_utils.log_resolved_optics(
+            config_ui_getters.log_resolved_optics(
                 objective_id=objective_id,
                 focal_length=objective['focal_length'],
                 binning_size=binning_size,
@@ -524,7 +525,7 @@ class MicroscopeSettings(BoxLayout):
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
             # have their own FOV-recalc handlers).
-            fov_size = common_utils.get_field_of_view(
+            fov_size = config_ui_getters.get_field_of_view(
                 focal_length=objective['focal_length'],
                 frame_size=settings['frame'],
                 binning_size=binning_size,
@@ -1404,7 +1405,7 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         objective = ctx.session.get_objective_info(objective_id=settings['objective_id'])
-        fov_size = common_utils.get_field_of_view(
+        fov_size = config_ui_getters.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             binning_size=get_binning_from_ui(),

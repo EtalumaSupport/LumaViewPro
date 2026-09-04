@@ -26,6 +26,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_title,
@@ -221,9 +222,8 @@ class ZStack(FloatLayout):
                 )
 
             callbacks = {
+                **live_display_callbacks(),
                 'move_position': _handle_ui_update_for_axis,
-                # Stage B1: update_scopedisplay retired -- thread runs continuously
-                'update_scope_display': lambda dt=0: None,
                 'run_complete': run_complete_func,
                 'update_step_number': _zstack_progress,
                 # LED observer handles UI sync -- no manual callbacks needed
@@ -261,7 +261,13 @@ class ZStack(FloatLayout):
                     callbacks=callbacks,
                     return_to_position=initial_position,
                     leds_state_at_end='return_to_original',
-                    **config_helpers.get_sequenced_run_settings(settings),
+                    engineering_mode=ctx.engineering_mode,
+                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                        settings, ctx.settings_lock
+                    ),
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
+                    ),
                 )
                 ctx.sequenced_capture_runner.start(plan)
                 # A refusal raises out of prepare before this line, so the

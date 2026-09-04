@@ -20,6 +20,7 @@ from modules.image_save import save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_title,
@@ -89,6 +90,19 @@ class CompositeCapture(FloatLayout):
                 # Empty well label (zero-well Blank labware): no leading
                 # underscore from a missing segment.
                 append = f'{well_label}_{layer}' if well_label else layer
+                # In engineering mode the name carries the turret position,
+                # composed by the writer's own renderer so a manual capture
+                # and a protocol step spell it the same way and a filename
+                # reader recognises it. A position the scope has not
+                # reported yet adds nothing.
+                append = common_utils.build_step_name(
+                    common_utils.StepNameComponents(
+                        custom_prefix=append,
+                        turret_position=(
+                            ctx.scope.motion._last_turret_position if ctx.engineering_mode else None
+                        ),
+                    )
+                )
                 # The checkbox answers how the frame is DISPLAYED, and nothing
                 # else. What was imaged is the opened layer, passed separately
                 # below -- reading the channel off this checkbox is what made
@@ -322,8 +336,12 @@ class CompositeCapture(FloatLayout):
                 runner.start_composite(
                     sequence_name='composite',
                     parent_dir=parent_dir,
-                    callbacks={'run_complete': self._composite_finished},
+                    callbacks={
+                        **live_display_callbacks(),
+                        'run_complete': self._composite_finished,
+                    },
                     run_trigger_source='composite',
+                    engineering_mode=ctx.engineering_mode,
                 )
                 started = True
                 # Only reachable once the run is committed, so the saved

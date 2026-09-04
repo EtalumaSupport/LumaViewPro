@@ -53,8 +53,16 @@ class ProtocolsAPI:
         """
         self._source_path = source_path
 
-    def _tiling_configs_path(self):
-        """Resolve data/tiling.json from the registered source path."""
+    def tiling_configs_path(self) -> pathlib.Path:
+        """Resolve data/tiling.json from the registered source path.
+
+        The one owner of that path: the protocol constructors resolve it
+        here, and the run engine takes it from here at run start for the
+        post-run composite merge and hyperstack build, so a headless run
+        reads the same tiling config the session was built with instead
+        of whatever the process's script root holds. An engine seam, not
+        part of the L2 API surface: a caller never needs the path itself.
+        """
 
         if self._source_path is None:
             raise RuntimeError(
@@ -63,7 +71,7 @@ class ProtocolsAPI:
             )
         return pathlib.Path(self._source_path) / 'data' / 'tiling.json'
 
-    def load_protocol(self, file_path) -> Protocol:
+    def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.
 
         Wraps ``Protocol.from_file(...)`` and resolves
@@ -83,10 +91,16 @@ class ProtocolsAPI:
 
         return Protocol.from_file(
             file_path=file_path,
-            tiling_configs_file_loc=self._tiling_configs_path(),
+            tiling_configs_file_loc=self.tiling_configs_path(),
         )
 
-    def create_protocol(self, *, config=None, input_config=None, empty_config=None) -> Protocol:
+    def create_protocol(
+        self,
+        *,
+        config: dict | None = None,
+        input_config: dict | None = None,
+        empty_config: dict | None = None,
+    ) -> Protocol:
         """Construct a Protocol in-memory.
 
         Three modes (pass exactly one):
@@ -117,16 +131,18 @@ class ProtocolsAPI:
             raise ValueError(
                 'create_protocol(): pass exactly one of config=, input_config=, or empty_config='
             )
-        tcfg = self._tiling_configs_path()
+        tcfg = self.tiling_configs_path()
         if input_config is not None:
             return Protocol.from_config(
                 input_config=input_config,
                 tiling_configs_file_loc=tcfg,
+                capabilities=self._scope.capabilities,
             )
         if empty_config is not None:
             return Protocol.create_empty(
                 config=empty_config,
                 tiling_configs_file_loc=tcfg,
+                capabilities=self._scope.capabilities,
             )
         return Protocol(
             tiling_configs_file_loc=tcfg,

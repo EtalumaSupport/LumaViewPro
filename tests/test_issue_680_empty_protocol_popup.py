@@ -148,7 +148,7 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
     }
 
 
-def test_protocol_from_config_filters_non_acquire_layers(scale_ctx):
+def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     """The upstream filter that produces 0 steps: layers whose acquire is
     neither 'image' nor 'video' contribute no steps, so a config where
     every layer is disabled yields an empty (0-step) Protocol -- the
@@ -161,6 +161,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_ctx):
     all_disabled = Protocol.from_config(
         input_config=_from_config_input({'BF': 'none', 'Blue': 'none'}),
         tiling_configs_file_loc=tiling_configs,
+        capabilities=scale_capabilities,
     )
     assert all_disabled.num_steps() == 0, (
         'every-layer-disabled must construct an EMPTY protocol (the #680 '
@@ -170,6 +171,7 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_ctx):
     one_enabled = Protocol.from_config(
         input_config=_from_config_input({'BF': 'image', 'Blue': 'none'}),
         tiling_configs_file_loc=tiling_configs,
+        capabilities=scale_capabilities,
     )
     assert one_enabled.num_steps() > 0, 'an image layer must still produce steps'
     step_colors = set(one_enabled.steps()['Color'].unique())

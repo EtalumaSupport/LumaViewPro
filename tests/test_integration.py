@@ -50,6 +50,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
+from tests.protocol_drives import autofocus_snapshot
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -225,15 +226,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         callbacks=callbacks,
         leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
     executor.start(plan)
@@ -251,6 +244,9 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     """Create a real Lumascope with simulated hardware."""
     s = Lumascope(simulate=True)
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     # Set timing to fast for test speed
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')

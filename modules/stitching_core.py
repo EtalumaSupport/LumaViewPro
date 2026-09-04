@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
+import modules.derived_output_encoding as derived_output_encoding
 import modules.image_utils as image_utils
 from modules.stitch_algorithms import (
     crop_to_content,
@@ -120,7 +121,7 @@ def _write_output(
         ome=False,
         color=color,
         significant_bits=metadata['significant_bits'],
-        save_encoding=image_utils.resolve_output_save_encoding(image),
+        save_encoding=derived_output_encoding.resolve_output_save_encoding(image),
     )
     logger.info(
         '[StitchPerf] write output %.1fms file=%s shape=%s dtype=%s',

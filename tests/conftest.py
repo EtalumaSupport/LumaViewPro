@@ -394,34 +394,15 @@ def sim_scope():
 
 
 @pytest.fixture
-def scale_ctx(monkeypatch):
-    """Install an app context whose scope reports a known image scale.
+def scale_capabilities():
+    """The optics of a scope that reports a known image scale.
 
-    ``common_utils.get_pixel_size`` / ``get_field_of_view`` read the pixel
-    size and tube focal length from ``app_context.ctx.scope.capabilities``;
-    production has no hardcoded fallback, so a test that needs a real scale
-    (scale bar, tiling, field-of-view readout) must supply a scope that
-    reports one. The values match Etaluma's Classic optics so geometry
-    assertions written against the previous default stay valid.
+    ``common_utils.get_pixel_size`` / ``get_field_of_view`` take the scope's
+    capabilities as an argument; production has no hardcoded fallback, so a
+    test that needs a real scale (scale bar, tiling, field-of-view readout)
+    hands in optics that report one. The values match Etaluma's Classic optics
+    so geometry assertions written against the previous default stay valid.
     """
-    import threading
     from types import SimpleNamespace
 
-    import modules.app_context as app_context
-
-    scope = SimpleNamespace(
-        capabilities=SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8)
-    )
-    # A real AppContext (not a bare namespace) so code paths that gate on
-    # "ctx is not None" -- e.g. the save-encoding resolver's settings_lock --
-    # find the services they expect, not a half-built stand-in. The settings
-    # store lives on the session, so the context needs one to reach it.
-    monkeypatch.setattr(
-        app_context,
-        'ctx',
-        app_context.AppContext(
-            scope=scope,
-            session=SimpleNamespace(settings={}, settings_lock=threading.Lock()),
-        ),
-    )
-    return scope
+    return SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8)

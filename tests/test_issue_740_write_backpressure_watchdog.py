@@ -392,6 +392,7 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     from modules.exceptions import ProtocolRunRefusedError
     from modules.image_mode import ImageCaptureConfig
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
+    from tests.protocol_drives import autofocus_snapshot
     from tests.test_audit_fixes import _make_capture_runner
 
     runner = _make_capture_runner()
@@ -410,6 +411,7 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={},
             parent_dir=tmp_path,
+            autofocus_snapshot=autofocus_snapshot(),
         )
 
     with _pytest.raises(ProtocolRunRefusedError) as excinfo:

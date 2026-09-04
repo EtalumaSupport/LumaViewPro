@@ -6,6 +6,7 @@ import functools
 import json
 import pathlib
 import re
+from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -21,6 +22,9 @@ import modules.image_utils as image_utils
 from fractions import Fraction
 
 from lvp_logger import logger, version
+
+if TYPE_CHECKING:
+    from modules.scope_capabilities import ScopeCapabilities
 
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
@@ -1783,30 +1787,6 @@ def get_imagej_lut(colormap: LvpColormap):
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
-def resolve_output_save_encoding(array: np.ndarray) -> str:
-    """The save encoding for a derived output, resolved from the live image_mode.
-
-    Derived-product writers (stitch / zproject / composite) consult the one
-    image_mode SSOT for their on-disk encoding, so a stitched fluorescence image
-    honors the user's false-color choice exactly as a freshly captured frame
-    does. This is the explicit replacement for the implicit settings read that
-    used to hide inside maybe_apply_false_color's None default.
-    """
-    # Function-local import breaks the image_utils <-> app_context cycle;
-    # app_context imports image_utils at module load.
-    from modules import app_context as _app_ctx
-
-    # No live app context means no user image_mode to consult (headless /
-    # pre-init), so the only meaningful encoding is the verbatim dtype-based
-    # one. Production post-processing always runs with a context set.
-    if _app_ctx.ctx is None:
-        return image_mode.encoding_for_array(array)
-
-    with _app_ctx.ctx.settings_lock:
-        mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
-    return image_mode.save_encoding_for_derived_output(array, mode)
-
-
 def maybe_apply_false_color(
     data: np.ndarray,
     color: str,
@@ -2609,13 +2589,14 @@ def _compute_scale_bar_overlay(
 
 
 def add_scale_bar(
-    image,
+    image: np.ndarray,
     objective: dict,
     binning_size: int,
     color: str | None = None,
     *,
     significant_bits: int,
-):
+    capabilities: 'ScopeCapabilities',
+) -> np.ndarray:
     global _scale_bar_cache
 
     height, width = image.shape[0], image.shape[1]
@@ -2627,7 +2608,9 @@ def add_scale_bar(
     # A scale bar is a measurement claim; without a known pixel size there is
     # nothing to claim. Draw nothing rather than a bar of invented length.
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'], binning_size=binning_size
+        focal_length=objective['focal_length'],
+        binning_size=binning_size,
+        capabilities=capabilities,
     )
     if pixel_size_um is None:
         return image

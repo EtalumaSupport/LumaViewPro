@@ -7,6 +7,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.config_ui_getters as config_ui_getters
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
@@ -24,6 +25,7 @@ from modules.tiling_config import TilingConfig
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
+    live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     move_absolute,
@@ -302,7 +304,7 @@ class VerticalControl(BoxLayout):
             # The optics that set image scale change here and nowhere else in
             # a session; recording them now is what lets a returned bundle
             # explain the scale baked into its own images.
-            common_utils.log_resolved_optics(
+            config_ui_getters.log_resolved_optics(
                 objective_id=objective_id,
                 focal_length=objective['focal_length'],
                 binning_size=binning_size,
@@ -310,7 +312,7 @@ class VerticalControl(BoxLayout):
 
             # Update UI FOV
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            fov_size = common_utils.get_field_of_view(
+            fov_size = config_ui_getters.get_field_of_view(
                 focal_length=objective['focal_length'],
                 frame_size=settings['frame'],
                 binning_size=binning_size,
@@ -511,6 +513,7 @@ class VerticalControl(BoxLayout):
             af_sequence = ctx.scope.protocols.create_protocol(input_config=config)
 
             callbacks = {
+                **live_display_callbacks(),
                 'move_position': _handle_ui_update_for_axis,
                 'run_complete': self._autofocus_run_complete,
             }
@@ -544,7 +547,13 @@ class VerticalControl(BoxLayout):
                     # never leaves the current position. A fatal abort still
                     # forces dark regardless of this policy.
                     leds_state_at_end='return_to_original',
-                    video_as_frames=settings['video_as_frames'],
+                    engineering_mode=ctx.engineering_mode,
+                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
+                        settings, ctx.settings_lock
+                    ),
+                    **config_helpers.get_sequenced_run_settings(
+                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+                    ),
                 )
                 runner.start(plan)
 

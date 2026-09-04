@@ -170,6 +170,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
             SequencedCaptureRunMode,
             SequencedCaptureRunner,
         )
+        from tests.protocol_drives import autofocus_snapshot
 
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: None)
         runner = SequencedCaptureRunner(
@@ -205,6 +206,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
                 sequence_name='seq',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
                 autogain_settings={},
+                autofocus_snapshot=autofocus_snapshot(),
             )
         passed = protocol.validate_for_run.call_args.kwargs['axis_limits']
         assert set(passed) == {'X', 'Y', 'Z'}, (

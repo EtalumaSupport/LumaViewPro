@@ -43,6 +43,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -109,6 +110,9 @@ def _build_protocol():
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
+    # The session registers the data root at bring-up; a runner over a
+    # bare scope needs it too, or the run refuses at start.
+    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -201,15 +205,7 @@ def _run_one_still(executor, tmp_path, config):
             'move_position': lambda axis: None,
         },
         leds_state_at_end='off',
-        initial_autofocus_states={
-            'BF': False,
-            'PC': False,
-            'DF': False,
-            'Red': False,
-            'Green': False,
-            'Blue': False,
-            'Lumi': False,
-        },
+        autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
@@ -283,6 +279,7 @@ class TestOneRunOneEncoding:
             image_capture_config=config,
             timestamp_overlay=True,
             video_max_fps=0,
+            engineering_mode=False,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

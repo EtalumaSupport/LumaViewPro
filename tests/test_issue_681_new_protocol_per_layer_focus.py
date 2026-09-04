@@ -69,27 +69,31 @@ def _well_channel_z(df, well, color):
     return sel['Z'].iloc[0]
 
 
-def test_new_protocol_keeps_each_channel_tuned_z(scale_ctx):
+def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
     """Per-(well, channel) carry-over: each channel keeps its own tuned Z."""
     from modules.protocol import Protocol
 
     prev = {('A1', 'BF'): 7000.0, ('A1', 'Green'): 8000.0, ('A1', 'Red'): 9000.0}
     cfg = _build_input_config(previous_well_z=prev)
-    df = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS).steps()
+    df = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    ).steps()
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
     assert _well_channel_z(df, 'A1', 'Green') == pytest.approx(8000.0, abs=1e-6)
     assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(9000.0, abs=1e-6)
 
 
-def test_tuned_channel_does_not_clobber_siblings(scale_ctx):
+def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
     """The core #681 guarantee: tuning one channel must not paste its Z onto
     the other channels -- untuned channels keep their own focus default."""
     from modules.protocol import Protocol
 
     # Only BF tuned in A1; Green/Red were never focused there.
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 7000.0})
-    df = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS).steps()
+    df = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    ).steps()
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
     # Pre-fix these were 7000 (clobbered); now each keeps its focus default.
@@ -97,12 +101,14 @@ def test_tuned_channel_does_not_clobber_siblings(scale_ctx):
     assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(300.0, abs=1e-6)
 
 
-def test_no_carry_over_uses_each_channels_focus(scale_ctx):
+def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
     """No carry-over -> every channel uses its own focus default."""
     from modules.protocol import Protocol
 
     cfg = _build_input_config()  # no previous_well_z
-    df = Protocol.from_config(input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS).steps()
+    df = Protocol.from_config(
+        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+    ).steps()
 
     assert (df[df['Color'] == 'BF']['Z'] == 100.0).all()
     assert (df[df['Color'] == 'Green']['Z'] == 200.0).all()

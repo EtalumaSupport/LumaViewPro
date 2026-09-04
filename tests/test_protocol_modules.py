@@ -25,6 +25,7 @@ from modules.protocol_state_machine import (
     validate_transition,
 )
 from modules.protocol_callbacks import ProtocolCallbacks
+from tests.protocol_drives import autofocus_snapshot
 
 
 # ===========================================================================
@@ -171,6 +172,29 @@ class TestProtocolCallbacksFromDict:
         assert not hasattr(cb, 'totally_bogus_key')
 
 
+class TestProtocolCallbacksHasNoAutofocusRestore:
+    """The autofocus restorer rides the snapshot, never a callbacks field.
+
+    A callbacks field nothing reads is a trap: the next caller sets it,
+    the cleanup path ignores it, and the layer's autofocus flag silently
+    keeps the run's value. Assert on dataclasses.fields so the trap
+    cannot come back under a different construction site.
+    """
+
+    def test_no_restore_autofocus_state_field(self):
+        import dataclasses
+
+        names = {f.name for f in dataclasses.fields(ProtocolCallbacks)}
+        assert 'restore_autofocus_state' not in names, (
+            "the autofocus restore belongs to the run's autofocus snapshot; "
+            f'a callbacks field for it has no reader. fields={sorted(names)}'
+        )
+
+    def test_construction_with_the_removed_field_is_refused(self):
+        with pytest.raises(TypeError):
+            ProtocolCallbacks(restore_autofocus_state=lambda **kw: None)
+
+
 class TestProtocolCallbacksToDict:
     """Test ProtocolCallbacks.to_dict() -- must NOT use dataclasses.asdict()."""
 
@@ -265,6 +289,57 @@ class TestScheduleUI:
 # ===========================================================================
 
 
+class TestAutofocusSnapshotIsWholeOrNothing:
+    """The states and the restorer that writes them back travel together.
+
+    States without a restorer are a half-object: cleanup would have the
+    values and no place to put them. Making the pair unconstructible is
+    cheaper than refusing it later, so the type carries no defaults.
+    """
+
+    def test_states_without_a_restorer_cannot_be_built(self):
+        from modules.config_helpers import AutofocusSnapshot
+
+        with pytest.raises(TypeError):
+            AutofocusSnapshot(states={'BF': True})
+
+    def test_both_halves_build(self):
+        from modules.config_helpers import AutofocusSnapshot
+
+        written = []
+        snapshot = AutofocusSnapshot(
+            states={'BF': True},
+            restore=lambda *, layer, value: written.append((layer, value)),
+        )
+        assert snapshot.states == {'BF': True}
+        snapshot.restore(layer='BF', value=True)
+        assert written == [('BF', True)]
+
+
+def test_cleanup_never_reaches_a_settings_module_global():
+    """Cleanup restores through the snapshot it was handed, full stop.
+
+    The module-level settings dict is None in every headless process, so
+    a cleanup that falls back to it restores nothing and buries the
+    failure in the cleanup-error summary. The restorer the snapshot
+    carries is the only write path.
+    """
+    import pathlib as _pathlib
+
+    source = (
+        _pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
+    ).read_text()
+    offenders = [
+        f'{i}: {line.strip()}'
+        for i, line in enumerate(source.splitlines(), 1)
+        if 'settings[' in line or 'settings_init' in line
+    ]
+    assert not offenders, (
+        "protocol_cleanup must restore through the run's autofocus snapshot, "
+        f'not a settings module global; found {offenders}'
+    )
+
+
 class _FakeExecutor:
     """Minimal stand-in for SequentialIOExecutor used in cleanup tests."""
 
@@ -350,7 +425,7 @@ class TestRunCleanup:
             'fatal_abort': False,
             'leds_state_at_end': 'off',
             'original_led_states': {},
-            'original_autofocus_states': {},
+            'autofocus_snapshot': autofocus_snapshot(states={}),
             'saved_camera_state': None,
             'return_to_position': None,
             'disable_saving_artifacts': True,
@@ -644,6 +719,7 @@ class TestProtocolImageWriterWriteCapture:
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             timestamp_overlay=True,
             video_max_fps=0,
+            engineering_mode=False,
         )
         return writer
 

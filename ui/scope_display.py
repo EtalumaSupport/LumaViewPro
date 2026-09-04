@@ -47,6 +47,7 @@ from modules import gui_logger
 import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
+import modules.config_ui_getters as config_ui_getters
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 
@@ -418,7 +419,7 @@ class ScopeDisplay(Image):
                 from ui.ui_helpers import move_relative
 
                 _, objective = _app_ctx.ctx.session.get_current_objective_info()
-                pixel_size_um = common_utils.get_pixel_size(
+                pixel_size_um = config_ui_getters.get_pixel_size(
                     focal_length=objective['focal_length'],
                     binning_size=get_binning_from_ui(),
                 )

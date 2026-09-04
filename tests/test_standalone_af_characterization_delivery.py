@@ -52,6 +52,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.protocol_drives import autofocus_snapshot
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -107,6 +108,9 @@ class TestStandaloneAfDeliversCharacterizationData:
         from modules.protocol_thread import ProtocolThread
 
         scope = home_sim_scope(Lumascope(simulate=True))
+        # The session registers the data root at bring-up; a runner over a
+        # bare scope needs it too, or the run refuses at start.
+        scope.protocols.register_source_path('.')
         scope._led_driver.set_timing_mode('fast')
         scope._motion_driver.set_timing_mode('fast')
         scope._camera_driver.set_timing_mode('fast')
@@ -166,20 +170,21 @@ class TestStandaloneAfDeliversCharacterizationData:
                 callbacks={
                     'go_to_step': lambda **kw: None,
                     'move_position': lambda axis: None,
-                    'restore_autofocus_state': lambda **kw: None,
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },
                 leds_state_at_end='off',
-                initial_autofocus_states={
-                    'BF': True,
-                    'PC': False,
-                    'DF': False,
-                    'Red': False,
-                    'Green': False,
-                    'Blue': False,
-                    'Lumi': False,
-                },
+                autofocus_snapshot=autofocus_snapshot(
+                    states={
+                        'BF': True,
+                        'PC': False,
+                        'DF': False,
+                        'Red': False,
+                        'Green': False,
+                        'Blue': False,
+                        'Lumi': False,
+                    },
+                ),
             )
             runner.start(plan)
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'

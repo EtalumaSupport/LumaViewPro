@@ -2,6 +2,7 @@
 
 import pathlib
 import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,7 +19,7 @@ def _tile_spacing(tiles):
     return x_spacing, y_spacing
 
 
-def _make_protocol_from_config(overlap_percent):
+def _make_protocol_from_config(overlap_percent, capabilities):
     input_config = {
         'positions': [
             {
@@ -61,6 +62,7 @@ def _make_protocol_from_config(overlap_percent):
     return Protocol.from_config(
         input_config=input_config,
         tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=capabilities,
     )
 
 
@@ -84,7 +86,7 @@ def test_invalid_overlap_percent_rejected(overlap_percent):
         TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
 
-def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_ctx):
+def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_capabilities):
     tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
 
     common_kwargs = {
@@ -97,10 +99,12 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_ctx):
     tiles_no_overlap = tiling_config.get_tile_centers(
         **common_kwargs,
         fill_factor=TilingConfig.fill_factor_from_overlap_percent(0),
+        capabilities=scale_capabilities,
     )
     tiles_ten_percent_overlap = tiling_config.get_tile_centers(
         **common_kwargs,
         fill_factor=TilingConfig.fill_factor_from_overlap_percent(10),
+        capabilities=scale_capabilities,
     )
 
     x_spacing_no_overlap, y_spacing_no_overlap = _tile_spacing(tiles_no_overlap)
@@ -110,9 +114,13 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_ctx):
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.02)
 
 
-def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale_ctx):
-    protocol_no_overlap = _make_protocol_from_config(overlap_percent=0)
-    protocol_ten_percent_overlap = _make_protocol_from_config(overlap_percent=10)
+def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale_capabilities):
+    protocol_no_overlap = _make_protocol_from_config(
+        overlap_percent=0, capabilities=scale_capabilities
+    )
+    protocol_ten_percent_overlap = _make_protocol_from_config(
+        overlap_percent=10, capabilities=scale_capabilities
+    )
 
     assert len(protocol_no_overlap.steps()) == 4
     assert len(protocol_ten_percent_overlap.steps()) == 4
@@ -124,7 +132,7 @@ def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.0001)
 
 
-def test_overlap_never_adds_tiles(scale_ctx):
+def test_overlap_never_adds_tiles(scale_capabilities):
     """The tiling label is a tile-count contract: the requested grid is
     what runs, at every allowed overlap. Overlap shrinks the step (and
     the total covered area) instead of growing the grid -- an earlier
@@ -142,6 +150,7 @@ def test_overlap_never_adds_tiles(scale_ctx):
         tiles = tiling_config.get_tile_centers(
             **common_kwargs,
             fill_factor=TilingConfig.fill_factor_from_overlap_percent(overlap_percent),
+            capabilities=scale_capabilities,
         )
         assert len(tiles) == 4, (
             f'2x2 produced {len(tiles)} tiles at {overlap_percent}% overlap; '
@@ -157,27 +166,25 @@ class TestTileCentersWithoutScale:
     crashed the whole app on a scope that honestly reports no scale.
     Grids with real spacing must still refuse."""
 
-    def _scaleless(self, monkeypatch):
-        import modules.app_context as app_context
+    # A scope that honestly reports no optics.
+    _NO_OPTICS = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
 
-        monkeypatch.setattr(app_context, 'ctx', None)
-        return TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
-
-    def test_1x1_layout_needs_no_field_of_view(self, monkeypatch):
-        tiling_config = self._scaleless(monkeypatch)
+    def test_1x1_layout_needs_no_field_of_view(self):
+        tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
         tiles = tiling_config.get_tile_centers(
             config_label='1x1',
             focal_length=9.0,
             frame_size={'width': 1900, 'height': 1900},
             fill_factor=1.0,
             binning_size=1,
+            capabilities=self._NO_OPTICS,
         )
         assert tiles == {'': {'x': 0.0, 'y': 0.0}}
 
-    def test_real_grid_still_refuses_without_field_of_view(self, monkeypatch):
+    def test_real_grid_still_refuses_without_field_of_view(self):
         from modules.exceptions import ConfigError
 
-        tiling_config = self._scaleless(monkeypatch)
+        tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
         with pytest.raises(ConfigError):
             tiling_config.get_tile_centers(
                 config_label='2x2',
@@ -185,4 +192,5 @@ class TestTileCentersWithoutScale:
                 frame_size={'width': 1900, 'height': 1900},
                 fill_factor=1.0,
                 binning_size=1,
+                capabilities=self._NO_OPTICS,
             )

@@ -13,12 +13,17 @@ import datetime
 import pathlib
 import re
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+
+if TYPE_CHECKING:
+    from modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------
 #
@@ -165,7 +170,7 @@ def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
     return image
 
 
-def resolve_recording_pixel_size(scope) -> float | None:
+def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
     """Effective um/pixel for a recording about to start, or None if unknown.
 
     Both recording legs call this once at start so their frames agree on scale
@@ -190,6 +195,7 @@ def resolve_recording_pixel_size(scope) -> float | None:
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
         binning_size=scope.imaging._binning_size,
+        capabilities=scope.capabilities,
     )
     if pixel_size_um is None:
         return None

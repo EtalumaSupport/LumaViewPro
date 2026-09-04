@@ -1465,6 +1465,7 @@ class TestG3_AutofocusFailureNotification:
 # ---------------------------------------------------------------------------
 
 from tests.protocol_drives import (
+    autofocus_snapshot as _autofocus_snapshot,
     bare_capture_runner as _bare_capture_runner,
     scr_run_kwargs as _scr_run_kwargs,
 )
@@ -1634,7 +1635,11 @@ class TestRule14_A7_HyperstackBuildNotify:
         builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
         monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
 
-        stack_builder_module.build_hyperstacks_for_run(run_dir=pathlib.Path('.'), has_turret=False)
+        stack_builder_module.build_hyperstacks_for_run(
+            run_dir=pathlib.Path('.'),
+            has_turret=False,
+            tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
+        )
 
         assert captured, 'the build failure must surface the failure popup'
         assert captured[0][1] == 'Hyperstack build failed', (
@@ -1671,7 +1676,7 @@ def _run_cleanup_kwargs(**overrides):
         'fatal_abort': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
-        'original_autofocus_states': {},
+        'autofocus_snapshot': _autofocus_snapshot(states={}),
         'saved_camera_state': {},
         'return_to_position': None,
         'disable_saving_artifacts': True,
@@ -1721,9 +1726,8 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             apply_led_transition_fn=_raiser('led'),
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=_raiser('shader'),
-                restore_autofocus_state=_raiser('af'),
             ),
-            original_autofocus_states={'BF': True},
+            autofocus_snapshot=_autofocus_snapshot(states={'BF': True}, restore=_raiser('af')),
             saved_camera_state={'tag': 'protocol'},
             disable_saving_artifacts=False,
             protocol_execution_record=MagicMock(),
@@ -3137,6 +3141,7 @@ def _bare_protocol_writer(**overrides):
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
         'video_max_fps': 0,
+        'engineering_mode': False,
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)
@@ -4191,8 +4196,9 @@ def _sim_backed_imaging():
     """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
 
     The API object builds its own locks and frame_validity, so the scope
-    stub only needs the camera-driver slot the _driver property resolves
-    plus runtime_state (read by get_image's scale-bar gate).
+    stub only needs the camera-driver slot the _driver property resolves,
+    runtime_state (read by get_image's scale-bar gate) and capabilities
+    (the optics the scale bar's pixel size is resolved from).
     """
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
@@ -4214,6 +4220,7 @@ def _sim_backed_imaging():
     scope.illumination = SimpleNamespace(
         get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
     )
+    scope.capabilities = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
@@ -10559,16 +10566,12 @@ class TestAutoGainArmedInScanIterate:
             if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
         ]
 
-    def test_run_loop_resets_armed_step_per_scan(self, monkeypatch):
+    def test_run_loop_resets_armed_step_per_scan(self):
         """Each scan must re-arm AG: a two-scan run queues the AG apply
         twice. Without the per-scan armed-step reset, scan 2 would
         inherit scan 1's arm and skip arming entirely."""
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
-        monkeypatch.setattr(
-            'modules.config_helpers.get_ag_ae_max_exposure_ms',
-            lambda color, settings: 123.0,
-        )
         runner = run_loop_ready_runner(protocol_step(Auto_Gain=True), n_scans=2)
         runner._run_loop_executor.run_loop()
         assert runner._scan_count == 2, 'both scans must complete'
@@ -10586,7 +10589,7 @@ class TestAutoGainArmedInScanIterate:
 
         monkeypatch.setattr(
             'modules.config_helpers.get_ag_ae_max_exposure_ms',
-            lambda color, settings: 123.0,
+            lambda color, overrides: 123.0,
         )
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
         runner._step_executor.scan_iterate()
@@ -10643,17 +10646,13 @@ class TestAutoGainArmedInScanIterate:
         imaging._set_gain_db_impl.assert_called_once_with(2.0)
         imaging._set_exposure_ms_impl.assert_called_once_with(10.0)
 
-    def test_arm_block_returns_after_arming(self, monkeypatch):
+    def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick
         falls through to capture, where the auto_gain settle drain runs
         against the now-lit scene. Without the deferral, capture could
         run in the same tick the LED was just lit."""
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
-        monkeypatch.setattr(
-            'modules.config_helpers.get_ag_ae_max_exposure_ms',
-            lambda color, settings: 123.0,
-        )
         runner = scan_ready_runner(
             protocol_step(Auto_Gain=True),
             _disable_saving_artifacts=False,
@@ -11286,61 +11285,79 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
     through a scan -- producing inconsistent AF behavior across steps
     within one protocol run.
 
-    The fix snapshots the setting in SequencedCaptureRunner.start()
-    (alongside false_color_16bit, under the same settings_lock take)
-    onto self._bf_af_for_fluorescence; protocol_step_runner reads from
-    the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
+    The fix resolves the setting once per run, in the caller that owns
+    the settings dict, and carries it onto the RunPlan; start() commits
+    it to self._bf_af_for_fluorescence and protocol_step_runner reads
+    the snapshot via getattr(p, '_bf_af_for_fluorescence', False). The
+    same per-run treatment covers the two video values the run reads
+    (timestamp_overlay, video_max_fps), which travel the same route.
     """
 
-    def test_runner_snapshots_bf_af_for_fluorescence_attr(self, monkeypatch):
-        """start() must snapshot bf_af_for_fluorescence onto the runner,
-        under settings_lock, immune to mid-run toggles."""
+    def test_runner_takes_the_settings_values_from_the_plan(self, monkeypatch):
+        """A run started over a settings dict must carry that dict's
+        values onto the runner. All three read a NESTED settings path
+        under a FLAT run-param name (protocol.bf_af_for_fluorescence,
+        video.timestamp_overlay, video.max_fps), so the values -- not
+        merely the keys -- are what this asserts: a one-key slip returns
+        the default on every install and silently uncaps the recording
+        rate.
+
+        The app context is installed with the OPPOSITE values throughout,
+        so a runner that still reached for it would land on False / True
+        / 0 rather than on what the run was configured with.
+        """
         from types import SimpleNamespace
 
         import modules.app_context as app_context
+        import modules.config_helpers as config_helpers
+        from modules.protocol_state_machine import SequencedCaptureRunMode
 
-        lock = threading.Lock()
-        settings = _LockWatchingSettings(
-            {'protocol': {'bf_af_for_fluorescence': True}}, lock, 'protocol'
-        )
+        settings = {
+            'protocol': {'bf_af_for_fluorescence': True},
+            'video': {'timestamp_overlay': False, 'max_fps': 5},
+        }
         monkeypatch.setattr(
-            app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
+            app_context,
+            'ctx',
+            SimpleNamespace(
+                settings={
+                    'protocol': {'bf_af_for_fluorescence': False},
+                    'video': {'timestamp_overlay': True, 'max_fps': 0},
+                },
+                settings_lock=threading.Lock(),
+            ),
+        )
+        run_settings = config_helpers.get_sequenced_run_settings(
+            settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
         )
         runner = _bare_capture_runner()
-        runner.start(runner.prepare(**_scr_run_kwargs()))
+        runner.start(runner.prepare(**_scr_run_kwargs(), **run_settings))
         assert runner._bf_af_for_fluorescence is True, (
-            'start() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
+            'the run must carry protocol.bf_af_for_fluorescence for per-tick reads'
         )
-        assert settings.watched_reads == [True], (
-            'the protocol-settings read must happen exactly once, under settings_lock; '
-            f'reads (lock-held flags): {settings.watched_reads}'
+        assert runner._timestamp_overlay is False, (
+            'the run must carry video.timestamp_overlay, not the shipped-on default'
+        )
+        assert runner._video_max_fps == 5, (
+            'the run must carry video.max_fps -- the flat run-param name is '
+            'video_max_fps, and reading it as a top-level settings key silently '
+            'uncaps the recording rate and the disk estimate'
         )
         settings['protocol']['bf_af_for_fluorescence'] = False
         assert runner._bf_af_for_fluorescence is True, (
             'mid-run toggles must not retro-affect the run-start snapshot'
         )
 
-    def test_protocol_step_runner_reads_from_snapshot(self, monkeypatch):
-        """scan_iterate must follow the runner's run-start snapshot even
-        when ctx.settings says the opposite -- proving the per-tick read
-        comes from the snapshot, not from ctx.settings."""
-        from types import SimpleNamespace
-
-        import modules.app_context as app_context
+    def test_protocol_step_runner_reads_from_snapshot(self):
+        """scan_iterate must follow the runner's run-start snapshot: the
+        snapshot alone decides whether a fluorescence step reuses the BF
+        AF result or runs its own AF."""
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         step = protocol_step(Auto_Focus=True, Color='Red')
 
-        # Snapshot ON, ctx OFF: the fluorescence step must reuse the BF
-        # AF result instead of starting its own AF run.
-        monkeypatch.setattr(
-            app_context,
-            'ctx',
-            SimpleNamespace(
-                settings={'protocol': {'bf_af_for_fluorescence': False}},
-                settings_lock=threading.Lock(),
-            ),
-        )
+        # Snapshot ON: the fluorescence step must reuse the BF AF result
+        # instead of starting its own AF run.
         runner = scan_ready_runner(
             step, _bf_af_for_fluorescence=True, _update_z_pos_from_autofocus=True
         )
@@ -11351,20 +11368,11 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
         )
         runner._protocol.modify_step_z_height.assert_called_once_with(step_idx=0, z=555.0)
 
-        # Control -- snapshot OFF, ctx ON: the step runs its own AF.
-        monkeypatch.setattr(
-            app_context,
-            'ctx',
-            SimpleNamespace(
-                settings={'protocol': {'bf_af_for_fluorescence': True}},
-                settings_lock=threading.Lock(),
-            ),
-        )
+        # Control -- snapshot OFF: the step runs its own AF.
         control = scan_ready_runner(step, _bf_af_for_fluorescence=False)
         control._step_executor.scan_iterate()
         assert control.autofocus_thread.run_autofocus.called, (
-            'with the snapshot OFF, the step must run its own AF -- the '
-            'opposite ctx value proves ctx.settings is not consulted per tick'
+            'with the snapshot OFF, the step must run its own AF'
         )
 
 

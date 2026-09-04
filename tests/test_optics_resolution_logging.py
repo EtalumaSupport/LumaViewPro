@@ -21,6 +21,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.config_ui_getters as config_ui_getters
 from tests.ast_seams import find_def
 
 
@@ -33,8 +34,8 @@ OBJECTIVE_FOCAL_LENGTH_MM = 9.0
 def scope_with_optics():
     """A scope that can report both optics values."""
     ctx = MagicMock()
-    ctx.scope.capabilities.lens_focal_length_mm = TUBE_FOCAL_LENGTH_MM
-    ctx.scope.capabilities.pixel_size_um = SENSOR_PIXEL_SIZE_UM
+    ctx.lumaview.scope.capabilities.lens_focal_length_mm = TUBE_FOCAL_LENGTH_MM
+    ctx.lumaview.scope.capabilities.pixel_size_um = SENSOR_PIXEL_SIZE_UM
     original = _app_ctx.ctx
     _app_ctx.ctx = ctx
     try:
@@ -48,8 +49,8 @@ def scope_without_optics():
     """A scope that cannot report its optics -- unknown camera, no declared
     optics. The resolver returns None here rather than inventing a scale."""
     ctx = MagicMock()
-    ctx.scope.capabilities.lens_focal_length_mm = None
-    ctx.scope.capabilities.pixel_size_um = SENSOR_PIXEL_SIZE_UM
+    ctx.lumaview.scope.capabilities.lens_focal_length_mm = None
+    ctx.lumaview.scope.capabilities.pixel_size_um = SENSOR_PIXEL_SIZE_UM
     original = _app_ctx.ctx
     _app_ctx.ctx = ctx
     try:
@@ -67,11 +68,13 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
     def test_logged_um_per_pixel_is_the_resolver_s_own_answer(self, scope_with_optics):
         """The number logged and the number baked into images are one value."""
         expected = common_utils.get_pixel_size(
-            focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=1
+            focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
+            binning_size=1,
+            capabilities=scope_with_optics.lumaview.scope.capabilities,
         )
 
-        with patch.object(common_utils, 'logger') as mock_logger:
-            common_utils.log_resolved_optics(
+        with patch.object(config_ui_getters, 'logger') as mock_logger:
+            config_ui_getters.log_resolved_optics(
                 objective_id='20x', focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=1
             )
 
@@ -83,8 +86,8 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
     def test_every_input_to_the_scale_is_on_the_line(self, scope_with_optics):
         """A bundle has to be able to tell a misconfigured scope from a wrong
         resolver, which needs the inputs and not only the result."""
-        with patch.object(common_utils, 'logger') as mock_logger:
-            common_utils.log_resolved_optics(
+        with patch.object(config_ui_getters, 'logger') as mock_logger:
+            config_ui_getters.log_resolved_optics(
                 objective_id='20x', focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=2
             )
 
@@ -101,13 +104,15 @@ class TestLoggedScaleCannotDriftFromWrittenScale:
     def test_binning_reaches_the_resolver(self, scope_with_optics):
         """Binning multiplies the scale; logging it unbinned would mislabel
         every binned image in the bundle."""
-        with patch.object(common_utils, 'logger') as mock_logger:
-            common_utils.log_resolved_optics(
+        with patch.object(config_ui_getters, 'logger') as mock_logger:
+            config_ui_getters.log_resolved_optics(
                 objective_id='20x', focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=2
             )
 
         unbinned = common_utils.get_pixel_size(
-            focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=1
+            focal_length=OBJECTIVE_FOCAL_LENGTH_MM,
+            binning_size=1,
+            capabilities=scope_with_optics.lumaview.scope.capabilities,
         )
         line = ' '.join(_emitted(mock_logger))
         assert f'{unbinned * 2}um/px' in line
@@ -117,8 +122,8 @@ class TestNoScaleIsItselfReported:
     def test_missing_optics_still_logs_and_names_what_is_missing(self, scope_without_optics):
         """The condition a returned bundle most needs explained is the one
         where there is no scale at all -- staying silent there is the defect."""
-        with patch.object(common_utils, 'logger') as mock_logger:
-            common_utils.log_resolved_optics(
+        with patch.object(config_ui_getters, 'logger') as mock_logger:
+            config_ui_getters.log_resolved_optics(
                 objective_id='20x', focal_length=OBJECTIVE_FOCAL_LENGTH_MM, binning_size=1
             )
 

@@ -28,6 +28,9 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL)
         '8bit', output_format_sequenced=OUTPUT_FORMAT_HYPERSTACK
     )
     runner._run_dir = tmp_path
+    # The run resolved its data root at start; the build reads the tiling
+    # config from there, not from wherever the process happens to live.
+    runner._tiling_configs_file_loc = tmp_path / 'data' / 'tiling.json'
     runner.file_io_executor.is_protocol_queue_active.return_value = False
     runner._scope.capabilities.has_turret = False
     return runner
@@ -45,7 +48,11 @@ class TestRunnerHyperstackTrigger:
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
             thread = runner._start_hyperstack_build()
             _join(thread)
-        build.assert_called_once_with(run_dir=tmp_path, has_turret=False)
+        build.assert_called_once_with(
+            run_dir=tmp_path,
+            has_turret=False,
+            tiling_configs_file_loc=tmp_path / 'data' / 'tiling.json',
+        )
 
     def test_waits_for_the_protocol_file_queue_to_drain(self, tmp_path, monkeypatch):
         import modules.sequenced_capture_runner as scr
@@ -59,6 +66,32 @@ class TestRunnerHyperstackTrigger:
             _join(thread)
         build.assert_called_once()
         assert runner.file_io_executor.is_protocol_queue_active.call_count == 3
+
+    def test_the_build_holds_the_path_the_run_armed_it_with(self, tmp_path, monkeypatch):
+        # The build runs on a daemon thread that outlives the run: the
+        # next run nulls and re-fills the runner's fields, so a build
+        # still reading them would follow the SUCCESSOR run's data root.
+        # Capturing the value at arming is what makes that impossible.
+        import modules.sequenced_capture_runner as scr
+
+        monkeypatch.setattr(scr, '_HYPERSTACK_QUEUE_POLL_S', 0.01)
+        runner = _hyperstack_runner(tmp_path)
+        armed = runner._tiling_configs_file_loc
+        # The queue stays busy until this test has moved the field on,
+        # so the build cannot reach it before the successor's value is
+        # in place.
+        drained = threading.Event()
+        runner.file_io_executor.is_protocol_queue_active.side_effect = lambda: not drained.is_set()
+
+        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
+            thread = runner._start_hyperstack_build()
+            runner._tiling_configs_file_loc = tmp_path / 'next_run' / 'data' / 'tiling.json'
+            drained.set()
+            _join(thread)
+
+        build.assert_called_once_with(
+            run_dir=tmp_path, has_turret=False, tiling_configs_file_loc=armed
+        )
 
     @pytest.mark.parametrize(
         'mutate',
@@ -89,6 +122,26 @@ class TestRunnerHyperstackTrigger:
             thread = runner._start_hyperstack_build()
             _join(thread)
         build.assert_called_once()
+
+
+def test_the_build_takes_the_tiling_config_path_from_its_caller():
+    # The build resolved data/tiling.json from the process's script root,
+    # which is not the root the session was built with. The path is the
+    # caller's to state, and stating it is not optional: a default is
+    # exactly the silent fallback to a root nobody chose.
+    import inspect
+
+    import modules.stack_builder as stack_builder
+
+    parameters = inspect.signature(stack_builder.build_hyperstacks_for_run).parameters
+    assert 'tiling_configs_file_loc' in parameters, (
+        'build_hyperstacks_for_run must take the tiling config path from its '
+        f'caller; its parameters are {list(parameters)}'
+    )
+    assert parameters['tiling_configs_file_loc'].default is inspect.Parameter.empty, (
+        'the tiling config path must be required, so no caller can fall back '
+        'to a data root it did not choose'
+    )
 
 
 def test_gui_tier_no_longer_owns_the_trigger():
