@@ -45,6 +45,7 @@ import pytest
 
 import modules.common_utils as real_common_utils
 import modules.config_helpers as config_helpers
+from modules.lumascope_api.imaging import AutoGainConvergence, AutoGainLock
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -133,6 +134,7 @@ def _compile_cb():
         'logger': MagicMock(),
         'common_utils': common_utils_stub,
         '_app_ctx': app_ctx_stub,
+        'AutoGainConvergence': AutoGainConvergence,
     }
     exec(compile(fn_src, '<layer_control::update_auto_gain_cb>', 'exec'), ns)
     return ns['update_auto_gain_cb'], app_ctx_stub
@@ -162,7 +164,16 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     fake.ids['exp_text'] = MagicMock()
     fake.ids['exp_text'].text = '0'
     fake.apply_settings = MagicMock()
+    # The notifier is the user-facing half of the lock result; the floor
+    # tests are about the settings write-back only.
+    fake._notify_auto_gain_limit = MagicMock()
     return fake
+
+
+def _lock(gain_db: float, exposure_ms: float) -> AutoGainLock:
+    """The lock result a toggle-off hands the callback; the floor applies
+    whatever the convergence state, so CONVERGED is the neutral case."""
+    return AutoGainLock(AutoGainConvergence.CONVERGED, exposure_ms, gain_db)
 
 
 class TestExposureFloorBehavior:
@@ -190,8 +201,8 @@ class TestExposureFloorBehavior:
         }
         fake = _make_fake_layer('BF', slider_min=0.01)  # .kv default for transmitted
 
-        # AG-off callback: init=False, state=False (read from toggle), gain, exp.
-        cb(fake, result=(False, False, 0.0, raw_exp_ms))
+        # AG-off callback: init=False, then the lock result (gain, exp).
+        cb(fake, result=(False, _lock(0.0, raw_exp_ms)))
 
         stored = app_ctx_stub.ctx.settings['BF']['exposure_ms']
         assert stored == expected_floor, (
@@ -221,7 +232,7 @@ class TestExposureFloorBehavior:
         }
         fake = _make_fake_layer('Blue', slider_min=1.0)  # set_layer_exposure_ranges value
 
-        cb(fake, result=(False, False, 0.0, raw_exp_ms))
+        cb(fake, result=(False, _lock(0.0, raw_exp_ms)))
 
         stored = app_ctx_stub.ctx.settings['Blue']['exposure_ms']
         assert stored == expected_floor, (
@@ -238,7 +249,7 @@ class TestExposureFloorBehavior:
             'PC': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
         fake = _make_fake_layer('PC', slider_min=0.01)
-        cb(fake, result=(False, False, 0.0, 0.050))
+        cb(fake, result=(False, _lock(0.0, 0.050)))
         assert app_ctx_stub.ctx.settings['PC']['exposure_ms'] == 0.1
 
     def test_df_uses_transmitted_floor(self):
@@ -249,7 +260,7 @@ class TestExposureFloorBehavior:
             'DF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
         fake = _make_fake_layer('DF', slider_min=0.01)
-        cb(fake, result=(False, False, 0.0, 0.050))
+        cb(fake, result=(False, _lock(0.0, 0.050)))
         assert app_ctx_stub.ctx.settings['DF']['exposure_ms'] == 0.1
 
     def test_lumi_uses_fluorescence_floor(self):
@@ -260,7 +271,7 @@ class TestExposureFloorBehavior:
             'Lumi': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
         fake = _make_fake_layer('Lumi', slider_min=1.0)
-        cb(fake, result=(False, False, 0.0, 0.5))
+        cb(fake, result=(False, _lock(0.0, 0.5)))
         assert app_ctx_stub.ctx.settings['Lumi']['exposure_ms'] == 1.0
 
     def test_unknown_exposure_keeps_previous_settings(self):
@@ -270,7 +281,7 @@ class TestExposureFloorBehavior:
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
         fake = _make_fake_layer('BF', slider_min=0.01)
-        cb(fake, result=(False, False, 3.0, 0.0))
+        cb(fake, result=(False, _lock(3.0, 0.0)))
         assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 42.0
         # The valid gain reading in the same callback still lands.
         assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 3.0
@@ -282,6 +293,6 @@ class TestExposureFloorBehavior:
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
         fake = _make_fake_layer('BF', slider_min=0.01)
-        cb(fake, result=(False, False, -1.0, 5.0))
+        cb(fake, result=(False, _lock(-1.0, 5.0)))
         assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 7.0
         assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 5.0

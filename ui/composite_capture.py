@@ -32,6 +32,22 @@ from ui.ui_helpers import (
 logger = logging.getLogger('LVP.ui.composite_capture')
 
 
+def _notify_auto_gain_failed(ctx) -> None:
+    """A manual capture is attended, so a lock that found nothing usable is
+    an error the user sees; a protocol run only logs it."""
+    info = ctx.scope.imaging.last_capture_info or {}
+    if info.get('auto_gain') == 'FAILED':
+        from modules.notification_center import notifications
+
+        notifications.error(
+            'Camera',
+            'Auto-gain did not settle',
+            'The camera reported no usable exposure or gain when auto-gain was '
+            'locked for this capture, so the frame was taken without an '
+            'exposure check. Check the live view, then capture again.',
+        )
+
+
 class CompositeCapture(FloatLayout):
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
@@ -168,7 +184,7 @@ class CompositeCapture(FloatLayout):
         # showed an overlay the capture then declined to save, with nothing
         # reporting the omission.
         if not use_bullseye and not use_crosshairs:
-            return save_live_image(
+            path = save_live_image(
                 ctx.scope,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -185,6 +201,8 @@ class CompositeCapture(FloatLayout):
                 jpeg_quality=settings.get('jpg_quality', 90),
                 save_encoding=save_encoding,
             )
+            _notify_auto_gain_failed(ctx)
+            return path
 
         # Summing is carried here exactly as save_live_image carries it above:
         # an overlay is a display choice, and switching one on must not
@@ -197,6 +215,7 @@ class CompositeCapture(FloatLayout):
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
         )
+        _notify_auto_gain_failed(ctx)
         if image_orig is None:
             return
 

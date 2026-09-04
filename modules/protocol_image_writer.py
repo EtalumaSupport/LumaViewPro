@@ -536,6 +536,8 @@ class ProtocolImageWriter:
                 parts.append(f'hold_ms={info["hold_ms"]:.0f}')
             if info.get('drained') is not None:
                 parts.append(f'drained={info["drained"]}')
+            if info.get('auto_gain') is not None:
+                parts.append(f'auto_gain={info["auto_gain"]}')
             return ' '.join(parts)
         except Exception as ex:
             # Evidence is best-effort; never let it break the capture path.
