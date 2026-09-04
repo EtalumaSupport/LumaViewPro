@@ -1,4 +1,3 @@
 4.0.0-beta34
 2026-09-04 11:40
-gui-ratchet-orchestration
-c6eacc88
+4.0.0-beta
