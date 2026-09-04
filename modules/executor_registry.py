@@ -40,7 +40,9 @@ lens instead of hardcoding executor handle names.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
@@ -101,7 +103,7 @@ class ExecutorBundle:
         return out
 
 
-def create_default(ui_dispatcher) -> ExecutorBundle:
+def create_default(ui_dispatcher: Callable[[Callable, float], Any] | None) -> ExecutorBundle:
     """Construct + start the standard LVP executor topology.
 
     Args:
@@ -133,13 +135,10 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     # lumaviewpro.py:build() after ctx.scope_display (widget) and
     # ctx.scope_display_thread (this) are both wired into ctx;
     # starting earlier races the ctx wiring and silently no-ops.
-    scope_display_thread = ScopeDisplayThread(
-        ui_dispatcher=ui_dispatcher,
-        ctx_provider=lambda: _app_ctx.ctx,
-    )
+    scope_display_thread = ScopeDisplayThread(ctx_provider=lambda: _app_ctx.ctx)
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
-    protocol_thread = ProtocolThread(ui_dispatcher=ui_dispatcher)
+    protocol_thread = ProtocolThread()
     worker_pool = SequentialIOExecutor(
         name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True
     )

@@ -1007,10 +1007,7 @@ class LumaViewProApp(TooltipMixin, App):
         # per-iteration state machine the thread drives. Construct after
         # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
         # of the thread except via the abort_event passed to run()).
-        autofocus_thread = AutofocusThread(
-            afe=autofocus_runner,
-            ui_dispatcher=_ui,
-        )
+        autofocus_thread = AutofocusThread(afe=autofocus_runner)
         autofocus_thread.start()
 
         # GUI-independent scope session; persisted to ctx.session so

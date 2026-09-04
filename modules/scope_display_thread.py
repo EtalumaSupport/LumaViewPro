@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# GUI-agnostic. No Kivy imports. The GUI host injects ui_dispatcher
-# (Clock.schedule_once in Kivy; direct invocation in headless tests).
+# GUI-agnostic: no Kivy imports.
 """ScopeDisplayThread -- dedicated long-lived thread that paces the
 live-display refresh loop.
 
@@ -77,9 +76,6 @@ class ScopeDisplayThread:
     """Owns the live-display refresh loop.
 
     Construction takes:
-      ui_dispatcher: callable(callable, delay_seconds) -- posts work
-                     back to the UI thread. Defaults to a direct call
-                     for headless contexts.
       widget:        the ScopeDisplay widget. The thread calls
                      widget._render_one_frame(...) per iteration; the
                      widget owns the actual rendering state (texture,
@@ -94,14 +90,12 @@ class ScopeDisplayThread:
     def __init__(
         self,
         *,
-        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
         ctx_provider: Callable[[], Any] | None = None,
     ):
         # The widget (ScopeDisplay) is created by Kivy after this
         # registry runs. The thread looks it up each iteration via
         # ctx_provider().scope_display so we don't have to thread
         # through a setter at app-build time.
-        self._ui_dispatcher = ui_dispatcher or self._direct_dispatch
         self._ctx_provider = ctx_provider or (lambda: None)
 
         self._thread: threading.Thread | None = None
@@ -151,15 +145,6 @@ class ScopeDisplayThread:
         # purpose, so the "no new frame" warning would be a false alarm.
         # Rendering is unaffected -- only the warning + popup are withheld.
         self._stall_suppressed = threading.Event()
-
-    @staticmethod
-    def _direct_dispatch(fn: Callable, delay: float) -> None:
-        """Headless fallback for ui_dispatcher. Runs inline; delay is
-        ignored (acceptable for tests since they tick manually)."""
-        try:
-            fn(0)
-        except Exception:
-            logger.exception('direct_dispatch callback failed')
 
     # ---- lifecycle ----
 
