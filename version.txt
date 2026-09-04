@@ -1,4 +1,4 @@
 4.0.0-beta34
-2026-09-04 12:19
-gui-ratchet-reverse
-13dc017f
+2026-09-04 12:31
+ratchet-announce
+48d7137b

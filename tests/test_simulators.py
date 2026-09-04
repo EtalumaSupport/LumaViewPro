@@ -1816,3 +1816,14 @@ def test_simulator_only_surface_does_not_grow(label, real, sim):
         f"['{label}'] in this commit and say why in the message. If it is "
         f'not, the name probably belongs on {label} too.'
     )
+
+
+# Announced at the end of every run (tests/ratchets.py).
+from tests import ratchets as _ratchets
+
+for _label, _real, _sim in _BOARD_PAIRS:
+    _ratchets.register(
+        f'simulators: sim-only public names on {_label}',
+        (lambda real=_real, sim=_sim: len(_sim_only_names(real, sim))),
+        _SIM_ONLY_NAME_BUDGET[_label],
+    )

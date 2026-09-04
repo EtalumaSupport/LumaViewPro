@@ -740,3 +740,44 @@ class TestGuiIsDisplayOnly:
             _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
+
+
+# Announced at the end of every run (tests/ratchets.py).
+from tests import ratchets as _ratchets
+
+_ratchets.register(
+    'GUI: modules.* imports from ui/',
+    lambda: sum(_ui_modules_import_counts().values()),
+    sum(_UI_MODULES_IMPORT_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: private scope reaches from ui/',
+    lambda: sum(_ui_private_reach_counts().values()),
+    sum(_UI_PRIVATE_REACH_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: orchestration calls from the GUI',
+    lambda: sum(_gui_orchestration_counts().values()),
+    sum(_GUI_ORCHESTRATION_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: _app_ctx.ctx reads in modules/',
+    lambda: sum(_modules_context_read_counts().values()),
+    sum(_MODULES_CONTEXT_READ_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: widget .ids[ reads in modules/',
+    lambda: sum(_modules_widget_read_counts().values()),
+    sum(_MODULES_WIDGET_READ_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: ui imports from modules/ and drivers/',
+    lambda: sum(_lower_layer_ui_import_counts().values()),
+    sum(_LOWER_LAYER_UI_IMPORT_PIN.values()),
+    'equal',
+)

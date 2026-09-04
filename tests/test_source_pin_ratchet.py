@@ -199,3 +199,18 @@ def test_classification_covers_every_site():
     assert total > 0, 'the scan found nothing, so it is no longer scanning'
     for category, entries in sites.items():
         assert all(':' in entry for entry in entries), f'{category} has a malformed entry'
+
+
+# Announced at the end of every run (tests/ratchets.py).
+from tests import ratchets as _ratchets
+
+_ratchets.register(
+    'tests: read_text source-pin sites',
+    lambda: sum(len(v) for v in classify_read_text_sites().values()),
+    _READ_TEXT_SITE_BUDGET,
+)
+_ratchets.register(
+    'tests: files with a read_text source pin',
+    lambda: len({e.rsplit(':', 1)[0] for v in classify_read_text_sites().values() for e in v}),
+    _READ_TEXT_FILE_BUDGET,
+)
