@@ -937,6 +937,8 @@ class ImagingAPI:
         # mode flip leaves the gain value node unchanged, so these are forced,
         # not gated on a value delta.
         arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
+        if arm_settle:
+            self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
         self._camera_write(
             _write_auto_gain,
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
@@ -1086,6 +1088,31 @@ class ImagingAPI:
                 'locked, so the previous settings were kept and any capture was taken '
                 'without an exposure check. Check the live view, then try again.',
             )
+
+    def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: object) -> None:
+        """Bring the exposure inside the auto loop's range before enabling it.
+
+        The loop's upper bound is the class ceiling, but writing the bound
+        does not move an exposure already above it: the camera then leaves
+        the exposure where it is and adjusts gain only, the lock reads the
+        pinned value, and the stored setting clips it to the slider -- the
+        live view halves in brightness at toggle-off. Clamping through the
+        ordinary setter re-targets the gate to the ceiling as well, so the
+        next frame proves it. The cache is a setter's write or a hardware
+        resync at every arm (both arming callers write the exposure just
+        before; every disarm resyncs), so the sentinel guard is the only
+        skip.
+        """
+        if not isinstance(ceiling_ms, (int, float)) or ceiling_ms <= 0:
+            return
+        current_ms = self.exposure_ms_cached
+        if not common_utils.is_valid_exposure_ms(current_ms) or current_ms <= ceiling_ms:
+            return
+        logger.info(
+            f'[AG ARM] exposure {current_ms:.3f} ms above the class ceiling '
+            f'{ceiling_ms:g} ms; clamped to the ceiling before arming'
+        )
+        self._set_exposure_ms_impl(float(ceiling_ms))
 
     def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
@@ -3439,7 +3466,11 @@ class ImagingAPI:
         """Apply per-layer camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
-        IOTask queues with a single call for atomicity.
+        IOTask queues with a single call for atomicity. Arming may clamp
+        the exposure just handed in down to the layer class's auto-exposure
+        ceiling (the loop cannot bring an exposure above its bound back
+        inside it); the log line below reports the request, the arm's own
+        line records the clamp.
 
         Args:
             gain_db: Camera gain in dB.

@@ -317,3 +317,78 @@ def test_converged_lock_leaves_an_info_line():
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=CONVERGED' in m]
     assert len(lock_lines) == 1, _logged('info')
+
+
+class _InertAeSim(_ChunkAeSim):
+    """A camera whose auto loop never moves the exposure -- the Pylon
+    behaviour the bench recorded when the exposure was armed already above
+    the class cap (100 ms under a 50 ms upper limit stayed at 100 ms for
+    twenty seconds while only gain moved). With the loop inert, the ONLY
+    code that can move the exposure at arm time is the API's clamp."""
+
+    def auto_gain(
+        self,
+        state=True,
+        target_brightness: float = 0.5,
+        min_gain_db=None,
+        max_gain_db=None,
+        ae_max_exposure_ms=None,
+    ):
+        with self._lock:
+            self._auto_gain_enabled = state
+        return True
+
+
+def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
+    cam = _InertAeSim(ae_lands_on_ms=0.0)
+    cam.active = True
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    scope._camera_executor = None
+    scope._cam_lock = threading.RLock()
+    scope._state_lock = threading.RLock()
+    imaging = ImagingAPI(scope, cam)
+    scope.imaging = imaging
+    scope.illumination = _StubIllumination()
+    scope.runtime_state = _StubRuntimeState()
+    imaging.start_streaming()
+    return imaging, cam
+
+
+def test_arm_clamps_exposure_above_the_class_cap():
+    """Arming with the exposure already above the class cap leaves the
+    camera's loop outside its own range: the loop cannot bring the exposure
+    down, the lock then reads the pinned value, and the write-back clips it
+    to the slider. The arm clamps the exposure to the cap first, re-targets
+    the gate to it, and says so once; an exposure inside the cap is left
+    alone."""
+    imaging, cam = _build_inert()
+    lvp_logger.logger.reset_mock()
+    imaging._apply_layer_camera_settings_impl(
+        gain_db=1.0,
+        exposure_ms=100.0,
+        auto_gain=True,
+        auto_gain_settings=AG_SETTINGS_TRANSMITTED,
+        resume_after_capture=True,
+    )
+    assert cam._exposure_us == 50000.0
+    assert imaging.exposure_ms_cached == 50.0
+    assert imaging.frame_validity.target('exposure') == 50000.0
+    clamp_lines = [m for m in _logged('info') if '[AG ARM]' in m]
+    assert len(clamp_lines) == 1, _logged('info')
+    assert '100' in clamp_lines[0] and '50' in clamp_lines[0]
+    lock = imaging._lock_auto_gain_impl()
+    assert lock.exposure_ms == 50.0
+    assert lock.state.value == 'MAXED'
+
+    imaging, cam = _build_inert()
+    lvp_logger.logger.reset_mock()
+    imaging._apply_layer_camera_settings_impl(
+        gain_db=1.0,
+        exposure_ms=20.0,
+        auto_gain=True,
+        auto_gain_settings=AG_SETTINGS_TRANSMITTED,
+        resume_after_capture=True,
+    )
+    assert cam._exposure_us == 20000.0
+    assert not [m for m in _logged('info') if '[AG ARM]' in m]
