@@ -796,6 +796,13 @@ class MicroscopeSettings(BoxLayout):
         settings['image_mode'] = mode
         self._refresh_binning_depth_hint()
 
+        # During app init, scope.initialize() applies the pixel format
+        # synchronously while the camera start gate is still closed; the
+        # mirrors above just reflect the settings being loaded. Pushing a
+        # second apply from here would race that one on the camera lane.
+        if ctx.initializing:
+            return
+
         # Apply the capture depth to the camera. Resolve to a format the
         # sensor actually supports BEFORE pushing, so we never request a
         # format it lacks (e.g. Mono8 on an IDS sensor that exposes only

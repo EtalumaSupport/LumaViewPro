@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.layer_record import LayerIdentity
+    from modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
 import logging as _logging
@@ -686,7 +687,7 @@ class Lumascope:
         self.layer_identity = self._resolve_layer_identity(override_model=override_model)
         return self.layer_identity
 
-    def initialize(self, config) -> None:
+    def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
 
         Call once after construction.  Sets all scope-level hardware
@@ -698,7 +699,18 @@ class Lumascope:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._notify_partial_hardware(config)
-        self.illumination.leds_off()
+        # The safety-off is bound to the impl like every other write here,
+        # never to the public dispatcher: a session factory runs initialize
+        # while its IO lane may be registered but not yet started, and a
+        # dispatch onto that lane blocks for the whole write timeout and then
+        # raises. The board check the dispatcher performs is copied here for
+        # the same reason it lives there: with no board the composition root
+        # installs a Null driver, which is truthy, so the impl's own `if not
+        # self._driver` never fires and the state cache would record LEDs it
+        # never drove. The write is bounded by the serial layer's own read
+        # and write timeouts; nothing else holds the LED lock at bring-up.
+        if self.led_connected:
+            self.illumination._leds_off_impl()
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
@@ -761,11 +773,12 @@ class Lumascope:
         # rejection is already logged AND notified at the API layer, and
         # every downstream consumer reads delivered geometry, never these
         # requests, so nothing is left believing a rejected value.
-        # Bring-up binds the impls: initialize runs before (or without)
-        # executor registration -- at reconnect, before set_scope services
-        # the new scope -- and these writes are the scope's own
+        # Bring-up binds the impls: these writes are the scope's own
         # composition, not external commands, so they stay direct on the
-        # calling thread by design.
+        # calling thread by design -- and the caller may hold executor
+        # lanes that are registered but not started (a session factory
+        # configures before it releases the camera), so nothing in this
+        # method may dispatch.
         for label, apply_fn in (
             ('binning', lambda: self.imaging._set_binning_size_impl(binning_size)),
             (
@@ -786,7 +799,7 @@ class Lumascope:
         # Resolving + setting it now -- instead of via the async camera-executor
         # push that the image-mode spinner enqueues -- removes the race where
         # the format lands after streaming begins and forces a redundant
-        # grab-loop restart. The spinner handler skips its push during init.
+        # grab-loop restart. The spinner handler returns early during init.
         pixel_format = image_mode.select_capture_pixel_format(
             config.capture_depth, self.imaging.get_supported_pixel_formats()
         )
