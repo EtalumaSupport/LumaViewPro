@@ -460,11 +460,15 @@ class ProtocolStepRunner:
                 # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        # Disable autogain when moving between steps
+        # Disable autogain when moving between steps. Run-internal
+        # machinery binds the impl, as the arm above does: the public
+        # member is a dispatcher that refuses work while a run holds the
+        # camera lane, and a refusal here raised out of the step, was
+        # classified transient, and retried the whole scan.
         if step['Auto_Gain']:
             fut = p._io_executor.protocol_put(
                 IOTask(
-                    action=p._scope.imaging.set_auto_gain,
+                    action=p._scope.imaging._set_auto_gain_impl,
                     kwargs={
                         'state': False,
                         'settings': p._autogain_settings,
