@@ -303,3 +303,61 @@ def test_specific_layers_is_always_handed_a_list():
                     if not ok:
                         offenders.append(f'{rel}:{call.lineno} {ast.unparse(kw.value)}')
     assert offenders == [], offenders
+
+
+# ---------------------------------------------------------------------------
+# The open-layer scan has one implementation, and it names its one skip
+# ---------------------------------------------------------------------------
+
+
+def _first_open_scan_loops():
+    """Every loop over the layer vocabulary that reads `.collapse` off an
+    accordion lookup, deduplicated on (file, line): a nested function's loop
+    is walked under its enclosure as well."""
+    seen = set()
+    for rel in _production_modules():
+        tree = parse_module(rel)
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for loop in ast.walk(fn):
+                if not (isinstance(loop, ast.For) and 'get_layers(' in ast.unparse(loop.iter)):
+                    continue
+                body = ast.unparse(loop)
+                if 'accordion_item_lookup' in body and '.collapse' in body:
+                    seen.add((rel, fn.name))
+    return seen
+
+
+def test_the_open_layer_scan_has_one_implementation():
+    """Only the canonical scan finds the first open drawer. The two loops in
+    the image-settings panel iterate EVERY drawer to act on each -- one sets
+    collapse on all, one reconciles LEDs -- and are not scans."""
+    allowed = {
+        ('modules/common_utils.py', 'get_opened_layer'),
+        ('ui/image_settings.py', 'set_expanded_layer'),
+        ('ui/image_settings.py', '_do_accordion_collapse'),
+    }
+    extra = sorted(_first_open_scan_loops() - allowed)
+    assert extra == [], f'inline open-layer scans re-implement get_opened_layer: {extra}'
+
+
+def test_get_opened_layer_skips_only_an_unbuilt_drawer():
+    """A catalogue layer with no built drawer raises KeyError from the lookup
+    and is simply not open; any other failure is a bug and stays loud instead
+    of being read as 'nothing is open'."""
+    from modules.common_utils import get_opened_layer
+
+    def lookup_missing_then_open(layer):
+        if layer == 'BF':
+            raise KeyError('BF_accordion')
+        return SimpleNamespace(collapse=(layer != 'Red'))
+
+    settings = SimpleNamespace(accordion_item_lookup=lookup_missing_then_open)
+    assert get_opened_layer(settings) == 'Red'
+
+    def lookup_broken(layer):
+        raise RuntimeError('widget tree torn down')
+
+    with pytest.raises(RuntimeError):
+        get_opened_layer(SimpleNamespace(accordion_item_lookup=lookup_broken))

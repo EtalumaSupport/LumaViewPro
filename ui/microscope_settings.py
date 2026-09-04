@@ -730,14 +730,11 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.viewer.update_shader(false_color='BF')
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
-            for layer in common_utils.get_layers():
+            layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+            if layer is not None:
                 layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
-                accordion_item = _app_ctx.ctx.image_settings.accordion_item_lookup(layer=layer)
-                if not accordion_item.collapse:
-                    if layer_obj.ids['false_color'].active:
-                        _app_ctx.ctx.viewer.update_shader(false_color=layer)
-
-                    break
+                if layer_obj.ids['false_color'].active:
+                    _app_ctx.ctx.viewer.update_shader(false_color=layer)
 
             _app_ctx.ctx.scope_display.use_bullseye = False
 

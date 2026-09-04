@@ -568,11 +568,7 @@ class LumaViewProApp(TooltipMixin, App):
             if ctx.engineering_mode and ctx.image_settings is not None:
                 import modules.common_utils as _cu
 
-                for layer in _cu.get_layers():
-                    accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-                    if not accordion_item_obj.collapse:
-                        open_layer = layer
-                        break
+                open_layer = _cu.get_opened_layer(ctx.image_settings)
             ctx.scope_display_thread.update_layer_config(
                 active_layer,
                 active_layer_config,
