@@ -2248,12 +2248,11 @@ class ProtocolSettings(FloatLayout):
             Runs on the UI thread via _schedule_ui in protocol_cleanup.
             """
             ctx_inner = _app_ctx.ctx
-            for layer_name in common_utils.get_layers():
-                accordion_item = ctx_inner.image_settings.accordion_item_lookup(layer=layer_name)
-                if not accordion_item.collapse:
-                    layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
-                    layer_obj.update_shader(dt=0)
-                    return
+            layer_name = common_utils.get_opened_layer(ctx_inner.image_settings)
+            if layer_name is not None:
+                layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
+                layer_obj.update_shader(dt=0)
+                return
             # No open accordion -- default to BF (no false-color tint)
             ctx_inner.viewer.update_shader(false_color='BF')
 

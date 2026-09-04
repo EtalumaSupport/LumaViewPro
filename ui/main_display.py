@@ -97,15 +97,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # The open layer names the channel; its toggle governs display
         # only. Reading one without the other is what left a brightfield
         # recording with no channel name at all.
-        layer = None
-        false_color_on = False
-        for candidate in common_utils.get_layers():
-            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=candidate)
-            layer_obj = ctx.image_settings.layer_lookup(layer=candidate)
-            if not layer_accordion_obj.collapse:
-                layer = candidate
-                false_color_on = layer_obj.ids['false_color'].active
-                break
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        false_color_on = (
+            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
+            if layer is not None
+            else False
+        )
 
         # Start on the camera executor: the controller's start opens the
         # encoder and probes disk, which must not stall the GUI thread.

@@ -395,22 +395,20 @@ class VerticalControl(BoxLayout):
         # AF result, not the stale pre-AF Z value.
         try:
             focus_z = ctx.scope.motion.get_current_position('Z')
-            for layer in common_utils.get_layers():
-                accordion_item = ctx.image_settings.accordion_item_lookup(layer=layer)
-                if not accordion_item.collapse:
-                    with ctx.settings_lock:
-                        ctx.settings[layer]['focus'] = focus_z
-                    logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
-                    # AF restored the camera from committed settings; an
-                    # uncommitted text edit (typed, no Enter) would keep
-                    # showing a value the hardware no longer has. Re-point
-                    # the widgets at the truth.
-                    try:
-                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                        layer_obj.sync_camera_widgets_from_settings()
-                    except Exception as e:
-                        logger.warning(f'[AF] Widget sync after AF failed: {e}')
-                    break
+            layer = common_utils.get_opened_layer(ctx.image_settings)
+            if layer is not None:
+                with ctx.settings_lock:
+                    ctx.settings[layer]['focus'] = focus_z
+                logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
+                # AF restored the camera from committed settings; an
+                # uncommitted text edit (typed, no Enter) would keep
+                # showing a value the hardware no longer has. Re-point
+                # the widgets at the truth.
+                try:
+                    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                    layer_obj.sync_camera_widgets_from_settings()
+                except Exception as e:
+                    logger.warning(f'[AF] Widget sync after AF failed: {e}')
         except Exception as e:
             logger.warning(f'[AF] Failed to update layer focus after AF: {e}')
 

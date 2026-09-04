@@ -68,7 +68,14 @@ VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
 # that). Unconditional WARN -- it must reach a normal bench bundle whether or
 # not debug_mode/[PERF] is on, and it self-limits to genuine spikes.
 FRAME_SPIKE_RATIO = 2.0  # interval must exceed this x the recent median
-FRAME_SPIKE_FLOOR_MS = 50.0  # ...and this absolute floor (ms)
+# The floor is the shortest gap between displayed frames worth a line: a
+# stutter a person watching the live view could see. At the 30 fps cap the
+# median is one ~31 ms period and the loop is scheduled in 15.6 ms Windows
+# ticks, so a floor near that quantum fires on every missed tick (63 ms) and
+# on the engineering-stats hitch; 150 ms is four to five missed frames, past
+# the scheduler's jitter tail. The ratio term carries long-exposure streams,
+# whose median already exceeds the floor.
+FRAME_SPIKE_FLOOR_MS = 150.0  # ...and this absolute floor (ms)
 FRAME_SPIKE_WINDOW = 120  # recent OK-frame intervals feeding the median (~4-8 s)
 FRAME_SPIKE_MIN_SAMPLES = 30  # need this many before a median is meaningful
 FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this often
@@ -572,7 +579,8 @@ class ScopeDisplay(Image):
         previous OK frame is the gap the user actually perceives. Fires when that
         interval exceeds both FRAME_SPIKE_RATIO x the recent-window median AND
         FRAME_SPIKE_FLOOR_MS -- transient stutters, not a uniformly slow stream
-        (whose median rises to match; capture_fps owns that). Unconditional WARN
+        (whose median rises to match; capture_fps owns that). The floor is a
+        stutter a viewer could see, not the display quantum. Unconditional WARN
         so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
         on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
 
@@ -653,6 +661,19 @@ class ScopeDisplay(Image):
         if open_layer is None or use_bullseye:
             return False
         return now - last_time >= interval
+
+    @staticmethod
+    def _engineering_stats(image):
+        """Mean and std for the engineering panel, on a stride-4 view of the frame.
+
+        A full pass over a 1900x1900 frame costs 55-125 ms on the field hosts
+        (numpy widens to float64 for std), on the render thread, twice a
+        second -- each one a stutter the slow-frame instrument then reports.
+        The histogram and the contrast stretcher subsample the same frame the
+        same way; for a display label the difference is in the first decimal.
+        """
+        sample = image[::4, ::4]
+        return round(float(np.mean(sample)), 2), round(float(np.std(sample)), 2)
 
     @staticmethod
     def _focus_score_enabled(ctx):
@@ -884,12 +905,11 @@ class ScopeDisplay(Image):
             ):
                 self._eng_stats_last_time = now_eng
                 t_eng_start = time.monotonic()
-                mean = round(np.mean(a=image), 2)
-                stddev = round(np.std(a=image), 2)
+                mean, stddev = self._engineering_stats(image)
                 # The Vollath focus score is the costly per-frame stat; the
-                # engineering-tab "Focus Score" toggle suppresses it. Mean and
-                # std stay (cheap). Display-only -- autofocus scores its own
-                # frames independently and is unaffected.
+                # engineering-tab "Focus Score" toggle suppresses it.
+                # Display-only -- autofocus scores its own frames
+                # independently and is unaffected.
                 if self._focus_score_enabled(ctx):
                     af_score = autofocus_functions.focus_function(
                         image=image, skip_score_logging=True

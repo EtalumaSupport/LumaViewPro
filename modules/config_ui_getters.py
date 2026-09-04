@@ -243,12 +243,7 @@ def get_layer_configs(
 
 
 def get_active_layer_config() -> tuple[str, dict]:
-    c_layer = None
-    for layer in common_utils.get_layers():
-        accordion_item_obj = _app_ctx.ctx.image_settings.accordion_item_lookup(layer=layer)
-        if not accordion_item_obj.collapse:
-            c_layer = layer
-            break
+    c_layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
 
     if c_layer is None:
         raise Exception('No layer currently selected')

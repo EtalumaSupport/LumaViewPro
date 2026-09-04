@@ -74,7 +74,6 @@ def capture_ctx(tmp_path):
         'jpg_quality': 90,
     }
     ctx.scope.runtime_state.get_well_label.return_value = 'A1'
-    ctx.image_settings.accordion_item_lookup.return_value = types.SimpleNamespace(collapse=False)
     ctx.image_settings.layer_lookup.return_value = types.SimpleNamespace(
         ids={'false_color': types.SimpleNamespace(active=False)}
     )
@@ -98,7 +97,8 @@ def _run_capture(sum_count=1):
     """Drive the real capture path and hand back its save calls.
 
     ``_live_capture_impl`` never touches ``self``, so it runs unbound rather
-    than requiring a realised Kivy widget tree.
+    than requiring a realised Kivy widget tree. The four keywords are what the
+    button snapshots on the main thread before it enqueues the task.
     """
     from ui.composite_capture import CompositeCapture
 
@@ -119,7 +119,13 @@ def _run_capture(sum_count=1):
             return_value=capture_config,
         ),
     ):
-        CompositeCapture._live_capture_impl(object())
+        CompositeCapture._live_capture_impl(
+            object(),
+            layer=LAYER,
+            false_color_on=False,
+            use_bullseye=_app_ctx.ctx.scope_display.use_bullseye,
+            use_crosshairs=_app_ctx.ctx.scope_display.use_crosshairs,
+        )
         return save_live, save_one
 
 

@@ -41,6 +41,7 @@ from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
+    resolve_channel_identity,
 )
 from modules.config_helpers import (
     get_image_capture_config_from_settings,
@@ -70,7 +71,6 @@ from modules.video_writer import VideoWriter
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
 # nothing downstream has to represent a channel-less recording.
-DEFAULT_LAYER = 'BF'
 
 # Health-check cadence while a recording is live. Matches the cadence the
 # GUI historically polled at; the check is three reads, so ten a second
@@ -215,24 +215,6 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _resolve_channel_identity(self, layer: str | None) -> str:
-        """The channel this recording imaged: lit LED, else open layer, else BF.
-
-        A lit LED is direct evidence of what is illuminating the sample,
-        so it outranks the open accordion -- a channel can be lit while a
-        different layer's drawer is open, and the light is the truth.
-
-        The open layer is the tiebreak for luminescence, which images with
-        no LED lit at all and would otherwise be unnameable.
-
-        get_led_states() returns {} when no LED board is present, so a
-        board-less scope falls through to the layer with no special case.
-        """
-        for color, state in self._scope.illumination.get_led_states().items():
-            if state.get('enabled'):
-                return color
-        return layer or DEFAULT_LAYER
-
     def start(
         self,
         *,
@@ -250,7 +232,7 @@ class ManualRecordingController:
 
         Args:
             layer: The layer whose accordion is open, or None. Used only
-                when no LED is lit -- see _resolve_channel_identity.
+                when no LED is lit -- see resolve_channel_identity.
             false_color_on: Whether that layer's false-color toggle is on.
                 Controls rendering alone; grayscale when False.
             on_complete: Invoked (on the finish thread) after the drain
@@ -387,7 +369,7 @@ class ManualRecordingController:
                     message=str(exc),
                 ) from exc
 
-        resolved_layer = self._resolve_channel_identity(layer)
+        resolved_layer = resolve_channel_identity(scope.illumination, layer)
 
         frame_size = scope.imaging.frame_size_cached
         manifest_extra = {

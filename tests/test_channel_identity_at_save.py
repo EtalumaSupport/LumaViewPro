@@ -123,16 +123,6 @@ def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
         'jpg_quality': 90,
     }
     ctx.scope = scope
-    # Only the layer under test is expanded: the capture sweep walks the
-    # REAL layer vocabulary and asks each accordion, exactly as production
-    # does -- narrowing the vocabulary itself would also narrow the layer
-    # categories the save path derives from it.
-    ctx.image_settings.accordion_item_lookup.side_effect = lambda layer: SimpleNamespace(
-        collapse=(layer != LAYER)
-    )
-    ctx.image_settings.layer_lookup.return_value = SimpleNamespace(
-        ids={'false_color': SimpleNamespace(active=false_color_active)}
-    )
     ctx.scope_display.use_bullseye = False
     ctx.scope_display.use_crosshairs = use_crosshairs
     ctx.scope_display.add_crosshairs.side_effect = lambda img: img
@@ -165,7 +155,15 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
                 return_value=capture_config,
             ),
         ):
-            CompositeCapture._live_capture_impl(object())
+            # The four keywords are what the button snapshots on the main
+            # thread: the layer under test is the open drawer.
+            CompositeCapture._live_capture_impl(
+                object(),
+                layer=LAYER,
+                false_color_on=false_color_active,
+                use_bullseye=False,
+                use_crosshairs=use_crosshairs,
+            )
     finally:
         _app_ctx.ctx = original
 

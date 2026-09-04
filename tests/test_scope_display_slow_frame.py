@@ -61,7 +61,10 @@ for _name in (
 _real_base_module('kivy.uix.image', Image=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
+import numpy as np
+
 from ui.scope_display import (
+    FRAME_SPIKE_FLOOR_MS,
     FRAME_SPIKE_LOG_MIN_GAP_S,
     FRAME_SPIKE_RATIO,
     FRAME_SPIKE_WINDOW,
@@ -126,7 +129,7 @@ def test_silent_until_window_has_min_samples(caplog):
 
 
 def test_fires_and_attributes_to_previous_frame(caplog):
-    stand = _primed(33.0)  # 2x = 66ms > 50ms floor -> threshold 66ms
+    stand = _primed(33.0)  # 2x = 66ms < the floor -> threshold = FRAME_SPIKE_FLOOR_MS
     # 250ms gap. This frame's own compute is small; the WARN must report the
     # PREVIOUS frame's compute (the work that ran during the interval).
     records = _feed(stand, 1000.250, caplog, grab=1.0, proc=3.0, eng=0.0)
@@ -144,7 +147,7 @@ def test_previous_frame_attribution_across_two_real_calls(caplog):
     # A, then a slow frame carrying compute B. The WARN must blame A (ran during
     # the interval), never B (this frame's own compute, after the interval).
     stand = _primed(33.0, prev_compute=(99.0, 99.0, 99.0))
-    # Normal frame (30ms < 66ms threshold): silent, but records compute A.
+    # Normal frame (30ms, under the floor): silent, but records compute A.
     assert _feed(stand, 1000.030, caplog, grab=2.0, proc=8.0, eng=51.0) == []
     # Slow frame 250ms later, carrying a deliberately different compute B.
     records = _feed(stand, 1000.280, caplog, grab=7.0, proc=7.0, eng=7.0)
@@ -154,14 +157,15 @@ def test_previous_frame_attribution_across_two_real_calls(caplog):
 
 
 def test_silent_just_below_threshold(caplog):
-    stand = _primed(33.0)  # threshold = 66ms
-    assert _feed(stand, 1000.065, caplog) == []  # 65ms interval
+    stand = _primed(33.0)  # 2x median is under the floor, so the floor is the threshold
+    just_below = 1000.0 + (FRAME_SPIKE_FLOOR_MS - 1.0) / 1000.0
+    assert _feed(stand, just_below, caplog) == []
 
 
 def test_floor_suppresses_fast_stream_jitter(caplog):
-    # Fast stream: median 10ms, 2x = 20ms, but the 50ms floor dominates, so a
+    # Fast stream: median 10ms, 2x = 20ms, but the floor dominates, so a
     # 30ms blip (3x median) does NOT fire -- it is not a real stutter.
-    assert FRAME_SPIKE_RATIO * 10.0 < 50.0
+    assert FRAME_SPIKE_RATIO * 10.0 < FRAME_SPIKE_FLOOR_MS
     assert _feed(_primed(10.0), 1000.030, caplog) == []
     # ...but a genuine 200ms stall on the same fast stream does fire.
     assert len(_feed(_primed(10.0), 1000.200, caplog)) == 1
@@ -240,3 +244,50 @@ def test_record_frame_interval_excludes_intentional_wait():
     intervals = list(stand._frame_interval_history)
     assert abs(intervals[0] - 38.0) < 0.001
     assert abs(intervals[1] - 38.0) < 0.001
+
+
+# --- The floor is a perceptible stutter, not the display quantum ---------------
+#
+# At the 30 fps cap the displayed-frame median is one ~31 ms period, and the
+# display loop is scheduled in 15.6 ms Windows ticks, so a single missed tick
+# is a 63 ms interval. A floor at the quantum fires on scheduler jitter and on
+# the engineering-stats hitch every 0.5 s; the corpus on the bench machine held
+# 49,749 such lines. The floor is the shortest gap a person watching the live
+# view could see as a stutter; the ratio term still carries long exposures.
+
+
+def test_single_missed_tick_on_a_30fps_stream_is_silent(caplog):
+    for interval_ms in (63.0, 94.0, 125.0):
+        stand = _primed(31.0)
+        records = _feed(stand, 1000.0 + interval_ms / 1000.0, caplog, eng=94.0)
+        assert records == [], f'{interval_ms:.0f}ms on a 31ms median must not warn'
+
+
+def test_perceptible_stutter_on_a_30fps_stream_fires(caplog):
+    stand = _primed(31.0)
+    interval_ms = FRAME_SPIKE_FLOOR_MS + 10.0
+    records = _feed(stand, 1000.0 + interval_ms / 1000.0, caplog)
+    assert len(records) == 1
+    assert f'interval={interval_ms:.0f}ms' in records[0]
+
+
+def test_floor_is_the_perception_bound_not_the_display_quantum(caplog):
+    assert FRAME_SPIKE_FLOOR_MS >= 100.0
+    # A long-exposure layer: 100 ms median. The ratio governs there, and a
+    # 250 ms interval is still a spike.
+    assert len(_feed(_primed(100.0), 1000.250, caplog)) == 1
+
+
+# --- The engineering stats run on a stride-4 view -----------------------------
+
+
+def test_engineering_stats_use_a_stride_4_view():
+    frame = np.zeros((1900, 1900), dtype=np.uint8)
+    frame[::4, ::4] = 200
+    # The full-frame mean is 12.5; the stride-4 lattice is uniformly 200.
+    mean, stddev = ScopeDisplay._engineering_stats(frame)
+    assert (mean, stddev) == (200.0, 0.0)
+    assert type(mean) is float and type(stddev) is float
+    colour = np.full((1900, 1900, 3), 7, dtype=np.uint8)
+    mean_c, std_c = ScopeDisplay._engineering_stats(colour)
+    assert (mean_c, std_c) == (7.0, 0.0)

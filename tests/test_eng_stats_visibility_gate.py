@@ -45,12 +45,33 @@ def test_predicate_gates_on_open_layer_none():
     assert 'return False' in body
 
 
+def _calls_named(node, names):
+    return [
+        n
+        for n in ast.walk(node)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in names
+    ]
+
+
 def test_render_loop_routes_compute_through_predicate():
-    # The expensive compute must be reached only via the predicate, so a
-    # closed panel skips it. The np.mean/focus compute and the predicate
-    # call must both be present, and the old dispatch-only guard gone.
-    assert 'self._eng_stats_due(' in SRC
-    assert 'np.mean(a=image)' in SRC
-    # Regression: the prior shape computed unconditionally and only gated the
-    # UI dispatch with `if open_layer is not None:`. That guard must be gone.
-    assert 'if open_layer is not None:' not in SRC
+    # The expensive compute (the stats and the focus score) must be reached
+    # only inside the one `if self._eng_stats_due(...)` block of the render
+    # loop, so a closed panel skips it. Asserted on the AST, not on a string:
+    # every call to the stats seam, the focus score or a raw numpy reduction
+    # in _render_one_frame lies inside that If's subtree.
+    render = _find_func('_render_one_frame')
+    assert render is not None
+    gates = [
+        n
+        for n in ast.walk(render)
+        if isinstance(n, ast.If)
+        and isinstance(n.test, ast.Call)
+        and isinstance(n.test.func, ast.Attribute)
+        and n.test.func.attr == '_eng_stats_due'
+    ]
+    assert len(gates) == 1, 'exactly one _eng_stats_due gate in the render loop'
+    inside = {id(n) for n in ast.walk(gates[0])}
+    compute = _calls_named(render, {'_engineering_stats', 'focus_function', 'mean', 'std'})
+    assert compute, 'the render loop no longer computes the engineering stats at all'
+    escaped = [c for c in compute if id(c) not in inside]
+    assert not escaped, f'{len(escaped)} compute call(s) outside the _eng_stats_due gate'
