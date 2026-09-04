@@ -16,7 +16,7 @@ from kivy.uix.floatlayout import FloatLayout
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.image_save import save_image, save_live_image
+from modules.image_save import report_manual_capture_failure, save_image, save_live_image
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
@@ -198,6 +198,7 @@ class CompositeCapture(FloatLayout):
             sum_iteration_callback=sum_iteration_callback,
         )
         if image_orig is None:
+            report_manual_capture_failure(ctx.scope)
             return
 
         # Save both versions of the image (unaltered and overlayed)

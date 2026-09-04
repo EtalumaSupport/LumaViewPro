@@ -94,6 +94,29 @@ class AutoGainLock:
             )
 
 
+def capture_failure_cause(info: dict | None) -> str:
+    """Why a capture returned no frame, read off its evidence record.
+
+    One ladder for every reader -- the protocol writer's failure row and
+    the manual capture's notice -- so a support bundle and the screen name
+    the same cause. A deadline expiry (state changes outran the budget)
+    reads very differently from a camera that delivered nothing, and a
+    hardcoded cause once mislabeled every failure as the latter.
+    """
+    info = info or {}
+    if info.get('deadline_expired'):
+        return 'capture deadline expired -- invalidation outran the budget'
+    if info.get('drain_failed'):
+        return 'frame drain failed -- camera delivered no frame'
+    if info.get('chunk_rejected'):
+        return (
+            f'frame chunk never matched the {info["chunk_rejected"]} '
+            'target -- the camera delivered frames exposed under '
+            'other settings'
+        )
+    return 'camera inactive or not grabbing'
+
+
 def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
     """The exposure to store as a manual setting after an auto-gain lock."""
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms

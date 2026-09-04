@@ -27,12 +27,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lib.handle_trace import tick as _h_tick
-from lvp_logger import logger, version
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+from lib.handle_trace import tick as _h_tick
+from lvp_logger import logger, version
 from modules.exceptions import CaptureError, ConfigError
+from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 
 if TYPE_CHECKING:
@@ -712,6 +713,25 @@ def save_image(
     return file_loc
 
 
+def report_manual_capture_failure(scope: Lumascope) -> None:
+    """Tell the user a manual capture saved nothing, and why.
+
+    A rejected frame returned None exactly as a dead camera did, and the
+    manual path passed that None up to a button that only re-enabled
+    itself: three captures in a row rejected against a stale target on a
+    field unit with no sign to the user, while the composite path
+    notified for the identical rejection. The notice is the API's, so a
+    headless caller of the same save gets the same failure.
+    """
+    cause = capture_failure_cause(scope.imaging.last_capture_info)
+    logger.error(f'[ImageSave] manual capture saved nothing: {cause}')
+    notifications.error(
+        'Capture',
+        'Capture rejected',
+        f'No image was saved: {cause}. Check the live view, then try again.',
+    )
+
+
 def save_live_image(
     scope: Lumascope,
     save_folder: str | pathlib.Path = './capture',
@@ -784,6 +804,7 @@ def save_live_image(
             scope.illumination._leds_off_impl()
 
     if array is None:
+        report_manual_capture_failure(scope)
         return None
 
     # Depth resolved here, right after the capture that produced the frame

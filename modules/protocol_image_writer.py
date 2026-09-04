@@ -11,24 +11,23 @@ from __future__ import annotations
 
 import datetime
 import functools
-import pathlib
 import logging
+import pathlib
 import threading
 import time
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
-from lvp_logger import protocol_logger as logger
-
 import modules.common_utils as common_utils
-from modules.image_save import save_image
-from modules.protocol import Protocol
 import modules.protocol_recording as protocol_recording
-from modules.protocol_recording import ProtocolVideoStep
-from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
-
 from lib import profile_trace
+from lvp_logger import protocol_logger as logger
+from modules.image_save import save_image
+from modules.lumascope_api.imaging import capture_failure_cause
+from modules.protocol import Protocol
+from modules.protocol_recording import ProtocolVideoStep
+from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED, IOTask
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -829,24 +828,9 @@ class ProtocolImageWriter:
                     )
 
                     if captured_image is None:
-                        # The cause relays what the capture actually recorded:
-                        # a deadline expiry (state changes outran the budget)
-                        # reads very differently in a support bundle than a
-                        # camera that delivered nothing, and a hardcoded cause
-                        # here once mislabeled every failure as the latter.
-                        info = self._scope.imaging.last_capture_info or {}
-                        if info.get('deadline_expired'):
-                            cause = 'capture deadline expired -- invalidation outran the budget'
-                        elif info.get('drain_failed'):
-                            cause = 'frame drain failed -- camera delivered no frame'
-                        elif info.get('chunk_rejected'):
-                            cause = (
-                                f'frame chunk never matched the {info["chunk_rejected"]} '
-                                'target -- the camera delivered frames exposed under '
-                                'other settings'
-                            )
-                        else:
-                            cause = 'camera inactive or not grabbing'
+                        # The cause relays what the capture actually recorded,
+                        # through the one ladder the manual path reads too.
+                        cause = capture_failure_cause(self._scope.imaging.last_capture_info)
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
