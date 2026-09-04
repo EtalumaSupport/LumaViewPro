@@ -928,6 +928,15 @@ When continuous auto-gain is armed, `capture_and_wait()` first locks it: the cam
 A caller that switches auto-gain off and wants to keep what it achieved calls `scope.imaging.lock_auto_gain()`, which returns the same result object: `state` (None when no arm was standing), `exposure_ms` and `gain_db` (the achieved values), and `stored_exposure_ms`, the exposure to store as the manual setting -- the achieved value floored to the channel class's usable floor, decided by the API so every client stores the same value. Limit states and a failed lock under a live-view arm also reach the user through the notification center; a protocol step's arm is logged only.
 
 ```python
+# Leave auto-gain and keep what it achieved as the manual setting
+lock = scope.imaging.lock_auto_gain()
+if lock.state is not None:
+    scope.imaging.set_gain_db(lock.gain_db)
+    scope.imaging.set_exposure_ms(lock.stored_exposure_ms)
+    print(f"{lock.state.value}: achieved {lock.exposure_ms} ms, stored {lock.stored_exposure_ms} ms")
+```
+
+```python
 image = scope.imaging.capture_and_wait()
 info = scope.imaging.last_capture_info or {}
 if info.get('auto_gain') == 'MAXED':
