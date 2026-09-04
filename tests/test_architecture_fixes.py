@@ -612,6 +612,71 @@ _MODULES_CONTEXT_READ_PIN = {
 }
 
 
+# Proxy 5: the lower layer reading WIDGETS. A `modules/` file that subscripts
+# `.ids[...]` is answering a question about the instrument by looking at a
+# Kivy widget -- the API reading its settings off the GUI. Pin 4 counts the
+# context reads that open the door; this counts every widget read behind
+# them, alias or not.
+
+
+def _modules_widget_read_counts():
+    """{'modules/<file>.py': number of `<expr>.ids[...]` subscripts}."""
+    counts = {}
+    for path in _list_py_files('modules'):
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        n = sum(
+            1
+            for node in _ast.walk(tree)
+            if isinstance(node, _ast.Subscript)
+            and isinstance(node.value, _ast.Attribute)
+            and node.value.attr == 'ids'
+        )
+        if n:
+            counts[_relpath(path)] = n
+    return counts
+
+
+# Proxy 6: the lower layer importing the GUI at ANY depth. The layer test
+# above deliberately skips deferred imports; a `from ui...` inside a function
+# is still an upward dependency, and a module that imports a popup cannot
+# run headless. A rule with one existing violation, expressed as a ratchet
+# that falls to zero.
+
+
+def _lower_layer_ui_import_counts():
+    """{'<modules|drivers>/<file>.py': number of `ui` / `ui.*` import
+    statements at any nesting depth}."""
+    counts = {}
+    for path in _list_py_files('modules') + _list_py_files('drivers'):
+        with open(path) as fh:
+            tree = _ast.parse(fh.read())
+        n = 0
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ImportFrom):
+                if node.module and (node.module == 'ui' or node.module.startswith('ui.')):
+                    n += 1
+            elif isinstance(node, _ast.Import) and any(
+                a.name == 'ui' or a.name.startswith('ui.') for a in node.names
+            ):
+                n += 1
+        if n:
+            counts[_relpath(path)] = n
+    return counts
+
+
+# Pinned at 74153fad. Lower a value in the same commit that hands the value
+# in as an argument or moves the popup to the caller; never raise one.
+_MODULES_WIDGET_READ_PIN = {
+    'modules/config_ui_getters.py': 21,
+    'modules/ui_listener_bridge.py': 6,
+}
+
+_LOWER_LAYER_UI_IMPORT_PIN = {
+    'modules/ui_listener_bridge.py': 1,
+}
+
+
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
 _MODULES_REMEDY = (
     'The lower layer is reaching up into the GUI: take the value as an argument (Rule 2).'
@@ -657,6 +722,21 @@ class TestGuiIsDisplayOnly:
             _MODULES_CONTEXT_READ_PIN,
             _modules_context_read_counts(),
             '_app_ctx.ctx reads',
+            _MODULES_REMEDY,
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_modules_widget_reads_match_the_pin(self):
+        report = _ratchet_report(
+            _MODULES_WIDGET_READ_PIN, _modules_widget_read_counts(), '.ids[ reads', _MODULES_REMEDY
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_lower_layer_ui_imports_match_the_pin(self):
+        report = _ratchet_report(
+            _LOWER_LAYER_UI_IMPORT_PIN,
+            _lower_layer_ui_import_counts(),
+            'ui imports',
             _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
