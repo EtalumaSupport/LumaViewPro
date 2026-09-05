@@ -91,11 +91,17 @@ def focus_log(positions, values):
     ctx.focus_round = config_helpers.focus_log(positions, values, ctx.focus_round, ctx.source_path)
 
 
-def update_autofocus_selection_after_protocol():
+def sync_layer_widgets_from_settings():
+    """Every layer's panel shows its stored settings again.
+
+    The run-end callback: a protocol run displays each step in the panel
+    without writing the user's settings, so at run end the widgets are
+    the last step's and the settings are the user's; this puts the panel
+    back on the settings. One call per run, every layer.
+    """
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        layer_obj.init_autofocus()
+        ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
 
 
 def find_nearest_step(x, y, protocol):

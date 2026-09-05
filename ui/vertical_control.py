@@ -406,7 +406,7 @@ class VerticalControl(BoxLayout):
                 # the widgets at the truth.
                 try:
                     layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                    layer_obj.sync_camera_widgets_from_settings()
+                    layer_obj.sync_widgets_from_settings()
                 except Exception as e:
                     logger.warning(f'[AF] Widget sync after AF failed: {e}')
         except Exception as e:

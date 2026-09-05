@@ -55,8 +55,8 @@ from ui.ui_helpers import (
     set_recording_title,
     set_title_event_text,
     set_writing_title,
+    sync_layer_widgets_from_settings,
     text_input_debounced,
-    update_autofocus_selection_after_protocol,
 )
 from ui.progress_popup import show_popup
 
@@ -1546,7 +1546,6 @@ class ProtocolSettings(FloatLayout):
         else:
             # No files pending - proceed with normal reset
             live_histo_reverse()
-            reset_acquire_ui()
             self._reset_run_autofocus_scan_button()
 
     _wedge_recovery_offered = False  # One recovery offer per write-lockout episode
@@ -1608,7 +1607,6 @@ class ProtocolSettings(FloatLayout):
 
         # Complete remaining cleanup
         live_histo_reverse()
-        reset_acquire_ui()
         Clock.schedule_once(lambda dt: reset_title(), 0)
 
     def debug_func(self):
@@ -1701,7 +1699,7 @@ class ProtocolSettings(FloatLayout):
                 'run_complete': self._autofocus_run_complete_callback,
                 'files_complete': self._autofocus_files_complete,
                 # LED observer handles UI sync -- no manual callbacks needed
-                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'sync_layer_widgets': sync_layer_widgets_from_settings,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,
@@ -1785,7 +1783,6 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             self._reset_run_scan_button()
             live_histo_reverse()
-            reset_acquire_ui()
             self.reset_autofocus_ui()
 
     def _update_file_write_status(self, dt):
@@ -1824,7 +1821,6 @@ class ProtocolSettings(FloatLayout):
 
         # Complete remaining cleanup
         live_histo_reverse()
-        reset_acquire_ui()
         self.reset_autofocus_ui()
         reset_title()
 
@@ -1960,7 +1956,6 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             self._reset_run_protocol_button()
             live_histo_reverse()
-            reset_acquire_ui()
             self.reset_autofocus_ui()
             # Auto-run opted-in post_processing plugins. Mirrors the
             # files-pending path's call from _protocol_files_complete.
@@ -2004,7 +1999,6 @@ class ProtocolSettings(FloatLayout):
 
         # Complete remaining cleanup
         live_histo_reverse()
-        reset_acquire_ui()
         self.reset_autofocus_ui()
         reset_title()
 
@@ -2263,7 +2257,7 @@ class ProtocolSettings(FloatLayout):
                 # LED observer handles UI sync -- no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
-                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'sync_layer_widgets': sync_layer_widgets_from_settings,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,
