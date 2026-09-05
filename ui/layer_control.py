@@ -418,9 +418,6 @@ class LayerControl(BoxLayout):
         if not init:
             gui_logger.toggle(f'AUTO_GAIN_{self.layer}', state)
 
-        for item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
-            self.ids[item].disabled = state
-
         # Leaving auto-gain asks the API to lock the standing arm and
         # hands the result to the write-back below. Program start loads
         # the stored settings, never the camera's, and entering auto-gain
@@ -1312,17 +1309,19 @@ class LayerControl(BoxLayout):
             # the gain/exposure sliders below stay disabled with no UI to clear
             # them. Non-destructive: the stored preference is left intact.
             auto_gain_enabled = self.effective_auto_gain()
-            # Sync the toggle CheckBox + dependent slider-disabled state to
-            # the settings value before applying to the camera. The .kv has
-            # no Kivy binding from settings to auto_gain.active, so when the
-            # JSON loads at startup with auto_gain=True the CheckBox stays
-            # at its default False; apply_settings would then send AG=True
-            # to the camera while the toggle continues to read OFF in the
-            # UI. Programmatic .active = bool fires no on_release (CheckBox
-            # only binds on_release in the .kv), so this does not re-enter.
+            # Sync the toggle CheckBox to the settings value before applying
+            # to the camera. The .kv has no Kivy binding from settings to
+            # auto_gain.active, so when the JSON loads at startup with
+            # auto_gain=True the CheckBox stays at its default False;
+            # apply_settings would then send AG=True to the camera while the
+            # toggle continues to read OFF in the UI. Programmatic
+            # .active = bool fires no on_release (CheckBox only binds
+            # on_release in the .kv), so this does not re-enter. The
+            # gain/exposure widgets' enabled state follows this box through
+            # the kv rule (`disabled: app.run_lockout or auto_gain.active`):
+            # an imperative .disabled write here was erased whenever the run
+            # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            for slider_item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
-                self.ids[slider_item].disabled = auto_gain_enabled
             autogain_settings = None
             if not ignore_auto_gain:
                 from modules.config_ui_getters import (

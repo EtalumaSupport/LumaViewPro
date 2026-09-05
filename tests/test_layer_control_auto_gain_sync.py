@@ -16,10 +16,15 @@ it work.").
 Fix (apply_settings sync)
 -------------------------
 At the start of the auto_gain block in apply_settings, sync the CheckBox
-.active and the dependent slider .disabled flags to settings before the
-IOTask is queued. Programmatic .active = bool fires no on_release in
-Kivy (CheckBox in the .kv only binds on_release, not on_active), so this
-does not re-enter the update_auto_gain callback path.
+.active to settings before the IOTask is queued. Programmatic
+.active = bool fires no on_release in Kivy (CheckBox in the .kv only
+binds on_release, not on_active), so this does not re-enter the
+update_auto_gain callback path. The gain/exposure widgets' enabled
+state follows the box through ONE kv rule,
+``disabled: app.run_lockout or auto_gain.active``: an imperative
+``.disabled`` write from Python was erased at every run boundary, because
+the widgets' ``disabled: app.run_lockout`` rule re-fires when the lockout
+clears and overwrites whatever Python last wrote.
 
 Test approach
 -------------
@@ -99,9 +104,9 @@ def _method_body(class_name: str, method_name: str) -> str:
 
 
 class TestApplySettingsSyncsAutoGainCheckbox:
-    """apply_settings must sync the auto_gain CheckBox active flag and the
-    dependent slider disabled flags to settings[layer]['auto_gain'] before
-    queuing the camera-settings IOTask.
+    """apply_settings must sync the auto_gain CheckBox active flag to
+    settings[layer]['auto_gain'] before queuing the camera-settings IOTask;
+    the gain/exposure widgets' disabled state follows the box in the kv.
 
     Without this sync, a settings-vs-UI divergence persists across the
     apply_settings call: the camera AG state ends up matching settings
@@ -128,23 +133,24 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             '#655 divergence this protects against.'
         )
 
-    def test_apply_settings_syncs_slider_disabled(self):
-        """The auto_gain block must also sync the gain/exposure slider +
-        text-input .disabled flags so the UI's editable state reflects
-        AG-vs-manual mode. Without this, after a settings-driven AG
-        toggle change the user might still see editable sliders for
-        values the camera is actively overriding (or vice versa)."""
-        body = _method_body('LayerControl', 'apply_settings')
-        # Pattern: for slider_item in ('gain_slider', 'gain_text', ...)
-        # Loose check (any iteration over those four ids assigning disabled).
-        assert 'gain_slider' in body, 'apply_settings auto_gain sync must reference gain_slider'
-        assert 'gain_text' in body, 'apply_settings auto_gain sync must reference gain_text'
-        assert 'exp_slider' in body, 'apply_settings auto_gain sync must reference exp_slider'
-        assert 'exp_text' in body, 'apply_settings auto_gain sync must reference exp_text'
-        assert '.disabled = auto_gain_enabled' in body, (
-            'apply_settings auto_gain sync must set .disabled = '
-            'auto_gain_enabled on the gain/exposure slider + text widgets.'
-        )
+    @pytest.mark.parametrize('widget_id', ['gain_slider', 'gain_text', 'exp_slider', 'exp_text'])
+    def test_gain_exposure_widgets_follow_the_auto_gain_box_in_kv(self, widget_id):
+        """The kv rule is the single owner of the four widgets' enabled
+        state: the run lockout OR the auto-gain box. A Python-side
+        `.disabled` write was clobbered at every run boundary (the rule
+        re-fires on the lockout edge), which left the sliders editable
+        under a live auto-gain after a run."""
+        block = _kv_widget_block(widget_id)
+        assert 'disabled: app.run_lockout or auto_gain.active' in block, block
+
+    def test_no_imperative_disabled_write_for_the_gain_exposure_widgets(self):
+        """No Python writer competes with the kv rule."""
+        source = LAYER_CONTROL_SRC.read_text()
+        for pattern in ('.disabled = auto_gain_enabled', '.disabled = state'):
+            assert pattern not in source, (
+                f'{pattern!r} in ui/layer_control.py: the kv rule owns the '
+                "gain/exposure widgets' disabled state"
+            )
 
     def test_apply_settings_sync_precedes_iotask_queue(self):
         """The CheckBox + slider sync must precede the apply_layer_camera_settings
