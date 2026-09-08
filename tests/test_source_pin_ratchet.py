@@ -86,7 +86,10 @@ from tests.ast_seams import iter_package_modules
 # budget below, whose assertions these mirror. Six natural sites (a
 # before/after pair in each of three tests) were funnelled through one
 # `_current_json` helper so the file costs one.
-_READ_TEXT_SITE_BUDGET = 376
+# pin-justified: 376 -> 377 for test_spinner_text_fits.py. Its subject is the
+# base `<Spinner>:` rule in ui/lumaviewpro.kv -- a kv rule has no AST seam to
+# assert against, which is the case this budget's own message names.
+_READ_TEXT_SITE_BUDGET = 377
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
@@ -109,7 +112,9 @@ _READ_TEXT_SITE_BUDGET = 376
 # named immediately above it. Its AST work goes through
 # tests.ast_seams.parse_module, which is where that read already lives and
 # is already counted; the one site this file adds is the on-disk check.
-_READ_TEXT_FILE_BUDGET = 130
+# pin-justified: 130 -> 131 for test_spinner_text_fits.py, the file adding the
+# kv site named immediately above. It reads the kv once, through one helper.
+_READ_TEXT_FILE_BUDGET = 131
 
 
 def _nodes_inside_iteration(tree):
