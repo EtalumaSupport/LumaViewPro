@@ -150,7 +150,6 @@ class LayerControl(BoxLayout):
         settings_key: str,
         cast=float,
         settings_path: str | None = None,
-        gui_log_name: str | None = None,
         value_max: float | None = None,
     ) -> bool:
         """Shared validation for text input -> slider -> settings update.
@@ -165,7 +164,6 @@ class LayerControl(BoxLayout):
             cast: Type to cast the text value (float or int)
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
-            gui_log_name: Name for gui_logger.slider() call (e.g., 'GAIN')
             value_max: Optional upper bound for the typed value when it should
                        exceed the slider's own max -- the slider is a coarse
                        quick-pick (e.g. video duration up to 60s) while the
@@ -221,8 +219,23 @@ class LayerControl(BoxLayout):
         finally:
             self._initializing = False
 
-        if gui_log_name:
-            gui_logger.slider(f'{gui_log_name}_{self.layer}', clipped)
+        # The log name is derived from the widget id rather than passed in:
+        # every text box here is '<name>_text' and its slider twin already logs
+        # '<NAME>_<layer>', so the id IS the name and a separate parameter can
+        # only drift from it or go unpassed. A non-conforming id is a caller
+        # bug and says so rather than logging under a wrong name.
+        if not text_id.endswith('_text'):
+            raise ValueError(
+                f"text_id {text_id!r} must end in '_text' -- the log name is derived from it"
+            )
+        # text_input (not slider): this is a typed commit, and the twin slider
+        # emits SLIDER for the same setting, so sharing the verb would make a
+        # drag and a keystroke indistinguishable in the bundle. Debounced
+        # because the kv binds both on_text_validate and on_focus, so one Enter
+        # runs this handler twice; the debounce collapses the pair to one line.
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced(f'{text_id.removesuffix("_text").upper()}_{self.layer}', clipped)
 
         return True
 
