@@ -25,6 +25,9 @@ from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 
 if typing.TYPE_CHECKING:
+    # Import-time only: modules.protocol imports this module's siblings, so
+    # a runtime import here would close a cycle.
+    from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
 
 # ---------------------------------------------------------------------------
@@ -32,14 +35,17 @@ if typing.TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def find_nearest_step(x: float, y: float, protocol) -> int:
+def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
     """Given a position, find the nearest step index in the protocol."""
     if protocol is None or protocol.num_steps() <= 0:
         return -1
 
     steps_df = protocol.steps()
     idx = (steps_df[['X', 'Y']].sub([x, y]).pow(2).sum(axis=1)).idxmin()
-    return idx
+    # int(), not the bare idxmin: it returns np.int64, and this index is
+    # handed on as a step number to callers that store and display it.
+    # The annotation above promises a Python int.
+    return int(idx)
 
 
 # ---------------------------------------------------------------------------

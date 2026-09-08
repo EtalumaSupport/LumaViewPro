@@ -60,12 +60,16 @@ class TestGetProtocolTimeParams:
 
 class TestGetImageCaptureConfig:
     def test_reads_config(self):
+        # Two DIFFERENT real formats: the point is that each key is read from
+        # settings rather than defaulted, so they only need to be
+        # distinguishable. 'PNG' stood in the live slot until the config
+        # learned to refuse a format this build cannot write.
         settings = {
-            'image_output_format': {'live': 'PNG', 'sequenced': 'TIFF'},
+            'image_output_format': {'live': 'OME-TIFF', 'sequenced': 'TIFF'},
             'image_mode': '12bit_scientific',
         }
         result = get_image_capture_config_from_settings(settings)
-        assert result.output_format_live == 'PNG'
+        assert result.output_format_live == 'OME-TIFF'
         assert result.capture_depth == 12
 
     def test_defaults(self):

@@ -416,6 +416,42 @@ class TestIllegalConfigStatesUnrepresentable:
                 save_encoding='8bit',
             )
 
+    def test_unknown_sequenced_output_format_is_refused(self):
+        # An unrecognised format reaches the writer as a plain .tiff with
+        # ome=False, so a run configured for a hyperstack silently produces
+        # per-step files and no stack. Refuse it where the config is built.
+        with pytest.raises(ConfigError, match='output_format_sequenced'):
+            ImageCaptureConfig.from_image_mode('8bit', output_format_sequenced='ImageJ Hyperstack')
+
+    def test_unknown_live_output_format_is_refused(self):
+        with pytest.raises(ConfigError, match='output_format_live'):
+            ImageCaptureConfig.from_image_mode('8bit', output_format_live='PNG')
+
+    def test_hyperstack_is_not_a_live_format(self):
+        # The hyperstack is a post-run per-well stack build; it has no meaning
+        # for a single live capture, and the live selector never offers it.
+        with pytest.raises(ConfigError, match='output_format_live'):
+            ImageCaptureConfig.from_image_mode('8bit', output_format_live='OME-TIFF Hyperstack')
+
+    def test_every_format_the_selectors_offer_is_accepted(self):
+        # Behaviour-preservation guard: passes on both sides of the change.
+        # The literals are the kv spinner tuples; if a selector gains a format
+        # the guard does not know, this fails rather than the run failing.
+        for fmt in ('TIFF', 'OME-TIFF', 'JPG'):
+            assert (
+                ImageCaptureConfig.from_image_mode(
+                    '8bit', output_format_live=fmt
+                ).output_format_live
+                == fmt
+            )
+        for fmt in ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack', 'JPG'):
+            assert (
+                ImageCaptureConfig.from_image_mode(
+                    '8bit', output_format_sequenced=fmt
+                ).output_format_sequenced
+                == fmt
+            )
+
 
 # ---------------------------------------------------------------------------
 # 5. AST guard: no settings/UI config re-read inside the run pipeline

@@ -104,7 +104,16 @@ class ModSlider(Slider):
             modifiers = set(Window.modifiers)
             multiplier = 5 if (modifiers & {'shift', 'rshift'}) else 1
             delta = self.step * multiplier
-            if touch.button == 'scrollup':
+            # Kivy names its wheel tokens for the DOCUMENT, not the finger.
+            # Rolling the wheel away from you -- physical "up" -- arrives as
+            # 'scrolldown', because that is the roll that drags a document's
+            # content toward its top. Kivy's own ScrollView reads them that
+            # way: it refuses 'scrolldown' once scroll_y >= 1, the point where
+            # no content is left above. So 'scrolldown' is the token that must
+            # RAISE the value. shader.py maps the same token to +Z and to
+            # zoom-in over the live image; all three wheel gestures have to
+            # agree, or one roll moves the objective up and the Z slider down.
+            if touch.button == 'scrolldown':
                 self.value = min(self.max, self.value + delta)
             else:
                 self.value = max(self.min, self.value - delta)

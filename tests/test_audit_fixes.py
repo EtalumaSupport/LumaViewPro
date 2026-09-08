@@ -8664,10 +8664,11 @@ class TestModSliderScrollWheel:
     """ModSlider must accept mouse-wheel events to adjust value by
     step. Default Kivy Slider ignores scroll, so users could only
     click+drag to adjust illumination / exposure / gain / Z. All
-    14 ModSlider instances in lumaviewpro.kv inherit the fix.
+    13 ModSlider instances in lumaviewpro.kv inherit the fix.
 
-    Static-source assertions; runtime Kivy touch-event tests need a
-    Window context that isn't available in unit-test env.
+    Mostly static-source assertions. The direction contract is
+    behavioural instead -- on_touch_down runs unbound against a
+    stand-in slider, which needs no Window context.
     """
 
     def _src(self):
@@ -8724,31 +8725,36 @@ class TestModSliderScrollWheel:
             'per tick without manual click.'
         )
 
-    def test_scrollup_increases_scrolldown_decreases(self):
+    def test_physical_wheel_up_branch_owns_increase(self):
         src = self._src()
         idx = src.find('def on_touch_down')
         assert idx >= 0
         next_def = src.find('\n    def ', idx + 1)
         body = src[idx:next_def] if next_def > 0 else src[idx:]
         # Both directional branches must exist. Direction-correctness
-        # contract: scrollup INCREASES (wheel up = brighter / higher),
-        # scrolldown DECREASES. Asserted by presence of both signs;
-        # specifically that the scrollup branch is the one with +delta.
+        # contract, stated against the PHYSICAL gesture: rolling the
+        # wheel up (away from you) INCREASES the value, rolling it down
+        # DECREASES it. Kivy delivers physical wheel-up as the token
+        # 'scrolldown' -- its tokens are named for the document, not the
+        # finger -- so 'scrolldown' is the branch that owns +delta. An
+        # earlier version of this test asserted the opposite, having
+        # taken the token names at face value, and so froze the bug in
+        # place. The behavioural tests below are the real guard; this
+        # one keeps the branch structure readable.
         assert 'self.value + delta' in body, 'Scroll handler must add delta on one branch.'
         assert 'self.value - delta' in body, (
             'Scroll handler must subtract delta on the other branch.'
         )
-        # The scrollup branch must own the +delta path. Find the
-        # in-body conditional `== 'scrollup'` (not the tuple membership
-        # test at the top) and verify the next ~80 chars contain
-        # "self.value + delta".
-        cond_idx = body.find("touch.button == 'scrollup'")
-        assert cond_idx >= 0, "Handler must branch on touch.button == 'scrollup'."
+        # Find the in-body conditional `== 'scrolldown'` (not the tuple
+        # membership test at the top) and verify the next ~200 chars
+        # contain "self.value + delta".
+        cond_idx = body.find("touch.button == 'scrolldown'")
+        assert cond_idx >= 0, "Handler must branch on touch.button == 'scrolldown'."
         cond_block = body[cond_idx : cond_idx + 200]
         assert 'self.value + delta' in cond_block, (
-            'scrollup branch must INCREASE slider value (wheel up = '
-            'brighter / larger / higher Z). If reversed, illumination '
-            'control feels backwards to the user.'
+            "the 'scrolldown' branch must INCREASE slider value, because "
+            'that token is physical wheel-UP (brighter / larger / higher '
+            'Z). If reversed, illumination control feels backwards.'
         )
 
 

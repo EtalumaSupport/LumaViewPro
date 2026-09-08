@@ -31,6 +31,28 @@ if TYPE_CHECKING:
 coordinate_transformer = CoordinateTransformer()
 
 
+def to_python_scalars(step: pd.Series) -> pd.Series:
+    """Return a step row whose values are Python scalars, not numpy ones.
+
+    The step frame is declared with an explicit numpy dtype, which is what
+    makes the vectorised column work possible -- so every value sitting in
+    it is a numpy scalar. Those must not leave: callers copy step values
+    straight into the layer settings, and a Kivy NumericProperty does
+    EXACT type checks, so it rejects `np.float64` and takes the whole
+    application down with it.
+
+    No caller can defend itself against this. `isinstance(np.float64(5.0),
+    float)` is True, so a type guard cannot see it, and the sibling
+    `BoundedNumericProperty` accepts numpy silently -- one widget dies,
+    the next stores a value nothing else can read back.
+
+    `Series.to_dict()` already boxes to natives, which is why only the
+    callers reading by subscript were affected, and why the leak stayed
+    invisible for as long as it did.
+    """
+    return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
+
+
 class ProtocolFormatError(Exception):
     pass
 
@@ -1089,7 +1111,7 @@ class Protocol:
 
         return step_dict['Name']
 
-    def step(self, idx: int):
+    def step(self, idx: int) -> pd.Series:
         def _validate():
             if idx < 0:
                 raise ProtocolError('Step index cannot be < 0')
@@ -1100,7 +1122,7 @@ class Protocol:
                 )
 
         _validate()
-        return self._config['steps'].iloc[idx]
+        return to_python_scalars(self._config['steps'].iloc[idx])
 
     def apply_tiling(
         self,
@@ -2237,7 +2259,10 @@ class Protocol:
 
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
-        return max_group_id > -1
+        # bool(), not the bare comparison: a pandas reduction returns
+        # np.bool_, and the annotation above promises a Python bool to
+        # every caller that stores or forwards this.
+        return bool(max_group_id > -1)
 
 
 if __name__ == '__main__':
