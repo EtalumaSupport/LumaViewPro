@@ -3495,6 +3495,7 @@ class ImagingAPI:
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
         resume_after_capture: bool = True,
+        layer: str = '(unspecified)',
     ) -> None:
         """Apply per-layer camera settings in one batched call, and wait.
 
@@ -3502,12 +3503,20 @@ class ImagingAPI:
         adds only the dispatch described on ``_dispatch_camera``. The
         batch is one dispatched task, so the three writes stay atomic on
         the camera lane.
+
+        Args:
+            layer: The layer these settings belong to, for the log line.
+                Optional here and required on the impl: this member is the
+                external-caller surface, where an omitted layer should not
+                be a TypeError, and the default keeps such a call
+                self-describing in api.log rather than anonymous.
         """
         return self._dispatch_camera(
             self._apply_layer_camera_settings_impl,
             'apply_layer_camera_settings',
             args=(gain_db, exposure_ms),
             kwargs={
+                'layer': layer,
                 'auto_gain': auto_gain,
                 'auto_gain_settings': auto_gain_settings,
                 'resume_after_capture': resume_after_capture,
@@ -3519,6 +3528,8 @@ class ImagingAPI:
         self,
         gain_db: float,
         exposure_ms: float,
+        *,
+        layer: str,
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
         resume_after_capture: bool = True,
@@ -3535,6 +3546,10 @@ class ImagingAPI:
         Args:
             gain_db: Camera gain in dB.
             exposure_ms: Exposure time in milliseconds.
+            layer: The layer these settings belong to. Required, and
+                keyword-only: two layers sharing a gain and an exposure
+                otherwise write identical log lines, and one apply becomes
+                indistinguishable from two. Every caller already holds it.
             auto_gain: Whether auto-gain is enabled for this layer.
             auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db
                                (required if auto_gain is True).
@@ -3549,7 +3564,8 @@ class ImagingAPI:
                 auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
         _api_log.info(
-            f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}'
+            f'apply_layer_camera_settings layer={layer} gain={gain_db}dB '
+            f'exp={exposure_ms}ms auto_gain={auto_gain}'
         )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:

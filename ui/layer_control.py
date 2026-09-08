@@ -1347,6 +1347,7 @@ class LayerControl(BoxLayout):
                     # same lane and stall against its own queue slot.
                     action=lumaview.scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
+                        'layer': self.layer,
                         'gain_db': gain,
                         'exposure_ms': exposure,
                         'auto_gain': auto_gain_enabled,

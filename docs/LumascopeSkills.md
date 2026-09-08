@@ -833,6 +833,7 @@ scope.imaging.get_live_camera_settings()           # any of: gain_db, exposure_m
 scope.imaging.apply_layer_camera_settings(
     gain_db=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
+    layer='BF',          # names the layer in api.log; optional, defaults to '(unspecified)'
 )
 
 # Auto-gain: the continuous toggle, the one-shot settle, and the setpoint
