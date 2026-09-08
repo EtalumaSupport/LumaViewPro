@@ -9,6 +9,7 @@ reaches them only through the injected go_to_step callback, so the
 protocol layer never imports this module directly.
 """
 
+import copy
 import logging
 
 import modules.common_utils as common_utils
@@ -116,23 +117,7 @@ def go_to_step(
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        # Update settings to correspond with step -- batch write under lock for thread safety
         color = step['Color']
-        with ctx.settings_lock:
-            settings[color].update(
-                {
-                    'autofocus': step['Auto_Focus'],
-                    'false_color': step['False_Color'],
-                    'illumination_ma': step['Illumination'],
-                    'gain_db': step['Gain'],
-                    'auto_gain': step['Auto_Gain'],
-                    'exposure_ms': step['Exposure'],
-                    'sum': step['Sum'],
-                    'acquire': step['Acquire'],
-                    'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)
-                }
-            )
-
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
         # #610 diagnostic: trace what go_to_step does with camera settings
@@ -148,6 +133,38 @@ def go_to_step(
         )
 
         if not called_from_protocol:
+            # Manual navigation loads the step into the layer's live
+            # settings: the panel, the settings and the camera then agree
+            # on the step the user clicked, and the apply below reads the
+            # settings. A protocol run never writes here -- the run reads
+            # its steps from the protocol, and the user's live-view
+            # configuration is theirs to keep across it (the panel
+            # displays each step and re-syncs from settings at run end).
+            # The step's config dicts are copied: the protocol owns them.
+            layer_values = {
+                'autofocus': step['Auto_Focus'],
+                'false_color': step['False_Color'],
+                'illumination_ma': step['Illumination'],
+                'gain_db': step['Gain'],
+                'auto_gain': step['Auto_Gain'],
+                'exposure_ms': step['Exposure'],
+                'sum': step['Sum'],
+                'acquire': step['Acquire'],
+                # Manual navigation follows the step's Z, so the layer's
+                # Goto Focus lands where the step was set up.
+                'focus': step['Z'],
+            }
+            video_config = step.get('Video Config')
+            if isinstance(video_config, dict):
+                layer_values['video_config'] = copy.deepcopy(video_config)
+            stim_configs = step.get('Stim_Config')
+            with ctx.settings_lock:
+                settings[color].update(layer_values)
+                # A step's stim config spans every layer it names, so each
+                # named layer's settings take theirs.
+                if isinstance(stim_configs, dict):
+                    for stim_layer, stim_config in stim_configs.items():
+                        settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
             _apply_manual_nav_outcome(
                 ctx=ctx,
                 settings=settings,

@@ -245,17 +245,35 @@ def get_ag_ae_max_exposure_ms(layer: str, overrides: dict | None = None) -> floa
     settings dict: passing that resolves to the table default for every
     class, silently.
     """
-    if layer in common_utils.get_transmitted_layers():
-        channel_class = 'transmitted'
-    elif layer in common_utils.get_luminescence_layers():
-        channel_class = 'luminescence'
-    else:
-        channel_class = 'fluorescence'
+    channel_class = _ag_ae_channel_class(layer)
     if overrides:
         override = overrides.get(channel_class)
         if override is not None:
             return float(override)
     return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+
+
+def get_ag_ae_min_exposure_ms(layer: str) -> float:
+    """Return the usable exposure floor (ms) for a layer's channel class.
+
+    Auto-exposure may drive the sensor below this on a bright scene (Pylon
+    bottoms out near 0.03 ms); the floor is the lowest exposure the class
+    treats as usable: a setting written below it produces near-black
+    protocol steps on ordinary scenes, and fluorescence / luminescence
+    sliders cannot show sub-millisecond values at all. An auto-gain lock
+    at or below this floor reports AT_MINIMUM; the layer control floors
+    the written-back setting to it. Unknown layers fall back to the
+    fluorescence floor, as the ceiling sibling does.
+    """
+    return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]
+
+
+def _ag_ae_channel_class(layer: str) -> str:
+    if layer in common_utils.get_transmitted_layers():
+        return 'transmitted'
+    if layer in common_utils.get_luminescence_layers():
+        return 'luminescence'
+    return 'fluorescence'
 
 
 def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, dict]:
@@ -861,6 +879,16 @@ DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
     'transmitted': 50.0,
     'fluorescence': 200.0,
     'luminescence': 1000.0,
+}
+
+# The usable exposure FLOOR per channel class (ms): see
+# get_ag_ae_min_exposure_ms. Transmitted light can legitimately run at a
+# tenth of a millisecond; sub-millisecond fluorescence or luminescence is
+# never realistic and its sliders start at 1 ms.
+DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
+    'transmitted': 0.1,
+    'fluorescence': 1.0,
+    'luminescence': 1.0,
 }
 
 # Fallback gain slider upper bound used when no camera is connected.

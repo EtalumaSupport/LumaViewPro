@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import copy
 import logging
 import os
 
@@ -22,18 +23,6 @@ logger = logging.getLogger('LVP.ui.layer_control')
 # because BF LED power is lower and longer exposures don't risk photobleaching.
 BF_MAX_ILLUMINATION = 500
 BF_MAX_EXPOSURE_MS = 1000
-FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
-# AG can drive transmitted-channel exposure down to the camera's
-# physical minimum (Pylon ExposureTime.Min ~= 30 us = 0.030 ms on
-# common sensors). Sub-threshold values written back to settings via
-# update_auto_gain_cb then fire the set_exposure_ms(<0.1ms)
-# "value should be in milliseconds" warning on every subsequent
-# apply_settings (visible in beta9 logs as recurring WARNING spam).
-# The threshold matches set_exposure_ms's internal warning gate so
-# AG-feedback values can never trigger it; live AG can still drive
-# the camera lower (the floor applies only to the settings write-back
-# in update_auto_gain_cb).
-TRANSMITTED_MIN_EXPOSURE_MS = 0.1
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
@@ -268,9 +257,6 @@ class LayerControl(BoxLayout):
         # Don't apply settings during initial UI setup - will be done after load_settings
         # Skip initialization of autogain and apply_settings here
 
-        self.init_acquire()
-        self.init_autofocus()
-
     def cleanup_scrollviews(self):
         """
         Clean up ScrollView viewport resources in this LayerControl.
@@ -292,9 +278,10 @@ class LayerControl(BoxLayout):
             self.show_camera_controls = True
 
     def hide_camera_controls(self):
-        settings = _app_ctx.ctx.settings
+        """Display only: the acquire setting itself is written by the user's
+        action (enabling stim clears it), and this also runs from the
+        settings-to-widgets sync, which must not write settings."""
         self.show_camera_controls = False
-        settings[self.layer]['acquire'] = None
         self.ids['acquire_none'].active = True
 
     def ill_slider(self):
@@ -423,7 +410,6 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def update_auto_gain(self, init: bool = False):
-        camera_executor = _app_ctx.ctx.camera_executor
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
@@ -432,95 +418,57 @@ class LayerControl(BoxLayout):
         if not init:
             gui_logger.toggle(f'AUTO_GAIN_{self.layer}', state)
 
-        for item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
-            self.ids[item].disabled = state
-
-        # When transitioning out of auto-gain, keep last auto-gain settings to apply
-        camera_executor.put(
-            IOTask(
-                action=LayerControl.get_gain_exposure,
-                args=(self, init, state),
-                callback=LayerControl.update_auto_gain_cb,
-                cb_args=(self),
-                pass_result=True,
-            )
-        )
-
-    def get_gain_exposure(self, init, state):
-        ctx = _app_ctx.ctx
-        # Read directly from camera hardware, not cache.
-        # During auto-gain, the SDK adjusts gain/exposure but doesn't
-        # update the cache -- cache still has the pre-auto-gain values.
-        actual_gain = ctx.scope.imaging.get_gain_db()
-        actual_exp = ctx.scope.imaging.get_exposure_ms()
-
-        return (init, state, actual_gain, actual_exp)
+        # Leaving auto-gain asks the API to lock the standing arm and
+        # hands the result to the write-back below. Program start loads
+        # the stored settings, never the camera's, and entering auto-gain
+        # has nothing to lock (the arm happens in apply_settings), so
+        # neither asks.
+        lock = None
+        if not init and not state:
+            lock = _app_ctx.ctx.scope.imaging.lock_auto_gain()
+        self.update_auto_gain_cb(result=(init, lock))
 
     def update_auto_gain_cb(self, result=None, exception=None):
         settings = _app_ctx.ctx.settings
-        try:
-            if exception is not None:
-                logger.error(f'LVP Main] Update_auto_gain error: {exception}')
-                return
-
-            init = result[0]
-            state = result[1]
-            gain = result[2]
-            exp = result[3]
-
-            if self.ids['auto_gain'].state == 'down':
-                state = True
-            else:
-                state = False
-
-            # If being called on program initialization, we don't want to
-            # inadvertantly load the settings from the scope hardware into the software maintained settings
-            # print("AUTOGAIN")
-            # print(f"init: {init}    state: {state}")
-            # print(f"Gain: {gain}    Exp: {exp}")
-
-            if (not init) and (not state):
-                # A non-physical reading (no gain/exposure was ever
-                # successfully read) must not overwrite the layer's stored
-                # settings or push a below-minimum slider value -- keep
-                # the previous settings for that field instead.
-                gain_known = common_utils.is_valid_gain_db(gain)
-                exp_known = common_utils.is_valid_exposure_ms(exp)
-                # Clamp exposure to a per-class minimum before writing back
-                # to settings. AG can drive the camera to its physical
-                # minimum (Pylon ~30us on bright samples); writing those
-                # raw values to settings produces (a) nearly-black images
-                # if the user creates protocol steps from these settings,
-                # and (b) recurring set_exposure_ms(<0.1ms) WARNING spam
-                # on every subsequent apply_settings. Fluorescence + lumi
-                # floor at 1ms (sub-ms never realistic in those modes);
-                # transmitted (BF/PC/DF) floor at 0.1ms (the warning
-                # threshold). Live AG output to the camera is untouched.
-                if exp_known:
-                    exp_min = self.ids['exp_slider'].min
-                    exp_max = self.ids['exp_slider'].max
-                    if self.layer in common_utils.get_image_layers():
-                        exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
-                    else:
-                        exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
-                    exp = float(np.clip(exp, exp_min, exp_max))
-
-                if gain_known:
-                    settings[self.layer]['gain_db'] = gain
-                    # Update sliders/text to show the auto-adjusted values
-                    self.ids['gain_slider'].value = gain
-                    self.ids['gain_text'].text = str(round(gain, 1))
-                if exp_known:
-                    settings[self.layer]['exposure_ms'] = exp
-                    self.ids['exp_slider'].value = exp
-                    self.ids['exp_text'].text = str(round(exp, 2))
-
-            settings[self.layer]['auto_gain'] = state
-            self.apply_settings()
-
-        except Exception as e:
-            logger.error(f'LVP Main] Update_auto_gain error: {e}')
+        if exception is not None:
+            logger.error(f'LVP Main] Update_auto_gain error: {exception}')
             return
+
+        init, lock = result
+        state = self.ids['auto_gain'].state == 'down'
+
+        # Only a toggle OFF that locked a standing arm writes back what
+        # the auto loop achieved; the API has already told the user about
+        # a limit state or a failed lock.
+        if not init and not state and lock is not None and lock.state is not None:
+            gain = lock.gain_db
+            exp = lock.exposure_ms
+            # A FAILED lock carries no values; keep the previous settings
+            # for that field rather than push a non-physical one.
+            gain_known = common_utils.is_valid_gain_db(gain)
+            exp_known = common_utils.is_valid_exposure_ms(exp)
+            if gain_known:
+                settings[self.layer]['gain_db'] = gain
+                self.ids['gain_slider'].value = gain
+                self.ids['gain_text'].text = str(round(gain, 1))
+            if exp_known:
+                # The API decided what to store (the achieved exposure
+                # floored to the class's usable floor); the display only
+                # keeps it inside this slider's own range. The raw value
+                # reaches the user through the lock's state below.
+                stored = float(
+                    np.clip(
+                        lock.stored_exposure_ms,
+                        self.ids['exp_slider'].min,
+                        self.ids['exp_slider'].max,
+                    )
+                )
+                settings[self.layer]['exposure_ms'] = stored
+                self.ids['exp_slider'].value = stored
+                self.ids['exp_text'].text = str(round(stored, 2))
+
+        settings[self.layer]['auto_gain'] = state
+        self.apply_settings()
 
     def gain_slider(self):
         settings = _app_ctx.ctx.settings
@@ -704,9 +652,9 @@ class LayerControl(BoxLayout):
         if self._validate_and_apply_text_input(
             'stim_ill_text',
             'stim_ill_slider',
-            'illumination',
+            'illumination_ma',
             cast=int,
-            settings_path='stim_config.illumination',
+            settings_path='stim_config.illumination_ma',
         ):
             self.apply_settings()
 
@@ -717,15 +665,6 @@ class LayerControl(BoxLayout):
         gui_logger.toggle(f'FALSE_COLOR_{self.layer}', enabled)
         settings[self.layer]['false_color'] = enabled
         self.apply_settings()
-
-    def init_acquire(self):
-        settings = _app_ctx.ctx.settings
-        if settings[self.layer]['acquire'] == 'image':
-            self.ids['acquire_image'].state = 'down'
-        elif settings[self.layer]['acquire'] == 'video':
-            self.ids['acquire_video'].state = 'down'
-        else:
-            self.ids['acquire_none'].state = 'down'
 
     def update_acquire(self):
         settings = _app_ctx.ctx.settings
@@ -780,13 +719,6 @@ class LayerControl(BoxLayout):
             settings[self.layer]['stim_config']['enabled'] = False
 
         self.update_stim_controls_visibility()
-
-    def init_autofocus(self):
-        settings = _app_ctx.ctx.settings
-        if not settings[self.layer]['autofocus']:
-            self.ids['autofocus'].state = 'normal'
-        else:
-            self.ids['autofocus'].state = 'down'
 
     def update_autofocus(self):
         settings = _app_ctx.ctx.settings
@@ -1057,14 +989,20 @@ class LayerControl(BoxLayout):
     # See Phase 1 commit 96defe3.
 
     def set_step_state(self, step: dict):
-        """Update widgets to reflect a protocol step.
+        """Display a protocol step in this layer's widgets. Writes NO settings.
+
+        A protocol run displays every step here without changing the user's
+        live-view settings; manual step navigation writes the settings
+        itself before applying them. What keeps this a pure display write
+        is the kv wiring: of the widgets set here only the illumination /
+        gain / exposure sliders bind ``on_value``, and each of those
+        handlers returns while ``_initializing`` is set; the other sliders
+        bind ``on_release`` (a touch-up or the wheel, never a programmatic
+        value) and a CheckBox's ``on_release`` never fires from ``.active``.
 
         Only updates widgets for keys that are present in *step*.
         This allows partial updates (e.g. stim-config-only for non-current
         layers) without clobbering unrelated widget values.
-
-        Suppresses event handlers via ``_initializing`` to prevent
-        redundant hardware commands during the batch update.
 
         Args:
             step: Protocol step dict.  Recognized keys: 'Illumination',
@@ -1088,7 +1026,12 @@ class LayerControl(BoxLayout):
                 self.ids['gain_slider'].value = float(step['Gain'])
 
             if 'Auto_Gain' in step:
-                self.ids['auto_gain'].active = step['Auto_Gain']
+                # The box drives the gain/exposure widgets' enabled state in
+                # the kv; on a camera whose Auto Gain control is hidden a
+                # ticked box would grey them with nothing to un-grey them.
+                self.ids['auto_gain'].active = bool(
+                    step['Auto_Gain'] and self.camera_autogain_support
+                )
 
             if 'Exposure' in step:
                 self.ids['exp_text'].text = str(step['Exposure'])
@@ -1100,25 +1043,14 @@ class LayerControl(BoxLayout):
 
             # Video config
             vc = step.get('Video Config')
-            if isinstance(vc, dict):
-                import copy
-
-                ctx = _app_ctx.ctx
-                with ctx.settings_lock:
-                    ctx.settings[self.layer]['video_config'] = copy.deepcopy(vc)
-                if 'duration' in vc:
-                    self.ids['video_duration_text'].text = str(vc['duration'])
-                    self.ids['video_duration_slider'].value = float(vc['duration'])
+            if isinstance(vc, dict) and 'duration' in vc:
+                self.ids['video_duration_text'].text = str(vc['duration'])
+                self.ids['video_duration_slider'].value = float(vc['duration'])
 
             # Stim config (only for this layer's stim settings)
             sc = step.get('Stim_Config')
             if isinstance(sc, dict) and self.layer in sc:
-                import copy
-
                 stim = sc[self.layer]
-                ctx = _app_ctx.ctx
-                with ctx.settings_lock:
-                    ctx.settings[self.layer]['stim_config'] = copy.deepcopy(stim)
                 if stim.get('enabled', False):
                     self.ids['stim_enable_btn'].active = True
                     self.ids['stim_disable_btn'].active = False
@@ -1149,34 +1081,87 @@ class LayerControl(BoxLayout):
         finally:
             self._initializing = False
 
-    def sync_camera_widgets_from_settings(self):
-        """Re-point the exposure / gain / illumination widgets at the
-        committed settings values.
+    def sync_widgets_from_settings(self):
+        """Point every widget of this layer at its stored settings.
 
-        An uncommitted text edit (typed, no Enter) survives in the widget
-        while autofocus or a protocol restores the camera from settings --
-        leaving widget, settings, and hardware three-way divergent (the
-        slider says 40 while the camera runs 10). Restore paths call this
-        so the widgets tell the truth again; the uncommitted edit is
-        deliberately dropped.
+        The one settings-to-widgets direction: startup, the end of a
+        protocol run (which displayed each step here without writing the
+        settings) and the end of a standalone autofocus (which restored
+        the camera from the settings) all call this. Reads the layer's
+        settings once under the settings lock; writes only widgets. An
+        uncommitted text edit (typed, no Enter) is deliberately dropped:
+        the widget tells the settings' truth again.
+
+        The gain and exposure sliders' ``max`` is a camera fact set by the
+        caller that learns it; the value written here follows whatever
+        max the slider carries.
         """
-        settings = _app_ctx.ctx.settings
-        layer_settings = settings.get(self.layer, {})
+        ctx = _app_ctx.ctx
+        with ctx.settings_lock:
+            layer_settings = copy.deepcopy(ctx.settings[self.layer])
+
+        self._initializing = True
         try:
-            if 'exposure_ms' in layer_settings:
-                exp = float(layer_settings['exposure_ms'])
-                self.ids['exp_text'].text = str(round(exp, 2))
-                self.ids['exp_slider'].value = exp
-            if 'gain_db' in layer_settings:
-                gain = float(layer_settings['gain_db'])
-                self.ids['gain_text'].text = str(round(gain, 1))
-                self.ids['gain_slider'].value = gain
+            if self.layer in common_utils.get_fluorescence_layers():
+                self.ids['composite_threshold_slider'].value = layer_settings[
+                    'composite_brightness_threshold'
+                ]
+
             if 'illumination_ma' in layer_settings:
-                ill = float(layer_settings['illumination_ma'])
-                self.ids['ill_text'].text = str(ill)
-                self.ids['ill_slider'].value = ill
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}')
+                self.ids['ill_slider'].value = layer_settings['illumination_ma']
+            self.ids['gain_slider'].value = layer_settings['gain_db']
+            self.ids['exp_slider'].value = layer_settings['exposure_ms']
+
+            self.ids['false_color'].active = layer_settings['false_color']
+            self.ids['sum_slider'].value = layer_settings.get('sum', 1)
+
+            if layer_settings['acquire'] == 'image':
+                self.ids['acquire_image'].active = True
+            elif layer_settings['acquire'] == 'video':
+                self.ids['acquire_video'].active = True
+            else:
+                self.ids['acquire_none'].active = True
+
+            video_config = layer_settings['video_config']
+            self.ids['video_duration_text'].text = str(video_config['duration'])
+            self.ids['video_duration_slider'].value = video_config['duration']
+
+            self.ids['autofocus'].active = layer_settings['autofocus']
+            # The box shows the enable actually in force, not the bare
+            # stored preference, the same way apply_settings shows it.
+            self.ids['auto_gain'].active = self.effective_auto_gain()
+
+            # Shipped settings carry no stim_config on the transmitted
+            # layers, and a None is representable.
+            stim_config = layer_settings.get('stim_config')
+            if stim_config:
+                # Default to hidden until enabled
+                self.show_stim_controls = False
+
+                self.ids['stim_enable_btn'].active = stim_config['enabled']
+                self.ids['stim_disable_btn'].active = not stim_config['enabled']
+                self.ids['stim_ill_text'].text = str(stim_config.get('illumination_ma', 100))
+                self.ids['stim_ill_slider'].value = float(stim_config.get('illumination_ma', 100))
+                self.ids['stim_freq_text'].text = str(stim_config['frequency'])
+                self.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+                self.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+                self.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+                self.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+                self.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+
+                # Force hide until enabled
+                for box in (
+                    'stim_ill_box',
+                    'stim_pulse_count_box',
+                    'stim_freq_box',
+                    'stim_pulse_width_box',
+                ):
+                    self.ids[box].visible = False
+                    self.ids[box].opacity = 0
+
+                self.update_stim_controls_visibility()
+        finally:
+            self._initializing = False
 
     def effective_auto_gain(self) -> bool:
         """The auto-gain enable actually in force for this layer's camera.
@@ -1324,21 +1309,24 @@ class LayerControl(BoxLayout):
             # the gain/exposure sliders below stay disabled with no UI to clear
             # them. Non-destructive: the stored preference is left intact.
             auto_gain_enabled = self.effective_auto_gain()
-            # Sync the toggle CheckBox + dependent slider-disabled state to
-            # the settings value before applying to the camera. The .kv has
-            # no Kivy binding from settings to auto_gain.active, so when the
-            # JSON loads at startup with auto_gain=True the CheckBox stays
-            # at its default False; apply_settings would then send AG=True
-            # to the camera while the toggle continues to read OFF in the
-            # UI. Programmatic .active = bool fires no on_release (CheckBox
-            # only binds on_release in the .kv), so this does not re-enter.
+            # Sync the toggle CheckBox to the settings value before applying
+            # to the camera. The .kv has no Kivy binding from settings to
+            # auto_gain.active, so when the JSON loads at startup with
+            # auto_gain=True the CheckBox stays at its default False;
+            # apply_settings would then send AG=True to the camera while the
+            # toggle continues to read OFF in the UI. Programmatic
+            # .active = bool fires no on_release (CheckBox only binds
+            # on_release in the .kv), so this does not re-enter. The
+            # gain/exposure widgets' enabled state follows this box through
+            # the kv rule (`disabled: app.run_lockout or auto_gain.active`):
+            # an imperative .disabled write here was erased whenever the run
+            # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            for slider_item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
-                self.ids[slider_item].disabled = auto_gain_enabled
             autogain_settings = None
             if not ignore_auto_gain:
                 from modules.config_ui_getters import (
                     get_ag_ae_max_exposure_ms,
+                    get_ag_ae_min_exposure_ms,
                     get_auto_gain_settings,
                 )
 
@@ -1348,6 +1336,10 @@ class LayerControl(BoxLayout):
                 # to the sensor max on dim scenes, washing out brightfield
                 # and making the live auto loop hunt.
                 autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
+                # The class floor rides beside the ceiling so an auto-gain
+                # lock can say whether exposure bottomed out of the
+                # usable range (AT_MINIMUM), not only whether it topped.
+                autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
             camera_executor.put(
                 IOTask(
                     # The task runs ON the camera worker: bind the impl --

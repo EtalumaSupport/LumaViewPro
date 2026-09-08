@@ -9,7 +9,9 @@ _suppress_value_warnings, and the frame_validity instance.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
+import enum
 import logging as _logging
 import threading
 import time
@@ -27,6 +29,98 @@ from modules.frame_validity import FrameValidity
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
+
+
+class AutoGainConvergence(enum.Enum):
+    """Where a continuous auto-gain arm landed when the capture locked it.
+
+    CONVERGED: exposure inside the layer class's usable range.
+    MAXED: exposure pinned at the class ceiling -- the scene is too dark
+        for the range, so target brightness was not reached.
+    AT_MINIMUM: exposure at or below the class usable floor -- the scene
+        is too bright for the range.
+    FAILED: the camera reported no usable achieved value, so the capture
+        ran without an exposure/gain evidence gate.
+    The limit states are outcomes, not failures: the frame is saved with
+    the achieved values and a run continues.
+    """
+
+    CONVERGED = 'CONVERGED'
+    MAXED = 'MAXED'
+    AT_MINIMUM = 'AT_MINIMUM'
+    FAILED = 'FAILED'
+
+
+@dataclasses.dataclass(frozen=True)
+class _AutoGainArm:
+    """A commanded continuous auto-gain arm, held until a capture locks it.
+
+    resume_after_capture: a live-view arm is re-armed after the capture
+    so the view keeps adjusting; a protocol step's arm stays locked Off
+    until the next step arms again.
+    """
+
+    settings: dict
+    resume_after_capture: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class AutoGainLock:
+    """The result of locking an auto-gain arm; ``state`` is None when no
+    arm was recorded (nothing was locked, no driver traffic happened)."""
+
+    state: AutoGainConvergence | None
+    exposure_ms: float | None = None
+    gain_db: float | None = None
+    floor_ms: float | None = None
+    ceiling_ms: float | None = None
+    resume_after_capture: bool = False
+    settings: dict | None = None
+    # The exposure a caller STORES as the layer's manual setting after the
+    # lock: the achieved value floored to the class's usable floor. The
+    # auto loop can drive the camera below that floor on a bright scene;
+    # a setting stored that low makes near-black captures on ordinary
+    # scenes, so the store keeps the floor while exposure_ms keeps the
+    # truth. Decided here so a GUI and a REST caller store the same value.
+    stored_exposure_ms: float | None = None
+
+    def __post_init__(self) -> None:
+        # Both achieved values or neither: a consumer that keeps the lock's
+        # gain and a snapshot's exposure would leave a mixed camera state.
+        if (self.exposure_ms is None) != (self.gain_db is None):
+            raise ValueError(
+                'AutoGainLock carries exposure_ms and gain_db together or not at all; '
+                f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
+            )
+
+
+def capture_failure_cause(info: dict | None) -> str:
+    """Why a capture returned no frame, read off its evidence record.
+
+    One ladder for every reader -- the protocol writer's failure row and
+    the manual capture's notice -- so a support bundle and the screen name
+    the same cause. A deadline expiry (state changes outran the budget)
+    reads very differently from a camera that delivered nothing, and a
+    hardcoded cause once mislabeled every failure as the latter.
+    """
+    info = info or {}
+    if info.get('deadline_expired'):
+        return 'capture deadline expired -- invalidation outran the budget'
+    if info.get('drain_failed'):
+        return 'frame drain failed -- camera delivered no frame'
+    if info.get('chunk_rejected'):
+        return (
+            f'frame chunk never matched the {info["chunk_rejected"]} '
+            'target -- the camera delivered frames exposed under '
+            'other settings'
+        )
+    return 'camera inactive or not grabbing'
+
+
+def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
+    """The exposure to store as a manual setting after an auto-gain lock."""
+    return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
+
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -158,8 +252,8 @@ class ImagingAPI:
         # IlluminationAPI._driver.
         del driver  # intentionally unused, kept for backward call sites
 
-        # State / camera locks. _state_lock guards _scale_bar;
-        # _cam_lock serializes
+        # State / camera locks. _state_lock guards _scale_bar,
+        # _last_capture_info and _auto_gain_arm; _cam_lock serializes
         # access to the camera driver itself (any path that touches
         # the SDK reads/writes goes through this lock).
         self._state_lock = threading.Lock()
@@ -202,6 +296,12 @@ class ImagingAPI:
         # drained frame count, chunk-verified exposure / gain). Read via
         # last_capture_info by callers that log per-capture provenance.
         self._last_capture_info = None
+
+        # The commanded continuous auto-gain arm, or None. Only the API
+        # commands the auto mode and no driver reads it back, so this is
+        # the single record that an arm is standing. Consumed atomically
+        # by the capture that locks it (under _state_lock).
+        self._auto_gain_arm: _AutoGainArm | None = None
 
         # When True, programmatic value-range warnings (sub-0.1ms exposure,
         # future similar setters) are silenced. Internal callers that sweep
@@ -815,7 +915,9 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def set_auto_gain(self, state: bool, settings: dict) -> None:
+    def set_auto_gain(
+        self, state: bool, settings: dict, *, resume_after_capture: bool = True
+    ) -> None:
         """Enable or disable automatic gain adjustment, and wait for it.
 
         See ``_set_auto_gain_impl`` for the value contract; this adds
@@ -825,18 +927,24 @@ class ImagingAPI:
             self._set_auto_gain_impl,
             'set_auto_gain',
             args=(state, settings),
+            kwargs={'resume_after_capture': resume_after_capture},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def _set_auto_gain_impl(self, state: bool, settings: dict) -> None:
+    def _set_auto_gain_impl(
+        self, state: bool, settings: dict, *, resume_after_capture: bool = True
+    ) -> None:
         """Enable or disable automatic gain adjustment.
 
         Args:
             state: True to enable auto gain, False to disable.
             settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db',
-                and optionally 'max_exposure_ms' (the per-channel-class upper
-                bound on the exposure AG/AE may drive to; the caller supplies it
-                since it knows the layer).
+                and optionally 'max_exposure_ms' / 'min_exposure_ms' (the
+                per-channel-class bounds of the exposure AG/AE may settle
+                in; the caller supplies them since it knows the layer).
+            resume_after_capture: with ``state=True``, whether a capture
+                that locks this arm re-arms it afterwards (live view) or
+                leaves the camera at the locked values (a protocol step).
         """
 
         if not self._driver or not self._driver.active:
@@ -861,14 +969,187 @@ class ImagingAPI:
         # mode flip leaves the gain value node unchanged, so these are forced,
         # not gated on a value delta.
         arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
+        if arm_settle:
+            self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
         self._camera_write(
             _write_auto_gain,
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
         )
+        with self._state_lock:
+            self._auto_gain_arm = (
+                _AutoGainArm(dict(settings), resume_after_capture) if arm_settle else None
+            )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
+
+    def lock_auto_gain(self) -> AutoGainLock:
+        """Lock a standing continuous auto-gain arm and return the result.
+
+        See ``_lock_auto_gain_impl`` for the contract; this adds only the
+        dispatch described on ``_dispatch_camera``. A caller leaving
+        auto-gain stores ``stored_exposure_ms`` / ``gain_db`` as the manual
+        setting; when no arm stands the result's ``state`` is None and
+        nothing was written.
+        """
+        return self._dispatch_camera(
+            self._lock_auto_gain_impl,
+            'lock_auto_gain',
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _lock_auto_gain_impl(self) -> AutoGainLock:
+        """Turn a standing continuous auto-gain arm into locked manual values.
+
+        The camera's auto loop chose an exposure and gain the caller never
+        requested, so the capture gate's recorded targets are stale. The
+        lock writes the achieved values back as manual values through the
+        ordinary setters, which re-targets the gate; the next frame must
+        then prove them like any manual setting. The achieved values come
+        from the last stored frame's chunks when the camera has them (the
+        same node and unit the gate compares), else from the cache the
+        disarm just resynced from hardware.
+
+        Returns an AutoGainLock; ``state`` is None when no arm was
+        recorded, and nothing was written.
+        """
+        with self._state_lock:
+            arm, self._auto_gain_arm = self._auto_gain_arm, None
+        if arm is None:
+            return AutoGainLock(state=None)
+        settings = arm.settings
+        floor = settings.get('min_exposure_ms') or None
+        ceiling = settings.get('max_exposure_ms') or None
+        self._set_auto_gain_impl(False, settings)
+        chunks = self._get_latest_chunks() or {}
+        exp_us = chunks.get('ExposureTime')
+        gain = chunks.get('Gain')
+        if isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
+            exp_ms: object = exp_us / 1000.0
+        else:
+            exp_ms = self.exposure_ms_cached
+            gain = self.gain_db_cached
+        if not (common_utils.is_valid_exposure_ms(exp_ms) and common_utils.is_valid_gain_db(gain)):
+            # No usable achieved value: drop the stale exposure target too
+            # (the disarm dropped the gain target) so the capture proceeds
+            # without an exposure/gain gate rather than rejecting forever.
+            self._camera_write(lambda: None, force_clear=('exposure',))
+            logger.warning(
+                '[AG CONVERGE] locked: state=FAILED -- the camera reported no '
+                f'usable achieved exposure/gain (exposure={exp_ms} gain={gain}); '
+                'the capture proceeds ungated on exposure and gain'
+            )
+            lock = AutoGainLock(
+                AutoGainConvergence.FAILED,
+                None,
+                None,
+                floor,
+                ceiling,
+                arm.resume_after_capture,
+                settings,
+            )
+            self._notify_auto_gain_outcome(lock)
+            return lock
+        exp_ms = float(exp_ms)
+        gain = float(gain)
+        self._set_exposure_ms_impl(exp_ms)
+        self._set_gain_db_impl(gain)
+        if ceiling is not None and exp_ms >= ceiling * 0.99:
+            state = AutoGainConvergence.MAXED
+        elif floor is not None and exp_ms <= floor:
+            state = AutoGainConvergence.AT_MINIMUM
+        else:
+            state = AutoGainConvergence.CONVERGED
+        line = (
+            f'[AG CONVERGE] locked: state={state.value} exposure={exp_ms:.3f} ms '
+            f'gain={gain:.2f} dB (class floor={floor} ms ceiling={ceiling} ms)'
+        )
+        # All four states at info: a converged lock logged only at debug left
+        # no trace in a customer bundle of what the camera settled at.
+        logger.info(line)
+        lock = AutoGainLock(
+            state,
+            exp_ms,
+            gain,
+            floor,
+            ceiling,
+            arm.resume_after_capture,
+            settings,
+            stored_exposure_ms=stored_exposure_after_lock(exp_ms, floor),
+        )
+        self._notify_auto_gain_outcome(lock)
+        return lock
+
+    def _notify_auto_gain_outcome(self, lock: AutoGainLock) -> None:
+        """Tell an attended user what the lock found; a protocol run is
+        unattended and gets the log line only.
+
+        A live-view arm (``resume_after_capture``) is the attended case:
+        the user toggled auto-gain off, took a manual capture, or started a
+        manual autofocus. A protocol step's arm is not, and during a run
+        only a fatal, run-aborting error may reach the screen. The limit
+        states are information -- the setting keeps the class floor or
+        ceiling and cannot show the raw value -- and a lock that found
+        nothing usable is an error, because the frame was taken without an
+        exposure check.
+        """
+        if not lock.resume_after_capture:
+            return
+        if lock.state is AutoGainConvergence.MAXED:
+            notifications.info(
+                'Auto-gain',
+                'Exposure at the maximum',
+                f'Auto-exposure reached the {lock.ceiling_ms:g} ms ceiling for this '
+                'channel and the scene was still too dark. Add light or raise the '
+                'auto-exposure ceiling in Advanced Settings.',
+            )
+        elif lock.state is AutoGainConvergence.AT_MINIMUM:
+            notifications.info(
+                'Auto-gain',
+                'Exposure at the minimum',
+                f'Auto-exposure settled at {lock.exposure_ms:g} ms, below the '
+                f'{lock.floor_ms:g} ms usable floor for this channel; the setting keeps '
+                'the floor. The scene is too bright: reduce the light.',
+            )
+        elif lock.state is AutoGainConvergence.FAILED:
+            notifications.error(
+                'Auto-gain',
+                'Auto-gain did not settle',
+                'The camera reported no usable exposure or gain when auto-gain was '
+                'locked, so the previous settings were kept and any capture was taken '
+                'without an exposure check. Check the live view, then try again.',
+            )
+
+    def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: object) -> None:
+        """Bring the exposure inside the auto loop's range before enabling it.
+
+        The loop's upper bound is the class ceiling, but writing the bound
+        does not move an exposure already above it: the camera then leaves
+        the exposure where it is and adjusts gain only, the lock reads the
+        pinned value, and the stored setting clips it to the slider -- the
+        live view halves in brightness at toggle-off. Clamping through the
+        ordinary setter re-targets the gate to the ceiling as well, so the
+        next frame proves it. The cache is a setter's write or a hardware
+        resync at every arm (both arming callers write the exposure just
+        before; every disarm resyncs), so the sentinel guard is the only
+        skip.
+        """
+        if not isinstance(ceiling_ms, (int, float)) or ceiling_ms <= 0:
+            return
+        current_ms = self.exposure_ms_cached
+        if not common_utils.is_valid_exposure_ms(current_ms) or current_ms <= ceiling_ms:
+            return
+        logger.info(
+            f'[AG ARM] exposure {current_ms:.3f} ms above the class ceiling '
+            f'{ceiling_ms:g} ms; clamped to the ceiling before arming'
+        )
+        self._set_exposure_ms_impl(float(ceiling_ms))
+
+    def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
+        """Re-arm continuous auto-gain after a capture locked a live-view arm."""
+        if lock.state is not None and lock.resume_after_capture and lock.settings is not None:
+            self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
 
     def set_auto_exposure_time(self, state: bool = True) -> None:
         """Enable or disable automatic exposure adjustment, and wait for it.
@@ -2161,6 +2442,8 @@ class ImagingAPI:
                 }
 
         def _deadline_none(where: str):
+            if lock is not None:
+                self._resume_auto_gain_impl(lock)
             logger.warning(
                 f'[SCOPE API ] capture_and_wait: capture DEADLINE EXPIRED '
                 f'({where}) -- active={_clock["active"]:.3f}s > '
@@ -2176,6 +2459,10 @@ class ImagingAPI:
         # counts how many times the window was dirtied and re-run.
         drain_iterations = 0
         recheck_cycles = 0
+        # A standing auto-gain arm is locked once, after its settle drains
+        # and before the grab; the loop then re-enters so the lock's own
+        # setter writes drain and the gate sees the locked targets.
+        lock: AutoGainLock | None = None
         while True:
             if _deadline_expired():
                 return _deadline_none('recheck-top')
@@ -2239,7 +2526,16 @@ class ImagingAPI:
                     # skipped its capture strike -- and reset the accumulated
                     # counter -- on exactly this stalled-feed failure mode.
                     _record_capture_info(drain_failed=True)
+                    if lock is not None:
+                        self._resume_auto_gain_impl(lock)
                     return None
+
+            if lock is None:
+                # The lock consumes the arm under _state_lock and reports
+                # state None when nothing stood; no unguarded peek first.
+                lock = self._lock_auto_gain_impl()
+                if lock.state is not None:
+                    continue
 
             # The dark-floor expectation is the API's own fact, derived
             # after the drain settles -- never posted by callers -- so the
@@ -2284,10 +2580,24 @@ class ImagingAPI:
         # captures log brightness + the chunk-verified settings per frame so
         # a support bundle shows what each saved frame was exposed with).
         chunks = self._get_latest_chunks() or {}
+        extra: dict[str, object] = {}
+        if lock is not None and lock.state is not None:
+            extra['auto_gain'] = lock.state.value
+            extra['auto_gain_exposure_ms'] = lock.exposure_ms
+            extra['auto_gain_gain_db'] = lock.gain_db
+        if image is None:
+            # A clean-window None with a target still mismatching is the
+            # gate's rejection; name it so the writer's cause is truthful.
+            stale = self._chunk_target_mismatch()
+            if stale is not None:
+                extra['chunk_rejected'] = stale
         _record_capture_info(
             chunk_exposure_us=chunks.get('ExposureTime'),
             chunk_gain_db=chunks.get('Gain'),
+            **extra,
         )
+        if lock is not None:
+            self._resume_auto_gain_impl(lock)
         return image
 
     def capture_and_wait(
@@ -3056,13 +3366,16 @@ class ImagingAPI:
 
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
-        """Snapshot the current camera gain and exposure for later restoration.
+        """Snapshot the camera's gain, exposure and auto-gain arm for restoration.
 
         Omit-if-unknown: a field enters the snapshot only when a usable
         value exists (the getters answer last-known-good, so a missing
         field means the value was NEVER successfully read). Restore can
         therefore trust every field it finds, and name the ones it
-        cannot restore.
+        cannot restore. ``auto_gain_arm`` is always present: the standing
+        continuous arm, or None when none stood -- a run that ends with
+        its step-end disarm otherwise leaves the loop off while the layer
+        toggle shows on, until a slider write happens to re-arm it.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
@@ -3095,20 +3408,28 @@ class ImagingAPI:
                 f'never been successfully read; snapshot omits it and the '
                 f'restore will leave exposure unchanged'
             )
+        with self._state_lock:
+            snapshot['auto_gain_arm'] = self._auto_gain_arm
         _api_log.info(
             f'save_camera_state tag={tag}: '
             f'gain={snapshot.get("gain_db", "never-read")} '
-            f'exp={snapshot.get("exposure_ms", "never-read")}'
+            f'exp={snapshot.get("exposure_ms", "never-read")} '
+            f'arm={snapshot["auto_gain_arm"] is not None}'
         )
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
-        """Restore camera gain and exposure from a previously saved state.
+        """Restore camera gain, exposure and auto-gain arm from a saved state.
 
         Fields absent from the snapshot are skipped and named in the log:
         either the caller deliberately trimmed them (autofocus keeps the
         values its run explicitly targeted) or they were never readable at
         save time -- save_camera_state already WARNed about the latter.
+        The auto-gain loop goes back to the snapshot's state after the
+        setters: re-armed when an arm was recorded, disarmed when none was
+        and one stands now (a run aborted between a step's arm and its
+        disarm), untouched when the field is absent. A re-arm clamps the
+        exposure to the class ceiling like any arm.
 
         Args:
             snapshot: Return value from ``save_camera_state``.
@@ -3139,15 +3460,32 @@ class ImagingAPI:
         # needs the line stating what this restore was about to do (a
         # partial restore with no record once misattributed wrong-
         # brightness images to protocol settings).
+        arm_recorded = 'auto_gain_arm' in snapshot
+        arm = snapshot.get('auto_gain_arm')
+        with self._state_lock:
+            standing = self._auto_gain_arm
+        if arm_recorded and arm is not None:
+            arm_action = 're-armed'
+        elif arm_recorded and standing is not None:
+            arm_action = 'disarmed'
+        else:
+            arm_action = 'unchanged'
         _api_log.info(
             f'restore_camera_state tag={tag}: '
             f'gain={gain_db if gain_known else "skipped"} '
-            f'exp={exposure_ms if exposure_known else "skipped"}'
+            f'exp={exposure_ms if exposure_known else "skipped"} '
+            f'arm={arm_action}'
         )
         if gain_known:
             self._set_gain_db_impl(gain_db)
         if exposure_known:
             self._set_exposure_ms_impl(exposure_ms)
+        if arm_action == 're-armed':
+            self._set_auto_gain_impl(
+                True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
+            )
+        elif arm_action == 'disarmed':
+            self._set_auto_gain_impl(False, dict(standing.settings))
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(
@@ -3156,6 +3494,7 @@ class ImagingAPI:
         exposure_ms: float,
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
+        resume_after_capture: bool = True,
     ) -> None:
         """Apply per-layer camera settings in one batched call, and wait.
 
@@ -3168,7 +3507,11 @@ class ImagingAPI:
             self._apply_layer_camera_settings_impl,
             'apply_layer_camera_settings',
             args=(gain_db, exposure_ms),
-            kwargs={'auto_gain': auto_gain, 'auto_gain_settings': auto_gain_settings},
+            kwargs={
+                'auto_gain': auto_gain,
+                'auto_gain_settings': auto_gain_settings,
+                'resume_after_capture': resume_after_capture,
+            },
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
@@ -3178,11 +3521,16 @@ class ImagingAPI:
         exposure_ms: float,
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
+        resume_after_capture: bool = True,
     ) -> None:
         """Apply per-layer camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
-        IOTask queues with a single call for atomicity.
+        IOTask queues with a single call for atomicity. Arming may clamp
+        the exposure just handed in down to the layer class's auto-exposure
+        ceiling (the loop cannot bring an exposure above its bound back
+        inside it); the log line below reports the request, the arm's own
+        line records the clamp.
 
         Args:
             gain_db: Camera gain in dB.
@@ -3197,7 +3545,9 @@ class ImagingAPI:
         self._set_gain_db_impl(gain_db)
         self._set_exposure_ms_impl(exposure_ms)
         if auto_gain_settings is not None:
-            self._set_auto_gain_impl(auto_gain, settings=auto_gain_settings)
+            self._set_auto_gain_impl(
+                auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
+            )
         _api_log.info(
             f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}'
         )
@@ -3297,6 +3647,8 @@ class ImagingAPI:
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
         )
+        with self._state_lock:
+            self._auto_gain_arm = None
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.
@@ -3384,14 +3736,20 @@ class ImagingAPI:
     def last_capture_info(self) -> dict | None:
         """Evidence about the most recent capture_and_wait on this scope.
 
-        Internal evidence record -- consumed by the protocol file writer
-        and not part of the L2 API surface.
+        Consumed by the protocol file writer and by L2 callers that need
+        the auto-gain outcome of a capture.
 
         Returns:
             dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
                 'chunk_gain_db'}`` for the latest capture, or None before
                 the first capture. Chunk values are None on cameras
-                without chunk support.
+                without chunk support. When the capture locked a standing
+                auto-gain arm it also carries ``'auto_gain'`` (one of
+                ``AutoGainConvergence``'s values: CONVERGED / MAXED /
+                AT_MINIMUM / FAILED), ``'auto_gain_exposure_ms'`` and
+                ``'auto_gain_gain_db'`` (the locked values, None on
+                FAILED). A capture the chunk gate rejected carries
+                ``'chunk_rejected'`` naming the source.
         """
         with self._state_lock:
             return dict(self._last_capture_info) if self._last_capture_info else None

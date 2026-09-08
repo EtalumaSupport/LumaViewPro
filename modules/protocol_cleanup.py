@@ -250,11 +250,21 @@ def run_cleanup(
         try:
             for layer, layer_data in autofocus_snapshot.states.items():
                 autofocus_snapshot.restore(layer=layer, value=layer_data)
-                if callbacks.reset_autofocus_btns:
-                    _schedule_ui(lambda dt: callbacks.reset_autofocus_btns(), 0)
         except Exception as ex:
             logger.error(f'[PROTOCOL] Error restoring autofocus states during cleanup: {ex}')
             cleanup_errors.append(f'Restore autofocus states: {type(ex).__name__}: {ex}')
+
+    # --- Put the layer panel back on the settings ---
+    # The run displayed each step in the panel without writing the user's
+    # settings; the panel now shows the settings again. Once per run,
+    # outside the restore above: it does not depend on any autofocus state
+    # having been snapshotted.
+    try:
+        if callbacks.sync_layer_widgets:
+            _schedule_ui(lambda dt: callbacks.sync_layer_widgets(), 0)
+    except Exception as ex:
+        logger.error(f'[PROTOCOL] Error scheduling the layer panel sync during cleanup: {ex}')
+        cleanup_errors.append(f'Sync layer panel: {type(ex).__name__}: {ex}')
 
     # --- Restore camera gain and exposure ---
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through

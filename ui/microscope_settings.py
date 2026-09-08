@@ -612,83 +612,16 @@ class MicroscopeSettings(BoxLayout):
             for layer in common_utils.get_layers():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
-                # Set initializing flag to prevent apply_settings during load
-                layer_obj._initializing = True
-
-                if layer in common_utils.get_fluorescence_layers():
-                    layer_obj.ids['composite_threshold_slider'].value = settings[layer][
-                        'composite_brightness_threshold'
-                    ]
-
-                if 'illumination_ma' in settings[layer]:
-                    layer_obj.ids['ill_slider'].value = settings[layer]['illumination_ma']
-
-                # Size the sliders to the camera caps BEFORE setting the value
+                # Size the sliders to the camera caps BEFORE the values land
                 # (the Kivy slider clamps the displayed value to its max). The
                 # over-cap STORED value is reconciled + persisted by the single
                 # clamp_layer_settings_to_caps pass after the loop, not a
-                # duplicate inline clamp here.
+                # duplicate inline clamp here. The layer is still initializing
+                # from its construction, so a clamp here fires no handler.
                 layer_obj.ids['gain_slider'].max = max_gain
-                layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-                layer_obj.ids['exp_slider'].value = settings[layer]['exposure_ms']
 
-                layer_obj.ids['false_color'].active = settings[layer]['false_color']
-
-                if 'sum' in settings[layer]:
-                    layer_obj.ids['sum_slider'].value = settings[layer]['sum']
-                else:
-                    layer_obj.ids['sum_slider'].value = 1
-
-                if settings[layer]['acquire'] == 'image':
-                    layer_obj.ids['acquire_image'].active = True
-                elif settings[layer]['acquire'] == 'video':
-                    layer_obj.ids['acquire_video'].active = True
-                else:
-                    layer_obj.ids['acquire_none'].active = True
-
-                video_config = settings[layer]['video_config']
-                layer_obj.ids['video_duration_text'].text = str(video_config['duration'])
-                layer_obj.ids['video_duration_slider'].value = video_config['duration']
-
-                layer_obj.ids['autofocus'].active = settings[layer]['autofocus']
-
-                # Clear initializing flag - settings are now loaded
-                layer_obj._initializing = False
-
-                if 'stim_config' in settings[layer]:
-                    # Default to hidden until enabled
-                    layer_obj.show_stim_controls = False
-
-                    stim_config = settings[layer]['stim_config']
-                    layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
-                    layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
-                    layer_obj.ids['stim_ill_text'].text = str(
-                        stim_config.get('illumination_ma', 100)
-                    )
-                    layer_obj.ids['stim_ill_slider'].value = float(
-                        stim_config.get('illumination_ma', 100)
-                    )
-                    layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
-                    layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
-                    layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
-                    layer_obj.ids['stim_pulse_width_slider'].value = float(
-                        stim_config['pulse_width']
-                    )
-                    layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-                    layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
-
-                    # Force hide until enabled
-                    layer_obj.ids['stim_ill_box'].visible = False
-                    layer_obj.ids['stim_pulse_count_box'].visible = False
-                    layer_obj.ids['stim_freq_box'].visible = False
-                    layer_obj.ids['stim_pulse_width_box'].visible = False
-                    layer_obj.ids['stim_ill_box'].opacity = 0
-                    layer_obj.ids['stim_pulse_count_box'].opacity = 0
-                    layer_obj.ids['stim_freq_box'].opacity = 0
-                    layer_obj.ids['stim_pulse_width_box'].opacity = 0
-
-                    layer_obj.update_stim_controls_visibility()
+                layer_obj.sync_widgets_from_settings()
 
             # Reconcile any layer whose stored gain/exposure exceeds the new
             # camera's cap down to it -- the single clamp owner, shared with the

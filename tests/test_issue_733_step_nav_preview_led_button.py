@@ -38,6 +38,14 @@ GREEN_LAYER_SETTINGS = {
     'sum': 1,
     'acquire': True,
     'focus': 0.0,
+    'video_config': {'duration': 5},
+    'stim_config': {
+        'enabled': False,
+        'illumination_ma': 50,
+        'frequency': 1,
+        'pulse_width': 10,
+        'pulse_count': 1,
+    },
 }
 
 

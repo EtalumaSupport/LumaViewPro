@@ -16,10 +16,15 @@ it work.").
 Fix (apply_settings sync)
 -------------------------
 At the start of the auto_gain block in apply_settings, sync the CheckBox
-.active and the dependent slider .disabled flags to settings before the
-IOTask is queued. Programmatic .active = bool fires no on_release in
-Kivy (CheckBox in the .kv only binds on_release, not on_active), so this
-does not re-enter the update_auto_gain callback path.
+.active to settings before the IOTask is queued. Programmatic
+.active = bool fires no on_release in Kivy (CheckBox in the .kv only
+binds on_release, not on_active), so this does not re-enter the
+update_auto_gain callback path. The gain/exposure widgets' enabled
+state follows the box through ONE kv rule,
+``disabled: app.run_lockout or auto_gain.active``: an imperative
+``.disabled`` write from Python was erased at every run boundary, because
+the widgets' ``disabled: app.run_lockout`` rule re-fires when the lockout
+clears and overwrites whatever Python last wrote.
 
 Test approach
 -------------
@@ -36,9 +41,49 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import pytest
+
+from tests.ast_seams import find_def
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+# pin-justified: the kv is declarative source with no headless seam; the
+# per-widget event binds and disabled expressions below are the contract.
+KV_LINES = (REPO / 'ui' / 'lumaviewpro.kv').read_text().splitlines()
+
+
+def _kv_indent(line: str) -> int:
+    prefix = line[: len(line) - len(line.lstrip(' \t'))]
+    return len(prefix.replace('\t', '    '))
+
+
+def _kv_widget_block(widget_id: str) -> list[str]:
+    """Every property line of the widget carrying ``id: <widget_id>``.
+
+    The properties sit at one indent under the widget's class line; the
+    block runs from the first property to the last, in both directions from
+    the id line, so a bind written above the id is seen too.
+    """
+    marker = f'id: {widget_id}'
+    idx = next(
+        i
+        for i, line in enumerate(KV_LINES)
+        if line.strip() == marker or line.strip().startswith(marker + ' ')
+    )
+    depth = _kv_indent(KV_LINES[idx])
+
+    def _same_depth(i: int) -> bool:
+        line = KV_LINES[i]
+        return not line.strip() or _kv_indent(line) >= depth
+
+    start = idx
+    while start > 0 and _same_depth(start - 1):
+        start -= 1
+    end = idx
+    while end + 1 < len(KV_LINES) and _same_depth(end + 1):
+        end += 1
+    return [line.strip() for line in KV_LINES[start : end + 1] if line.strip()]
 
 
 def _method_body(class_name: str, method_name: str) -> str:
@@ -59,9 +104,9 @@ def _method_body(class_name: str, method_name: str) -> str:
 
 
 class TestApplySettingsSyncsAutoGainCheckbox:
-    """apply_settings must sync the auto_gain CheckBox active flag and the
-    dependent slider disabled flags to settings[layer]['auto_gain'] before
-    queuing the camera-settings IOTask.
+    """apply_settings must sync the auto_gain CheckBox active flag to
+    settings[layer]['auto_gain'] before queuing the camera-settings IOTask;
+    the gain/exposure widgets' disabled state follows the box in the kv.
 
     Without this sync, a settings-vs-UI divergence persists across the
     apply_settings call: the camera AG state ends up matching settings
@@ -88,23 +133,24 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             '#655 divergence this protects against.'
         )
 
-    def test_apply_settings_syncs_slider_disabled(self):
-        """The auto_gain block must also sync the gain/exposure slider +
-        text-input .disabled flags so the UI's editable state reflects
-        AG-vs-manual mode. Without this, after a settings-driven AG
-        toggle change the user might still see editable sliders for
-        values the camera is actively overriding (or vice versa)."""
-        body = _method_body('LayerControl', 'apply_settings')
-        # Pattern: for slider_item in ('gain_slider', 'gain_text', ...)
-        # Loose check (any iteration over those four ids assigning disabled).
-        assert 'gain_slider' in body, 'apply_settings auto_gain sync must reference gain_slider'
-        assert 'gain_text' in body, 'apply_settings auto_gain sync must reference gain_text'
-        assert 'exp_slider' in body, 'apply_settings auto_gain sync must reference exp_slider'
-        assert 'exp_text' in body, 'apply_settings auto_gain sync must reference exp_text'
-        assert '.disabled = auto_gain_enabled' in body, (
-            'apply_settings auto_gain sync must set .disabled = '
-            'auto_gain_enabled on the gain/exposure slider + text widgets.'
-        )
+    @pytest.mark.parametrize('widget_id', ['gain_slider', 'gain_text', 'exp_slider', 'exp_text'])
+    def test_gain_exposure_widgets_follow_the_auto_gain_box_in_kv(self, widget_id):
+        """The kv rule is the single owner of the four widgets' enabled
+        state: the run lockout OR the auto-gain box. A Python-side
+        `.disabled` write was clobbered at every run boundary (the rule
+        re-fires on the lockout edge), which left the sliders editable
+        under a live auto-gain after a run."""
+        block = _kv_widget_block(widget_id)
+        assert 'disabled: app.run_lockout or auto_gain.active' in block, block
+
+    def test_no_imperative_disabled_write_for_the_gain_exposure_widgets(self):
+        """No Python writer competes with the kv rule."""
+        source = LAYER_CONTROL_SRC.read_text()
+        for pattern in ('.disabled = auto_gain_enabled', '.disabled = state'):
+            assert pattern not in source, (
+                f'{pattern!r} in ui/layer_control.py: the kv rule owns the '
+                "gain/exposure widgets' disabled state"
+            )
 
     def test_apply_settings_sync_precedes_iotask_queue(self):
         """The CheckBox + slider sync must precede the apply_layer_camera_settings
@@ -142,3 +188,62 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             'outside it. Syncing during a protocol-driven layer change '
             "would fight protocol_step_runner's AG management."
         )
+
+
+class TestSetStepStateWidgetWiring:
+    """What makes ``LayerControl.set_step_state`` a pure widget setter is
+    the kv wiring, not the ``_initializing`` flag: of the widgets it sets,
+    only the illumination / gain / exposure sliders bind ``on_value`` (and
+    each handler opens with the ``_initializing`` guard); the other sliders
+    bind ``on_release``, which ModSlider dispatches only from a touch-up or
+    the wheel, and a CheckBox's ``on_release`` never fires from a
+    programmatic ``.active`` write. A slider re-bound to ``on_value`` would
+    turn every step display into a settings write again."""
+
+    @pytest.mark.parametrize(
+        'slider_id',
+        [
+            'sum_slider',
+            'video_duration_slider',
+            'stim_ill_slider',
+            'stim_freq_slider',
+            'stim_pulse_width_slider',
+            'stim_pulse_count_slider',
+        ],
+    )
+    def test_release_sliders_bind_on_release_not_on_value(self, slider_id):
+        block = _kv_widget_block(slider_id)
+        assert any(line.startswith('on_release:') for line in block), block
+        assert not any(line.startswith('on_value:') for line in block), block
+
+    @pytest.mark.parametrize('handler', ['ill_slider', 'gain_slider', 'exp_slider'])
+    def test_value_handlers_open_with_the_initializing_guard(self, handler):
+        """Before the guard, only a plain name assignment or an
+        early-return ``if`` may appear -- no settings write, no call."""
+        fn = find_def('ui/layer_control.py', handler, class_name='LayerControl')
+        assert fn is not None, handler
+
+        def _is_guard(stmt):
+            return (
+                isinstance(stmt, ast.If)
+                and ast.unparse(stmt.test) == 'self._initializing'
+                and len(stmt.body) == 1
+                and isinstance(stmt.body[0], ast.Return)
+            )
+
+        guard_idx = next((i for i, stmt in enumerate(fn.body) if _is_guard(stmt)), None)
+        assert guard_idx is not None, f'{handler} has no `if self._initializing: return`'
+        for stmt in fn.body[:guard_idx]:
+            harmless = (
+                (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant))
+                or (
+                    isinstance(stmt, ast.Assign)
+                    and all(isinstance(t, ast.Name) for t in stmt.targets)
+                )
+                or (
+                    isinstance(stmt, ast.If)
+                    and len(stmt.body) == 1
+                    and isinstance(stmt.body[0], ast.Return)
+                )
+            )
+            assert harmless, f'{handler} acts before its _initializing guard: {ast.unparse(stmt)}'

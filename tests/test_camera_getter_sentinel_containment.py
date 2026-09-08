@@ -766,7 +766,7 @@ def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
 
     snapshot = imaging.save_camera_state('t')
 
-    assert snapshot == {'tag': 't'}
+    assert snapshot == {'tag': 't', 'auto_gain_arm': None}
     save_warnings = [w for w in warnings if 'save_camera_state' in w]
     assert len(save_warnings) == 2, save_warnings
     assert any('gain' in w for w in save_warnings)
@@ -780,7 +780,7 @@ def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
 
     snapshot = imaging.save_camera_state('t')
 
-    assert snapshot == {'tag': 't', 'gain_db': 12.5, 'exposure_ms': 50.0}
+    assert snapshot == {'tag': 't', 'gain_db': 12.5, 'exposure_ms': 50.0, 'auto_gain_arm': None}
     assert warnings == []
 
 

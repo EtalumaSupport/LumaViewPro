@@ -32,8 +32,9 @@ Fix B -- Widget handler recursion via programmatic widget writes:
   Fix: ill_slider/gain_slider/exp_slider now early-return on _initializing.
   ill_text/_validate_and_apply_text_input/_update_camera_ui wrap their
   programmatic widget writes in self._initializing=True so the on_value
-  handler no-ops. set_step_state already writes settings directly via
-  step_navigation.go_to_step (line 114-127), so the early return is safe.
+  handler no-ops. set_step_state is a pure widget setter -- manual step
+  navigation writes the settings itself in step_navigation.go_to_step --
+  so the early return is safe.
 
 These tests use AST-based source checks to pin the fix structure. Behavioral
 tests on the Kivy widget tree would require a full Kivy app context and are
