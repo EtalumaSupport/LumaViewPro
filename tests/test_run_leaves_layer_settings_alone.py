@@ -454,3 +454,47 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         }
         assert 'sync_layer_widgets' in fields
         assert 'reset_autofocus_btns' not in fields
+
+
+def _constant_key_path(target: ast.AST) -> str:
+    """'stim_config.illumination_ma' for ``settings[self.layer]['stim_config']['illumination_ma']``:
+    the constant subscript keys, outermost last, the non-constant layer index dropped."""
+    keys = []
+    node = target
+    while isinstance(node, ast.Subscript):
+        if isinstance(node.slice, ast.Constant):
+            keys.append(node.slice.value)
+        node = node.value
+    return '.'.join(reversed(keys))
+
+
+class TestStimIlluminationTextWritesTheSliderKey:
+    def test_stim_illumination_text_writes_the_slider_key(self):
+        """The text field and the slider are two writers of ONE setting.
+        The text field wrote a key nothing reads (the load-time rename left
+        only the unit-suffixed key), so a typed stim illumination was lost
+        to the run, the slider and the run-end sync alike; and the invalid-
+        input reset walked the same dead path into a KeyError."""
+        text_fn = find_def('ui/layer_control.py', 'stim_ill_text', class_name='LayerControl')
+        assert text_fn is not None
+        call = next(
+            node
+            for node in ast.walk(text_fn)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == '_validate_and_apply_text_input'
+        )
+        text_path = next(kw.value.value for kw in call.keywords if kw.arg == 'settings_path')
+
+        slider_fn = find_def('ui/layer_control.py', 'stim_ill_slider', class_name='LayerControl')
+        assert slider_fn is not None
+        slider_paths = {
+            _constant_key_path(target)
+            for node in ast.walk(slider_fn)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Subscript)
+        }
+
+        assert text_path == 'stim_config.illumination_ma'
+        assert text_path in slider_paths, slider_paths

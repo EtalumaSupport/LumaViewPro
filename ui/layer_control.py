@@ -652,9 +652,9 @@ class LayerControl(BoxLayout):
         if self._validate_and_apply_text_input(
             'stim_ill_text',
             'stim_ill_slider',
-            'illumination',
+            'illumination_ma',
             cast=int,
-            settings_path='stim_config.illumination',
+            settings_path='stim_config.illumination_ma',
         ):
             self.apply_settings()
 
