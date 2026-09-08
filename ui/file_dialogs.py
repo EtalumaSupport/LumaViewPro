@@ -194,10 +194,14 @@ def _foregrounded_tk_root():
 def _platform_native_choose_folder(initial_dir, title='Select folder'):
     """Platform-native folder picker (blocking). Returns path string or None.
 
-    Canonical for all FolderChooseBTN contexts as of the #675 broader
-    revert. Native pickers show file listings on every modern OS, so
-    the prior argument for the in-app Kivy picker ("see files inside
-    the candidate folder") no longer justifies the extra UX surface.
+    Canonical for all FolderChooseBTN contexts: the product decision is a
+    native picker on every platform, and the in-app Kivy picker that once
+    replaced it was rejected as worse UX. What the user sees inside a
+    candidate folder is the platform's choice, not ours: macOS's choose
+    folder panel lists the files greyed; Windows lists folders only, by
+    design of its pick-folders dialog (Tk already opens the modern one,
+    and no flag makes it show files), so a Windows user picks by folder
+    name alone. Accepted as a platform limitation.
     Call only from _run_native_dialog_async's worker.
     """
     if sys.platform == 'darwin':
@@ -623,10 +627,9 @@ class FolderChooseBTN(HoverBehavior, Button):
         # All FolderChooseBTN contexts use the OS-native folder picker.
         # The earlier in-app Kivy picker was added for post-processing
         # contexts so the user could see the files inside the candidate
-        # folder before picking, but native pickers on all supported
-        # platforms (macOS Finder, Windows Explorer, Linux GTK) already
-        # show file listings -- the Kivy picker was duplicating UX that
-        # the OS provides better. Reverted per #675.
+        # folder before picking; it was rejected as worse than the native
+        # picker even though Windows's native folder picker shows no
+        # files (a platform limitation, see _platform_native_choose_folder).
         _run_native_dialog_async(
             self,
             lambda: _platform_native_choose_folder(
