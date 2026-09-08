@@ -18,20 +18,16 @@ from modules import gui_logger
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
-    model_has_turret,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
     get_binning_from_ui,
     get_current_frame_dimensions,
-    get_selected_labware,
 )
 from modules.path_utils import resolve_data_file
-from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
 import modules.image_mode as image_mode
-from ui.ui_helpers import scope_leds_off
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
@@ -199,138 +195,6 @@ class MicroscopeSettings(BoxLayout):
 
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
-
-    def reconnect(self):
-        ctx = _app_ctx.ctx
-
-        gui_logger.button('RECONNECT_MICROSCOPE')
-
-        # Refuse BEFORE any teardown: the session's set_scope guard also
-        # refuses, but it fires only after disconnect() has already torn
-        # the camera down under whatever was using it -- too late to
-        # protect a live run or a recording still finishing its drain.
-        holder = ctx.session.exclusive_activity
-        if holder is not None or ctx.session.manual_recording.is_busy:
-            busy_with = holder if holder is not None else 'a finishing recording'
-            logger.warning(f'[LVP Main  ] Reconnect refused: {busy_with} owns the hardware')
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Hardware',
-                'Reconnect refused',
-                f'The microscope is busy ({busy_with}). Stop it and let it '
-                'finish before reconnecting.',
-            )
-            return
-
-        logger.info('[LVP Main  ] Reconnecting to microscope...')
-
-        lumaview = ctx.lumaview
-        settings = ctx.settings
-
-        lumaview.scope.disconnect()
-        lumaview.scope = None
-        # The frame-size dedupe record describes the OLD camera; carried
-        # across the swap it would absorb the first matching apply on the
-        # new one (and its in-flight bookkeeping belongs to tasks queued
-        # against the discarded scope).
-        self._frame_size_applier = _CoalescingApplier(name='frame_size')
-        # Reinitialize the scope object (connects motorboard, ledboard, camera)
-        import modules.lumascope_api as lumascope_api
-
-        lumaview.scope = lumascope_api.Lumascope(
-            camera_type=settings['camera_type'],
-            simulate=ctx.simulate_mode,
-            warn_pre_release=False,
-            configured_model=settings.get('microscope'),
-        )
-        _labware_id, labware = get_selected_labware()
-
-        # Single hardware initialization call. Reconnect never re-runs
-        # load_settings, so the position-1 objective adoption must happen
-        # here too or a reconnect would stamp the pre-reconnect selection
-        # over whatever slot the fresh session actually starts on.
-        scope_config = self.scopes.get(settings.get('microscope'))
-        ctx.session.adopt_turret_slot1_objective(
-            model_has_turret=model_has_turret(self.scopes, settings)
-        )
-        config = ScopeInitConfig.from_settings(
-            settings,
-            labware,
-            scope_config=scope_config,
-            layer_identity=lumaview.scope.layer_identity,
-        )
-        lumaview.scope.initialize(config)
-        # Start gate release: configuration is applied, so open the gate and
-        # fire the single grab (the camera-lifecycle split -- connect() left
-        # it configured but not grabbing).
-        lumaview.scope.imaging.start_streaming()
-
-        # The stranded-reference cluster: every object holding the scope
-        # by reference must be rewired here, or it keeps driving the
-        # discarded scope. session.set_scope rewires everything the
-        # session composes (the sequenced-capture engine, the autofocus
-        # runner, the recording controller) and republishes run state;
-        # the push-listener bridge and the ctx registry field the
-        # display path renders from are host-owned, so they rewire
-        # here.
-        ctx.session.set_scope(lumaview.scope)
-        ctx.ui_listener_bridge.rebind(lumaview.scope)
-        ctx.scope = lumaview.scope
-
-        # Re-gate the UI against the scope that is now attached. The control
-        # visibility comes from the drivers, so a reconnect onto different
-        # hardware leaves the previous scope's controls on screen until this
-        # runs -- there is no second store to fall back on.
-        self.reconfigure_for_scope()
-
-        # Restart display
-
-        ctx.scope_display.stop()
-        ctx.scope_display.start()
-
-        # LVP-A-5: ScopeSession owns the standard startup orchestration
-        # (ALL-axis home + turret-positioning) -- same path the App's
-        # on_start uses. Pre-LVP-A-5 this block was open-coded here and
-        # had subtly drifted from the App's version.
-        # Same GUI motion wrappers the App's on_start passes -- see there for
-        # why the widget path rather than the Session's bare-API defaults.
-        from ui.ui_helpers import move_home, move_absolute
-
-        ctx.session.start_application_session(
-            disable_homing=ctx.disable_homing,
-            home_fn=lambda axis: move_home(axis, wait=True),
-            turret_fn=lambda position: move_absolute(
-                axis='T', position=position, wait_until_complete=True
-            ),
-        )
-        # Resync the whole per-camera UI surface from the NEW camera: refresh
-        # the slider caps first (reconnect previously left the gain cap stale,
-        # a blackout risk on a lower-cap camera), then the per-layer ranges +
-        # gates through the single grouping.
-        ctx.max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
-        ctx.max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
-        ctx.image_settings.sync_camera_capability_ranges()
-        # Re-apply the VISIBLE layer (not a hardcoded channel) so its controls
-        # reflect the new camera -- e.g. a non-BF open layer's gain/exposure
-        # sliders get re-enabled when the new camera lacks hardware auto-gain.
-        visible_layer = ctx.image_settings.open_or_default_layer()
-        layer_obj = ctx.image_settings.layer_lookup(layer=visible_layer)
-        layer_obj.apply_settings()
-
-        scope_leds_off()
-
-        # Refresh position display after reconnect (M22)
-        ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
-
-        # Same prompt gate as app startup: reconnect can change which
-        # model is attached, so re-ask only when the objective is
-        # unknowable (never-confirmed install, or the starting position
-        # has no assignment).
-        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
-
-        logger.info('[LVP Main  ] Reconnection complete.')
 
     # load settings from JSON file
     def load_settings(self, filename='./data/current.json'):

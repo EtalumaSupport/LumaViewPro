@@ -643,8 +643,8 @@ class LumaViewProApp(TooltipMixin, App):
                 0,
             )
 
-        # ScopeSession owns startup orchestration so REST API, headless tools, and
-        # the reconnect handler in ui/microscope_settings.py all hit the same path.
+        # ScopeSession owns startup orchestration so REST API, headless tools and
+        # the GUI all hit the same path.
         # The GUI drives motion through the ui_helpers wrappers: they set the
         # window title during the home, and the turret one goes through the
         # widget that also reconciles the objective, spinner and button state.
@@ -1062,8 +1062,6 @@ class LumaViewProApp(TooltipMixin, App):
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
-            disable_homing=disable_homing,
-            simulate_mode=simulate_mode,
             live_view_fps=live_view_fps,
             focus_round=focus_round,
         )

@@ -100,10 +100,9 @@ def _call_linenos(rel_path: str, func_name: str, class_name: str | None = None) 
 class TestAdoptionRunsBeforeTheStamps:
     """Call-order pins: adoption must precede every settings consumer.
 
-    Both stamp paths (startup load_settings and the reconnect path,
-    which never re-runs load_settings) build ScopeInitConfig from
-    settings and push it into scope.initialize(); an adoption that runs
-    after either build stamps the stale objective into runtime state.
+    The bring-up builds ScopeInitConfig from settings and pushes it
+    into scope.initialize(); an adoption that runs after that build
+    stamps the stale objective into runtime state.
     """
 
     def _assert_adopts_before_config(self, rel_path, method_name, class_name, adopt_key):
@@ -125,14 +124,6 @@ class TestAdoptionRunsBeforeTheStamps:
             'configure_scope',
             'ScopeSession',
             'self.adopt_turret_slot1_objective',
-        )
-
-    def test_reconnect_adopts_before_config_build(self):
-        self._assert_adopts_before_config(
-            'ui/microscope_settings.py',
-            'reconnect',
-            'MicroscopeSettings',
-            'ctx.session.adopt_turret_slot1_objective',
         )
 
     def test_startup_session_no_longer_looks_up_the_position(self):

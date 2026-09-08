@@ -3201,7 +3201,7 @@ class ImagingAPI:
         performs the one-time bring-up start and restarts a feed that was
         deliberately stopped. No-op when no camera is attached.
 
-        The UI bring-up calls this in load_settings / reconnect; headless
+        The GUI bring-up calls this from load_settings; headless
         callers (scripts, tests) call it after constructing the scope
         instead of reaching into the private camera driver.
         """

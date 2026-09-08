@@ -461,7 +461,7 @@ _UI_MODULES_IMPORT_PIN = {
     'ui/image_utils_kivy.py': 1,
     'ui/layer_control.py': 14,
     'ui/main_display.py': 8,
-    'ui/microscope_settings.py': 19,
+    'ui/microscope_settings.py': 16,
     'ui/motion_settings.py': 5,
     'ui/notification_popup.py': 4,
     'ui/post_processing.py': 15,
@@ -593,10 +593,10 @@ _GUI_ORCHESTRATION_PIN = {
     ('lumaviewpro.py', 'ScopeSession'): 1,
     ('lumaviewpro.py', 'disconnect'): 1,
     ('ui/main_display.py', 'Lumascope'): 1,
-    ('ui/microscope_settings.py', 'Lumascope'): 1,
-    ('ui/microscope_settings.py', 'disconnect'): 1,
-    ('ui/microscope_settings.py', 'initialize'): 1,
-    ('ui/microscope_settings.py', 'start_streaming'): 2,
+    ('ui/microscope_settings.py', 'Lumascope'): 0,
+    ('ui/microscope_settings.py', 'disconnect'): 0,
+    ('ui/microscope_settings.py', 'initialize'): 0,
+    ('ui/microscope_settings.py', 'start_streaming'): 1,
     ('ui/protocol_settings.py', 'set_labware'): 1,
 }
 

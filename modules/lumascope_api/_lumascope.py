@@ -766,9 +766,9 @@ class Lumascope:
                 frame_width, frame_height = refit['width'], refit['height']
         # A rejection surviving reconciliation is a live hardware fault
         # mid-apply. Each apply is contained individually so one faulted
-        # setting cannot skip the rest of bring-up: the callers of
-        # initialize are the app build and the reconnect button, where a
-        # propagated raise aborts startup entirely (no live view, no
+        # setting cannot skip the rest of bring-up: the caller of
+        # initialize is the session's bring-up, where a propagated raise
+        # aborts startup entirely (no live view, no
         # motion config, no session) over a single transient -- the
         # rejection is already logged AND notified at the API layer, and
         # every downstream consumer reads delivered geometry, never these

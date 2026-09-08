@@ -1,30 +1,29 @@
-"""Regression: reconnect resyncs the whole per-camera UI surface, uniformly.
+"""Regression: the per-camera UI surface resyncs from the camera, uniformly.
 
-Reconnecting to a different camera_type must refresh every per-camera UI cap
-and gate from the NEW camera -- not a drifting subset. Two confirmed gaps this
-pins:
+Every per-camera UI cap and gate must come from the attached camera -- not
+a drifting subset. Two confirmed gaps this pins:
 
-  - The gain-slider cap (ctx.max_gain) was refreshed only in load_settings, so
-    reconnecting from a higher-cap camera to a lower one (e.g. LS850 -> LS620)
-    left the gain slider over-ranged -- the user could drag gain past the
-    usable range and black out the image.
-  - reconnect re-applied settings only for a hardcoded 'BF', so a non-BF open
-    layer's controls (e.g. gain/exposure sliders disabled while the prior
-    camera's auto-gain was on) were never refreshed against the new camera.
+  - The gain-slider cap (ctx.max_gain) was refreshed on only one of two
+    bring-up paths, so a swap from a higher-cap camera to a lower one
+    (e.g. LS850 -> LS620) left the gain slider over-ranged -- the user
+    could drag gain past the usable range and black out the image.
+  - A bring-up path re-applied settings only for a hardcoded 'BF', so a
+    non-BF open layer's controls (e.g. gain/exposure sliders disabled while
+    the prior camera's auto-gain was on) were never refreshed.
 
 The fix:
   - config_helpers.camera_max_exposure_for_ui / camera_max_gain_for_ui are the
     single UI-facing cap resolvers: the live camera's cap, or the documented
-    no-camera default (camera_max_* are None by design then; #616). Both
-    load_settings and reconnect resolve through them so the fallback can't be
-    applied two different ways.
+    no-camera default (camera_max_* are None by design then; #616).
+    load_settings resolves through them so the fallback can't be applied
+    two different ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
     (exposure + gain ranges + autogain gate) AND clamp_layer_settings_to_caps,
     which reconciles each layer's stored gain_db/exposure_ms down to the new caps
-    (the blackout fix, matching load_settings); _init_ui (connect) and reconnect
-    call the SAME grouping.
-  - reconnect refreshes ctx.max_* then re-applies the VISIBLE layer
-    (ImageSettings.open_or_default_layer), not a hardcoded channel.
+    (the blackout fix, matching load_settings); _init_ui (connect) calls that
+    grouping. A scope swap (the auto-reconnect item) re-runs it and re-applies
+    the VISIBLE layer (ImageSettings.open_or_default_layer), never a hardcoded
+    channel -- its acceptance list lives with that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -107,7 +106,7 @@ class TestSyncGrouping:
     def test_clamp_reconciles_stored_gain_and_exposure_to_caps(self):
         # The blackout fix: a stored gain_db/exposure_ms above the new camera's cap
         # must be brought down to the cap (and persisted) for every layer, so a
-        # downshift reconnect can't push an over-cap value that blacks out.
+        # downshift swap can't push an over-cap value that blacks out.
         method = _method_node(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
         clamped = {
             t.slice.value
@@ -148,34 +147,12 @@ class TestSyncGrouping:
         assert returns_bf, 'open_or_default_layer must default to BF when no layer is open.'
 
 
-class TestReconnectResync:
-    """reconnect refreshes caps, regroups the setters, and re-applies the open layer."""
-
-    def test_reconnect_refreshes_both_caps_via_resolvers(self):
-        method = _method_node(MS_PATH, 'reconnect')
-        assert _name_calls(method, 'camera_max_exposure_for_ui'), (
-            'reconnect must refresh ctx.max_exposure from the new camera.'
-        )
-        assert _name_calls(method, 'camera_max_gain_for_ui'), (
-            'reconnect must refresh ctx.max_gain from the new camera (blackout fix).'
-        )
-
-    def test_reconnect_uses_the_grouped_resync(self):
-        method = _method_node(MS_PATH, 'reconnect')
-        assert _attr_calls(method, 'sync_camera_capability_ranges'), (
-            'reconnect must resync the per-layer surface via the same grouping as connect.'
-        )
-
-    def test_reconnect_reapplies_visible_layer_not_hardcoded(self):
-        method = _method_node(MS_PATH, 'reconnect')
-        assert _attr_calls(method, 'open_or_default_layer'), (
-            'reconnect must re-apply the VISIBLE layer (open_or_default_layer), '
-            'not a hardcoded channel.'
-        )
+class TestLoadSettingsResync:
+    """load_settings resolves the caps and the clamp through the shared owners."""
 
     def test_load_settings_uses_the_cap_resolvers(self):
         # The de-fragmentation: load_settings resolves caps through the same
-        # helpers as reconnect, not its own inline `or DEFAULT`.
+        # helpers, not its own inline `or DEFAULT`.
         method = _method_node(MS_PATH, 'load_settings')
         assert _name_calls(method, 'camera_max_exposure_for_ui'), (
             'load_settings must resolve the exposure cap via camera_max_exposure_for_ui.'

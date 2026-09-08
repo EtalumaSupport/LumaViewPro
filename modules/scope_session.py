@@ -816,9 +816,8 @@ class ScopeSession:
         """Make position 1's assignment the session's starting objective.
 
         This method is not part of the L2 API surface: ``configure_scope``
-        calls it once per bring-up, before settings are consumed, and the
-        reconnect handler calls it the same way; an L2 caller changes
-        objectives through the selection surface.
+        calls it once per bring-up, before settings are consumed; an L2
+        caller changes objectives through the selection surface.
 
         Startup leaves the turret at position 1 (homing puts it there),
         so the stored objective_id is a leftover from the previous
