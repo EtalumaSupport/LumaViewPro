@@ -112,6 +112,21 @@
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
+    # The arrow below is painted into the widget's own right edge, so the text
+    # has to be kept out of that gutter -- Kivy draws a Label's texture at full
+    # texture_size centred on the widget, with no clipping, so an over-wide
+    # selection otherwise spills past both edges and straight over the arrow.
+    # All four properties are load-bearing together: text_size alone wraps onto
+    # a second line in a single-line-high box; shorten does nothing unless
+    # text_size[0] is set; and halign must be stated because once text_size is
+    # given the texture is that wide and the default 'auto' renders flush left,
+    # which would shift every short selection ('TIFF', 'mp4', '1x1') sideways.
+    # The reserve is twice the dp(20) gutter because the texture is centred.
+    text_size: self.width - dp(44), None
+    shorten: True
+    shorten_from: 'right'
+    halign: 'center'
+    valign: 'middle'
     canvas.before:
         Color:
             rgba: (0.22, 0.24, 0.28, 1) if self.state == 'normal' else (0.18, 0.20, 0.24, 1)
@@ -2378,7 +2393,7 @@
 				Label:
 					font_size: '12sp'
 					text: 'Image Mode'
-					tooltip_text: 'Pixel depth and how images are saved:\n8-bit; 12-bit scientific (right-aligned, dark in\nWindows); 12-bit scaled (bright everywhere); or\n12-bit false color RGB. 12-bit options appear only\non cameras that support 12-bit capture.'
+					tooltip_text: 'Pixel depth and how images are saved:\n8-bit; 12-bit scientific (right-aligned, dark in\nWindows); 12-bit scaled (bright everywhere); or\n12-bit RGB (false colour). 12-bit options appear only\non cameras that support 12-bit capture.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
