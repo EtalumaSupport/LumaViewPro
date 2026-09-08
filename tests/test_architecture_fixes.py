@@ -460,7 +460,7 @@ _UI_MODULES_IMPORT_PIN = {
     'ui/image_settings.py': 4,
     'ui/image_utils_kivy.py': 1,
     'ui/layer_control.py': 14,
-    'ui/main_display.py': 8,
+    'ui/main_display.py': 6,
     'ui/microscope_settings.py': 16,
     'ui/motion_settings.py': 5,
     'ui/notification_popup.py': 4,
@@ -588,15 +588,15 @@ def _modules_context_read_counts():
 # Pinned at 38f9a81c. Lower a value in the same commit that moves the step
 # into the Session; never raise one.
 _GUI_ORCHESTRATION_PIN = {
-    ('lumaviewpro.py', 'AutofocusRunner'): 1,
-    ('lumaviewpro.py', 'AutofocusThread'): 1,
-    ('lumaviewpro.py', 'ScopeSession'): 1,
+    ('lumaviewpro.py', 'AutofocusRunner'): 0,
+    ('lumaviewpro.py', 'AutofocusThread'): 0,
+    ('lumaviewpro.py', 'ScopeSession'): 0,
     ('lumaviewpro.py', 'disconnect'): 1,
-    ('ui/main_display.py', 'Lumascope'): 1,
+    ('ui/main_display.py', 'Lumascope'): 0,
     ('ui/microscope_settings.py', 'Lumascope'): 0,
     ('ui/microscope_settings.py', 'disconnect'): 0,
     ('ui/microscope_settings.py', 'initialize'): 0,
-    ('ui/microscope_settings.py', 'start_streaming'): 1,
+    ('ui/microscope_settings.py', 'start_streaming'): 0,
     ('ui/protocol_settings.py', 'set_labware'): 1,
 }
 
@@ -604,7 +604,7 @@ _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
     'modules/config_ui_getters.py': 21,
     'modules/derived_output_encoding.py': 3,
-    'modules/executor_registry.py': 1,
+    'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 2,
     'modules/scope_session.py': 1,
 }

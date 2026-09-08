@@ -256,21 +256,9 @@ class MicroscopeSettings(BoxLayout):
 
             # update GUI values from JSON data:
 
-            # Scope auto-detection. The model selector lives in Advanced
-            # Settings; write the detected (or saved) model to the settings
-            # SSOT here, then reconfigure the UI for it (control visibility +
-            # read-only model label + stage redraw, in that order).
-            detected_model = lumaview.scope.diagnostics.get_microscope_model()
-            if detected_model in self.scopes:
-                logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                settings['microscope'] = detected_model
-            else:
-                # Fires whether or not `filename` exists on disk, so naming it
-                # here would be a guess -- report the value actually in effect.
-                logger.info(
-                    f'[LVP Main  ] No scope model reported by hardware; keeping '
-                    f'stored scope selection {settings["microscope"]!r}'
-                )
+            # The Session adopted the model the hardware reports at
+            # bring-up; render it (control visibility + read-only model
+            # label + stage redraw, in that order).
             self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
@@ -344,19 +332,16 @@ class MicroscopeSettings(BoxLayout):
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
-            # handled by scope.initialize() below
+            # was applied by the Session's bring-up
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
 
-            # The settings-to-scope bring-up is the Session's: it adopts the
-            # slot-1 objective (the stored one is only a leftover from the
-            # previous session), selects the labware, and runs
-            # scope.initialize(). It runs BEFORE anything below reads
-            # settings -- the spinner, the optics log and the FOV fields all
-            # derive image scale from the objective it writes -- and the
-            # widgets below read only settings, the objective helper and the
-            # frozen capabilities, none of which initialize changes.
-            ctx.session.configure_scope()
+            # The settings-to-scope bring-up ran in the Session before this
+            # widget existed: the slot-1 objective is adopted (the stored
+            # one is only a leftover from the previous session), the
+            # labware selected, scope.initialize() applied. Everything
+            # below renders settings, the objective helper and the frozen
+            # capabilities, none of which initialize changes.
             objective_id = settings['objective_id']
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
@@ -393,11 +378,6 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_scale_bar_btn'].state = 'down'
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
-
-            # Start gate release (primary startup site): the Session's
-            # configure_scope() above applied the configuration, so open the
-            # gate and fire the single grab.
-            lumaview.scope.imaging.start_streaming()
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])

@@ -20,9 +20,8 @@ instances:
                   FIFO regardless.
 
 The AF lane is intentionally absent from the registry; AutofocusThread
-is constructed in lumaviewpro.py:build() once the Lumascope + the
-AutofocusRunner it drives are available, and lives directly on
-AppContext.
+is constructed by ScopeSession.create once the Lumascope + the
+AutofocusRunner it drives are available, and lives on the session.
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
@@ -118,20 +117,13 @@ def create_default(
             returning the object that carries the ``scope_display`` widget
             and the ``scope`` handle, or None while the host has neither.
             The GUI hands its app context in; a headless host has no
-            display and passes nothing. Until every host hands one in, a
-            missing provider falls back to the app context module.
+            display and passes nothing.
 
     Returns:
         ExecutorBundle with every executor constructed, named, aliased,
         and started. The session that owns the bundle tears it down in
         ``ScopeSession.shutdown()``.
     """
-    if ctx_provider is None:
-        import modules.app_context as _app_ctx
-
-        def ctx_provider():
-            return _app_ctx.ctx
-
     io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
     camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
     # F-2: bounded protocol_queue prevents a save thread that falls

@@ -7,6 +7,7 @@ bring-up or the teardown that used to live in a host and the reason it
 must not come back.
 """
 
+import ast
 import inspect
 import warnings
 from unittest.mock import MagicMock
@@ -234,3 +235,162 @@ class TestScopeOwnershipIsConstructorState:
             assert session._shut_down is False
         finally:
             session.shutdown()
+
+
+# ===========================================================================
+# The GUI takes the factory: build() composes nothing itself, the widget
+# takes the scope, load_settings renders what the Session already did
+# ===========================================================================
+
+
+def _calls(node):
+    return [n for n in ast.walk(node) if isinstance(n, ast.Call)]
+
+
+def _chain(node):
+    out = []
+    value = node
+    while isinstance(value, ast.Attribute):
+        out.append(value.attr)
+        value = value.value
+    if isinstance(value, ast.Name):
+        out.append(value.id)
+    return out
+
+
+class TestTheGuiTakesTheFactory:
+    def test_lumaviewpro_constructs_no_session_directly(self):
+        # The ratchet cannot see this: a call through the factory is an
+        # attribute call, so the scanner's constructor count reads zero
+        # either way. This is the exit criterion for the direct call.
+        build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+        assert build is not None
+        direct = [
+            c.lineno
+            for c in _calls(build)
+            if isinstance(c.func, ast.Name) and c.func.id == 'ScopeSession'
+        ]
+        assert direct == [], f'build() still constructs ScopeSession( directly at {direct}'
+        factory = [
+            c
+            for c in _calls(build)
+            if isinstance(c.func, ast.Attribute)
+            and c.func.attr == 'create'
+            and isinstance(c.func.value, ast.Name)
+            and c.func.value.id == 'ScopeSession'
+        ]
+        assert len(factory) == 1, 'build() composes the session through the one factory'
+        passed = {kw.arg for kw in factory[0].keywords}
+        assert set(HOST_INJECTIONS) <= passed, (
+            f'the host passes every injection by name; missing {set(HOST_INJECTIONS) - passed}'
+        )
+
+    def test_no_ui_module_constructs_a_lumascope(self):
+        hits = []
+        for rel, tree in ast_seams.iter_package_modules(('ui',)):
+            for c in _calls(tree):
+                fn = c.func
+                if (isinstance(fn, ast.Name) and fn.id == 'Lumascope') or (
+                    isinstance(fn, ast.Attribute) and fn.attr == 'Lumascope'
+                ):
+                    hits.append((rel, c.lineno))
+        assert hits == [], f'Lumascope( constructed under ui/ at {hits}'
+
+    def test_the_executor_registry_reaches_no_app_context(self):
+        tree = ast_seams.parse_module('modules/executor_registry.py')
+        hits = [
+            n.lineno
+            for n in ast.walk(tree)
+            if (isinstance(n, ast.Import) and any(a.name == 'modules.app_context' for a in n.names))
+            or (isinstance(n, ast.ImportFrom) and n.module == 'modules.app_context')
+        ]
+        assert hits == [], (
+            f'executor_registry imports modules.app_context at {hits}; the provider is handed in'
+        )
+
+    def test_main_display_takes_the_scope_before_its_own_init(self):
+        init = ast_seams.find_def('ui/main_display.py', '__init__', class_name='MainDisplay')
+        assert init is not None
+        names = [a.arg for a in init.args.args]
+        assert 'scope' in names and 'camera_type' not in names and 'simulate' not in names, names
+        assign = next(
+            (
+                i
+                for i, stmt in enumerate(init.body)
+                if isinstance(stmt, ast.Assign)
+                and any(isinstance(t, ast.Attribute) and t.attr == 'scope' for t in stmt.targets)
+                and isinstance(stmt.value, ast.Name)
+                and stmt.value.id == 'scope'
+            ),
+            None,
+        )
+        super_init = next(
+            (
+                i
+                for i, stmt in enumerate(init.body)
+                if any(
+                    isinstance(c.func, ast.Attribute)
+                    and c.func.attr == '__init__'
+                    and isinstance(c.func.value, ast.Call)
+                    and isinstance(c.func.value.func, ast.Name)
+                    and c.func.value.func.id == 'super'
+                    for c in _calls(stmt)
+                )
+            ),
+            None,
+        )
+        assert assign is not None, 'no `self.scope = scope` in MainDisplay.__init__'
+        assert super_init is not None and assign < super_init, (
+            'the scope goes on before the kv tree is built'
+        )
+
+    def test_the_context_handles_are_the_sessions_objects(self):
+        build = ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+        ctx_calls = [
+            c for c in _calls(build) if isinstance(c.func, ast.Name) and c.func.id == 'AppContext'
+        ]
+        assert len(ctx_calls) == 1
+        composed = {
+            'scope',
+            'io_executor',
+            'camera_executor',
+            'file_io_executor',
+            'worker_pool',
+            'protocol_thread',
+            'scope_display_thread',
+            'autofocus_thread',
+            'autofocus_runner',
+            'sequenced_capture_runner',
+            'wellplate_loader',
+            'coordinate_transformer',
+            'objective_helper',
+        }
+        wrong = [
+            (kw.arg, ast.unparse(kw.value))
+            for kw in ctx_calls[0].keywords
+            if kw.arg in composed and 'scope_session' not in _chain(kw.value)
+        ]
+        assert wrong == [], f'context handles not read off the session: {wrong}'
+        seen = {kw.arg for kw in ctx_calls[0].keywords}
+        assert composed <= seen, f'the context lost a handle: {composed - seen}'
+
+    def test_the_context_has_no_field_only_the_dead_handler_read(self):
+        from modules.app_context import AppContext
+
+        fields = set(AppContext.__dataclass_fields__)
+        assert 'simulate_mode' not in fields and 'disable_homing' not in fields
+
+    def test_load_settings_renders_and_no_longer_brings_up(self):
+        load = ast_seams.find_def(
+            'ui/microscope_settings.py', 'load_settings', class_name='MicroscopeSettings'
+        )
+        assert load is not None
+        hits = sorted(
+            {c.func.attr for c in _calls(load) if isinstance(c.func, ast.Attribute)}
+            & {'get_microscope_model', 'configure_scope', 'start_streaming'}
+        )
+        assert hits == [], f'load_settings still runs bring-up steps: {hits}'
+        assert any(
+            isinstance(c.func, ast.Attribute) and c.func.attr == 'reconfigure_for_scope'
+            for c in _calls(load)
+        ), 'load_settings renders the model the Session wrote'

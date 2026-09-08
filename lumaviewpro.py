@@ -113,15 +113,10 @@ if __name__ == '__main__':
     import modules.app_context as app_context
     import modules.common_utils as common_utils
     import modules.config_helpers as config_helpers
-    import modules.coord_transformations as coord_transformations
-    import modules.labware_loader as labware_loader
     import modules.lvp_lock as lvp_lock
-    import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
     from modules.plugins import fire_settings_save_hooks
-    from modules.autofocus_runner import AutofocusRunner
-    from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
 
     global profiling_helper
@@ -901,11 +896,11 @@ class LumaViewProApp(TooltipMixin, App):
         stage = Stage()
 
         # Wire NotificationCenter to UI popups BEFORE any hardware init.
-        # MainDisplay() below constructs Lumascope -> LED/motor boards
-        # -> connect(), which can fire notifications.error() for silent-
-        # board detection or any other early hardware failure. If the
-        # listener is registered AFTER hardware init, those early errors
-        # go to the log but never reach the user as popups.
+        # The session factory below constructs Lumascope -> LED/motor
+        # boards -> connect(), which can fire notifications.error() for
+        # silent-board detection or any other early hardware failure. If
+        # the listener is registered AFTER hardware init, those early
+        # errors go to the log but never reach the user as popups.
         from modules.notification_center import Severity, notifications
 
         from ui.notification_popup import notification_popup_bridge
@@ -943,45 +938,46 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as _e:
                     logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
             Window.bind(focus=self._on_window_focus)
-            # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
-            # -> FX2). The legacy settings['camera_type'] field is vestigial.
-            lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
+
+            # Clock.schedule_once is the UI dispatcher: the executor lanes
+            # post callbacks to the Kivy main thread without importing
+            # Kivy themselves.
+            from kivy.clock import Clock
+
+            _ui = Clock.schedule_once
+
+            # Also set the global dispatcher for kivy_utils.schedule_ui()
+            from modules.kivy_utils import set_ui_dispatcher
+
+            set_ui_dispatcher(_ui)
+
+            # The Session composes the instrument -- the scope (the camera
+            # registry picks by priority, Pylon -> IDS -> FX2), the three
+            # data-file helpers, the executor topology and the autofocus
+            # pair -- and brings the scope up (configure from settings,
+            # then release the camera start gate) before it returns. What
+            # only this host knows goes in by name. The pre-release
+            # warning is gated off: the GUI ships in the same commit as
+            # the API, so it has nothing to tell it and would only reach
+            # the user's console. A raise inside the factory tears down
+            # what it had started before it reaches here.
+            scope_session = ScopeSession.create(
+                settings=settings,
+                source_path=source_path,
+                simulate=simulate_mode,
+                warn_pre_release=False,
+                ui_dispatcher=_ui,
+                af_ui_update_func=_handle_autofocus_ui,
+                settings_saved_hook=_notify_plugins_of_settings_save,
+                engineering_mode=ENGINEERING_MODE,
+                display_ctx_provider=lambda: app_context.ctx,
+            )
+            lumaview = MainDisplay(scope=scope_session.scope)
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
         except Exception:
-            logger.exception('[LVP Main  ] Cannot open main display.')
+            logger.exception('[LVP Main  ] Cannot compose the session or open the main display.')
             raise
-
-        # load labware file
-        wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
-        coordinate_transformer = coord_transformations.CoordinateTransformer()
-
-        objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
-
-        # ExecutorRegistry.create_default constructs all SequentialIOExecutor
-        # lanes (plus stage and turret aliases) and the protocol_thread, then
-        # starts them; every entry point shares this topology so the watchdog
-        # snapshot and engineering plugin see one truth.
-        # Clock.schedule_once is passed as the UI dispatcher so executors can post
-        # callbacks to the Kivy main thread without importing Kivy themselves.
-        from kivy.clock import Clock
-
-        _ui = Clock.schedule_once
-
-        # Also set the global dispatcher for kivy_utils.schedule_ui()
-        from modules.kivy_utils import set_ui_dispatcher
-
-        set_ui_dispatcher(_ui)
-
-        from modules.executor_registry import create_default as _create_executors
-
-        executor_bundle = _create_executors(_ui)
-        io_executor = executor_bundle.io_executor
-        camera_executor = executor_bundle.camera_executor
-        protocol_thread = executor_bundle.protocol_thread
-        file_io_executor = executor_bundle.file_io_executor
-        scope_display_thread = executor_bundle.scope_display_thread
-        worker_pool = executor_bundle.worker_pool
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.
@@ -989,71 +985,27 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        autofocus_runner = AutofocusRunner(
-            scope=lumaview.scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
-            ui_update_func=_handle_autofocus_ui,
-        )
-
-        # AutofocusThread owns the actual AF worker thread; AFE is the
-        # per-iteration state machine the thread drives. Construct after
-        # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
-        # of the thread except via the abort_event passed to run()).
-        autofocus_thread = AutofocusThread(afe=autofocus_runner)
-        autofocus_thread.start()
-
-        # GUI-independent scope session; persisted to ctx.session so
-        # other methods read off ctx. The session composes the ONE
-        # sequenced-capture engine from the injected executors, AF
-        # pair, and protocol thread -- and its run-state derivations
-        # need the file-drain fact, so the FILE executor handle rides
-        # the injection list too. Constructing the session also services
-        # the scope (executor registration, bundle, source path) -- the
-        # session owns scope bring-up so a reconnect-built scope gets
-        # the identical servicing through set_scope. The bundle is
-        # handed over for that servicing only; this host keeps teardown
-        # (shutdown_threads), which is why owns_executors stays False.
-        scope_session = ScopeSession(
-            settings=settings,
-            scope=lumaview.scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            file_io_executor=file_io_executor,
-            protocol_thread=protocol_thread,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            z_ui_update_func=_handle_autofocus_ui,
-            settings_saved_hook=_notify_plugins_of_settings_save,
-            engineering_mode=ENGINEERING_MODE,
-        )
-        sequenced_capture_runner = scope_session.sequenced_capture_runner
-
-        # Create AppContext -- central service registry
+        # Create AppContext -- central service registry. Every handle is
+        # the session's object, read off it: one store, no second
+        # construction.
         ctx = AppContext(
-            scope=lumaview.scope,
+            scope=scope_session.scope,
             lumaview=lumaview,
             session=scope_session,
-            sequenced_capture_runner=sequenced_capture_runner,
-            autofocus_runner=autofocus_runner,
+            sequenced_capture_runner=scope_session.sequenced_capture_runner,
+            autofocus_runner=scope_session.autofocus_runner,
             version=version,
             source_path=source_path,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            protocol_thread=protocol_thread,
-            file_io_executor=file_io_executor,
-            autofocus_thread=autofocus_thread,
-            scope_display_thread=scope_display_thread,
-            worker_pool=worker_pool,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
+            io_executor=scope_session.io_executor,
+            camera_executor=scope_session.camera_executor,
+            protocol_thread=scope_session.protocol_thread,
+            file_io_executor=scope_session.file_io_executor,
+            autofocus_thread=scope_session.autofocus_thread,
+            scope_display_thread=scope_session.executor_bundle.scope_display_thread,
+            worker_pool=scope_session.executor_bundle.worker_pool,
+            wellplate_loader=scope_session.wellplate_loader,
+            coordinate_transformer=scope_session.coordinate_transformer,
+            objective_helper=scope_session.objective_helper,
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
@@ -1181,9 +1133,9 @@ class LumaViewProApp(TooltipMixin, App):
         enable_engineering_logs(ctx.engineering_mode)
 
         # NotificationCenter -> UI popup bridge was registered at the
-        # top of build(), BEFORE MainDisplay() / Lumascope() / hardware
-        # init, so any early hardware errors surface as popups instead
-        # of being logged-only.
+        # top of build(), BEFORE the session factory / Lumascope() /
+        # hardware init, so any early hardware errors surface as popups
+        # instead of being logged-only.
 
         # CPU profiling -- enabled via cprofile_enabled in settings.json,
         # independent of debug_mode (which otherwise silently started a
