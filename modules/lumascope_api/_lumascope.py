@@ -357,13 +357,17 @@ class Lumascope:
                 which axes the simulated scope presents -- an LS850 has
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
-                False; defaults to the 'microscope' setting then 'LS850T'.
+                False; defaults to ``configured_model``, then the
+                'microscope' setting, then 'LS850T'.
             configured_model: The scope model selected in settings, for
                 units whose hardware cannot report one (the Classic/FX2
                 line has no motor board to ask). Optional: a
                 motor-reported model always wins over it (hardware truth
                 outranks a user selection), so callers on self-reporting
-                or simulated hardware construct unchanged. Left None on
+                hardware construct unchanged. A SIMULATED scope reports
+                this as its model (a declared 'LS850' has no turret
+                axis), so the driver and the selection agree from
+                construction. Left None on
                 a unit that also reports no model, layer identity
                 resolves empty and LED use fails loudly by name rather
                 than silently guessing.
@@ -405,7 +409,7 @@ class Lumascope:
             from modules.settings_init import settings
 
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
-            motor_kwargs['model'] = sim_model or default_model
+            motor_kwargs['model'] = sim_model or configured_model or default_model
         self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )

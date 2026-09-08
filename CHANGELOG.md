@@ -2,6 +2,43 @@
 
 ## 4.0.0 (in development)
 
+- **`ScopeSession.create` takes the host's injections as keyword arguments (SDK)**:
+  the factory signature is now
+  `create(settings, source_path='.', scope=None, io_executor=None, camera_executor=None, *, simulate=False, ui_dispatcher=None, af_ui_update_func=None, settings_saved_hook=None, engineering_mode=False, display_ctx_provider=None)`.
+  `simulate=True` builds a simulated scope declared with `settings['microscope']`;
+  `ui_dispatcher` is a `Clock.schedule_once(func, dt)`-shaped callable that marshals
+  the four executor lanes' callbacks onto the host's UI thread (None runs them
+  inline on the worker, which is the headless form); `af_ui_update_func(pos)` is
+  the Z readout for the autofocus runner AND the capture engine (one callable,
+  two consumers); `settings_saved_hook(settings_snapshot)` fires after a successful
+  `save_settings` with the dict that was written; `engineering_mode` is stored on
+  the session; `display_ctx_provider` is HOST-ONLY (the Kivy display thread) and is
+  not an L2 parameter. `create_headless(settings=None, source_path='.', engineering_mode=False)`
+  keeps its signature and is now exactly `create(simulate=True)` with the settings
+  resolved from disk when none are passed.
+
+  **Breaking for SDK callers**: (a) `session.shutdown()` now turns the LEDs off,
+  stops motion and DISCONNECTS a scope the factory built (`create` with no `scope=`,
+  or `create_headless`) -- afterwards `scope.no_hardware` is True,
+  `scope.imaging.is_streaming()` is False and `scope.diagnostics.get_microscope_model()`
+  returns None; a caller-passed scope (`create(..., scope=my_scope)`) is untouched and
+  stays the caller's to disconnect, as do both scopes after `session.set_scope(...)`,
+  and a second `shutdown()` logs one info line and does nothing. (b) `configure_scope()`
+  asks the motor board for its model first and WRITES a catalogued reported model into
+  the caller's `settings['microscope']` when it differs from the stored selection
+  (hardware truth outranks the selection) -- this includes a simulated scope, so a
+  caller's settings dict can come back changed; an uncatalogued or absent report leaves
+  the stored model. (c) A simulated scope now reports its DECLARED model, so
+  `Lumascope(simulate=True, configured_model='LS850')` reports `LS850` and therefore has
+  NO turret axis -- `create_headless(settings=...)` against the shipped template's
+  `LS850` loses the turret the old code reported by accident; a bare
+  `Lumascope(simulate=True)` still reports the module-global default. (d)
+  `start_executors` is internal (not part of the L2 API surface): the factories start
+  the lanes they build, and calling it again silently spawns a SECOND worker thread on
+  each lane -- drop it from every recipe that follows a factory. (e) With caller-passed
+  lanes (`io_executor=` / `camera_executor=`) and a factory-built scope, the LED drain
+  at shutdown runs on the caller's io lane only while that lane's worker thread is
+  alive, then the caller's lanes are shut down with wait.
 - **Session factories configure the scope they build (SDK)**: `ScopeSession.create`
   (when it builds the scope) and `create_headless` now run the settings-to-scope
   bring-up -- turret slot keys normalized, slot-1 objective adopted, labware

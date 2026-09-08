@@ -119,7 +119,7 @@ Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
 
 ### Layer identity
 
-Every scope resolves its **layer identity** at construction — what the layers on this unit ARE: stable key name, display name, LED board address, excitation wavelength, plus the unit's filterset. It resolves from the unit's own configuration when one exists, else from the model's entry; a motor-reported model always outranks `configured_model` (hardware truth beats a selection), and `configured_model` serves models whose hardware cannot report one (the Classic/FX2 line).
+Every scope resolves its **layer identity** at construction — what the layers on this unit ARE: stable key name, display name, LED board address, excitation wavelength, plus the unit's filterset. It resolves from the unit's own configuration when one exists, else from the model's entry; a motor-reported model always outranks `configured_model` (hardware truth beats a selection), and `configured_model` serves models whose hardware cannot report one (the Classic/FX2 line). A simulated scope reports the model it was DECLARED with, so the simulated motor board below reports `LS560` and the layers resolve exactly as that model's catalogue entry says.
 
 ```python
 scope = Lumascope(simulate=True, configured_model='LS560')
@@ -243,20 +243,40 @@ from modules.scope_session import ScopeSession
 # source) and populates the module-global settings dict.
 settings_init.load_lvp_settings(logger, '.')
 session = ScopeSession.create(settings=settings_init.settings, source_path='.')
-session.start_executors()
 ```
 
-The session comes back **configured**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the slot-1 objective adopted, labware selected, `scope.initialize(...)` applied) and releases the camera start gate, so `save_image` works without a further `initialize`. Note the order: hardware is touched inside `create`, before `start_executors()`. If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself.
+The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the slot-1 objective adopted, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes. Do not call `session.start_executors()` after a factory: it is internal, and a second start spawns a second worker thread on each lane with no error. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
+
+`create` takes the host's injections as named keyword arguments; every one of them is optional, and the headless form passes none of them.
+
+```python
+session = ScopeSession.create(
+    settings=settings_init.settings,
+    source_path='.',
+    simulate=False,                         # True builds a simulated scope instead of opening hardware
+    ui_dispatcher=None,                     # host UI marshaling, Clock.schedule_once(func, dt)'s shape;
+                                            # None runs executor callbacks inline on the worker (headless)
+    af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
+    settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
+    engineering_mode=False,                 # stored on the session
+)
+```
+
+`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset. `create_headless()` is `create(simulate=True)` with the settings resolved from disk when you pass none.
+
+If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself.
 
 ```python
 session = ScopeSession.create(settings=settings_init.settings, scope=my_scope)
-session.configure_scope()                 # your scope, your bring-up
+session.configure_scope()                 # your scope, your bring-up; may rewrite settings['microscope']
 session.scope.imaging.start_streaming()
 ```
 
+`configure_scope()` asks the motor board which model it is before anything else. When the board reports a model the catalogue (`scopes.json` `Models`) knows and it differs from `settings['microscope']`, the reported model is WRITTEN into the settings dict you passed and logged — hardware truth outranks the stored selection, so your dict can come back changed. A reported model outside the catalogue, or none at all (no motor board), leaves the stored model alone. The scope is yours, so the disconnect is yours too: `session.shutdown()` will not touch a scope it did not build.
+
 Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -264,10 +284,9 @@ For **simulated** (no hardware needed, development / CI):
 from modules.scope_session import ScopeSession
 
 session = ScopeSession.create_headless()
-session.start_executors()
 ```
 
-`create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you, configures the scope from settings and releases the start gate, so the session it returns can capture and save. `source_path` defaults to the process CWD, which must be an LVP installation root (a `data/` directory with `settings.json`); otherwise it raises `ConfigError` naming the root. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason.
+`create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you, configures the scope from settings and releases the start gate, so the session it returns can capture and save. `source_path` defaults to the process CWD, which must be an LVP installation root (a `data/` directory with `settings.json`); otherwise it raises `ConfigError` naming the root. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason: a bare simulated scope reports the module-global model (`settings['microscope']` when settings are loaded, else `'LS850T'`) unless you pass `configured_model=` yourself, so the bring-up may adopt a model you did not intend.
 
 ### Application startup sequence
 
@@ -492,15 +511,25 @@ session.get_enabled_stim_configs()       # only the enabled ones
 
 ```python
 # After a hardware reconnect, rewire the SAME session onto the new scope --
-# executors, metrics, and the run machinery follow automatically:
+# executors, metrics, and the run machinery follow automatically. After the
+# swap the session owns NEITHER scope: disconnect the old one and the new
+# one yourself.
 session.set_scope(new_scope)
 ```
 
 ### Cleanup
 
 ```python
-session.shutdown()               # full teardown of everything the session constructed
-# or piecewise:
+# Full teardown of everything the session constructed. On a scope the FACTORY
+# built (create() with no scope=, or create_headless()): LEDs off, motion
+# stopped, scope disconnected, executor lanes and their threads down. Reading
+# that scope afterwards: no_hardware is True, imaging.is_streaming() is False,
+# diagnostics.get_microscope_model() is None. A second shutdown() logs one
+# info line and does nothing.
+session.shutdown()
+
+# Piecewise -- the form for a scope YOU passed as create(scope=...): shutdown()
+# leaves a caller-passed scope connected, so the disconnect is yours.
 session.shutdown_executors()
 session.scope.disconnect()
 ```
@@ -707,8 +736,8 @@ driver is `scope.imaging._driver` (private; reach through the API).
 
 ```python
 # Streaming control. connect() returns the camera CONFIGURED but NOT
-# grabbing; capture/get_image need a live feed, so start it first. The GUI
-# and the Session factories do this at bring-up, after initialize; a bare
+# grabbing; capture/get_image need a live feed, so start it first. The
+# Session factories release the gate at bring-up, after initialize; a bare
 # Lumascope you constructed yourself needs the explicit call.
 scope.imaging.start_streaming()   # begin the live feed (idempotent; also
                                   # restarts a feed stopped via stop_streaming)
@@ -1467,8 +1496,7 @@ scope.illumination.leds_off()
 from modules.scope_session import ScopeSession
 from modules.protocol import Protocol
 
-session = ScopeSession.create_headless()    # simulated, configured; CWD must be an LVP root. create(settings=…) for hardware
-session.start_executors()
+session = ScopeSession.create_headless()    # simulated, configured, executors running; CWD must be an LVP root. create(settings=…) for hardware
 
 protocol = Protocol.from_file(
     file_path='./my_protocol.tsv',
@@ -1482,8 +1510,7 @@ runner.run_single_scan(
 )
 runner.wait_for_completion()
 
-session.shutdown_executors()
-session.scope.disconnect()
+session.shutdown()          # the factory built this scope, so shutdown() disconnects it
 ```
 
 ---

@@ -23,14 +23,15 @@ import os
 import threading
 import time
 import typing
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.common_utils import CustomJSONizer
-from modules.exceptions import SettingsSaveRefusedError, ConfigError
+from modules.exceptions import ConfigError, SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
@@ -98,6 +99,7 @@ class ScopeSession:
         autofocus_thread=None,
         z_ui_update_func=None,
         owns_executors: bool = False,
+        owns_scope: bool = False,
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
         engineering_mode: bool = False,
@@ -133,6 +135,11 @@ class ScopeSession:
         # thread in the GUI): a threaded host must serialize
         # start_metrics / stop_metrics / set_scope itself.
         self._metrics_started = False
+        # Whether a shutdown() pass has COMPLETED. Written True as the last
+        # statement of that pass, so a pass that raised part-way leaves a
+        # retry possible; read at entry to make the second call a logged
+        # no-op. Host-serialized like the metrics flag.
+        self._shut_down = False
         self.io_executor = io_executor
         self.camera_executor = camera_executor
         self.wellplate_loader = wellplate_loader
@@ -153,6 +160,14 @@ class ScopeSession:
         # host-composed session tear down its host's executors.
         self.executor_bundle = executor_bundle
         self._owns_executors = owns_executors
+        # The same fact for the scope: True only when a factory BUILT it,
+        # False for a scope a host passed in or swapped in with set_scope.
+        # Decides whether shutdown() runs the hardware half (LEDs off,
+        # motion stopped, disconnect). Coupled to the object here, at
+        # construction, because _abandon() can run before a factory
+        # returns and a directly constructed session calls shutdown()
+        # too -- a flag patched on afterwards would miss both.
+        self._owns_scope = owns_scope
         # The canonical file-IO executor lives on the bundle; expose it here
         # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
         # source the one shared FILE executor instead of constructing a
@@ -407,28 +422,71 @@ class ScopeSession:
         scope: object | None = None,
         io_executor: 'SequentialIOExecutor | None' = None,
         camera_executor: 'SequentialIOExecutor | None' = None,
+        *,
+        simulate: bool = False,
+        warn_pre_release: bool = True,
+        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
+        af_ui_update_func: Callable[[float], None] | None = None,
+        settings_saved_hook: Callable[[dict], None] | None = None,
+        engineering_mode: bool = False,
+        display_ctx_provider: Callable[[], Any] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
-        This is the main entry point.  Pass in existing objects when the GUI
-        has already created them, or omit them for headless / script use.
+        This is the one composition path: the GUI, REST and scripts all
+        build their session here, passing what only a host knows as the
+        keyword arguments below. Pass ``scope`` or the two lanes to reuse
+        objects you built; omit them and the factory builds and starts
+        them.
 
         When io_executor / camera_executor are omitted, the full production
         executor bundle is built via executor_registry.create_default so L2
-        callers get the same topology lumaviewpro.py runs: IO + CAMERA +
-        FILE + WORKER_POOL executors plus protocol_thread (started) and
+        callers get the same topology the GUI runs: IO + CAMERA + FILE +
+        WORKER_POOL executors plus protocol_thread (started) and
         scope_display_thread (constructed, not started). When callers pass
-        executor handles in, those are used and no bundle is created.
+        executor handles in, those are used and no bundle is created; a
+        lane the caller did not pass is constructed here and never started.
+
+        A scope the factory builds is brought up before this returns
+        (``configure_scope``, then the camera start gate released) and is
+        torn down by ``shutdown()``; a scope passed in is the caller's
+        bring-up and the caller's teardown.
+
+        Keyword arguments, each with the one consumer it feeds:
+            simulate: build a simulated scope (the model from
+                ``settings['microscope']``). Ignored when ``scope`` is passed.
+            warn_pre_release: whether this construction fires the
+                pre-release FutureWarning -- the factory's own call and the
+                scope constructor's. A host that ships with the API passes
+                False; a separately shipped caller leaves the default.
+            ui_dispatcher: ``schedule_once(func, dt)``'s shape; the four
+                lanes marshal their callbacks through it. None runs them
+                inline on the worker.
+            af_ui_update_func: ``(pos) -> None``; the autofocus runner's
+                ``ui_update_func`` and the capture engine's
+                ``z_ui_update_func`` -- one callable, both consumers.
+            settings_saved_hook: called with the snapshot after a
+                successful ``save_settings``.
+            engineering_mode: stored on the session as the mode it was
+                built in.
+            display_ctx_provider: the display thread's context provider
+                (host-only: the GUI's app context; None for a host with
+                no display).
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
 
-        _fire_pre_release_warning()
+        if warn_pre_release:
+            _fire_pre_release_warning()
 
         built_scope = False
         if scope is None:
             import modules.lumascope_api as lumascope_api
 
-            scope = lumascope_api.Lumascope(configured_model=settings.get('microscope'))
+            scope = lumascope_api.Lumascope(
+                simulate=simulate,
+                warn_pre_release=warn_pre_release,
+                configured_model=settings.get('microscope'),
+            )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,
             # for a scope THIS factory built. A scope passed in by a caller
@@ -440,16 +498,18 @@ class ScopeSession:
         if io_executor is None and camera_executor is None:
             from modules.executor_registry import create_default
 
-            executor_bundle = create_default(ui_dispatcher=None)
+            executor_bundle = create_default(
+                ui_dispatcher=ui_dispatcher, ctx_provider=display_ctx_provider
+            )
             io_executor = executor_bundle.io_executor
             camera_executor = executor_bundle.camera_executor
         else:
             from modules.sequential_io_executor import SequentialIOExecutor
 
             if io_executor is None:
-                io_executor = SequentialIOExecutor(name='IO')
+                io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
             if camera_executor is None:
-                camera_executor = SequentialIOExecutor(name='CAMERA')
+                camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
 
         # Service registration (executors, bundle, source path) happens in
         # __init__ for every session-composed scope -- nothing here.
@@ -461,8 +521,12 @@ class ScopeSession:
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+            ui_update_func=af_ui_update_func,
         )
 
+        # Both ownership facts go in HERE, before _bring_up can call
+        # _abandon on a refusal: a session torn down mid-factory must
+        # already know what it owns.
         session = cls(
             settings=settings,
             scope=scope,
@@ -475,7 +539,11 @@ class ScopeSession:
             executor_bundle=executor_bundle,
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
+            z_ui_update_func=af_ui_update_func,
+            owns_scope=built_scope,
             owns_executors=executor_bundle is not None,
+            settings_saved_hook=settings_saved_hook,
+            engineering_mode=engineering_mode,
         )
         if built_scope:
             cls._bring_up(session)
@@ -493,17 +561,10 @@ class ScopeSession:
         Convenience factory for REST API, CLI scripts, and tests.
         Uses simulated drivers so no physical hardware is needed.
 
-        Builds the full production executor topology (IO + CAMERA + FILE +
-        WORKER_POOL + protocol_thread + scope_display_thread) so headless
-        callers get the same pipelining as lumaviewpro.py instead of a
-        degraded 2-executor subset.
+        This is ``create(simulate=True)`` with the settings resolved from
+        disk when none are passed; the topology, the bring-up and the
+        teardown are ``create``'s.
         """
-        from modules.lumascope_api._lumascope import _fire_pre_release_warning
-        from modules.executor_registry import create_default
-        import modules.lumascope_api as lumascope_api
-
-        _fire_pre_release_warning()
-
         if settings is None:
             from modules.settings_init import settings as default_settings
 
@@ -534,38 +595,12 @@ class ScopeSession:
                         'installation root; pass source_path or run from one'
                     ) from e
 
-        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
-        wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
-
-        executor_bundle = create_default(ui_dispatcher=None)
-
-        # Service registration (executors, bundle, source path) happens in
-        # __init__ for every session-composed scope -- nothing here.
-
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            camera_executor=executor_bundle.camera_executor,
-            io_executor=executor_bundle.io_executor,
-            file_io_executor=executor_bundle.file_io_executor,
-        )
-
-        session = cls(
-            settings=settings,
-            scope=scope,
-            io_executor=executor_bundle.io_executor,
-            camera_executor=executor_bundle.camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
+        return cls.create(
+            settings,
             source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            owns_executors=True,
+            simulate=True,
             engineering_mode=engineering_mode,
         )
-        cls._bring_up(session)
-        return session
 
     @staticmethod
     def _build_helpers(source_path: str) -> tuple:
@@ -652,6 +687,9 @@ class ScopeSession:
             session._abandon()
             session.scope.disconnect()
             raise
+        # The one marker for "the camera is grabbing and the session is
+        # up": a host measures its own consumer's start against it.
+        logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
 
     def _abandon(self) -> None:
         """Stop what a factory started for a session it will not return.
@@ -669,9 +707,12 @@ class ScopeSession:
             self.autofocus_thread.stop(timeout=2.0)
 
     @staticmethod
-    def _build_autofocus_pair(*, scope, camera_executor, io_executor, file_io_executor):
+    def _build_autofocus_pair(
+        *, scope, camera_executor, io_executor, file_io_executor, ui_update_func=None
+    ):
         """Real AF runner + started AF thread for a factory-built session,
-        so headless AF-bearing runs get the same wiring the GUI composes."""
+        so every host gets the same wiring; ``ui_update_func`` is the
+        host's Z-position renderer, None for a host with no display."""
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
 
@@ -680,6 +721,7 @@ class ScopeSession:
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
+            ui_update_func=ui_update_func,
         )
         autofocus_thread = AutofocusThread(afe=autofocus_runner)
         autofocus_thread.start()
@@ -753,9 +795,13 @@ class ScopeSession:
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
-        Once, after construction, on a real scope: normalize the turret slot
-        keys a caller-supplied dict may still carry as JSON strings, resolve
-        the declared model's catalogue entry, adopt the slot-1 objective,
+        Once, after construction, on a real scope: adopt the model the
+        hardware reports when the catalogue knows it (a WRITE into this
+        session's ``settings['microscope']`` -- hardware truth outranks
+        the stored selection; a model outside the catalogue, or no motor
+        board to ask, leaves the stored one), normalize the turret slot
+        keys a caller-supplied dict may still carry as JSON strings,
+        resolve the model's catalogue entry, adopt the slot-1 objective,
         select the labware, build the init config and run
         ``Lumascope.initialize``. The factories run this for the scope they
         build; a host that constructs the session directly, or hands
@@ -773,12 +819,33 @@ class ScopeSession:
         from modules import layer_record
         from modules.scope_init_config import ScopeInitConfig
 
+        # The catalogue first: its refusal must land before anything below
+        # mutates the caller's dict.
+        scope_models = layer_record.load_scope_models()
+        # The hardware's own model outranks the stored selection, and it
+        # has to land before the two reads of the selection below, or a
+        # unit whose file says the wrong model configures for the wrong
+        # axes. The motor driver caches its identity at connect, so the
+        # read is synchronous; no board (or a board with no model) reports
+        # None and the stored selection stands.
+        detected = self.scope.diagnostics.get_microscope_model()
+        stored = self.settings.get('microscope')
+        if detected is not None and detected in scope_models and detected != stored:
+            self.update_settings('microscope', detected)
+            logger.info(
+                f'[Session  ] scope reports model {detected}; settings said {stored!r} '
+                '-- the hardware wins'
+            )
+        elif detected is not None and detected not in scope_models:
+            logger.info(
+                f'[Session  ] scope reports model {detected}, not in the catalogue; '
+                f'the stored model {stored!r} stands'
+            )
         # A caller-supplied dict never went through prepare_settings, whose
         # normalizer is the one boundary between the file's string slot keys
         # and the runtime's ints; without it the adoption below reads slot 1
         # as unassigned and silently keeps the stored objective.
         settings_init._normalize_turret_slot_keys(self.settings)
-        scope_models = layer_record.load_scope_models()
         scope_config = scope_models.get(self.settings.get('microscope'))
         self.adopt_turret_slot1_objective(
             model_has_turret=config_helpers.model_has_turret(scope_models, self.settings)
@@ -1226,7 +1293,13 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     def start_executors(self) -> None:
-        """Start the IO and camera executors."""
+        """Start the IO and camera lanes.
+
+        This method is not part of the L2 API surface: the factories start
+        the lanes they build, and a host that hands its own lanes in starts
+        them itself. A second start on a running lane spawns a second
+        worker thread beside the first.
+        """
         self.io_executor.start()
         self.camera_executor.start()
 

@@ -103,24 +103,34 @@ class ExecutorBundle:
         return out
 
 
-def create_default(ui_dispatcher: Callable[[Callable, float], Any] | None) -> ExecutorBundle:
+def create_default(
+    ui_dispatcher: Callable[[Callable, float], Any] | None,
+    ctx_provider: Callable[[], Any] | None = None,
+) -> ExecutorBundle:
     """Construct + start the standard LVP executor topology.
 
     Args:
         ui_dispatcher: Callable matching ``Clock.schedule_once(func, dt)``
             so executors can hand callbacks back to the GUI thread without
             importing Kivy (executors stay GUI-agnostic). Headless callers
-            pass a direct
-            dispatcher (the executor's default is fine for tests; this
-            method requires an explicit dispatcher to make the lifecycle
-            obvious).
+            pass None and callbacks run inline on the worker.
+        ctx_provider: The display thread's context provider -- a callable
+            returning the object that carries the ``scope_display`` widget
+            and the ``scope`` handle, or None while the host has neither.
+            The GUI hands its app context in; a headless host has no
+            display and passes nothing. Until every host hands one in, a
+            missing provider falls back to the app context module.
 
     Returns:
         ExecutorBundle with every executor constructed, named, aliased,
-        and started. Caller is responsible for calling ``shutdown()`` /
-        ``shutdown_threads()`` at app teardown.
+        and started. The session that owns the bundle tears it down in
+        ``ScopeSession.shutdown()``.
     """
-    import modules.app_context as _app_ctx
+    if ctx_provider is None:
+        import modules.app_context as _app_ctx
+
+        def ctx_provider():
+            return _app_ctx.ctx
 
     io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
     camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
@@ -131,11 +141,10 @@ def create_default(ui_dispatcher: Callable[[Callable, float], Any] | None) -> Ex
         ui_dispatcher=ui_dispatcher,
         protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE,
     )
-    # Thread is constructed here but NOT started. Start happens in
-    # lumaviewpro.py:build() after ctx.scope_display (widget) and
-    # ctx.scope_display_thread (this) are both wired into ctx;
-    # starting earlier races the ctx wiring and silently no-ops.
-    scope_display_thread = ScopeDisplayThread(ctx_provider=lambda: _app_ctx.ctx)
+    # Thread is constructed here but NOT started. The host starts it once
+    # its display widget and this thread are both reachable through the
+    # provider; starting earlier races that wiring and silently no-ops.
+    scope_display_thread = ScopeDisplayThread(ctx_provider=ctx_provider)
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
     protocol_thread = ProtocolThread()

@@ -203,3 +203,18 @@ def test_the_two_lanes_do_not_close_each_others_episodes():
             ex.protocol_put(IOTask(action=lambda: None))  # accepted
         lines = _episode_lines(mock_logger)
         assert len(lines) == 1, f"the accepting lane reopened the fenced lane's episode: {lines}"
+
+
+class TestWorkerAlive:
+    """A lane with no live worker never services a submission, so a caller
+    that would wait on one reads the fact first, publicly."""
+
+    def test_false_before_start_true_while_running_false_after_shutdown(self):
+        lane = SequentialIOExecutor(name='LIVENESS_TEST')
+        assert lane.worker_alive is False
+        lane.start()
+        try:
+            assert lane.worker_alive is True
+        finally:
+            lane.shutdown()
+        assert lane.worker_alive is False

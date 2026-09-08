@@ -77,10 +77,6 @@ def build_protocol_config():
 
 
 def main():
-    # Create scope in simulate mode
-    scope = Lumascope(simulate=True)
-    print('Scope initialized (simulate=True)')
-
     # Real settings: the documented loader reads data/current.json (falling
     # back to the shipped template) and validates it. A hand-built dict has
     # to carry at least 'frame' and 'objective_id', or the bring-up refuses.
@@ -91,16 +87,21 @@ def main():
     settings = settings_init.settings
     settings['live_folder'] = str(pathlib.Path('./capture').resolve())
 
-    # Create a ScopeSession -- the GUI-independent state container. We built
-    # the scope ourselves, so the bring-up is ours: configure it from the
-    # settings, then start the camera feed (connect() leaves the camera
-    # configured but not grabbing). A session whose scope the factory built
-    # gets both steps for free.
+    # Create scope in simulate mode. The simulated motor board reports the
+    # model it is declared with, so declaring the settings' model keeps the
+    # bring-up's model check silent -- it has nothing to correct.
+    scope = Lumascope(simulate=True, configured_model=settings['microscope'])
+    print('Scope initialized (simulate=True)')
+
+    # Create a ScopeSession -- the GUI-independent state container. The
+    # factory starts the executor lanes. We built the scope ourselves, so the
+    # bring-up is ours: configure it from the settings, then start the camera
+    # feed (connect() leaves the camera configured but not grabbing). A
+    # session whose scope the factory built gets both steps for free.
     session = ScopeSession.create(settings=settings, scope=scope)
     session.configure_scope()
     scope.imaging.start_streaming()
-    session.start_executors()
-    print('Session created, scope configured, executors started')
+    print('Session created, scope configured')
 
     # Create a ProtocolRunner from the session
     runner = session.create_protocol_runner()
@@ -159,9 +160,11 @@ def main():
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')
 
-    # Clean up
+    # Clean up. The scope was ours, so the disconnect is ours: session
+    # shutdown leaves a caller-passed scope alone. A factory-built scope is
+    # disconnected by session.shutdown() itself.
     runner.shutdown()
-    session.shutdown_executors()
+    session.shutdown()
     scope.disconnect()
     print('Scope disconnected')
 
