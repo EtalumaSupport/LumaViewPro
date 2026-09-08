@@ -591,7 +591,7 @@ _GUI_ORCHESTRATION_PIN = {
     ('lumaviewpro.py', 'AutofocusRunner'): 0,
     ('lumaviewpro.py', 'AutofocusThread'): 0,
     ('lumaviewpro.py', 'ScopeSession'): 0,
-    ('lumaviewpro.py', 'disconnect'): 1,
+    ('lumaviewpro.py', 'disconnect'): 0,
     ('ui/main_display.py', 'Lumascope'): 0,
     ('ui/microscope_settings.py', 'Lumascope'): 0,
     ('ui/microscope_settings.py', 'disconnect'): 0,

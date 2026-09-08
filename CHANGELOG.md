@@ -19,7 +19,7 @@
 
   **Breaking for SDK callers**: (a) `session.shutdown()` now turns the LEDs off,
   stops motion and DISCONNECTS a scope the factory built (`create` with no `scope=`,
-  or `create_headless`) -- afterwards `scope.no_hardware` is True,
+  or `create_headless`) -- afterwards `scope.motor_connected` is False,
   `scope.imaging.is_streaming()` is False and `scope.diagnostics.get_microscope_model()`
   returns None; a caller-passed scope (`create(..., scope=my_scope)`) is untouched and
   stays the caller's to disconnect, as do both scopes after `session.set_scope(...)`,

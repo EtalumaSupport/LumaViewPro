@@ -10861,57 +10861,49 @@ class TestWindowsBuildIsWindowed_559:
 
 
 class TestShutdownLedsOffRoutedThroughIoExecutor:
-    """The application shutdown path must turn LEDs off through the
-    io_executor, NOT via an ad-hoc daemon Thread that races with
-    in-flight io_executor tasks on the LED serial bus. Closes API
-    threading audit F12. The leds_off must also fire BEFORE
-    shutdown_threads tears the io_executor down -- otherwise the
-    put() lands in a queue whose worker is exiting and may not be
-    processed.
+    """The shutdown path must turn LEDs off through the io lane, NOT via
+    an ad-hoc daemon Thread that races with in-flight io tasks on the
+    LED serial bus. The drain must also fire BEFORE the lanes are shut
+    -- otherwise the put() lands in a queue whose worker is exiting and
+    may not be processed. The block lives in the Session's shutdown()
+    so every host gets it.
     """
 
     def _src(self):
         import pathlib
 
-        return pathlib.Path('lumaviewpro.py').read_text()
-
-    def test_no_adhoc_leds_off_thread(self):
-        src = self._src()
-        assert 'threading.Thread(target=lumaview.scope.illumination.leds_off' not in src, (
-            'lumaviewpro.py must not spawn a bare daemon Thread for '
-            'shutdown leds_off -- it races with io_executor in-flight '
-            'LED writes on the serial bus.'
-        )
+        return pathlib.Path('modules/scope_session.py').read_text()
 
     def test_leds_off_routes_through_io_executor(self):
         src = self._src()
         # Find the shutdown leds_off block by its log message header.
-        marker = '[LVP Main  ] lumaview.scope.illumination.leds_off()'
+        marker = '[Session  ] shutdown: leds_off through the io lane'
         idx = src.find(marker)
         assert idx >= 0, 'Shutdown leds_off block must keep its log message header.'
         block = src[idx : idx + 1500]
-        assert 'ctx.io_executor.put(' in block, (
-            'Shutdown leds_off must route through ctx.io_executor.put '
+        assert 'self.io_executor.put(' in block, (
+            "Shutdown leds_off must route through the io lane's put "
             'so the LED serial bus is not contended by a parallel '
             'writer during shutdown drain.'
         )
-        assert 'IOTask(action=lumaview.scope.illumination._leds_off_impl)' in block, (
+        assert 'IOTask(action=self.scope.illumination._leds_off_impl)' in block, (
             'IOTask must wrap the private _leds_off_impl so '
-            'io_executor serializes it with other LED writes.'
+            'the io lane serializes it with other LED writes.'
         )
         assert 'fut.result(timeout=2.0)' in block, (
-            'fut.result(timeout=2.0) preserves the prior 2-second '
-            'MainThread-doesn-t-block timeout semantic.'
+            'fut.result(timeout=2.0) preserves the 2-second '
+            'calling-thread-does-not-block timeout semantic.'
         )
 
-    def test_leds_off_precedes_shutdown_threads(self):
+    def test_leds_off_precedes_the_lane_shutdown(self):
         src = self._src()
-        leds_off_idx = src.find('[LVP Main  ] lumaview.scope.illumination.leds_off()')
-        shutdown_idx = src.find('self.shutdown_threads()')
-        assert leds_off_idx >= 0 and shutdown_idx >= 0
-        assert leds_off_idx < shutdown_idx, (
-            'Shutdown leds_off must fire BEFORE shutdown_threads tears '
-            'io_executor down. Otherwise the put() races with the '
+        leds_off_idx = src.find('[Session  ] shutdown: leds_off through the io lane')
+        owner_idx = src.find('bundle.io_executor.shutdown(wait=False)')
+        caller_idx = src.find('self.shutdown_executors()', leds_off_idx)
+        assert leds_off_idx >= 0 and owner_idx >= 0 and caller_idx >= 0
+        assert leds_off_idx < owner_idx and leds_off_idx < caller_idx, (
+            'Shutdown leds_off must fire BEFORE the io lane is shut, on '
+            'either ownership branch. Otherwise the put() races with the '
             'worker exiting and the leds_off may never fire.'
         )
 
@@ -12681,14 +12673,6 @@ class TestExecutorHandlesSingleSourceOnCtx:
                         f'{name} is still declared `global`; the executor '
                         'handles must live only on ctx.'
                     )
-
-    def test_shutdown_reads_executors_from_ctx(self):
-        # shutdown_threads must tear down ctx.<name>, not bare module globals.
-        src = self._src()
-        assert 'ctx.autofocus_thread.stop' in src
-        assert 'ctx.scope_display_thread.stop' in src
-        assert 'ctx.io_executor.shutdown' in src
-        assert 'ctx.worker_pool.shutdown' in src
 
 
 class TestRawBytesPerPixel:

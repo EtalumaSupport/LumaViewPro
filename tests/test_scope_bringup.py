@@ -288,6 +288,9 @@ class TestShutdownOwnership:
         bundle = session.executor_bundle
         session.shutdown()
 
+        # The scope is the factory's too: the same call disconnects it.
+        assert session.scope.imaging.is_streaming() is False
+        assert session.scope.motor_connected is False
         for wrapper in (bundle.protocol_thread, bundle.scope_display_thread):
             thread = wrapper._thread
             assert thread is None or not thread.is_alive(), (

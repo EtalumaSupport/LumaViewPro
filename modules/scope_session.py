@@ -269,7 +269,7 @@ class ScopeSession:
             scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
         scope.protocols.register_source_path(self.source_path)
 
-    def set_scope(self, scope) -> None:
+    def set_scope(self, scope: object) -> None:
         """Rewire this session onto a NEW scope after a reconnect.
 
         The session and its recording controller each hold the scope by
@@ -278,7 +278,9 @@ class ScopeSession:
         homes it; a recording captures from it). The new scope is
         serviced FIRST (executors, bundle, source path), before any
         holder is rewired onto it, so nothing can dispatch against a
-        rewired-but-unserviced scope.
+        rewired-but-unserviced scope. After the swap the session owns
+        neither scope: ``shutdown()`` disconnects neither, the caller
+        disconnects both.
 
         Raises:
             RuntimeError: An exclusive activity still owns the hardware.
@@ -305,6 +307,9 @@ class ScopeSession:
         old_metrics_logger = self.scope.metrics_logger if self._metrics_started else None
         self._register_scope_services(scope)
         self.scope = scope
+        # The swapped-in scope is the caller's, and the old one is now
+        # the caller's to disconnect too: shutdown() tears down neither.
+        self._owns_scope = False
         self.manual_recording.set_scope(scope)
         self.sequenced_capture_runner.set_scope(scope)
         if self.autofocus_runner is not None:
@@ -694,10 +699,12 @@ class ScopeSession:
     def _abandon(self) -> None:
         """Stop what a factory started for a session it will not return.
 
-        Owned executors, the display and protocol threads and the AF thread
-        go through ``shutdown``. A session over caller-passed lanes stops
-        only its own scheduler and AF thread: ``shutdown`` would stop the
-        caller's lanes too, and a lane cannot be restarted.
+        Owned executors, the display and protocol threads, the AF thread
+        and the scope's hardware half go through ``shutdown``. A session
+        over caller-passed lanes stops only its own scheduler and AF
+        thread: ``shutdown`` would stop the caller's lanes too, and a
+        lane cannot be restarted; the factory's ``_bring_up`` disconnects
+        the scope it built on that path.
         """
         if self._owns_executors:
             self.shutdown()
@@ -1376,50 +1383,105 @@ class ScopeSession:
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
-        Teardown scope follows the explicit ownership fact, never
-        bundle-presence: every host hands its bundle in for scope
-        servicing, so "holds a bundle" no longer means "built the
-        topology". A session that OWNS its executors (the factories)
-        stops the long-lived consumer threads BEFORE the executor lanes
-        they consume -- a consumer mid-iteration that finds its lane
-        already shut down can hang on a dispatch that never fires
-        (scope_display_thread consumes camera_executor; protocol_thread
-        drives io + camera + file lanes). A non-owning session still
-        stops the handles the caller passed in (io, camera, and the AF
-        thread) -- not-owner is not a no-op -- but never the host's
-        bundle. Running metrics stop first, or their ticks would
-        outlive the executors they snapshot.
+        Two ownership facts decide what that is, both constructor state.
+        ``owns_scope`` (a factory BUILT the scope) is the hardware half:
+        the LEDs drained through the io lane while its worker is alive,
+        motion stopped, the scope disconnected -- so a headless host gets
+        the same teardown the GUI gets. ``owns_executors`` (a factory
+        BUILT the executor topology) is the lane half: the long-lived
+        consumer threads stop BEFORE the lanes they consume (a consumer
+        mid-iteration that finds its lane already shut can hang on a
+        dispatch that never fires; scope_display_thread consumes
+        camera_executor, protocol_thread drives io + camera + file), then
+        the four lanes. A session over caller-passed lanes shuts those
+        lanes and its AF thread instead -- never a host's bundle. Neither
+        half returns before the other. Running metrics stop first, or
+        their ticks would outlive the executors they snapshot.
+
+        A scope passed in or swapped in with ``set_scope`` is left
+        connected: it is the caller's. A second call is a logged no-op; a
+        call that raised part-way can be called again.
         """
+        if self._shut_down:
+            logger.info('[Session  ] shutdown() called again -- nothing to do')
+            return
         self.stop_metrics()
         # Settle any run's merge outcome FIRST. The executor teardown below
         # does not wait for the file lanes to drain, so a merge still
         # waiting on this run's writes can never finish -- and a caller
         # blocked on the result would wait out its whole bound for an
-        # answer that is no longer coming. Ahead of the non-owner early
-        # return, because a borrowed-executor session tears down the same
-        # way from the waiter's point of view.
+        # answer that is no longer coming. A borrowed-executor session
+        # tears down the same way from the waiter's point of view.
         runner = self.sequenced_capture_runner
         if runner is not None:
             outcome = runner.merge_outcome()
             if outcome is not None:
                 outcome.settle_unfinished('shutdown')
-        # The session owns its scheduler: shut it down here, before the
-        # non-owner early return below, so a session that borrowed its
+        # The session owns its scheduler: a session that borrowed its
         # executors still ends its own timers (a live health check
         # outliving the session would fire into torn-down state).
         self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
+        if self._owns_scope and self.io_executor.worker_alive:
+            # Drain the LEDs through the io lane BEFORE the lanes go down,
+            # on the same serial-bus lane as every other LED write, so it
+            # cannot race an in-flight LED task the way a bare thread did.
+            # Only while the lane's worker is alive: a submission to a lane
+            # with no worker is never serviced, and the wait would run out
+            # its bound for nothing -- disconnect() below turns the LEDs
+            # off inline either way. The 2 s bound keeps the calling
+            # thread from blocking on slow serial.
+            logger.info('[Session  ] shutdown: leds_off through the io lane')
+            try:
+                from modules.sequential_io_executor import IOTask
+
+                fut = self.io_executor.put(
+                    IOTask(action=self.scope.illumination._leds_off_impl),
+                    return_future=True,
+                )
+                if fut is None:
+                    logger.warning('[Session  ] io lane refused the shutdown leds_off')
+                else:
+                    try:
+                        fut.result(timeout=2.0)
+                    except TimeoutError:
+                        # The lane can still be draining protocol-abort
+                        # cleanup, which turns the LEDs off itself -- this
+                        # expiry does not mean LEDs were left on. The cached
+                        # channel state answers that question directly.
+                        states = self.scope.illumination.get_led_states()
+                        lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                        state_text = (
+                            'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
+                        )
+                        logger.warning(
+                            f'[Session  ] shutdown leds_off still queued on the io lane '
+                            f'after 2.0s; LED state cache reports {state_text}'
+                        )
+                    except Exception as e:
+                        logger.warning(f'[Session  ] shutdown leds_off failed: {e}')
+            except Exception as e:
+                logger.warning(f'[Session  ] leds_off submission failed during shutdown: {e}')
         if not self._owns_executors:
             self.shutdown_executors()
-            return
-        bundle = self.executor_bundle
-        bundle.scope_display_thread.stop()
-        bundle.protocol_thread.stop(timeout=2.0)
-        bundle.io_executor.shutdown(wait=False)
-        bundle.camera_executor.shutdown(wait=False)
-        bundle.file_io_executor.shutdown(wait=False)
-        bundle.worker_pool.shutdown(wait=False)
+        else:
+            bundle = self.executor_bundle
+            bundle.scope_display_thread.stop()
+            bundle.protocol_thread.stop(timeout=2.0)
+            bundle.io_executor.shutdown(wait=False)
+            bundle.camera_executor.shutdown(wait=False)
+            bundle.file_io_executor.shutdown(wait=False)
+            bundle.worker_pool.shutdown(wait=False)
+        if self._owns_scope:
+            # After the lanes: an in-flight move's callbacks have their
+            # lanes shut before the move is stopped. disconnect() stops
+            # motion again itself, turns the LEDs off inline and bounded,
+            # ends the motion monitor and unregisters the atexit hook; it
+            # is repeatable, so a host's own later disconnect is harmless.
+            self.scope.motion.stop_motion()
+            self.scope.disconnect()
+        self._shut_down = True
 
     def start_application_session(
         self,

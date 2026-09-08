@@ -523,7 +523,7 @@ session.set_scope(new_scope)
 # Full teardown of everything the session constructed. On a scope the FACTORY
 # built (create() with no scope=, or create_headless()): LEDs off, motion
 # stopped, scope disconnected, executor lanes and their threads down. Reading
-# that scope afterwards: no_hardware is True, imaging.is_streaming() is False,
+# that scope afterwards: motor_connected is False, imaging.is_streaming() is False,
 # diagnostics.get_microscope_model() is None. A second shutdown() logs one
 # info line and does nothing.
 session.shutdown()

@@ -10,12 +10,11 @@ configured for the wrong axes -- the GUI corrected that in its own copy of
 the bring-up, and a headless host never did.
 """
 
-import logging
-
 import pytest
 
 import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
+from tests.log_capture import capture_module_log
 from tests.settings_fixtures import complete_settings
 
 
@@ -29,32 +28,11 @@ def _sim_scope(**kwargs):
     )
 
 
-class _CaptureHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records = []
-
-    def emit(self, record):
-        self.records.append(record)
-
-
 @pytest.fixture
 def session_log(monkeypatch):
-    """The session module's log records. The suite replaces the LVP logger
-    with a mock, so the module's logger is swapped for a private real one
-    with a capturing handler for the test's duration."""
     import modules.scope_session as scope_session
 
-    private = logging.getLogger('test.scope_model_precedence.session')
-    private.propagate = False
-    private.setLevel(logging.DEBUG)
-    handler = _CaptureHandler()
-    private.addHandler(handler)
-    monkeypatch.setattr(scope_session, 'logger', private)
-    try:
-        yield handler.records
-    finally:
-        private.removeHandler(handler)
+    return capture_module_log(monkeypatch, scope_session)
 
 
 class TestASimulatedScopeReportsItsDeclaredModel:

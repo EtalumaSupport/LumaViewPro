@@ -693,53 +693,6 @@ class LumaViewProApp(TooltipMixin, App):
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
-    def shutdown_threads(self) -> None:
-        """Stop profiling and shut down every executor in the bundle.
-
-        Order matters: long-lived consumer threads (autofocus_thread,
-        scope_display_thread) stop BEFORE the SequentialIOExecutor
-        lanes they consume. Otherwise a consumer mid-iteration can
-        find its lane already shut down and either hang waiting for
-        a queue dispatch that never fires or surface a misleading
-        post-shutdown exception. AF holds io_executor + camera_executor;
-        scope_display holds camera_executor.
-        """
-        logger.info('[LVP Main  ] Shutting down threads...')
-
-        if profiling_helper is not None:
-            profiling_helper.stop()
-
-        # Every executor handle lives on ctx; if build() never completed there
-        # is nothing to tear down. Stop order is preserved exactly (consumer
-        # threads before the lanes they consume) -- only the source of each
-        # handle changed from a module global to ctx.
-        if ctx is None:
-            logger.info('[LVP Main  ] Threads shut down.')
-            return
-
-        if ctx.autofocus_thread is not None:
-            ctx.autofocus_thread.stop(timeout=2.0)
-
-        if ctx.scope_display_thread is not None:
-            ctx.scope_display_thread.stop()
-
-        if ctx.protocol_thread is not None:
-            ctx.protocol_thread.stop(timeout=2.0)
-
-        if ctx.io_executor is not None:
-            ctx.io_executor.shutdown(wait=False)
-
-        if ctx.camera_executor is not None:
-            ctx.camera_executor.shutdown(wait=False)
-
-        if ctx.file_io_executor is not None:
-            ctx.file_io_executor.shutdown(wait=False)
-
-        if ctx.worker_pool is not None:
-            ctx.worker_pool.shutdown(wait=False)
-
-        logger.info('[LVP Main  ] Threads shut down.')
-
     def _prompt_objective_if_needed(self) -> None:
         """Ask the objective question when the objective is unknowable.
 
@@ -1302,9 +1255,7 @@ class LumaViewProApp(TooltipMixin, App):
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
     def on_stop(self) -> None:
-        """Kivy lifecycle hook: tear down hardware, save settings, exit cleanly."""
-        lumaview = ctx.lumaview
-
+        """Kivy lifecycle hook: save settings, tear the session down, exit cleanly."""
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
         # Suppress notification-listener dispatch during shutdown so the user
@@ -1334,21 +1285,14 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
 
-        # Stop the periodic metrics logger so its Clock intervals and
-        # the camera-temp tick don't survive into shutdown and try to
-        # log against torn-down hardware.
-        try:
-            ctx.session.stop_metrics()
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] metrics stop failed during shutdown: {e}')
-
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
         # The abort above only signals; the hardware teardown (LED off,
         # camera restore, return-to-position) runs on the protocol thread.
-        # Shutdown tears the executors down right after this block, so wait
-        # -- bounded -- for that cleanup to finish before proceeding. Per
-        # PERFORMANCE_BUDGETS.md row shutdown_protocol_cleanup_wait_s. The
-        # leds_off drain below is the belt-and-suspenders if it times out.
+        # The session teardown below tears the executors down right after
+        # this block, so wait -- bounded -- for that cleanup to finish
+        # before proceeding. Per PERFORMANCE_BUDGETS.md row
+        # shutdown_protocol_cleanup_wait_s. The session's own LED drain is
+        # the belt-and-suspenders if it times out.
         try:
             if ctx.sequenced_capture_runner is not None and not (
                 ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
@@ -1360,75 +1304,16 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
 
-        # Stop the scope-display thread BEFORE the executor cascade --
-        # otherwise the FPS-paced loop submits work against a half-
-        # disconnected scope and floods the shutdown log.
-        try:
-            if ctx.scope_display is not None:
-                ctx.scope_display.stop()
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
-
-        # Drain LEDs through io_executor BEFORE shutdown_threads tears
-        # the executor down. Routing the leds_off through the same
-        # serial-bus serialization lane as the rest of LED writes
-        # prevents the ad-hoc-Thread-vs-in-flight-IOTask race that
-        # existed when this call was a bare daemon Thread. The 2 s
-        # fut.result timeout preserves the prior MainThread-doesn't-
-        # block-on-slow-serial behavior.
-        logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
-        try:
-            from modules.sequential_io_executor import IOTask
-
-            fut = (
-                ctx.io_executor.put(
-                    IOTask(action=lumaview.scope.illumination._leds_off_impl),
-                    return_future=True,
-                )
-                if ctx.io_executor is not None
-                else None
-            )
-            if fut is not None:
-                try:
-                    fut.result(timeout=2.0)
-                except TimeoutError:
-                    # The io_executor can still be draining protocol-abort
-                    # cleanup at exit, and that cleanup turns LEDs off
-                    # itself -- this expiry does not mean LEDs were left
-                    # on. Log the cached channel state so the post-mortem
-                    # answers that question directly.
-                    states = lumaview.scope.illumination.get_led_states()
-                    lit = sorted(c for c, s in states.items() if s.get('enabled'))
-                    state_text = (
-                        'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
-                    )
-                    logger.warning(
-                        f'[LVP Main  ] shutdown leds_off still queued on '
-                        f'io_executor after 2.0s; LED state cache reports '
-                        f'{state_text}'
-                    )
-                except Exception as e:
-                    logger.warning(f'[LVP Main  ] shutdown leds_off failed: {e}')
-            else:
-                logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] leds_off submission failed during shutdown: {e}')
-
-        self.shutdown_threads()
-
-        # Considered removing this stop_motion() call, since disconnect() below calls
-        # stop_motion() as its first step; rejected because shutdown_threads ran BEFORE
-        # disconnect, and any in-flight motion should stop before we tear down the
-        # executors that own the move callbacks. Revisit if shutdown_threads and disconnect
-        # are consolidated into one teardown.
-        lumaview.scope.motion.stop_motion()
+        if profiling_helper is not None:
+            profiling_helper.stop()
 
         # The hardware-presence gate lives inside the session's save_settings,
         # so every caller (engineering plugin, REST, scheduled save) gets the
         # same guard. Pass force=True only to override. A refusal must not
-        # abort shutdown -- the disconnect below is hardware teardown. INFO,
-        # not WARNING: the errors log ships in every support bundle and a
-        # hardware-less clean exit is not an error.
+        # abort shutdown -- the session teardown below is hardware teardown.
+        # INFO, not WARNING: the errors log ships in every support bundle
+        # and a hardware-less clean exit is not an error. The save comes
+        # BEFORE the teardown: it needs the hardware the teardown removes.
         from modules.exceptions import SettingsSaveRefusedError
 
         try:
@@ -1436,8 +1321,13 @@ class LumaViewProApp(TooltipMixin, App):
         except SettingsSaveRefusedError as e:
             logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
-        logger.info('[LVP Main  ] lumaview.scope.disconnect()')
-        lumaview.scope.disconnect()
+        # The one teardown: metrics, the LED drain through the io lane,
+        # the consumer threads, the lanes, motion stopped, the scope
+        # disconnected. Kivy's run() falls through to a second on_stop
+        # after an in-loop stop(); that pass finds the session already
+        # shut and logs it.
+        logger.info('[LVP Main  ] ctx.session.shutdown()')
+        ctx.session.shutdown()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

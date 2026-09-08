@@ -594,17 +594,40 @@ class TestTheSaveRefusalIsAudible:
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         ]
 
+        def _chain(node):
+            out = []
+            value = node
+            while isinstance(value, ast.Attribute):
+                out.append(value.attr)
+                value = value.value
+            if isinstance(value, ast.Name):
+                out.append(value.id)
+            return out
+
+        calls = [
+            node
+            for node in ast.walk(on_stop)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
         teardown = [
             node.lineno
-            for node in ast.walk(on_stop)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'disconnect'
+            for node in calls
+            if node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
         ]
-        assert teardown, 'on_stop must still tear the hardware down'
-        assert max(teardown) > guard.end_lineno, (
-            'the hardware teardown must sit AFTER the guarded save, not inside it'
+        assert teardown, 'on_stop must still tear the session (and its hardware) down'
+        assert min(teardown) > guard.end_lineno, (
+            'the session teardown must sit AFTER the guarded save, not inside it'
         )
+        # The teardown is the session's, whole: on_stop stops no thread,
+        # lane or hardware itself.
+        stray = [
+            (node.lineno, ast.unparse(node.func))
+            for node in calls
+            if node.func.attr in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
+            or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
+            or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
+        ]
+        assert stray == [], f'on_stop performs teardown steps itself: {stray}'
 
     def test_the_periodic_flush_survives_a_refused_save(self, monkeypatch):
         """A 300 s timer must not turn an expected condition into a
