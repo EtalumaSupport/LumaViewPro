@@ -642,6 +642,13 @@ class ProtocolSettings(FloatLayout):
                 'empty protocol (use Add to insert steps)'
             )
 
+        # Recorded like LOAD and SAVE: creating a protocol replaces the whole
+        # step table, so it is one of the few actions that changes what every
+        # later step value means. Without it the interaction log shows a run
+        # starting over steps that appear from nowhere, and reconstructing a
+        # field report costs an investigation.
+        gui_logger.protocol_action('NEW', f'steps={protocol.num_steps()}')
+
         # new_protocol_ex builds the step table from the labware + scan
         # parameters; bounded work, fits on worker_pool MED so the UI
         # remains responsive while it runs.
