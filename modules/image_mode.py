@@ -259,11 +259,17 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
 
 # User-facing labels for the Image mode selector. The selector is the only
 # place these strings appear; storage and the resolver use the enum values.
+# Two constraints on any relabel: the strings must stay distinct, because
+# LABEL_TO_IMAGE_MODE inverts this map and a collision would silently drop a
+# mode; and every 12-bit label must keep the substring '12-bit', because the
+# kv gates the 'JPG saves 8-bit' depth warning on finding it in the selector's
+# displayed text. That substring test is a display-string coupling the API
+# should own instead, and it is guarded by a test until it does.
 IMAGE_MODE_LABELS = {
     IMAGE_MODE_8BIT: '8-bit',
     IMAGE_MODE_12BIT_SCIENTIFIC: '12-bit (scientific)',
     IMAGE_MODE_12BIT_SCALED: '12-bit (scaled)',
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: '12-bit false color (RGB)',
+    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: '12-bit RGB',
 }
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
