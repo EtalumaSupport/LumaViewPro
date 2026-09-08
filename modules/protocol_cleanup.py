@@ -42,6 +42,71 @@ if TYPE_CHECKING:
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
+
+def _schedule_cleanup_ui(
+    func,
+    step_label: str,
+    cleanup_errors: list[str],
+    summary_sent: threading.Event,
+) -> None:
+    """Schedule a cleanup UI callback that must not take the app down.
+
+    Every `try` in this module collects its failure into `cleanup_errors`
+    and keeps going, because a run's data is already written by the time
+    cleanup starts and no cleanup step is worth losing the session over.
+    A callback handed to `schedule_ui` was outside that contract whenever
+    it was genuinely deferred: it runs on a later Clock tick, so the `try`
+    that scheduled it has already returned, and the app's crash guard
+    re-raises anything it cannot pin on a plugin. A panel-sync failure
+    therefore terminated LumaViewPro at the end of every protocol run.
+
+    The re-raise is right as a DEFAULT -- a core bug should be loud -- and
+    is left alone everywhere else. It is wrong for these callbacks for the
+    same reason the code around them is fault-tolerant, and for the same
+    reason a non-fatal failure during a run is log-only: an unattended run
+    must not lose its application to a cosmetic restore step.
+
+    Which channel reports the failure depends on WHEN it happens, because
+    the summary is emitted once, partway through:
+
+    - before the summary (the callback ran inline -- headless, REST, or a
+      test dispatcher): collected into `cleanup_errors` exactly as if the
+      surrounding `try` had caught it, so the one summary still carries
+      every failed step and its count stays honest.
+    - after it (the GUI case, a real Clock tick): the summary has already
+      gone, so the callback reports itself.
+
+    `step_label` is the same wording the surrounding `except` blocks use,
+    so a step reads identically whichever channel carried it.
+    """
+
+    def _guarded(dt):
+        try:
+            return func(dt)
+        except Exception as ex:
+            # The exception detail belongs in the log that ships with a
+            # bundle. The popup speaks to a researcher, who can act on
+            # "check the stage position" and not on a traceback.
+            logger.exception(f'[PROTOCOL] {step_label} failed after the run')
+            if not summary_sent.is_set():
+                cleanup_errors.append(f'{step_label}: {type(ex).__name__}: {ex}')
+                return
+            try:
+                from modules.notification_center import notifications
+
+                notifications.warning(
+                    'Protocol',
+                    'Protocol cleanup issues',
+                    f'Your images were saved, but one cleanup step did not '
+                    f'finish: {step_label}.\n'
+                    'Check LED state, camera settings, and stage position.',
+                )
+            except Exception as notify_ex:
+                logger.error(f'[PROTOCOL] Failed to surface cleanup-callback error: {notify_ex}')
+
+    _schedule_ui(_guarded, 0)
+
+
 # Stall budget for queueing the run-record completion task. Short: on the
 # normal path the queue is draining (the put unblocks within one write), and
 # cleanup must not hang behind a wedged writer for the writer's own longer
@@ -128,6 +193,10 @@ def run_cleanup(
     # any one failing); total silence at the end was the bug. One
     # summary popup, not six.
     cleanup_errors: list[str] = []
+    # Flipped once the summary below has gone out. A guarded UI callback
+    # that fails before this is collected into the summary like every
+    # other step; one that fails after it has to report itself.
+    summary_sent = threading.Event()
 
     try:
         cancel_scheduled_events_fn()
@@ -231,7 +300,12 @@ def run_cleanup(
     # pass covers both halves.
     try:
         if callbacks.restore_layer_shader:
-            _schedule_ui(lambda dt: callbacks.restore_layer_shader(), 0)
+            _schedule_cleanup_ui(
+                lambda dt: callbacks.restore_layer_shader(),
+                'Restore layer shader',
+                cleanup_errors,
+                summary_sent,
+            )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring layer shader during cleanup: {ex}')
         cleanup_errors.append(f'Restore layer shader: {type(ex).__name__}: {ex}')
@@ -261,7 +335,12 @@ def run_cleanup(
     # having been snapshotted.
     try:
         if callbacks.sync_layer_widgets:
-            _schedule_ui(lambda dt: callbacks.sync_layer_widgets(), 0)
+            _schedule_cleanup_ui(
+                lambda dt: callbacks.sync_layer_widgets(),
+                'Sync layer panel',
+                cleanup_errors,
+                summary_sent,
+            )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error scheduling the layer panel sync during cleanup: {ex}')
         cleanup_errors.append(f'Sync layer panel: {type(ex).__name__}: {ex}')
@@ -444,6 +523,11 @@ def run_cleanup(
             # not prevent the completion callbacks from firing.
             logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
 
+    # The one summary has now gone out (or there was nothing to say). Any
+    # guarded UI callback that fails from here on has missed it and must
+    # report itself instead of appending where nobody will read.
+    summary_sent.set()
+
     # Surface silently-dropped captures. A full write queue discards an
     # already-grabbed frame, so a nonzero count is images the user expected
     # that are permanently absent from disk. A throttled log was the only prior
@@ -498,11 +582,19 @@ def run_cleanup(
     )
     if _file_queue_active:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
+            _schedule_cleanup_ui(
+                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
+                'Run-complete callback',
+                cleanup_errors,
+                summary_sent,
+            )
         if callbacks.files_complete:
             file_io_executor.set_protocol_complete_callback(
-                callback=lambda: _schedule_ui(
-                    lambda dt: callbacks.files_complete(protocol=protocol), 0
+                callback=lambda: _schedule_cleanup_ui(
+                    lambda dt: callbacks.files_complete(protocol=protocol),
+                    'Files-complete callback',
+                    cleanup_errors,
+                    summary_sent,
                 )
             )
         file_io_executor.protocol_finish_then_end()
@@ -511,9 +603,19 @@ def run_cleanup(
         )
     else:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
+            _schedule_cleanup_ui(
+                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
+                'Run-complete callback',
+                cleanup_errors,
+                summary_sent,
+            )
         if callbacks.files_complete:
-            _schedule_ui(lambda dt: callbacks.files_complete(protocol=protocol), 0)
+            _schedule_cleanup_ui(
+                lambda dt: callbacks.files_complete(protocol=protocol),
+                'Files-complete callback',
+                cleanup_errors,
+                summary_sent,
+            )
         file_io_executor.protocol_finish_then_end()
         logger.info(
             f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'

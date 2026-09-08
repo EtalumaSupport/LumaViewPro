@@ -1,4 +1,4 @@
 4.0.0-beta35
-2026-09-08 10:16
+2026-09-08 10:38
 fix/836-protocol-python-scalars
-5f87411a
+674f90cd
