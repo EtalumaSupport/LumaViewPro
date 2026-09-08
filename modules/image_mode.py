@@ -65,6 +65,23 @@ VALID_SAVE_ENCODINGS = frozenset(
     }
 )
 
+# Every output format a config may legitimately hold, split by selector because
+# the two selectors do not offer the same set. A value outside these means a
+# stale or hand-edited setting reached a run: the writer has no branch for it,
+# so it falls through to a plain .tiff with ome=False and a run configured for
+# a hyperstack quietly produces per-step files and no stack. The hyperstack is
+# a post-run per-well stack build, so it has no meaning for a single live
+# capture and the live selector never offers it.
+VALID_LIVE_OUTPUT_FORMATS = frozenset(
+    {
+        OUTPUT_FORMAT_TIFF,
+        OUTPUT_FORMAT_OME_TIFF,
+        OUTPUT_FORMAT_JPG,
+    }
+)
+
+VALID_SEQUENCED_OUTPUT_FORMATS = VALID_LIVE_OUTPUT_FORMATS | {OUTPUT_FORMAT_HYPERSTACK}
+
 DEFAULT_IMAGE_MODE = IMAGE_MODE_8BIT
 
 _MODE_TABLE: dict[str, dict] = {
@@ -127,6 +144,27 @@ class ImageCaptureConfig:
                 f'save_encoding={self.save_encoding!r}) does not match '
                 f'image_mode {self.image_mode!r}; build via from_image_mode()'
             )
+        # Refused here rather than at the writer, for the same reason the pair
+        # above is: the writer's fallback is a silently valid plain .tiff, so
+        # the only place the bad value can still be named is where it entered.
+        # Raising at construction puts it at the API boundary, which is run
+        # start, so a REST caller sees the failure exactly as the GUI does.
+        for field_name, value, allowed in (
+            ('output_format_live', self.output_format_live, VALID_LIVE_OUTPUT_FORMATS),
+            (
+                'output_format_sequenced',
+                self.output_format_sequenced,
+                VALID_SEQUENCED_OUTPUT_FORMATS,
+            ),
+        ):
+            if value not in allowed:
+                raise ConfigError(
+                    f'ImageCaptureConfig {field_name}={value!r} is not a format '
+                    f'this build writes; expected one of {sorted(allowed)}. A run '
+                    f'started with it would save plain TIFFs and no hyperstack, '
+                    f'silently -- check image_output_format in the settings file.'
+                )
+
         # Coerce here, not in from_image_mode, so a directly-constructed
         # config (JSON/UI text riding in as '85') fails or normalizes at
         # construction rather than at the JPG save on the file-IO thread.
