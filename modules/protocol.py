@@ -1683,21 +1683,21 @@ class Protocol:
     stim_config = {
         "Red": {
             "enabled": True,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 1,
         },
         "Green": {
             "enabled": True,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 1,
         },
         "Blue": {
             "enabled": True,
-            "illumination": 100,
+            "illumination_ma": 100,
             "frequency": 1,
             "pulse_width": 10,
             "pulse_count": 1,

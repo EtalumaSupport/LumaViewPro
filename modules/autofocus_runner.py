@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 _af_log = logging.getLogger('LVP.autofocus')
 
 
+def _describe_restore(restore: dict) -> str:
+    """The restore dict for the log, the arm as a flag rather than its repr."""
+    if not restore:
+        return 'nothing'
+    shown = {k: (v is not None) if k == 'auto_gain_arm' else v for k, v in restore.items()}
+    return str(shown)
+
+
 class AutofocusRunner:
     def __init__(
         self,
@@ -160,7 +168,10 @@ class AutofocusRunner:
             run_trigger_source: free-form string recorded in saved data.
             results_dir: required when save_results_to_file=True.
             led_color, led_illumination, camera_gain, camera_exposure:
-                AF-scan settings applied at start, restored at end.
+                AF-scan settings applied at start, restored at end. Under
+                a live-view auto-gain arm the sweep scans at the values
+                the lock read from the camera instead of camera_gain /
+                camera_exposure (see _apply_sweep_camera_targets).
             abort_event: signalled by caller to abort the run. Required.
             led_lease: the caller's LED lease when AF runs inside a
                 protocol step -- AF takes a child lease under it. None for
@@ -243,21 +254,24 @@ class AutofocusRunner:
             self._saved_z_position = None
         self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
         self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
-        _af_log.info(
-            f'[AF DIAG] Saved pre-AF camera state: '
-            f'gain={self._saved_camera_state.get("gain_db", "?")} '
-            f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
-            f'(step wants gain={self._camera_gain} exp={self._camera_exposure})'
-        )
-        # Apply the step's camera settings so AF scans with correct gain
-        # and exposure rather than inheriting the prior step's values.
-        if self._camera_gain is not None:
-            self._scope.imaging._set_gain_db_impl(self._camera_gain)
-        if self._camera_exposure is not None:
-            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
         last_gc_time = time.monotonic()
         completed_successfully = False
+        auto_gain_lock = None
         try:
+            # A live-view auto-gain arm is locked ONCE for the whole sweep
+            # and resumed in the finally below. Left standing, every sweep
+            # capture would lock and re-arm on its own -- paying the
+            # auto-gain settle at every position -- and the step's gain
+            # and exposure written next would be overridden by the loop.
+            auto_gain_lock = self._scope.imaging._lock_auto_gain_impl()
+            self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
+            _af_log.info(
+                f'[AF DIAG] Saved pre-AF camera state: '
+                f'gain={self._saved_camera_state.get("gain_db", "?")} '
+                f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
+                f'(sweep at gain={self._camera_gain} exp={self._camera_exposure} '
+                f'source={self._sweep_targets_source})'
+            )
             # Acquire the LED lease BEFORE driving illumination below. AF
             # illuminates by calling apply(AF_ENTER) ON this lease; issued
             # before AF holds a lease, a protocol's already-held lease would
@@ -468,10 +482,14 @@ class AutofocusRunner:
             if self._saved_camera_state:
                 restore = self._camera_state_to_restore()
                 _af_log.info(
-                    f'[AF DIAG] Post-AF camera: keeping step targets '
-                    f'gain={self._camera_gain} exp={self._camera_exposure}; '
-                    f'restoring {restore or "nothing"} from pre-AF snapshot'
+                    f'[AF DIAG] Post-AF camera: keeping sweep targets '
+                    f'gain={self._camera_gain} exp={self._camera_exposure} '
+                    f'source={self._sweep_targets_source}; '
+                    f'restoring {_describe_restore(restore)} from pre-AF snapshot'
                 )
+                # The restore also puts a live-view auto-gain arm back: the
+                # snapshot above recorded it before the lock consumed it, so
+                # every exit -- abort, raise, completion -- re-arms the view.
                 self._scope.imaging.restore_camera_state(restore)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
@@ -489,6 +507,32 @@ class AutofocusRunner:
                 self._led_lease.release(leave_on=True)
                 self._led_lease = None
             self._abort_event = None
+
+    def _apply_sweep_camera_targets(self, lock) -> str:
+        """Choose what the sweep scans at and write it if the lock has not.
+
+        A live-view arm's stored gain and exposure are stale by
+        construction: the slider poll reads a cache the arm invalidates,
+        so the layer keeps whatever it held before auto-gain was switched
+        on. When the lock consumed an arm and read usable values it has
+        already written them through the setters; the sweep keeps them
+        (and the end-of-run trim keeps them on the camera, as it keeps a
+        step's explicit targets). Writing the step's values over the lock
+        scanned a dark field. With no arm, or a lock that read nothing
+        usable, the step's values are written as they always were.
+
+        Returns the source of the sweep's targets for the log: 'lock' or
+        'step'.
+        """
+        if lock.state is not None and lock.exposure_ms is not None:
+            self._camera_gain = lock.gain_db
+            self._camera_exposure = lock.exposure_ms
+            return 'lock'
+        if self._camera_gain is not None:
+            self._scope.imaging._set_gain_db_impl(self._camera_gain)
+        if self._camera_exposure is not None:
+            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
+        return 'step'
 
     def _camera_state_to_restore(self) -> dict:
         """Pre-AF snapshot minus the fields this run explicitly targeted.
@@ -901,6 +945,7 @@ class AutofocusRunner:
         self._saved_z_position = None
         self._camera_gain = None
         self._camera_exposure = None
+        self._sweep_targets_source = 'step'
         self._af_in_progress.clear()
         self._af_data_pass = []
         self._af_data_full = []

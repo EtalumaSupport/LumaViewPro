@@ -34,7 +34,7 @@ from ui.ui_helpers import (
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
-    update_autofocus_selection_after_protocol,
+    sync_layer_widgets_from_settings,
 )
 from modules.zstack_config import ZStackConfig
 
@@ -227,7 +227,7 @@ class ZStack(FloatLayout):
                 'run_complete': run_complete_func,
                 'update_step_number': _zstack_progress,
                 # LED observer handles UI sync -- no manual callbacks needed
-                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'sync_layer_widgets': sync_layer_widgets_from_settings,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,

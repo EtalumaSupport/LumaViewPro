@@ -293,6 +293,9 @@ class ProtocolStepRunner:
             p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
                 step['Color'], p._ag_ae_max_exposure_ms
             )
+            p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
+                step['Color']
+            )
             fut = p._io_executor.protocol_put(
                 IOTask(
                     # Run-internal machinery binds the impl per the
@@ -306,6 +309,12 @@ class ProtocolStepRunner:
                         'exposure_ms': step['Exposure'],
                         'auto_gain': True,
                         'auto_gain_settings': p._autogain_settings,
+                        # A step's arm is unattended: the capture that locks
+                        # it records the state and moves on -- no notice, no
+                        # re-arm (the step-end disarm below is the only Off
+                        # this path needs). Left at the live-view default,
+                        # every protocol capture re-armed and popped a notice.
+                        'resume_after_capture': False,
                     },
                 ),
                 return_future=True,
@@ -457,11 +466,15 @@ class ProtocolStepRunner:
                 # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        # Disable autogain when moving between steps
+        # Disable autogain when moving between steps. Run-internal
+        # machinery binds the impl, as the arm above does: the public
+        # member is a dispatcher that refuses work while a run holds the
+        # camera lane, and a refusal here raised out of the step, was
+        # classified transient, and retried the whole scan.
         if step['Auto_Gain']:
             fut = p._io_executor.protocol_put(
                 IOTask(
-                    action=p._scope.imaging.set_auto_gain,
+                    action=p._scope.imaging._set_auto_gain_impl,
                     kwargs={
                         'state': False,
                         'settings': p._autogain_settings,

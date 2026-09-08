@@ -37,7 +37,12 @@ class ProtocolCallbacks:
     # --- Autofocus ---
     autofocus_in_progress: Callable | None = None  # () -> None
     autofocus_complete: Callable | None = None  # () -> None  (UI notification)
-    reset_autofocus_btns: Callable | None = None  # () -> None
+
+    # --- Layer panel ---
+    # The run displays each step in the layer panel without writing the
+    # user's settings; at run end this puts every layer's widgets back on
+    # the settings. Scheduled once per run by the cleanup.
+    sync_layer_widgets: Callable | None = None  # () -> None
 
     # --- Motion / position ---
     move_position: Callable | None = None  # (axis: str) -> None
