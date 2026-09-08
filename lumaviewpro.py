@@ -1193,10 +1193,30 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        recording = ctx.session.manual_recording
-        runner = ctx.sequenced_capture_runner
-        protocol_tail_busy = runner is not None and runner.video_drain_busy
-        if recording.is_busy or protocol_tail_busy:
+        if ctx.session.recording_capturing:
+            # Still capturing, so the rest of the take is what closing
+            # costs -- stopping is irreversible and there is no resume.
+            # Read BEFORE the drain check below: a live recording is also
+            # draining, so that branch would otherwise swallow this one
+            # and the app would close without ever asking.
+            Clock.schedule_once(
+                lambda dt: show_confirmation_popup(
+                    title='Confirm Exit',
+                    message=(
+                        'A video recording is in progress.\n\n'
+                        'Exiting now ends the recording and keeps what has been '
+                        'captured so far.\n\n'
+                        'Are you sure you want to exit?'
+                    ),
+                    confirm_text='Confirm Exit',
+                    cancel_text='Cancel',
+                    on_confirm=self._close_with_drain_progress,
+                )
+            )
+
+            return True  # Prevent window from closing
+
+        if ctx.session.close_drain_pending:
             # Queued video frames -- a manual recording's, or a finished
             # run's video-step tail -- are still being written to their
             # final artifacts. A silent block reads as a hang and a

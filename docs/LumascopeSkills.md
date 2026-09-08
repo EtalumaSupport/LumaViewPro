@@ -489,6 +489,7 @@ session.exclusive_activity       # None | 'protocol' | 'recording'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
 session.recording_capturing     # a manual recording is LIVE (not its file drain)
+session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
 
 def on_run_state():              # called on EVERY run-state transition;
     print(session.run_lockout)   # re-read the derivations (level semantics, no payload)

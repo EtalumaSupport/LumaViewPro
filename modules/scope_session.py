@@ -359,6 +359,21 @@ class ScopeSession:
         return self.manual_recording.is_recording
 
     @property
+    def close_drain_pending(self) -> bool:
+        """True while either video drain still holds queued frames.
+
+        What a close would interrupt on the video side, in one read: a
+        manual recording's own drain, or a finished run's video-step
+        tail. A closing host needs both, and asking it to OR them itself
+        puts the derivation somewhere headless and REST cannot reach.
+
+        True for a LIVE recording too, since its frames are also
+        outstanding -- a caller that needs "still capturing" specifically
+        wants ``recording_capturing``, which is the narrower fact.
+        """
+        return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
+
+    @property
     def protocol_files_draining(self) -> bool:
         """True while a run's file writer still holds pending work."""
         file_io_executor = self.file_io_executor

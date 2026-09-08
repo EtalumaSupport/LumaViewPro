@@ -139,3 +139,56 @@ def test_watch_attribute_has_a_class_level_default():
         f'{_APP_CLASS} must declare {_WATCH_ATTR} at class level so the re-entry '
         'guard can read it before the first drain close assigns it.'
     )
+
+
+def test_the_close_gate_confirms_an_active_recording_before_the_drain_branch():
+    """An active recording asks; a bare drain does not -- and order decides it.
+
+    is_busy is true while capturing AND while draining, so the drain
+    branch shadows the recording branch unless the narrower fact is read
+    first. Getting this order wrong is silent: the app still closes, it
+    just never asks, which is the defect this whole gate exists for.
+    """
+    handler = _method(_app_class(_module_tree()), 'on_request_close')
+
+    reads = [
+        node.attr
+        for node in ast.walk(handler)
+        if isinstance(node, ast.Attribute)
+        and node.attr in {'recording_capturing', 'close_drain_pending'}
+    ]
+
+    assert 'recording_capturing' in reads, (
+        'on_request_close must confirm an actively capturing recording -- closing '
+        'ends the take, and what has not been captured yet is gone.'
+    )
+    assert 'close_drain_pending' in reads, (
+        'the drain branch must read the session derivation rather than deciding for itself.'
+    )
+    assert reads.index('recording_capturing') < reads.index('close_drain_pending'), (
+        'recording_capturing must be read BEFORE close_drain_pending: a live '
+        'recording is also pending, so the drain branch would shadow the confirm.'
+    )
+
+
+def test_the_close_gate_does_not_derive_the_drain_state_itself():
+    """The video-drain fact is the session's, not the GUI's.
+
+    The handler used to OR the recording's is_busy against the runner's
+    video_drain_busy and reach for the runner through the app context.
+    A headless or REST caller cannot run that expression, so the fact it
+    computes has to live where every caller can read it.
+    """
+    handler = _method(_app_class(_module_tree()), 'on_request_close')
+
+    derived = [
+        node.attr
+        for node in ast.walk(handler)
+        if isinstance(node, ast.Attribute) and node.attr in {'video_drain_busy', 'is_busy'}
+    ]
+
+    assert not derived, (
+        f'on_request_close still derives the drain state itself ({sorted(set(derived))}); '
+        'read ctx.session.close_drain_pending instead so headless and REST see the '
+        'same fact the GUI renders.'
+    )
