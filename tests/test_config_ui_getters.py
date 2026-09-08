@@ -274,7 +274,11 @@ class TestImageCaptureConfigSharedBuilder:
 
     def test_ui_and_settings_lanes_produce_identical_config(self, monkeypatch):
         mode = '12bit_scientific'
-        live, sequenced, jpg_quality = 'PNG', 'JPG', 55
+        # Two DIFFERENT real formats: the point is that each lane forwards the
+        # value it was given, so they only need to be distinguishable from each
+        # other. 'PNG' stood here until the config learned to refuse a format
+        # this build cannot write.
+        live, sequenced, jpg_quality = 'OME-TIFF', 'JPG', 55
         self._patch_ui_ctx(
             monkeypatch, mode=mode, live=live, sequenced=sequenced, jpg_quality=jpg_quality
         )
