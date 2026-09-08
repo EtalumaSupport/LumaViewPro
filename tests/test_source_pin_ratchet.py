@@ -1,115 +1,53 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Ratchet on tests that read production SOURCE TEXT to make assertions.
+"""Ratchet on tests that pin production SOURCE TEXT.
 
-A test that asserts on source text passes or fails on formatting. `'def
-x(' in src` breaks when the signature is wrapped, reformatted, or gains a
-parameter, and it keeps passing when the function is gutted. The suite
-carries a lot of it, and the count was drifting upward.
+A test that asserts on source text passes or fails on formatting: `'def
+x(' in src` breaks when the signature is wrapped or gains a parameter,
+and keeps passing when the function is gutted. The right shape asserts
+the seam or the behaviour:
 
-`tests/ast_seams.py` is the alternative: it asserts the SEAM (the name,
-its parameters, its return annotation) and survives any
-behavior-preserving refactor. Note that `ast_seams` itself calls
-`read_text` -- reading the file to PARSE it is the fix, not the problem,
-which is why this guard ratchets a total rather than banning the call.
+  * a def / method / signature      -> `tests.ast_seams.assert_def`
+  * a name that must NOT appear      -> walk `tests.ast_seams.parse_module`
+  * a Kivy handler's behaviour       -> call it UNBOUND (recipe below)
+  * a .kv rule, a doc example, a
+    comment's wording, a file the
+    run wrote                        -> read it, with `# pin-justified:`
 
-Measured at introduction: 335 `read_text` calls across 115 test files.
-Classified (see `classify_read_text_sites`):
+Every `read_text` call in tests/ is classified by what it reads
+(`classify_read_text_sites`), and every bucket is announced at the end
+of each run. ONE bucket is pinned: `body-pin`, a literal `.py` path read
+with no justification beside it -- the fragile shape. The pin is an
+EQUALITY per file, like the GUI display-only pins: a rise names the
+remedy, a fall lowers the file's entry in the same commit, and the pin
+is never raised. The other buckets (a path from a variable, a scan over
+many files, a data or doc read, a `.kv` read, a justified `.py` read)
+are legitimate and unpinned, so a manifest read-back or an AST parse
+never collides with this guard.
 
-    148  body-pin           a literal .py path -- the migration target
-    139  single computed    path from a variable; needs a human read,
-                            and includes the ast_seams infrastructure
-     27  hygiene-scan       inside a file loop; legitimately reads many
-                            files and never migrates
-     15  data/doc read      .md/.json/.txt -- not source at all
-      6  kv-pin             .kv has no AST seam, so it is justified
+Justifying a `.py` read: put `# pin-justified: <why there is no seam>`
+on the read's line or within the three lines above it. The
+justification lives at the site, self-describing, not in a ledger here.
 
-The real migration denominator is therefore NOT 335. It is at most the
-148 body-pins plus whatever share of the 139 computed-path sites turn out
-to be single-module pins -- the point of publishing the split rather than
-one scary number. Migration itself is deferred work, sequenced after the
-API shrink so pins on surface that is about to move are handled once.
-
-Policy for a NEW pin, in preference order: use `ast_seams.assert_def`;
-if the thing asserted genuinely has no seam (a `.kv` file, a doc example,
-a comment's wording), add a `pin-justified:` comment saying why, and
-raise the budget below in the same commit.
+Kivy handlers are testable without a Window. Call the handler UNBOUND on
+a `types.SimpleNamespace` that carries only the attributes it touches
+(`ModSlider.on_touch_down(fake_self, touch)`); monkeypatch the module's
+`_app_ctx.ctx` to a fake ctx whose panels' `collide_point` returns
+False; set `Window.modifiers` on the conftest's MagicMock `Window` with
+`monkeypatch.setattr(mod.Window, 'modifiers', [...], raising=False)`.
+Widgets cannot be INSTANTIATED under the stubbed base (no
+`register_event_type`); the unbound call sidesteps that entirely, and a
+mutation of the handler's branch turns exactly the test for that branch
+red.
 """
 
 from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import REPO_ROOT, iter_package_modules
 
-# Total `read_text` call sites in tests/, measured at introduction.
-# Ratchet: may fall freely, may not rise without a deliberate bump.
-# pin-justified: raised 335 -> 361 when four branches merged onto the
-# beta line at once. The pin was taken against beta, so it never saw the
-# tests that arrived with them; the growth is those tests, not new
-# source-text assertions on the pinned line's own code.
-# pin-justified: 361 -> 362 for the manifest-naming contract, which reads
-# back a manifest the recording just wrote. The seam this pin prefers
-# asserts against SOURCE; this reads a JSON artifact produced by the run,
-# which has no seam to assert instead.
-# pin-justified: 362 -> 365 for the build-chain guards
-# (test_build_dependency_and_identity.py), three sites, none of which has a
-# seam available:
-#   1. build.ps1 -- PowerShell. No Python AST, and no PowerShell parser in
-#      the test environment.
-#   2. MIN_BUILD_SCRIPT_VERSION -- a bare integer in a text file.
-#   3. lvp_logger.py -- behavioural tests were written FIRST and had to be
-#      withdrawn: conftest replaces lvp_logger in sys.modules with a
-#      MagicMock, so the banner is a no-op under pytest and every
-#      assertion passed vacuously against an empty capture. Importing the
-#      real module under an alias was rejected because it installs a
-#      global sys.excepthook at import, which has already polluted one
-#      bench log. One read site serves all four assertions.
-# pin-justified: 365 -> 367 for two independently-added sites that met at
-# the beta merge: the API doc guard (test_api_doc_guard.py) -- the guard's
-# SUBJECT is the text of LumascopeSkills.md, so there is no production seam
-# to assert instead (the doc-example case named above) -- and the Enhance
-# image/folder label guard (test_enhance_file_or_folder.py), which asserts
-# button LABEL TEXT inside a function body, where ast_seams carries the def
-# but not the literals in it. One site each; measured on the merged tree.
-# pin-justified: 367 -> 370 for the capability-gating guards
-# (test_capability_gating_ssot.py, two sites; test_controls_lockout.py, one).
-# Every one asserts an ABSENCE -- that a function no longer reads a
-# capability out of the scope-model config, and that two deleted mirrors of
-# the XY fact have not come back. ast_seams asserts that a seam EXISTS with
-# a given shape; it has no way to say a name is gone or that a body stopped
-# reading something, which is the whole content of these guards.
-# pin-justified: 375 -> 376 for test_settings_question_failure_parity.py,
-# ONE site. It reads no source: the refusal tests assert that a refused
-# save left the user's only copy of their configuration exactly as it was,
-# which is a claim about a file on disk and has no AST seam -- the same
-# rationale already recorded for test_session_save_settings.py in the file
-# budget below, whose assertions these mirror. Six natural sites (a
-# before/after pair in each of three tests) were funnelled through one
-# `_current_json` helper so the file costs one.
-_READ_TEXT_SITE_BUDGET = 376
-
-# Files containing at least one, recorded for the same reason.
-# pin-justified: raised 115 -> 122 by the same merge.
-# pin-justified: 122 -> 123 for test_build_dependency_and_identity.py.
-# pin-justified: 123 -> 124 for test_api_doc_guard.py, same reason as the
-# site bump above.
-# pin-justified: 124 -> 125 for test_api_surface_polarity2.py -- the
-# other polarity of the same guard: its subject is ALSO the text of
-# LumascopeSkills.md (does every live public member appear in a checked
-# fence), so there is no AST seam to assert instead.
-# pin-justified: 125 -> 126 for test_capability_gating_ssot.py, same reason
-# as the site bump above: absence assertions have no seam to assert.
-# pin-justified: 126 -> 128 for test_settings_preparation_shared.py and
-# test_session_save_settings.py. Neither reads SOURCE: both write a settings
-# file into tmp_path and read its bytes back to assert the file on disk was
-# or was not modified. "The user's only copy was left exactly as it was" is
-# a claim about a file, so there is no AST seam to assert instead.
-# pin-justified: 129 -> 130 for test_settings_question_failure_parity.py --
-# same reason as the site bump above, and the same reason as the two files
-# named immediately above it. Its AST work goes through
-# tests.ast_seams.parse_module, which is where that read already lives and
-# is already counted; the one site this file adds is the on-disk check.
-_READ_TEXT_FILE_BUDGET = 130
+_JUSTIFICATION = 'pin-justified'
+_JUSTIFICATION_WINDOW = 3  # lines above the read that may carry it
 
 
 def _nodes_inside_iteration(tree):
@@ -122,16 +60,22 @@ def _nodes_inside_iteration(tree):
     return inside
 
 
+def _is_justified(lines, lineno):
+    window = lines[max(0, lineno - 1 - _JUSTIFICATION_WINDOW) : lineno]
+    return any(_JUSTIFICATION in line for line in window)
+
+
 def classify_read_text_sites():
     """Group every `read_text` call in tests/ by what it is doing.
 
     Returns a dict of category -> list of 'file:line'. Categories carry
     different dispositions, which is the whole reason to separate them:
-    a hygiene scan should never migrate, a `.kv` pin cannot, and a
-    body-pin should.
+    a hygiene scan should never migrate, a `.kv` pin cannot, a justified
+    `.py` read has said why, and an unjustified `body-pin` should.
     """
     found: dict[str, list[str]] = {
         'body-pin': [],
+        'body-pin-justified': [],
         'single-computed': [],
         'hygiene-scan': [],
         'data-doc-read': [],
@@ -139,6 +83,7 @@ def classify_read_text_sites():
     }
     for rel_path, tree in iter_package_modules(('tests',)):
         in_loop = _nodes_inside_iteration(tree)
+        lines = None
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -150,7 +95,9 @@ def classify_read_text_sites():
             elif '.kv' in expr:
                 category = 'kv-pin'
             elif '.py' in expr:
-                category = 'body-pin'
+                if lines is None:
+                    lines = (REPO_ROOT / rel_path).read_text().splitlines()
+                category = 'body-pin-justified' if _is_justified(lines, node.lineno) else 'body-pin'
             elif any(ext in expr for ext in ('.md', '.json', '.txt')):
                 category = 'data-doc-read'
             else:
@@ -159,40 +106,95 @@ def classify_read_text_sites():
     return found
 
 
-def test_source_pin_count_does_not_grow():
-    """New tests should assert seams, not source text."""
-    sites = classify_read_text_sites()
-    total = sum(len(v) for v in sites.values())
-    assert total <= _READ_TEXT_SITE_BUDGET, (
-        f'{total} read_text call sites in tests/, over the recorded '
-        f'{_READ_TEXT_SITE_BUDGET}.\n\n'
-        f'Prefer tests.ast_seams.assert_def, which asserts the seam and '
-        f'survives reformatting. If the thing being asserted genuinely has '
-        f'no seam (a .kv file, a doc example, a comment), add a '
-        f'"pin-justified:" comment saying why and raise '
-        f'_READ_TEXT_SITE_BUDGET in this commit.\n\n'
-        f'Current split: ' + ', '.join(f'{k}={len(v)}' for k, v in sorted(sites.items()))
-    )
+def _fragile_pin_counts():
+    """{'tests/<file>.py': number of unjustified literal-.py reads}."""
+    counts: dict[str, int] = {}
+    for entry in classify_read_text_sites()['body-pin']:
+        rel_path = entry.rsplit(':', 1)[0]
+        counts[rel_path] = counts.get(rel_path, 0) + 1
+    return counts
 
 
-def test_source_pin_file_count_does_not_grow():
-    """Held separately: 20 new pins in one file is different from 20 files."""
-    sites = classify_read_text_sites()
-    files = {entry.rsplit(':', 1)[0] for entries in sites.values() for entry in entries}
-    assert len(files) <= _READ_TEXT_FILE_BUDGET, (
-        f'{len(files)} test files now read source text, over the recorded '
-        f'{_READ_TEXT_FILE_BUDGET}: '
-        f'{sorted(files)[:10]}{" ..." if len(files) > 10 else ""}'
-    )
+# Pinned at 132d09a9 (beta35). Lower a value in the same commit that moves
+# the assertion to a seam or justifies the read; never raise one.
+_FRAGILE_PIN = {
+    'tests/test_audit_fixes.py': 75,
+    'tests/test_camera_log_routing.py': 1,
+    'tests/test_camera_sdk_probe_observability.py': 2,
+    'tests/test_capability_gating_ssot.py': 4,
+    'tests/test_composite_channel_extract_672.py': 2,
+    'tests/test_controls_lockout.py': 5,
+    'tests/test_dark_floor_capture_guard.py': 1,
+    'tests/test_enhance_file_or_folder.py': 7,
+    'tests/test_fatal_abort_led_safety.py': 2,
+    'tests/test_histogram_display_gating.py': 1,
+    'tests/test_image_mode.py': 2,
+    'tests/test_init_z_sync.py': 1,
+    'tests/test_installer_log_capture.py': 1,
+    'tests/test_issue_568_protocol_time_floor.py': 1,
+    'tests/test_issue_629_zproj_picker.py': 1,
+    'tests/test_issue_655_ag_ae_exposure_cap.py': 1,
+    'tests/test_issue_684_jpg_quality_row.py': 1,
+    'tests/test_issue_691_video_duration.py': 1,
+    'tests/test_issue_697_nav_led_sweep.py': 3,
+    'tests/test_issue_749_color2ch_contract.py': 1,
+    'tests/test_least_astonishment_fixes.py': 7,
+    'tests/test_led_ack_and_tsr_filename.py': 1,
+    'tests/test_logger_bundle_single_owner.py': 1,
+    'tests/test_manual_recording_controller.py': 1,
+    'tests/test_periodic_current_json_flush.py': 1,
+    'tests/test_popup_close_button.py': 2,
+    'tests/test_post_processing_time_trendline.py': 1,
+    'tests/test_protocol_modules.py': 1,
+    'tests/test_protocol_move_io_ordering.py': 1,
+    'tests/test_quick_enhance.py': 2,
+    'tests/test_quick_enhance_kv.py': 1,
+    'tests/test_record_path_buffer_reuse.py': 1,
+    'tests/test_root_logging_capture.py': 1,
+    'tests/test_run_encoding_ssot.py': 1,
+    'tests/test_single_instance_popup_focus.py': 1,
+    'tests/test_stitcher.py': 4,
+    'tests/test_tsr_cluster_fix.py': 3,
+}
+
+_REMEDY = (
+    'A test is pinning production source text. Assert the seam or the '
+    'behaviour instead: tests.ast_seams.assert_def for a def; walk '
+    'tests.ast_seams.parse_module for a name that must be absent; for a '
+    'Kivy handler, call it unbound on a SimpleNamespace (recipe in this '
+    "module's docstring). If the subject truly has no seam, put "
+    '"# pin-justified: <why>" within three lines above the read. '
+    'This pin is never raised.'
+)
+
+
+def _ratchet_report(pin, actual):
+    lines = []
+    for key in sorted(set(pin) | set(actual)):
+        before, now = pin.get(key, 0), actual.get(key, 0)
+        if now > before:
+            lines.append(f'{key}: fragile source pins rose {before} -> {now}. {_REMEDY}')
+        elif now < before:
+            lines.append(
+                f'{key}: fragile source pins fell {before} -> {now}. '
+                f'Lower _FRAGILE_PIN in this commit.'
+            )
+    return lines
+
+
+def test_fragile_source_pins_match_the_pin():
+    """New tests assert seams or behaviour, not source text; every drop is
+    recorded where it happened."""
+    report = _ratchet_report(_FRAGILE_PIN, _fragile_pin_counts())
+    assert report == [], '\n'.join(report)
 
 
 def test_classification_covers_every_site():
     """The published split must account for every site.
 
-    Without this the docstring's denominator could drift from reality
-    while both ratchets above still pass -- a classification nobody can
-    trust is worse than no classification, because the migration is
-    scoped from it.
+    Without this the announced buckets could drift from reality while the
+    pin above still passes -- a classification nobody can trust is worse
+    than no classification, because the migration is scoped from it.
     """
     sites = classify_read_text_sites()
     total = sum(len(v) for v in sites.values())
@@ -201,16 +203,38 @@ def test_classification_covers_every_site():
         assert all(':' in entry for entry in entries), f'{category} has a malformed entry'
 
 
+def test_justification_is_read_from_the_site():
+    """A `# pin-justified:` comment within the window moves a `.py` read
+    out of the fragile bucket; one line past the window does not."""
+    src = (
+        'from pathlib import Path\n'
+        '# pin-justified: an example with no seam\n'
+        "a = Path('x.py').read_text()\n"
+        '\n'
+        '# pin-justified: too far above\n'
+        '\n'
+        '\n'
+        '\n'
+        "b = Path('y.py').read_text()\n"
+    )
+    lines = src.splitlines()
+    assert _is_justified(lines, 3)
+    assert not _is_justified(lines, 9)
+
+
 # Announced at the end of every run (tests/ratchets.py).
 from tests import ratchets as _ratchets
 
 _ratchets.register(
-    'tests: read_text source-pin sites',
-    lambda: sum(len(v) for v in classify_read_text_sites().values()),
-    _READ_TEXT_SITE_BUDGET,
+    'tests: fragile source pins (unjustified literal-.py reads)',
+    lambda: sum(_fragile_pin_counts().values()),
+    sum(_FRAGILE_PIN.values()),
+    'equal',
 )
-_ratchets.register(
-    'tests: files with a read_text source pin',
-    lambda: len({e.rsplit(':', 1)[0] for v in classify_read_text_sites().values() for e in v}),
-    _READ_TEXT_FILE_BUDGET,
-)
+for _bucket in ('body-pin-justified', 'single-computed', 'hygiene-scan', 'data-doc-read', 'kv-pin'):
+    _ratchets.register(
+        f'tests: read_text sites, {_bucket}',
+        (lambda b=_bucket: len(classify_read_text_sites()[b])),
+        0,
+        'announce',
+    )
