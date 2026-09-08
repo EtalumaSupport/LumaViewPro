@@ -447,6 +447,12 @@ class LumaViewProApp(TooltipMixin, App):
     recording_active = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
 
+    # The in-flight drain-close poller, or None when no close is running.
+    # Declared here so the close handler can read it before any close has
+    # assigned it -- the alternative is every reader defending itself with
+    # getattr, which is how one of them eventually forgets.
+    _drain_close_watch = None
+
     def publish_run_state(self, dt=0):
         """Write the three kv mirrors from the session derivations.
 
@@ -1164,6 +1170,16 @@ class LumaViewProApp(TooltipMixin, App):
         # produces a silent shutdown -- the gap that prompted this hook.
         logger.info(f'[LVP Main  ] on_request_close fired; protocol_running={protocol_running}')
         gui_logger.window_event('close-requested', f'protocol_running={protocol_running}')
+
+        if self._drain_close_watch is not None:
+            # A close is already draining. This is a SECOND close request --
+            # a Kivy Popup is modal only for in-canvas touch, so the window's
+            # X still reaches here while the progress popup is up. Logged
+            # above and then ignored: running the close path again starts a
+            # second poller and a second popup over the same drain.
+            logger.info('[LVP Main  ] close already in progress; ignoring the request')
+            return True  # Prevent window from closing
+
         if protocol_running:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
@@ -1225,11 +1241,16 @@ class LumaViewProApp(TooltipMixin, App):
         def _watch(dt):
             if _busy():
                 set_message(f'Finishing video writes -- {_pending()} frames remaining.')
-                return
-            Clock.unschedule(self._drain_close_watch)
+                return True
+            # Returning False is what actually stops a Kivy interval, and it
+            # stops THIS event whatever the attribute now holds. Unscheduling
+            # through the attribute alone is not enough: it names whichever
+            # close wrote it last, so an earlier event would keep ticking --
+            # and every tick calls stop() again.
             self._drain_close_watch = None
             popup.dismiss()
             self.stop()
+            return False
 
         self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
 
