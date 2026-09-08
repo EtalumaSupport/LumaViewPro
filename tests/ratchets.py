@@ -26,6 +26,7 @@ class Ratchet:
     pin: int
     # 'ceiling': the count may fall freely and may not rise.
     # 'equal': the count must equal the pin; a fall lowers the pin.
+    # 'announce': no pin; the count is printed so its history is visible.
     rule: str
 
 
@@ -33,7 +34,7 @@ _REGISTRY: list[Ratchet] = []
 
 
 def register(name: str, measure: Callable[[], int], pin: int, rule: str = 'ceiling') -> None:
-    if rule not in ('ceiling', 'equal'):
+    if rule not in ('ceiling', 'equal', 'announce'):
         raise ValueError(f'unknown ratchet rule {rule!r}')
     _REGISTRY.append(Ratchet(name, measure, pin, rule))
 
@@ -51,6 +52,9 @@ def summary_lines() -> list[str]:
             now = ratchet.measure()
         except Exception as exc:  # a broken measure must not hide the others
             lines.append(f'{ratchet.name:<{width}}  unmeasurable: {exc!r}')
+            continue
+        if ratchet.rule == 'announce':
+            lines.append(f'{ratchet.name:<{width}}  {now:>5}  (announced, no pin)')
             continue
         if now == ratchet.pin:
             state = 'at pin'
