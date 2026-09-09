@@ -40,7 +40,7 @@ from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
-from modules import gui_logger
+from modules import exceptions, gui_logger
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
@@ -270,6 +270,9 @@ class ProtocolSettings(FloatLayout):
     # Update Protocol Period
     def update_period(self):
         settings = _app_ctx.ctx.settings
+        # One import for the three messages below, deferred to call time the
+        # way every notification site in this file is.
+        from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
         try:
@@ -280,8 +283,6 @@ class ProtocolSettings(FloatLayout):
             # instead of their typed value. The getter stays silent so save /
             # run-start do not re-warn.
             if config_helpers.protocol_time_clamped(raw_period, 'minutes'):
-                from modules.notification_center import notifications
-
                 notifications.warning(
                     'Protocol',
                     'Capture Timing',
@@ -291,12 +292,30 @@ class ProtocolSettings(FloatLayout):
                 )
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
+            # Say so where the value was typed. The store keeps its previous
+            # period, so without this the edit would look like it was taken
+            # while the protocol still ran on the old schedule.
+            notifications.warning(
+                'Protocol',
+                'Capture Timing',
+                'The capture period was not a number, so it was not changed. '
+                'Enter a period in minutes.',
+            )
 
         text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        time_params = get_protocol_time_params()
+        try:
+            time_params = get_protocol_time_params()
+        except exceptions.ConfigError as e:
+            # The stored schedule itself is unusable -- a hand-edited settings
+            # file reaches here, because the load compares container shape and
+            # never scalar values. Render what the store refused and leave the
+            # protocol on its current timing rather than crashing the handler.
+            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
+            notifications.warning('Protocol', 'Capture Timing', str(e))
+            return
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -305,6 +324,7 @@ class ProtocolSettings(FloatLayout):
     # Update Protocol Duration
     def update_duration(self):
         settings = _app_ctx.ctx.settings
+        from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
@@ -313,8 +333,6 @@ class ProtocolSettings(FloatLayout):
             # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
             # 0.016667 min). Warn once, at the edit, with the hour value.
             if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
-                from modules.notification_center import notifications
-
                 notifications.warning(
                     'Protocol',
                     'Capture Timing',
@@ -324,12 +342,25 @@ class ProtocolSettings(FloatLayout):
                 )
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
+            # Same reason as the period field: the store keeps its previous
+            # duration, so a silent return would look like the edit was taken.
+            notifications.warning(
+                'Protocol',
+                'Capture Timing',
+                'The capture duration was not a number, so it was not changed. '
+                'Enter a duration in hours.',
+            )
 
         text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        time_params = get_protocol_time_params()
+        try:
+            time_params = get_protocol_time_params()
+        except exceptions.ConfigError as e:
+            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
+            notifications.warning('Protocol', 'Capture Timing', str(e))
+            return
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],

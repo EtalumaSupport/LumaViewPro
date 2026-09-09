@@ -9,7 +9,6 @@ headless or REST API mode.
 For GUI-independent equivalents, see config_helpers.py.
 """
 
-import datetime
 import logging
 
 import modules.app_context as _app_ctx
@@ -317,44 +316,24 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
 
 
 def get_protocol_time_params() -> dict:
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    try:
-        period = float(protocol_settings.ids['capture_period'].text)
-    except Exception:
-        logger.warning('Failed to read capture period from UI, defaulting to 1', exc_info=True)
-        period = 1
-        from modules.notification_center import notifications
+    """The protocol period and duration for the running GUI.
 
-        notifications.warning(
-            'Protocol',
-            'Capture Timing',
-            'Could not read the capture period; using 1 minute. Check the period '
-            'field and restart the protocol if the timing is wrong.',
-        )
+    Reads the settings store, not the two text fields. Each field commits its
+    parsed value to the store when the user leaves it or presses enter, so the
+    store already holds the schedule; parsing the widget text a second time
+    here only created a way for the two lanes to answer differently.
 
-    period = datetime.timedelta(minutes=period)
-    try:
-        duration = float(protocol_settings.ids['capture_dur'].text)
-    except Exception:
-        logger.warning('Failed to read capture duration from UI, defaulting to 1', exc_info=True)
-        duration = 1
-        from modules.notification_center import notifications
+    It also gave the failure two different shapes. This lane used to swallow
+    an unparseable value, substitute one minute or one hour, and say so in a
+    popup that no headless caller can see, while the settings lane let a raw
+    conversion error escape. Both now surface the one refusal the store lane
+    raises, so a REST caller gets the same failure the screen shows.
 
-        notifications.warning(
-            'Protocol',
-            'Capture Timing',
-            'Could not read the capture duration; using 1 hour. Check the duration '
-            'field and restart the protocol if the timing is wrong.',
-        )
+    The 1-second floor still applies and is still silent, because save and
+    run-start both call this and a clamp warning here would repeat; that
+    warning fires once, at the field edit.
 
-    duration = datetime.timedelta(hours=duration)
-
-    # 1-second floor (preserves the 0 single-scan marker) so a short
-    # interval/duration stays representable and doesn't round to 0 on display.
-    # The clamp is silent here -- this getter runs on every save and run-start,
-    # so notifying here re-warns repeatedly. The clamp warning fires once, at
-    # the field edit, in ProtocolSettings.update_period / update_duration.
-    return {
-        'period': config_helpers.floor_protocol_time(period),
-        'duration': config_helpers.floor_protocol_time(duration),
-    }
+    Raises:
+        ConfigError: a stored period or duration will not parse as a number.
+    """
+    return config_helpers.get_protocol_time_params_from_settings(_app_ctx.ctx.settings)

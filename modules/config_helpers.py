@@ -1044,14 +1044,43 @@ def protocol_time_clamped(raw_value: float, unit: str) -> bool:
     return floor_protocol_time(td) != td
 
 
+def _protocol_time_value(protocol: dict, key: str, unit: str) -> float:
+    """One stored period/duration as a number, or a refusal naming it.
+
+    A value that will not parse is refused rather than replaced with a
+    default: the stored number is a schedule the user chose, and quietly
+    substituting one runs the protocol on a timing nobody asked for. The
+    settings load compares container shape only and never inspects scalars,
+    so a hand-edited or hand-built config arrives here with a string where a
+    number belongs, and this is the first place that can say so. Naming the
+    key and the unit is why this does not just call float(): the caller sees
+    which field to fix.
+
+    An ABSENT key still defaults -- the shipped template carries both and the
+    default merge fills them, so absent means a caller built a config without
+    a schedule, not a schedule that got corrupted.
+    """
+    raw = protocol.get(key, 1)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        raise ConfigError(
+            f'protocol {key} is {raw!r}, which is not a number of {unit}; '
+            f'correct {key} in the settings file'
+        ) from None
+
+
 def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """Read protocol time params from settings dict (no UI needed).
 
     Returns dict with 'period' and 'duration' as timedelta objects.
+
+    Raises:
+        ConfigError: a stored period or duration will not parse as a number.
     """
     protocol = settings.get('protocol', {})
-    period_minutes = float(protocol.get('period', 1))
-    duration_hours = float(protocol.get('duration', 1))
+    period_minutes = _protocol_time_value(protocol, 'period', 'minutes')
+    duration_hours = _protocol_time_value(protocol, 'duration', 'hours')
     return {
         'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
         'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
