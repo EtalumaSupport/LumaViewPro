@@ -57,19 +57,24 @@ else
     echo "pre-commit: tools/check_rules.py absent on this branch -- skipping rule gate" >&2
 fi
 
-# Ruff gate (zero-tolerance): block any ruff check finding and any
-# format drift. Skips gracefully when ruff is unavailable so branches
-# without it never block. This replaced the finding-count ratchet once
-# the backlog reached zero -- a clean tree is the baseline now.
+# Ruff gate (zero-tolerance) on the INDEX: each staged .py is read from
+# the index (git show :path), so a file formatted after staging, or
+# partially staged, is judged as it will be committed, not as it sits
+# in the working tree. The absolute --stdin-filename keeps pyproject's
+# per-file-ignores and [tool.ruff.format].exclude binding; --force-exclude
+# keeps the top-level exclude lists binding for stdin. Skips gracefully
+# when ruff is unavailable so branches without it never block.
 if python3 -m ruff --version >/dev/null 2>&1; then
-    if ! python3 -m ruff check "$REPO_ROOT"; then
-        echo "pre-commit: ruff check found issues -- fix them or add a justified '# noqa: <RULE>' line" >&2
-        exit 1
-    fi
-    if ! python3 -m ruff format --check "$REPO_ROOT"; then
-        echo "pre-commit: ruff format drift -- run 'python3 -m ruff format .' then restage" >&2
-        exit 1
-    fi
+    while IFS= read -r -d '' f; do
+        if ! git show ":$f" | python3 -m ruff check --force-exclude --stdin-filename "$REPO_ROOT/$f" -; then
+            echo "pre-commit: ruff check found issues in staged $f -- fix them or add a justified '# noqa: <RULE>' line" >&2
+            exit 1
+        fi
+        if ! git show ":$f" | python3 -m ruff format --check --force-exclude --stdin-filename "$REPO_ROOT/$f" - >/dev/null; then
+            echo "pre-commit: ruff format drift in staged $f -- run python3 -m ruff format on it, then restage" >&2
+            exit 1
+        fi
+    done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
 fi
 
 # version.txt refresh (LVP-specific). 4-line format:
@@ -125,9 +130,15 @@ _EXCLUDE_DIR_NAMES = frozenset(
 )
 
 
-def _git_dir() -> Path:
-    """Return the resolved .git directory for the current repo."""
-    out = subprocess.check_output(['git', 'rev-parse', '--git-dir'], text=True).strip()
+def _hooks_dir() -> Path:
+    """Return the hooks directory git actually reads.
+
+    From a linked worktree ``--git-dir`` is ``.git/worktrees/<name>``, and a
+    hook written under it is never executed: git reads hooks from the
+    common directory. ``--git-path hooks`` resolves to that directory
+    from the main checkout and every worktree alike.
+    """
+    out = subprocess.check_output(['git', 'rev-parse', '--git-path', 'hooks'], text=True).strip()
     return Path(out).resolve()
 
 
@@ -137,7 +148,7 @@ def _repo_root() -> Path:
 
 
 def _hook_path() -> Path:
-    return _git_dir() / 'hooks' / 'pre-commit'
+    return _hooks_dir() / 'pre-commit'
 
 
 def install() -> int:
