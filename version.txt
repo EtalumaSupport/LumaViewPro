@@ -1,4 +1,4 @@
 4.0.0-beta36
-2026-09-08 21:11
-fix/837-tile-zstack-group-id
-d4581fbc
+2026-09-08 21:41
+fix/829-zstack-autofocus-once-per-group
+a05bf59c

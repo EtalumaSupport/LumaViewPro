@@ -200,11 +200,23 @@ class ProtocolStepRunner:
         # every poll of every move.
         step = p._protocol.step(idx=p._curr_step)
 
+        # A z-stack slice never triggers its own sweep. Focusing every slice
+        # walks them all onto the same plane and the stack spans nothing, so
+        # the group is focused ONCE, at its first slice, and every slice is
+        # then placed from that result. Auto_Focus on a slice marks which one
+        # is the group's reference plane, not which one sweeps.
+        zstack_focus_anchor = p._protocol.zstack_group_focus_anchor(step_idx=p._curr_step)
+        wants_af = (
+            zstack_focus_anchor is not None
+            if step['Z-Stack Group ID'] != -1
+            else bool(step.get('Auto_Focus'))
+        )
+
         # AF already pushed the Z UI to best_focus_position; do not
         # overwrite with the pre-AF step['Z']. AFE.complete() being
         # True at this point means the most recent AF run finished
         # with a result that AFE has already scheduled to the UI.
-        if step.get('Auto_Focus') and p._autofocus_runner.complete():
+        if wants_af and p._autofocus_runner.complete():
             pass
         elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
@@ -238,8 +250,9 @@ class ProtocolStepRunner:
             )
             step = dict(step)
             step['Auto_Focus'] = False
+            wants_af = False
 
-        if step['Auto_Focus'] and p._af_future is None:
+        if wants_af and p._af_future is None:
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
 
@@ -272,7 +285,7 @@ class ProtocolStepRunner:
             )
             return
 
-        if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
+        if wants_af and p._af_future is not None and not p._af_future.done():
             return
 
         # Light the channel LED, then arm continuous Auto_Gain against the lit
@@ -327,17 +340,29 @@ class ProtocolStepRunner:
             return
 
         # Update Z position with autofocus results
-        if step['Auto_Focus'] and p._update_z_pos_from_autofocus:
+        if wants_af:
             new_z_pos = p._autofocus_runner.best_focus_position()
-            if new_z_pos is not None:
-                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-            else:
+            if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
+            elif zstack_focus_anchor is not None:
+                # Placing the group is what makes the stack span its range, so
+                # it is not the opt-in that update_z_pos_from_autofocus governs
+                # -- an unplaced group is the collapsed stack, and a headless
+                # or REST run would keep acquiring one.
+                moved = p._protocol.apply_zstack_group_focus(
+                    reference_step_idx=zstack_focus_anchor, z=new_z_pos
+                )
+                logger.info(
+                    f'[Capture   ] Z-stack group placed around Z={new_z_pos} '
+                    f'({moved} slices)'
+                )
+            elif p._update_z_pos_from_autofocus:
+                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
 
         if p._callbacks.autofocus_complete:
             _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)
 
-        if step['Auto_Focus']:
+        if wants_af:
             p._autofocus_count += 1
 
         # --- Capture ---

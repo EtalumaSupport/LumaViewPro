@@ -84,6 +84,10 @@ def protocol_step(**overrides):
         'Y': 2.0,
         'Sum': 1,
         'Objective': 'objective-under-test',
+        # scan_iterate is handed a full schema row in production and reads the
+        # grouping to decide both LED hold and z-stack focus; -1 is the
+        # not-part-of-a-stack sentinel, so an unstacked step is the default.
+        'Z-Stack Group ID': -1,
     }
     step.update(overrides)
     return step

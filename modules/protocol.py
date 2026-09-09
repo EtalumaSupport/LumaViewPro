@@ -899,6 +899,49 @@ class Protocol:
     def modify_step_z_height(self, step_idx: int, z: float):
         self._config['steps'].at[step_idx, 'Z'] = z
 
+    def zstack_group_focus_anchor(self, step_idx: int) -> int | None:
+        """The slice holding this step's group focus reference, or None.
+
+        Answers only at the FIRST slice of a z-stack group that wants
+        autofocus, because the two roles cannot be the same slice. The sweep
+        has to run before any slice of the group is captured -- they are
+        acquired in order -- while the offsets have to be measured from the
+        slice at the layer focus, which for the shipped 'center' reference is
+        the middle one. So a run fires the sweep when this returns a value,
+        and hands that value back to apply_zstack_group_focus.
+        """
+        steps = self._config['steps']
+        if step_idx not in steps.index:
+            return None
+        if steps.at[step_idx, 'Z-Stack Group ID'] == -1:
+            return None
+        members = steps.index[
+            steps['Z-Stack Group ID'] == steps.at[step_idx, 'Z-Stack Group ID']
+        ]
+        if len(members) == 0 or members[0] != step_idx:
+            return None
+        flagged = [idx for idx in members if bool(steps.at[idx, 'Auto_Focus'])]
+        return int(flagged[0]) if flagged else None
+
+    def apply_zstack_group_focus(self, reference_step_idx: int, z: float) -> int:
+        """Re-place a whole z-stack group around a focus found for it.
+
+        Every slice moves by the same amount, so the spacing the user
+        configured is preserved and the found focus lands where the layer
+        focus sat when the stack was built. Writing the stored steps is what
+        makes the stage move at all: each step's move is issued from this
+        frame, not from the row object the run is holding.
+
+        Returns the number of slices moved.
+        """
+        steps = self._config['steps']
+        group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
+        shift = z - steps.at[reference_step_idx, 'Z']
+        members = steps.index[steps['Z-Stack Group ID'] == group_id]
+        for idx in members:
+            steps.at[idx, 'Z'] = float(steps.at[idx, 'Z'] + shift)
+        return len(members)
+
     def apply_focus_all_layer_steps(self, layer: str, z: float) -> int:
         """Set Z on EVERY step of the layer, unconditionally.
 
@@ -1344,7 +1387,9 @@ class Protocol:
 
             zstack_positions = zstack_config.step_positions()
 
-            # Create a z-stack
+            # Create a z-stack. The slices are collected first so exactly one
+            # of them can be marked as the group's focus reference below.
+            group_steps: list[tuple[float, dict]] = []
             for zstack_slice, zstack_position in zstack_positions.items():
                 # Skip slices whose Z would drive the stage past its travel
                 # limits, mirroring the XY tile-bounds skip in apply_tiling. A
@@ -1363,7 +1408,7 @@ class Protocol:
                     x=orig_step_df['X'],
                     y=orig_step_df['Y'],
                     z=zstack_position,
-                    af=orig_step_df['Auto_Focus'],
+                    af=False,
                     color=orig_step_df['Color'],
                     fc=orig_step_df['False_Color'],
                     ill=orig_step_df['Illumination'],
@@ -1384,7 +1429,24 @@ class Protocol:
                     auto_named=orig_step_df['Auto_Named'],
                 )
 
-                new_steps.append(new_step_dict)
+                group_steps.append((zstack_position, new_step_dict))
+
+            # Autofocus belongs to the GROUP, not to each slice: focusing every
+            # slice walks them all onto the same plane and the stack spans
+            # nothing. Exactly one slice carries the flag, and it is the one at
+            # the layer's focus -- the plane the stack was built around -- so a
+            # focus found there re-centres the whole group. Picking it by
+            # nearest Z rather than by index keeps it right for every
+            # z_reference and survives a reference slice dropped for being
+            # outside the Z travel.
+            if group_steps and orig_step_df['Auto_Focus']:
+                reference_position = orig_step_df['Z']
+                _, reference_step = min(
+                    group_steps, key=lambda entry: abs(entry[0] - reference_position)
+                )
+                reference_step['Auto_Focus'] = True
+
+            new_steps.extend(step_dict for _, step_dict in group_steps)
 
             zstack_group_id += 1
 
