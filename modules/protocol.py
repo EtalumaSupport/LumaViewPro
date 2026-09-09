@@ -505,6 +505,7 @@ class Protocol:
         df = pd.concat(grouped_list, ignore_index=True).reset_index(drop=True)
         self._set_steps(df)
 
+    @staticmethod
     def _create_empty_steps_df() -> pd.DataFrame:
         dtypes = np.dtype(
             [
@@ -853,7 +854,19 @@ class Protocol:
         this helper so the cache stays consistent. In-place mutations (e.g.
         delete_step's drop(inplace=True)) must set self._num_steps_cache = None
         explicitly.
+
+        A steps frame always carries the full column schema, at any row
+        count. The expansions build their replacement with
+        pd.DataFrame.from_dict(rows), and pandas gives that NO columns at
+        all when rows is empty -- which every input step being skipped
+        produces -- so a consumer's df[['X', 'Y']] raises KeyError rather
+        than returning an empty selection. Restoring the schema here, at
+        the one place the frame is replaced, keeps a protocol with no steps
+        a queryable protocol for every consumer instead of each one
+        carrying its own guard.
         """
+        if df.empty:
+            df = self._create_empty_steps_df()
         self._config['steps'] = df
         self._num_steps_cache = None
 
