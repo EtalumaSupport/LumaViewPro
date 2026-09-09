@@ -1153,6 +1153,17 @@ class Protocol:
         return step_dict['Name']
 
     def step(self, idx: int) -> pd.Series:
+        """One step, as a DETACHED copy of its row.
+
+        The returned Series is built fresh, so it does NOT track later writes
+        to the steps frame. A caller that holds a row across something that
+        can rewrite the frame -- an autofocus result, a z-stack group being
+        placed -- is holding the pre-write values, and re-reads have to come
+        back through here. That row is also what the image writer records its
+        position from, so a stale hold does not merely misinform the caller,
+        it is written into the saved image.
+        """
+
         def _validate():
             if idx < 0:
                 raise ProtocolError('Step index cannot be < 0')

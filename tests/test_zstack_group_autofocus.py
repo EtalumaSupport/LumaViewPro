@@ -140,3 +140,91 @@ def test_the_runner_places_the_group_instead_of_the_single_step():
     }
     assert 'apply_zstack_group_focus' in called
     assert 'zstack_group_focus_anchor' in called
+
+
+def _drive_group_scan(found_z: float, max_ticks: int = 400):
+    """Run a real 3-slice group through scan_iterate, recording the Z moves.
+
+    The suite's other z-stack tests are protocol-level: they pin the placement
+    arithmetic and the stored frame, both of which were already correct while
+    the stack still came out one step high. Nothing pinned the ORDER moves are
+    issued in relative to the sweep, which is where the defect lived, so this
+    drives the real step runner and watches the motor.
+
+    The io executor runs its tasks inline, so the moves travel the production
+    path -- protocol_put, the future, the wait -- and land on the mocked
+    motion impl, which records every commanded position in order.
+    """
+    from concurrent.futures import Future
+    from unittest.mock import MagicMock
+
+    from modules.sequential_io_executor import PROTOCOL_ENQUEUED
+    from tests.protocol_drives import protocol_step, scan_ready_runner
+
+    class _InlineIOExecutor:
+        def protocol_put(self, task, return_future=False):
+            task.action(**task.kwargs)
+            if return_future:
+                fut = Future()
+                fut.set_result(None)
+                return fut
+            return PROTOCOL_ENQUEUED
+
+    proto = _stacked()
+    runner = scan_ready_runner(protocol_step())
+    runner._protocol = proto
+    runner._io_executor = _InlineIOExecutor()
+    runner._coordinate_transformer = MagicMock()
+    runner._coordinate_transformer.plate_to_stage.return_value = (1.0, 2.0)
+    runner._wellplate_loader = MagicMock()
+    runner._scope.motion.is_moving.return_value = False
+
+    # The state the runner is in on the poll after a sweep has resolved: the
+    # future is done and already consumed, and AFE holds the found focus.
+    runner._autofocus_runner.best_focus_position.return_value = found_z
+    runner._autofocus_runner.complete.return_value = True
+    runner._af_future = MagicMock()
+    runner._af_future.done.return_value = True
+    runner._af_future.exception.return_value = None
+    runner._af_result_consumed = True
+
+    for _ in range(max_ticks):
+        if not runner._scan_in_progress.is_set():
+            break
+        runner._step_executor.scan_iterate()
+
+    z_moves = [
+        call.kwargs['position']
+        for call in runner._scope.motion._move_absolute_impl.call_args_list
+        if call.kwargs.get('axis') == 'Z'
+    ]
+    return proto, z_moves
+
+
+def test_the_group_is_captured_on_the_ladder_its_placement_defines():
+    """The sweeping slice is moved to its placed Z before it is captured.
+
+    Its move was issued at the end of the previous step, before the sweep ran,
+    so without a corrective move it captures wherever autofocus parked the
+    stage -- the found focus lands at the stack's bottom and the whole ladder
+    sits one step high.
+    """
+    found = 5015.0
+    proto, z_moves = _drive_group_scan(found_z=found)
+
+    assert proto.steps()['Z'].tolist() == [5010.0, 5015.0, 5020.0]
+    # The sweeping slice's corrective move comes first, then each later slice
+    # is moved from the placed frame as usual. Exactly one move per slice: the
+    # placement is idempotent but its move is not, and re-issuing it on every
+    # settle poll would starve the step of its capture.
+    assert z_moves == [5010.0, 5015.0, 5020.0]
+
+
+def test_the_found_focus_lands_on_the_reference_plane_not_the_stack_floor():
+    """The whole point of the ladder: the focus is the MIDDLE slice."""
+    found = 4980.0
+    _, z_moves = _drive_group_scan(found_z=found)
+
+    assert z_moves[0] == found - 5.0
+    assert z_moves[1] == found
+    assert z_moves[2] == found + 5.0

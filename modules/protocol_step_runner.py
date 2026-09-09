@@ -288,6 +288,48 @@ class ProtocolStepRunner:
         if wants_af and p._af_future is not None and not p._af_future.done():
             return
 
+        # Place the whole z-stack group the moment its focus is known, then move
+        # THIS slice to where the placement put it.
+        #
+        # A step's move is issued at the END of the previous step, from the
+        # stored frame. So the sweep's result arrives too late for the very
+        # slice that produced it: placement reaches slices 2..N (their moves
+        # have not gone out yet) and can never reach this one, which would
+        # otherwise capture wherever autofocus parked the stage and put the
+        # found focus at the stack's BOTTOM instead of its reference plane.
+        # Re-issuing the move here is what makes the stack span its range.
+        #
+        # Placing before the Auto_Gain arm below matters: gain converges on
+        # whatever the camera is grabbing, so arming first and moving second
+        # would converge it on a plane this slice does not capture.
+        #
+        # The move is one-shot per step. Placement is idempotent (a second
+        # call computes a zero shift), but the move is not -- re-issuing it on
+        # every poll would return here forever and the step would never reach
+        # its capture.
+        if wants_af and zstack_focus_anchor is not None and p._focus_placed_step != p._curr_step:
+            found_z = p._autofocus_runner.best_focus_position()
+            if found_z is not None:
+                moved = p._protocol.apply_zstack_group_focus(
+                    reference_step_idx=zstack_focus_anchor, z=found_z
+                )
+                logger.info(
+                    f'[Capture   ] Z-stack group placed around Z={found_z} ({moved} slices)'
+                )
+                # Read the target back out of the stored frame rather than
+                # computing it: the frame is what every other slice's move is
+                # issued from, so reading it here keeps this slice on the same
+                # ladder as its siblings.
+                placed_z = float(p._protocol.step(idx=p._curr_step)['Z'])
+                self._move_axis_through_io('Z', placed_z)
+                p._focus_placed_step = p._curr_step
+                if p._callbacks.move_position:
+                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
+                # Let the next poll's motion gate settle the stage before the
+                # capture. That poll also re-reads the step row, so the frame
+                # this slice is saved with carries the placed Z.
+                return
+
         # Light the channel LED, then arm continuous Auto_Gain against the lit
         # scene. Hardware AG converges on whatever the camera is grabbing; if
         # the LED is dark when AG arms, it rails on noise and the grab is mis-
@@ -344,18 +386,7 @@ class ProtocolStepRunner:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
-            elif zstack_focus_anchor is not None:
-                # Placing the group is what makes the stack span its range, so
-                # it is not the opt-in that update_z_pos_from_autofocus governs
-                # -- an unplaced group is the collapsed stack, and a headless
-                # or REST run would keep acquiring one.
-                moved = p._protocol.apply_zstack_group_focus(
-                    reference_step_idx=zstack_focus_anchor, z=new_z_pos
-                )
-                logger.info(
-                    f'[Capture   ] Z-stack group placed around Z={new_z_pos} ({moved} slices)'
-                )
-            elif p._update_z_pos_from_autofocus:
+            elif zstack_focus_anchor is None and p._update_z_pos_from_autofocus:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
 
         if p._callbacks.autofocus_complete:
