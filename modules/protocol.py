@@ -915,9 +915,7 @@ class Protocol:
             return None
         if steps.at[step_idx, 'Z-Stack Group ID'] == -1:
             return None
-        members = steps.index[
-            steps['Z-Stack Group ID'] == steps.at[step_idx, 'Z-Stack Group ID']
-        ]
+        members = steps.index[steps['Z-Stack Group ID'] == steps.at[step_idx, 'Z-Stack Group ID']]
         if len(members) == 0 or members[0] != step_idx:
             return None
         flagged = [idx for idx in members if bool(steps.at[idx, 'Auto_Focus'])]

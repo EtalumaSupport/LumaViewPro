@@ -353,8 +353,7 @@ class ProtocolStepRunner:
                     reference_step_idx=zstack_focus_anchor, z=new_z_pos
                 )
                 logger.info(
-                    f'[Capture   ] Z-stack group placed around Z={new_z_pos} '
-                    f'({moved} slices)'
+                    f'[Capture   ] Z-stack group placed around Z={new_z_pos} ({moved} slices)'
                 )
             elif p._update_z_pos_from_autofocus:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
