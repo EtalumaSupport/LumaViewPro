@@ -602,7 +602,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 21,
+    'modules/config_ui_getters.py': 19,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 2,
@@ -666,7 +666,7 @@ def _lower_layer_ui_import_counts():
 # Pinned at 74153fad. Lower a value in the same commit that hands the value
 # in as an argument or moves the popup to the caller; never raise one.
 _MODULES_WIDGET_READ_PIN = {
-    'modules/config_ui_getters.py': 21,
+    'modules/config_ui_getters.py': 18,
     'modules/ui_listener_bridge.py': 6,
 }
 

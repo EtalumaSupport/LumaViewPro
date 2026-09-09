@@ -251,16 +251,19 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
 
 
 def get_image_capture_config_from_ui() -> ImageCaptureConfig:
-    microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    mode = _app_ctx.ctx.scope_display.image_mode
-    return ImageCaptureConfig.from_image_mode(
-        mode,
-        output_format_live=microscope_settings.ids['live_image_output_format_spinner'].text,
-        output_format_sequenced=microscope_settings.ids[
-            'sequenced_image_output_format_spinner'
-        ].text,
-        jpg_quality=_app_ctx.ctx.settings.get('jpg_quality', 90),
-    )
+    """The image capture config for the running GUI.
+
+    Reads the settings store, not the widgets. Every value here is
+    committed to settings the moment the user picks it -- each output-format
+    spinner handler writes its key, and the image-mode selector writes its
+    key alongside the display mirror it drives -- so the store is already
+    the current answer and the widgets are a rendering of it. Assembling
+    the config from the widgets instead gave a headless caller, which can
+    only see the store, a different answer than the screen; the mode also
+    reaches saved output through capture_depth, so the drift was reachable
+    in the files.
+    """
+    return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
 
 
 def get_sequenced_capture_config_from_ui() -> dict:

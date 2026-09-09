@@ -253,11 +253,29 @@ class TestImageCaptureConfigSharedBuilder:
     """
 
     @staticmethod
-    def _patch_ui_ctx(monkeypatch, *, mode, live, sequenced, jpg_quality):
+    def _patch_ui_ctx(
+        monkeypatch,
+        *,
+        mode,
+        live,
+        sequenced,
+        jpg_quality,
+        widget_mode=None,
+        widget_live=None,
+        widget_sequenced=None,
+    ):
+        """A running GUI whose store holds mode/live/sequenced/jpg_quality.
+
+        The widgets carry the same values unless a widget_* override points
+        one somewhere else. An override is how a test distinguishes the two
+        possible sources: the store is the only one a headless caller can
+        see, so a value that could only have come from a widget is the
+        lanes drifting apart.
+        """
         live_spinner = MagicMock()
-        live_spinner.text = live
+        live_spinner.text = live if widget_live is None else widget_live
         seq_spinner = MagicMock()
-        seq_spinner.text = sequenced
+        seq_spinner.text = sequenced if widget_sequenced is None else widget_sequenced
         microscope_settings = MagicMock()
         microscope_settings.ids = {
             'live_image_output_format_spinner': live_spinner,
@@ -265,12 +283,41 @@ class TestImageCaptureConfigSharedBuilder:
         }
         ctx = MagicMock()
         ctx.motion_settings.ids = {'microscope_settings_id': microscope_settings}
-        ctx.scope_display.image_mode = mode
-        ctx.settings = {'jpg_quality': jpg_quality}
+        ctx.scope_display.image_mode = mode if widget_mode is None else widget_mode
+        ctx.settings = {
+            'jpg_quality': jpg_quality,
+            'image_output_format': {'live': live, 'sequenced': sequenced},
+            'image_mode': mode,
+        }
 
         import modules.app_context as app_context
 
         monkeypatch.setattr(app_context, 'ctx', ctx)
+
+    def test_ui_lane_answers_from_the_store_not_the_widgets(self, monkeypatch):
+        # Store and widgets deliberately disagree, every field distinguishable.
+        # The GUI commits each of these to settings the moment the user picks
+        # it, so the store is the current answer and the widget is a rendering
+        # of it -- a config assembled from the widgets is the drift itself, and
+        # it is invisible from a headless caller that has only the store.
+        self._patch_ui_ctx(
+            monkeypatch,
+            mode='12bit_scaled',
+            live='OME-TIFF',
+            sequenced='TIFF',
+            jpg_quality=70,
+            widget_mode='8bit',
+            widget_live='JPG',
+            widget_sequenced='JPG',
+        )
+
+        from modules.config_ui_getters import get_image_capture_config_from_ui
+
+        cfg = get_image_capture_config_from_ui()
+
+        assert cfg.image_mode == '12bit_scaled'
+        assert cfg.output_format_live == 'OME-TIFF'
+        assert cfg.output_format_sequenced == 'TIFF'
 
     def test_ui_and_settings_lanes_produce_identical_config(self, monkeypatch):
         mode = '12bit_scientific'
