@@ -1177,6 +1177,16 @@ class Protocol:
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
 
+        # A z-stack group is the slices acquired at ONE XY position. Tiling
+        # multiplies the XY positions, so each (parent group, tile) pair has to
+        # become a group of its own; carrying the parent's id across the tiles
+        # tells every consumer that several XY positions are one stack. The
+        # LED-hold decision reads exactly that and would then hold illumination
+        # on the sample across the move from tile to tile.
+        existing_max_zstack_group_id = orig_steps_df['Z-Stack Group ID'].max()
+        next_zstack_group_id = existing_max_zstack_group_id + 1
+        tiled_zstack_group_ids: dict[tuple[int, str], int] = {}
+
         new_steps = []
 
         for idx, row in orig_steps_df.iterrows():
@@ -1239,6 +1249,18 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
 
+                # -1 is the not-part-of-a-stack sentinel this column uses
+                # throughout; those steps stay ungrouped.
+                parent_zstack_group_id = orig_step_df['Z-Stack Group ID']
+                if parent_zstack_group_id == -1:
+                    tile_zstack_group_id = -1
+                else:
+                    group_key = (int(parent_zstack_group_id), tile_label)
+                    if group_key not in tiled_zstack_group_ids:
+                        tiled_zstack_group_ids[group_key] = int(next_zstack_group_id)
+                        next_zstack_group_id += 1
+                    tile_zstack_group_id = tiled_zstack_group_ids[group_key]
+
                 new_step_dict = self._create_step_dict(
                     label=orig_step_df['Label'],
                     x=x_tile,
@@ -1258,7 +1280,7 @@ class Protocol:
                     zslice=orig_step_df['Z-Slice'],
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=tile_group_id,
-                    zstack_group_id=orig_step_df['Z-Stack Group ID'],
+                    zstack_group_id=tile_zstack_group_id,
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
