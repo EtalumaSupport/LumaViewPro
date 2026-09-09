@@ -1,4 +1,4 @@
 4.0.0-beta36
-2026-09-09 08:27
+2026-09-09 08:38
 fix/829-zstack-autofocus-once-per-group
-6b7d1239
+9e69f3ff
