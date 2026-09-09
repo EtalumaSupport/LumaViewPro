@@ -22,17 +22,39 @@ from modules.config_helpers import (
 
 
 class TestGetBinningFromSettings:
-    def test_reads_binning(self):
-        assert get_binning_from_settings({'binning_size': 2}) == 2
+    """Reads the key the GUI writes and the template ships.
 
-    def test_defaults_to_1(self):
+    Every case here previously hand-built a top-level ``binning_size``
+    integer. Nothing writes that key and no shipped template carries it, so
+    those cases described a config that cannot occur, and passing them meant
+    only that the getter agreed with the test about a fiction. The factor now
+    comes from the selector's stored label.
+    """
+
+    def test_reads_the_stored_selector_label(self):
+        assert get_binning_from_settings({'binning': {'size': '2x2'}}) == 2
+        assert get_binning_from_settings({'binning': {'size': '4x4'}}) == 4
+
+    def test_matches_the_shipped_template(self):
+        # The template is the config every install starts from, so the getter
+        # answering it wrong is the whole defect this replaced.
+        import json
+        import pathlib
+
+        template = json.loads(
+            (pathlib.Path(__file__).resolve().parents[1] / 'data' / 'settings.json').read_text()
+        )
+        assert get_binning_from_settings(template) == 1
+        assert 'binning_size' not in template
+
+    def test_absent_binning_block_is_unbinned(self):
         assert get_binning_from_settings({}) == 1
+        assert get_binning_from_settings({'binning': {}}) == 1
 
-    def test_handles_string(self):
-        assert get_binning_from_settings({'binning_size': '4'}) == 4
-
-    def test_handles_invalid(self):
-        assert get_binning_from_settings({'binning_size': 'bad'}) == 1
+    def test_the_retired_top_level_key_is_not_consulted(self):
+        # A carried-forward file could still hold it; it must not be able to
+        # disagree with the label the selector writes.
+        assert get_binning_from_settings({'binning_size': 4, 'binning': {'size': '2x2'}}) == 2
 
 
 class TestGetFrameDimensions:

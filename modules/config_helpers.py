@@ -16,6 +16,7 @@ import typing
 
 import psutil
 
+import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
@@ -996,11 +997,18 @@ def camera_max_gain_for_ui(imaging) -> float:
 
 
 def get_binning_from_settings(settings: dict) -> int:
-    """Read binning size from settings dict (no UI needed)."""
-    try:
-        return int(settings.get('binning_size', 1))
-    except (ValueError, TypeError):
-        return 1
+    """Read binning size from settings dict (no UI needed).
+
+    Reads the key the GUI actually writes and the template actually ships,
+    ``settings['binning']['size']``, which holds the selector's label ('2x2')
+    rather than a factor. This used to read a top-level ``binning_size``
+    integer that no code writes and no shipped template carries, so it
+    answered 1 for every configuration -- a headless caller silently captured
+    unbinned while the screen showed 2x2. Scope bring-up already reads the
+    label key this way, so this makes the two agree instead of adding a
+    second convention.
+    """
+    return binning.binning_size_str_to_int(settings.get('binning', {}).get('size', '1x1'))
 
 
 def get_frame_dimensions_from_settings(settings: dict) -> dict:

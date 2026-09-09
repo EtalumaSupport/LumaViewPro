@@ -123,25 +123,19 @@ def is_image_saving_enabled() -> bool:
 
 
 def get_binning_from_ui() -> int:
-    try:
-        text = (
-            _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
-        )
-        # Spinner text may be formatted as "1x1", "2x2", etc. -- extract the first number.
-        if 'x' in text:
-            text = text.split('x')[0]
-        return int(text)
-    except Exception:
-        logger.warning('Failed to read binning from UI, defaulting to 1', exc_info=True)
-        from modules.notification_center import notifications
+    """The binning factor for the running GUI.
 
-        notifications.warning(
-            'Camera',
-            'Binning',
-            'Could not read the binning setting; using 1x1. Check the binning '
-            'selector in microscope settings.',
-        )
-        return 1
+    Reads the settings store, not the selector. The selector commits its label
+    to the store as soon as the user picks one, so the store is the current
+    answer, and it is already what scope bring-up and the native-ROI
+    reconstruction read.
+
+    Reading the widget also had its own failure mode this does not: the
+    selector carries the placeholder 'Select' until a stored value is applied,
+    and parsing that text produced a notification and a factor of 1 -- an
+    answer no headless caller could see and no camera was necessarily at.
+    """
+    return config_helpers.get_binning_from_settings(_app_ctx.ctx.settings)
 
 
 def get_zstack_params() -> dict:

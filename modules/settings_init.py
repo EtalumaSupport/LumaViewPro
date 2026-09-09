@@ -345,6 +345,14 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if settings_dict.pop('disable_protocol_accordions', None) is not None:
         changed = True
 
+    # A top-level binning factor that nothing writes and no shipped template
+    # carries. It was read as the headless binning and always answered 1;
+    # binning lives at settings['binning']['size'] as the selector's label.
+    # Dropping it means a file that somehow carries one cannot be mistaken
+    # for a second, disagreeing source of the same fact.
+    if settings_dict.pop('binning_size', None) is not None:
+        changed = True
+
     for layer in get_layers():
         layer_settings = settings_dict.get(layer)
         if not isinstance(layer_settings, dict):
