@@ -561,6 +561,51 @@ def load_lvp_settings(logger: logging.Logger, lvp_appdata: str) -> None:
     )
 
 
+def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str) -> None:
+    """Republish the store from the shipped template after a LATE rejection.
+
+    ``prepare_settings`` already runs this recovery for a current.json that
+    will not parse or whose containers are the wrong kind. A value that
+    parses, has the right container shape, and is STILL not usable -- a
+    binning label naming no factor the arithmetic accepts -- cannot be
+    caught there: it is only discovered later, when something tries to
+    configure a scope from it. Same policy, later trigger.
+
+    The store is mutated IN PLACE rather than rebound. The GUI and the
+    modules it imports each hold their own name bound to this one dict, so
+    rebinding here would leave every one of them on the rejected values
+    while only this module saw the template -- the divergence the single
+    store exists to prevent.
+
+    Setting ``rejected_current_json`` is the half that keeps the promise:
+    it makes the session provisional, so every save raises loudly instead
+    of writing template values over the only copy of the user's
+    configuration. The file itself is not touched.
+    """
+    global rejected_current_json
+
+    current_path = os.path.join(lvp_appdata, 'data', 'current.json')
+    template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(
+            f'settings unusable ({reason}) and no settings.json fallback in '
+            f'{os.path.join(lvp_appdata, "data")}'
+        )
+
+    logger.error(
+        f'[Settings ] {current_path} could not be used ({reason}); '
+        'starting from the shipped defaults. The file has NOT been '
+        'modified and no settings will be saved until this is resolved.'
+    )
+    prepared = _load_and_validate(logger, template_path)
+    _apply_load_migrations(logger, prepared)
+    _normalize_turret_slot_keys(prepared)
+
+    settings.clear()
+    settings.update(prepared)
+    rejected_current_json = (current_path, reason)
+
+
 def retire_rejected_current_json() -> str | None:
     """Move the unusable current.json aside so a fresh one can take its place.
 

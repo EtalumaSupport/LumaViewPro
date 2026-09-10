@@ -514,7 +514,7 @@ class MicroscopeSettings(BoxLayout):
         scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
         if scope_display is None:
             return
-        binning_size = binning.binning_size_str_to_int(self.ids['binning_spinner'].text)
+        binning_size = self._ui_binning_size()
         self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
             binning_size, scope_display.image_mode
         )

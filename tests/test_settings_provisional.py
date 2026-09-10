@@ -21,6 +21,7 @@ than a person would rename the user's file.
 """
 
 import json
+import logging
 import os
 
 import pytest
@@ -261,3 +262,66 @@ class TestShapeValidation:
         with open(appdata / 'data' / 'settings.json') as f:
             template = json.load(f)
         assert settings_init._check_container_shape(template, template) == []
+
+
+class TestALateRejectionGetsTheSamePolicy:
+    """A value that parses and is still unusable arrives AFTER the load.
+
+    prepare_settings can only reject what it can see: a file that will not
+    parse, or containers of the wrong kind. A binning label naming no
+    factor the arithmetic accepts survives all of that and is only found
+    when something tries to configure a scope from it -- so the recovery
+    needs a second trigger, running the same policy.
+    """
+
+    def test_the_store_is_mutated_in_place_not_rebound(self, appdata):
+        # THE load-bearing property. The GUI and the modules it imports each
+        # bind their own name to this one dict at startup. Rebinding here
+        # would leave all of them holding the rejected values while only
+        # settings_init saw the template -- one store with two contents.
+        settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
+        store = settings_init.settings
+        assert store['live_folder'] == '/tmp/the-users-own-folder'
+
+        settings_init.fall_back_to_template(
+            logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
+        )
+
+        assert settings_init.settings is store, 'the store was rebound; aliases now diverge'
+        assert store['live_folder'] != '/tmp/the-users-own-folder', (
+            'the store still holds the rejected configuration'
+        )
+
+    def test_it_marks_the_session_provisional(self, appdata):
+        # Coming up on the template with saving still enabled is worse than
+        # not recovering at all: the 300 s timer writes those defaults over
+        # the only copy of the user's configuration.
+        settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
+        settings_init.fall_back_to_template(
+            logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
+        )
+
+        assert settings_init.rejected_current_json is not None
+        path, reason = settings_init.rejected_current_json
+        assert path == os.path.join(str(appdata), 'data', 'current.json')
+        assert '2x4' in reason, 'the reason must survive to the user-facing prompt'
+
+    def test_the_users_file_is_not_touched(self, appdata):
+        current = appdata / 'data' / 'current.json'
+        before = current.read_bytes()
+
+        settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
+        settings_init.fall_back_to_template(
+            logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
+        )
+
+        assert current.read_bytes() == before, (
+            'the recovery rewrote the only copy of the user configuration'
+        )
+
+    def test_no_template_is_a_loud_failure(self, appdata):
+        settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
+        os.remove(appdata / 'data' / 'settings.json')
+
+        with pytest.raises(FileNotFoundError):
+            settings_init.fall_back_to_template(logging.getLogger('t'), str(appdata), 'unusable')

@@ -365,6 +365,8 @@ from modules.app_config import (
 from modules.app_config import (
     load_mode as _load_mode,
 )
+from modules.exceptions import ConfigError
+from modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
 # (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
@@ -920,17 +922,41 @@ class LumaViewProApp(TooltipMixin, App):
             # the API, so it has nothing to tell it and would only reach
             # the user's console. A raise inside the factory tears down
             # what it had started before it reaches here.
-            scope_session = ScopeSession.create(
-                settings=settings,
-                source_path=source_path,
-                simulate=simulate_mode,
-                warn_pre_release=False,
-                ui_dispatcher=_ui,
-                af_ui_update_func=_handle_autofocus_ui,
-                settings_saved_hook=_notify_plugins_of_settings_save,
-                engineering_mode=ENGINEERING_MODE,
-                display_ctx_provider=lambda: app_context.ctx,
-            )
+            def _compose(from_settings):
+                return ScopeSession.create(
+                    settings=from_settings,
+                    source_path=source_path,
+                    simulate=simulate_mode,
+                    warn_pre_release=False,
+                    ui_dispatcher=_ui,
+                    af_ui_update_func=_handle_autofocus_ui,
+                    settings_saved_hook=_notify_plugins_of_settings_save,
+                    engineering_mode=ENGINEERING_MODE,
+                    display_ctx_provider=lambda: app_context.ctx,
+                )
+
+            # A stored value the settings store cannot configure a scope
+            # from -- a malformed binning label, a missing frame -- reaches
+            # here as ConfigError, and there is nothing above build() to
+            # catch it, so without this the app does not launch at all. Come
+            # up on the shipped template instead, the same recovery
+            # settings_init already runs for an unreadable current.json.
+            # The user's file is NOT repaired: a value we cannot interpret
+            # is not a value we may overwrite.
+            try:
+                scope_session = _compose(settings)
+            except ConfigError as unusable:
+                logger.exception(
+                    '[LVP Main  ] Stored settings cannot configure a scope; '
+                    'coming up on the shipped defaults.'
+                )
+                # Republishes the store IN PLACE and marks the session
+                # provisional, so `settings` below is the template and every
+                # save raises until the user resolves it. Reassigning the name
+                # here instead would strand every other holder of this dict on
+                # the rejected values.
+                fall_back_to_template(logger, source_path, str(unusable))
+                scope_session = _compose(settings)
             lumaview = MainDisplay(scope=scope_session.scope)
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
