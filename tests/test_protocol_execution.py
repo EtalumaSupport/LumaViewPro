@@ -170,7 +170,11 @@ def _make_single_step_protocol(
         'Z-Slice': 0,
         'Custom Step': True,
         'Tile Group ID': 0,
-        'Z-Stack Group ID': 0,
+        # -1, not 0: this builder makes a single UNSTACKED step, and 0 names
+        # z-stack group zero. With a group id the step reads as a one-slice
+        # group whose focus anchor is itself, so the run takes the group-focus
+        # path instead of the plain-autofocus path these tests are about.
+        'Z-Stack Group ID': -1,
         'Acquire': acquire,
         'Video Config': video_config,
         'Stim_Config': stim_config,

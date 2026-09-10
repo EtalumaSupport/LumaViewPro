@@ -291,6 +291,13 @@ class SequencedCaptureRunner:
         # if the stage is still settling on the polls that follow. Travels with
         # _af_future (reset wherever the pointer is cleared).
         self._af_result_consumed = False
+        # The step whose z-stack group has already been placed around its found
+        # focus and moved to. -1 means none yet this scan. Keyed on the step
+        # index because the corrective move must be issued exactly once: the
+        # placement itself is idempotent, but re-issuing its move on every
+        # settle poll would starve the step of its capture. Every scan focuses
+        # afresh, so this clears with the rest of the per-scan state.
+        self._focus_placed_step = -1
 
     def _reset_vars(self):
         self._run_dir = None
@@ -671,6 +678,12 @@ class SequencedCaptureRunner:
         return_to_position: dict | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
+        # Reachable ONLY from the autofocus-scan run mode, whose completion
+        # harvests the focused Z column back into the user's protocol. It is
+        # absent from get_sequenced_run_settings, so no Run button and no L2
+        # caller can turn it on: in an ordinary run it is always False and the
+        # write-backs it guards never fire. Anything a normal run must do with
+        # a found focus therefore cannot be gated on this.
         update_z_pos_from_autofocus: bool = False,
         leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
