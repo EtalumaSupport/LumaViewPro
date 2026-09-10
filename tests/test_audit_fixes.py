@@ -3074,7 +3074,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         arrays = [blown, blown]  # initial + retry both blown -> full walk runs
         monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
 
-        orig_fraction = ImagingAPI._saturated_fraction
+        orig_fraction = ImagingAPI.saturated_fraction
         lock_was_free = []
 
         def probing_fraction(frame, significant_bits):
@@ -3092,7 +3092,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             lock_was_free.append(seen['free'])
             return orig_fraction(frame, significant_bits)
 
-        monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
+        monkeypatch.setattr(ImagingAPI, 'saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
         assert out is not None
         assert len(lock_was_free) >= 2, 'gate + retry walk must both run'

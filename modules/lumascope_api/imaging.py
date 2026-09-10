@@ -2669,13 +2669,21 @@ class ImagingAPI:
     _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
 
     @staticmethod
-    def _saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
+    def saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
         """Fraction of pixels at or above the near-full-scale threshold.
 
         Full scale comes from the frame's payload depth, not the container
         dtype: a 12-bit frame in a uint16 container tops out at 4095, so
         measuring against 65535 would report a fully blown frame as 0%
         saturated and let it slip past the evidence check.
+
+        Public because clipping is a property of the frame that callers
+        outside this class have to be able to ask about: a whole-frame mean
+        cannot distinguish an evenly lit field from one half blown out and
+        half black, so any caller judging whether an exposure is usable needs
+        the pixel count, not a summary statistic. `significant_bits` is
+        required rather than defaulted -- a caller that has to guess the
+        payload depth is the case this measures wrong.
         """
         if arr is None or arr.size == 0:
             return 0.0
@@ -2698,7 +2706,7 @@ class ImagingAPI:
         """Fraction of pixels above the dark-floor threshold.
 
         Measured against the frame's payload depth, not the container
-        dtype -- the same depth rule as ``_saturated_fraction``.
+        dtype -- the same depth rule as ``saturated_fraction``.
         """
         if arr is None or arr.size == 0:
             return 0.0
@@ -2837,8 +2845,7 @@ class ImagingAPI:
                     frame_depth = self.last_significant_bits
                 if (
                     all_ones_check
-                    and self._saturated_fraction(tmp, frame_depth)
-                    >= self._SATURATION_BLOWN_FRACTION
+                    and self.saturated_fraction(tmp, frame_depth) >= self._SATURATION_BLOWN_FRACTION
                 ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
@@ -2859,7 +2866,7 @@ class ImagingAPI:
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
                     if retry_frame is not None and (
-                        self._saturated_fraction(retry_frame, self.last_significant_bits)
+                        self.saturated_fraction(retry_frame, self.last_significant_bits)
                         < self._SATURATION_BLOWN_FRACTION
                     ):
                         tmp = retry_frame  # retry was clean, use it
@@ -2867,7 +2874,7 @@ class ImagingAPI:
                         # Log (not notify): a blown frame is self-evident on
                         # screen and in the saved file, so a popup adds nothing.
                         # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = self._saturated_fraction(tmp, frame_depth) * 100.0
+                        sat_pct = self.saturated_fraction(tmp, frame_depth) * 100.0
                         logger.warning(
                             f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
                             f'saturated -- likely over-exposure or a stale camera gain; '

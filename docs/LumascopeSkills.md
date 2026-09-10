@@ -952,6 +952,21 @@ scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draini
 # directly (see below) -- capture_and_wait handles it internally.
 ```
 
+`capture_and_wait()` also rejects a frame that is essentially all white, and the measurement behind that check is available to callers who need to judge an exposure themselves:
+
+```python
+# Fraction of pixels at or above 99% of full scale, 0.0-1.0.
+# significant_bits is the frame's PAYLOAD depth, not its container width --
+# a 12-bit frame in a uint16 array tops out at 4095, so measuring it
+# against 65535 reports a fully blown frame as 0% saturated.
+image = scope.imaging.capture_and_wait(force_to_8bit=False)
+frac = scope.imaging.saturated_fraction(image, scope.imaging.last_significant_bits)
+if frac > 0.01:
+    print(f"{frac:.1%} of pixels are clipped -- lower the exposure or the illumination")
+```
+
+A whole-frame mean cannot answer this question: an evenly lit field at 70% of full scale and a field that is 70% blown white and 30% black report the same mean. Any caller deciding whether an operating point is usable needs the pixel count.
+
 For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
 
 ```python
