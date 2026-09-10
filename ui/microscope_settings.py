@@ -864,7 +864,16 @@ class MicroscopeSettings(BoxLayout):
         # recorded (it feeds every native-ROI / FOV / stitch derivation).
         ctx.camera_executor.put(
             IOTask(
-                action=imaging.set_binning_size,
+                # Bind the impl, not the public setter: this task ALREADY runs
+                # on the camera worker, and the public setter dispatches onto
+                # that same lane and blocks on the result -- so it waits for a
+                # queue it is itself holding, and every apply died on the
+                # geometry timeout instead of reaching the camera. The failure
+                # callback then rewrote the selector, which re-entered here and
+                # queued the next doomed apply, so one selection became an
+                # endless timeout cycle. The pixel-format apply below binds its
+                # impl for exactly this reason.
+                action=imaging._set_binning_size_impl,
                 kwargs={'size': new_binning_size},
                 callback=self._on_binning_apply_outcome,
                 cb_args=(new_binning_size_str, prior_binning_size_str, prior_frame),

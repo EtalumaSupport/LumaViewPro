@@ -607,7 +607,12 @@ class TestSelectBinningSynchronousCommit:
             get_available_binning_sizes=lambda: [1, 2, 4],
             get_pixel_alignment=lambda: {'width': 4, 'height': 4},
             get_binning_size=lambda: 1,
-            set_binning_size=lambda size: True,
+            # Only the impl is offered, deliberately. The queued task runs ON
+            # the camera worker, so binding the public setter would dispatch
+            # onto that same lane and block waiting for it. Leaving the public
+            # setter off this fake means a rebind to it fails here too, not
+            # only in the structural guard.
+            _set_binning_size_impl=lambda size: True,
         )
         ctx = SimpleNamespace(
             settings=settings,
