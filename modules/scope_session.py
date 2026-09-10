@@ -948,7 +948,7 @@ class ScopeSession:
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
 
-        True while the user's current.json could not be read and no one
+        True while the user's current.json could not be used and no one
         has decided its fate. While it holds, every save aimed at
         current.json raises SettingsSaveRefusedError -- resolve with
         retire_rejected_settings() after the user has chosen to start
@@ -957,7 +957,7 @@ class ScopeSession:
         return settings_init.settings_are_provisional()
 
     def retire_rejected_settings(self) -> 'str | None':
-        """Resolve the provisional-settings state: retire the unreadable file.
+        """Resolve the provisional-settings state: retire the rejected file.
 
         Moves the unusable current.json aside (renamed, never deleted --
         it is the user's only copy) so a fresh one can take its place,
@@ -980,7 +980,7 @@ class ScopeSession:
         Raises:
             SettingsSaveRefusedError: reason='settings_provisional' when
                 the app is running on the shipped template because
-                current.json could not be read AND the save targets
+                current.json could not be used AND the save targets
                 current.json (force does not override; a save aimed at
                 any other destination still writes). reason='no_hardware'
                 when no hardware was connected this session and force is
@@ -991,14 +991,14 @@ class ScopeSession:
         # Outside the force gate on purpose: force means "save even though no
         # hardware was connected", not "save over a file we were told to leave
         # alone". The settings in memory right now are the shipped template,
-        # loaded because the user's own file could not be read; writing them
+        # loaded because the user's own file could not be used; writing them
         # to current.json would replace their entire configuration with
         # defaults. Resolved by retire_rejected_settings() once the user
         # has actually chosen to start over.
         if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
             logger.warning(
                 '[Session  ] save_settings: refused -- running on default '
-                'settings because current.json could not be read. Not '
+                'settings because current.json could not be used. Not '
                 'overwriting it until the user decides.'
             )
             raise SettingsSaveRefusedError(reason='settings_provisional', file=file)

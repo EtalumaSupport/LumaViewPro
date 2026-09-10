@@ -750,7 +750,7 @@ class LumaViewProApp(TooltipMixin, App):
                 retired = ctx.session.retire_rejected_settings()
             except Exception:
                 logger.error(
-                    '[LVP Main  ] could not retire the unreadable settings file',
+                    '[LVP Main  ] could not retire the rejected settings file',
                     exc_info=True,
                 )
                 from modules.notification_center import notifications
@@ -781,7 +781,7 @@ class LumaViewProApp(TooltipMixin, App):
                 # message does not repeat it; the two buttons carry the
                 # question, so the body only states the stakes.
                 show_confirmation_popup(
-                    title='Settings file could not be read',
+                    title='Settings file could not be used',
                     message=(
                         f'{reason}\n\n'
                         'Your file has not been changed, and nothing will be '
@@ -795,7 +795,7 @@ class LumaViewProApp(TooltipMixin, App):
                 )
             except Exception:
                 logger.critical(
-                    '[LVP Main  ] could not ask about the unreadable settings '
+                    '[LVP Main  ] could not ask about the rejected settings '
                     'file; refusing to run with saving disabled',
                     exc_info=True,
                 )
