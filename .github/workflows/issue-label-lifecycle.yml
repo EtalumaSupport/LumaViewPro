@@ -5,7 +5,7 @@ name: Issue label lifecycle automation
 #   (issue opened)                         -> add "New issue - needs triage"
 #   (we triage/fix: marker comment)        -> clear "New issue - needs triage"
 #   (handled state) + (reporter replies, no marker)
-#       handled = "Analyzed" | "Triaged - in progress" |
+#       handled = "Analyzed" | "Fixed - not merged to shipping" |
 #                 "Fixed Needs verification" | "More Bench testing needed"
 #                                          -> strip handled state(s), add "New data - needs retriage"
 #   "New data - needs retriage" + (we re-act: marker comment)
@@ -63,7 +63,7 @@ jobs:
       !contains(github.event.comment.body, '<!-- claude:annotation -->') &&
       (contains(github.event.issue.labels.*.name, 'Fixed Needs verification') ||
        contains(github.event.issue.labels.*.name, 'Analyzed') ||
-       contains(github.event.issue.labels.*.name, 'Triaged - in progress') ||
+       contains(github.event.issue.labels.*.name, 'Fixed - not merged to shipping') ||
        contains(github.event.issue.labels.*.name, 'More Bench testing needed'))
     runs-on: ubuntu-latest
     steps:
@@ -77,7 +77,7 @@ jobs:
               issue_number: context.issue.number,
             };
             for (const name of ['Fixed Needs verification', 'Analyzed',
-                                'Triaged - in progress', 'More Bench testing needed']) {
+                                'Fixed - not merged to shipping', 'More Bench testing needed']) {
               await github.rest.issues.removeLabel({ ...common, name }).catch(err => {
                 // 404 = label already absent (lost a race); anything else is real.
                 if (err.status !== 404) throw err;
