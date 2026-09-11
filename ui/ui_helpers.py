@@ -378,10 +378,15 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
     """Log a text field's value once the user has stopped typing.
 
     Each call cancels the previous pending log for ``name`` and schedules a
-    fresh one ``delay_s`` out, so per-character ``on_text`` traffic collapses
-    to the single committed value. Used by the protocol period / duration /
-    capture-root fields and the manual-video max-fps / max-duration fields,
-    all of which fire per character.
+    fresh one ``delay_s`` out, so a burst of calls collapses to one log line
+    carrying the settled value.
+
+    The burst it exists for is NOT per-character typing: the text fields that
+    use it commit on enter and on focus loss, and a single edit fires both, so
+    an undebounced log would record the same value twice. A field that also
+    commits per keystroke (the protocol period and duration now do, so the
+    settings store tracks what is on screen) sends a longer burst through the
+    same collapse, which is why the debounce is the right shape either way.
 
     Lives here rather than beside the other gui_interactions entries because
     the debounce needs the Kivy Clock and modules/ carries no GUI imports.

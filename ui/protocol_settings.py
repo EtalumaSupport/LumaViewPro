@@ -268,16 +268,56 @@ class ProtocolSettings(FloatLayout):
         self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
     # Update Protocol Period
+    def commit_period(self) -> float | None:
+        """Store the typed capture period as soon as it is a number.
+
+        Bound to the field's ``on_text``, so the store tracks the field on
+        every keystroke rather than waiting for enter or focus loss. Kivy
+        runs a button's handler BEFORE the focus-loss commit, so without
+        this a user who types a period and clicks Run, Save or New Protocol
+        is read from a store still holding the previous value -- while the
+        screen shows the new one.
+
+        Silent and tolerant by design: a half-typed value is not an error,
+        it is just not a value yet, and the enter / focus-loss path still
+        reports one that never parses. Reporting here instead would consume
+        the notification bus's dedup slot for this category and swallow the
+        legitimate sub-second clamp warning that follows it.
+
+        The store write is deliberately OUTSIDE the parse guard: an absent
+        ``protocol`` container is a broken configuration, not a typing
+        error, and the template ships the key.
+        """
+        try:
+            raw_period = float(self.ids['capture_period'].text)
+        except ValueError:
+            return None
+        _app_ctx.ctx.settings['protocol']['period'] = raw_period
+        return raw_period
+
+    def commit_duration(self) -> float | None:
+        """Store the typed capture duration as soon as it is a number.
+
+        The period twin above carries the reasoning; this is the same
+        contract for the duration field.
+        """
+        try:
+            raw_duration = float(self.ids['capture_dur'].text)
+        except ValueError:
+            return None
+        _app_ctx.ctx.settings['protocol']['duration'] = raw_duration
+        return raw_duration
+
     def update_period(self):
-        settings = _app_ctx.ctx.settings
         # One import for the three messages below, deferred to call time the
         # way every notification site in this file is.
         from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
         try:
-            raw_period = float(self.ids['capture_period'].text)
-            settings['protocol']['period'] = raw_period
+            raw_period = self.commit_period()
+            if raw_period is None:
+                raise ValueError(self.ids['capture_period'].text)
             # Warn once, at the edit, when a sub-1s period is raised to the 1s
             # minimum -- so the user is told why the field shows 0.016667 min
             # instead of their typed value. The getter stays silent so save /
@@ -323,13 +363,13 @@ class ProtocolSettings(FloatLayout):
 
     # Update Protocol Duration
     def update_duration(self):
-        settings = _app_ctx.ctx.settings
         from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
-            raw_duration = float(self.ids['capture_dur'].text)
-            settings['protocol']['duration'] = raw_duration
+            raw_duration = self.commit_duration()
+            if raw_duration is None:
+                raise ValueError(self.ids['capture_dur'].text)
             # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
             # 0.016667 min). Warn once, at the edit, with the hour value.
             if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
