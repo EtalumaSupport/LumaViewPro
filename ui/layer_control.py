@@ -190,7 +190,7 @@ class LayerControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
-        from ui.ui_helpers import text_input_debounced
+        from ui.ui_helpers import note_text_write_back, text_input_debounced
 
         try:
             raw = cast(typed_text)
@@ -216,6 +216,7 @@ class LayerControl(BoxLayout):
             # cancels a pending line for it, so one name would discard the other.
             text_input_debounced(record_name, typed_text)
             text_input_debounced(f'{record_name}_APPLIED', val)
+            note_text_write_back(record_name, val)
             return False
 
         upper = slider.max if value_max is None else value_max
@@ -257,6 +258,8 @@ class LayerControl(BoxLayout):
         # 5.0, which is the same value and must not look like a correction.
         if raw != clipped:
             text_input_debounced(f'{record_name}_APPLIED', clipped)
+
+        note_text_write_back(record_name, clipped)
 
         return True
 
@@ -363,7 +366,7 @@ class LayerControl(BoxLayout):
         # returns early below, and until now this box produced no record of its
         # own at all -- a typed illumination was credited to the LED toggle that
         # apply_settings happens to reach, which reads as a button press.
-        from ui.ui_helpers import text_input_debounced
+        from ui.ui_helpers import note_text_write_back, text_input_debounced
 
         text_input_debounced(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
         ill_min = self.ids['ill_slider'].min
@@ -383,6 +386,9 @@ class LayerControl(BoxLayout):
                 self._initializing = False
             text_input_debounced(
                 f'ILLUMINATION_{self.layer}_APPLIED', settings[self.layer]['illumination_ma']
+            )
+            note_text_write_back(
+                f'ILLUMINATION_{self.layer}', settings[self.layer]['illumination_ma']
             )
             return
 
@@ -417,6 +423,8 @@ class LayerControl(BoxLayout):
             self.ids['ill_text'].text = str(illumination)
         finally:
             self._initializing = False
+
+        note_text_write_back(f'ILLUMINATION_{self.layer}', illumination)
 
         self.apply_settings()
 
@@ -585,7 +593,7 @@ class LayerControl(BoxLayout):
         # suffix is required -- the debounce table is keyed by record name and
         # cancels a pending line on a repeat, so two channels sharing a name
         # would silently discard one of them.
-        from ui.ui_helpers import text_input_debounced
+        from ui.ui_helpers import note_text_write_back, text_input_debounced
 
         text_input_debounced(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
         exp_min = self.ids['exp_slider'].min
@@ -608,6 +616,7 @@ class LayerControl(BoxLayout):
             text_input_debounced(
                 f'EXPOSURE_{self.layer}_APPLIED', settings[self.layer]['exposure_ms']
             )
+            note_text_write_back(f'EXPOSURE_{self.layer}', settings[self.layer]['exposure_ms'])
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))
@@ -629,6 +638,8 @@ class LayerControl(BoxLayout):
             self.ids['exp_text'].text = str(exposure)
         finally:
             self._initializing = False
+
+        note_text_write_back(f'EXPOSURE_{self.layer}', exposure)
 
         self.apply_exp_slider()
 

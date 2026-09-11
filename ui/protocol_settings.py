@@ -1141,7 +1141,7 @@ class ProtocolSettings(FloatLayout):
     # ------------------------------
     #
     def handle_step_ui_input_change(self) -> None:
-        from ui.ui_helpers import text_input_debounced
+        from ui.ui_helpers import note_text_write_back, text_input_debounced
 
         obj = self.ids['step_number_input']
         # Captured before either path below rewrites the box.
@@ -1158,6 +1158,7 @@ class ProtocolSettings(FloatLayout):
 
             obj.text = f'{val}'
             text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
+            note_text_write_back('STEP_NUMBER', obj.text)
             return
 
         num_steps = self._protocol.num_steps()
@@ -1173,6 +1174,7 @@ class ProtocolSettings(FloatLayout):
 
         if obj.text != typed:
             text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
+            note_text_write_back('STEP_NUMBER', obj.text)
 
         self.go_to_step(step_idx=val - 1, protocol=False)
 
