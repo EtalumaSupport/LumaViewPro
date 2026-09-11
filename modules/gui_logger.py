@@ -20,8 +20,26 @@ def button(name, detail=''):
     _log.info(f'BUTTON {name} {detail}')
 
 
-def toggle(name, state):
-    """Log a toggle state change."""
+def toggle(name: str, state: bool) -> None:
+    """Log a toggle state change.
+
+    ``state`` must be a real ``bool``. The two toggle-ish Kivy widgets do not
+    agree on how they expose their value: a ``CheckBox`` has ``active``, which
+    is already a bool, while a ``ToggleButton`` has ``state``, which is the
+    string ``'normal'`` or ``'down'`` -- and BOTH of those strings are truthy.
+    A caller handing ``widget.state`` straight through would therefore log
+    ``ON`` for every gesture including the ones turning the control off, and a
+    record that is wrong is worse than one that is missing: nothing downstream
+    can tell it from a real press. Callers convert at the call site with
+    ``widget.state == 'down'``; this refuses the unconverted value rather than
+    relying on each new caller to remember.
+    """
+    if not isinstance(state, bool):
+        raise TypeError(
+            f'gui_logger.toggle({name!r}, ...) needs a bool, got '
+            f'{type(state).__name__} {state!r}. A ToggleButton exposes '
+            f"'normal'/'down', both truthy -- convert with state == 'down'."
+        )
     _log.info(f'TOGGLE {name} {"ON" if state else "OFF"}')
 
 
