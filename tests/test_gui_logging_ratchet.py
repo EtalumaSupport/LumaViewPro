@@ -79,8 +79,11 @@ _ROSTER = {
     'AdvancedSettings.show_step_locations_id': ('SHOW_STEP_LOCATIONS',),
     'AdvancedSettings.stimulation_settings_btn': ('STIMULATION_ENABLED',),
     'AdvancedSettings.tiling_overlap_spinner': ('TILING_OVERLAP',),
-    'AdvancedSettings.video_max_duration_input': ('VIDEO_MAX_DURATION_S',),
-    'AdvancedSettings.video_max_fps_input': ('VIDEO_MAX_FPS',),
+    'AdvancedSettings.video_max_duration_input': (
+        'VIDEO_MAX_DURATION_S',
+        'VIDEO_MAX_DURATION_S_APPLIED',
+    ),
+    'AdvancedSettings.video_max_fps_input': ('VIDEO_MAX_FPS', 'VIDEO_MAX_FPS_APPLIED'),
     'AdvancedSettings.video_timestamp_overlay_id': ('VIDEO_TIMESTAMP_OVERLAY',),
     'CellCountControls.FileChooseBTN(choose:load_cell_count_input_image)': (
         'FILE_CHOOSE',
@@ -225,7 +228,7 @@ _ROSTER = {
     'ProtocolSettings.bf_af_for_fluorescence_btn': ('BF_AF_FOR_FLUORESCENCE',),
     'ProtocolSettings.capture_dur': ('PROTOCOL_DURATION',),
     'ProtocolSettings.capture_period': ('PROTOCOL_PERIOD',),
-    'ProtocolSettings.capture_root': ('CAPTURE_ROOT',),
+    'ProtocolSettings.capture_root': ('CAPTURE_ROOT', 'CAPTURE_ROOT_APPLIED'),
     'ProtocolSettings.change_step_btn': ('MODIFY_STEP',),
     'ProtocolSettings.delete_step_btn': ('DELETE_STEP',),
     'ProtocolSettings.labware_spinner': ('LABWARE',),

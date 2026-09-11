@@ -179,7 +179,17 @@ class AdvancedSettings(Popup):
                 'Reverting to previous value.',
             )
             settings.setdefault('video', {})
-            widget.text = str(settings['video'].get('max_fps', 0))
+            restored = str(settings['video'].get('max_fps', 0))
+            # A refused entry is still a user action, and until now it left no
+            # trace: the handler reverted the box and returned. Both halves are
+            # recorded -- what was typed, and what the box was put back to --
+            # and the revert is declared, because one Enter runs this handler
+            # twice (the box binds both commit events) and the second pass
+            # would otherwise report the reverted value as the typed one.
+            text_input_debounced('VIDEO_MAX_FPS', widget.text)
+            text_input_debounced('VIDEO_MAX_FPS_APPLIED', restored)
+            widget.text = restored
+            gui_logger.note_write_back('VIDEO_MAX_FPS', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_fps'] = value
@@ -203,7 +213,14 @@ class AdvancedSettings(Popup):
                 'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
             )
             settings.setdefault('video', {})
-            widget.text = str(get_manual_video_max_duration(settings))
+            restored = str(get_manual_video_max_duration(settings))
+            # The twin of the FPS limit above, and the same reasoning: the
+            # attempt and the reverted value are both recorded, and the revert
+            # is declared so the second commit pass cannot report it as typed.
+            text_input_debounced('VIDEO_MAX_DURATION_S', widget.text)
+            text_input_debounced('VIDEO_MAX_DURATION_S_APPLIED', restored)
+            widget.text = restored
+            gui_logger.note_write_back('VIDEO_MAX_DURATION_S', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_duration_seconds'] = value
