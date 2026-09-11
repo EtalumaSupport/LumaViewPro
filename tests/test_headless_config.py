@@ -9,16 +9,28 @@ the settings dict only.
 import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
 from modules.config_helpers import (
     get_binning_from_settings,
     get_frame_dimensions_from_settings,
     get_protocol_time_params_from_settings,
     get_image_capture_config_from_settings,
     get_selected_labware_from_settings,
+    get_sequenced_capture_config_from_settings,
     get_zstack_params_from_settings,
     get_auto_gain_settings,
     get_current_objective_info,
 )
+from modules.exceptions import ConfigError
+from modules.objectives_loader import ObjectiveLoader
+from modules.zstack_config import ZStackConfig
+from tests.settings_fixtures import complete_settings
+
+
+def _objective_helper_for(settings: dict):
+    """The real loader -- the objective id comes from the shipped template."""
+    return ObjectiveLoader()
 
 
 class TestGetBinningFromSettings:
@@ -201,16 +213,99 @@ class TestGetSelectedLabware:
 
 
 class TestGetZstackParams:
-    def test_reads_params(self):
-        settings = {'protocol': {'zstack': {'range': 50, 'step_size': 5, 'z_reference': 'top'}}}
-        result = get_zstack_params_from_settings(settings)
-        assert result == {'range': 50.0, 'step_size': 5.0, 'z_reference': 'top'}
+    """Reads the container and leaf the GUI writes and the template ships.
 
-    def test_defaults(self):
-        result = get_zstack_params_from_settings({})
+    Both cases here previously hand-built ``protocol.zstack`` holding a
+    ``z_reference`` token. Nothing writes that container and no template
+    carries it, so the cases described a config that cannot occur and green
+    meant only that the getter agreed with the test about a fiction. The
+    store keeps the stack top-level under ``zstack`` and keeps the reference
+    in ``position`` as the spinner's display label.
+    """
+
+    def test_reads_the_stack_the_gui_wrote(self):
+        settings = complete_settings(
+            zstack={'range': 50, 'step_size': 5, 'position': 'Current Position at Top'}
+        )
+        assert get_zstack_params_from_settings(settings) == {
+            'range': 50.0,
+            'step_size': 5.0,
+            'z_reference': 'top',
+        }
+
+    def test_unconfigured_template_reports_no_stack(self):
+        """The shipped template ships zeros, so it has no z-stack.
+
+        Defaulting step_size to 1 made an unconfigured store report one slice
+        rather than none, which is what ``number_of_steps()`` then answered.
+        """
+        result = get_zstack_params_from_settings(complete_settings())
         assert result['range'] == 0.0
-        assert result['step_size'] == 1.0
+        assert result['step_size'] == 0.0
         assert result['z_reference'] == 'center'
+        assert (
+            ZStackConfig(
+                range=result['range'],
+                step_size=result['step_size'],
+                current_z_reference=result['z_reference'],
+                current_z_value=0.0,
+            ).number_of_steps()
+            == 0
+        )
+
+    def test_absent_position_yields_none_rather_than_a_guess(self):
+        """Only a hand-built dict can omit it -- the L2/SDK case.
+
+        None rather than 'center' so the missing key stays visible; the guard
+        lives where the value is consumed.
+        """
+        assert (
+            get_zstack_params_from_settings({'zstack': {'range': 10, 'step_size': 2}})[
+                'z_reference'
+            ]
+            is None
+        )
+
+    def test_unmapped_position_label_refuses_as_config_error(self):
+        """Typed, not a bare Exception -- REST middleware can only map the
+        typed error onto a response."""
+        with pytest.raises(ConfigError, match='Unknown Z-stack position reference'):
+            get_zstack_params_from_settings({'zstack': {'position': 'Focus at Middle'}})
+
+    @pytest.mark.parametrize('key', ['range', 'step_size'])
+    def test_unparseable_number_refuses_as_config_error(self, key):
+        """A raw ValueError from float() escaped this lane untyped, so one
+        corrupt value failed differently on the GUI and REST lanes."""
+        with pytest.raises(ConfigError, match=f'Z-stack {key} is not a number'):
+            get_zstack_params_from_settings({'zstack': {key: 'wide'}})
+
+    def test_absent_position_refuses_loudly_where_it_is_consumed(self):
+        """The whole contract: no stored position -> a named refusal.
+
+        Without the else-branch this raised UnboundLocalError naming a local
+        variable instead of the reference that caused it.
+        """
+        params = get_zstack_params_from_settings({'zstack': {'range': 10, 'step_size': 2}})
+        config = ZStackConfig(
+            range=params['range'],
+            step_size=params['step_size'],
+            current_z_reference=params['z_reference'],
+            current_z_value=5.0,
+        )
+        with pytest.raises(ConfigError, match='Unknown Z-stack position reference'):
+            config.step_positions()
+
+
+class TestHeadlessTilingOverlap:
+    def test_reads_the_top_level_key_the_template_ships(self):
+        """Read from under ``protocol`` this found nothing and gave every
+        headless run 0% overlap regardless of configuration."""
+        settings = complete_settings(tiling_overlap_percent=25.0)
+        config = get_sequenced_capture_config_from_settings(
+            settings,
+            objective_helper=_objective_helper_for(settings),
+        )
+        assert config['tiling_overlap_percent'] == 25.0
 
 
 class TestGetAutoGainSettings:

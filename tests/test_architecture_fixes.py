@@ -666,7 +666,7 @@ def _lower_layer_ui_import_counts():
 # Pinned at 74153fad. Lower a value in the same commit that hands the value
 # in as an argument or moves the popup to the caller; never raise one.
 _MODULES_WIDGET_READ_PIN = {
-    'modules/config_ui_getters.py': 13,
+    'modules/config_ui_getters.py': 8,
     'modules/ui_listener_bridge.py': 6,
 }
 

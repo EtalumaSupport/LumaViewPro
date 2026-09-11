@@ -139,18 +139,19 @@ def get_binning_from_ui() -> int:
 
 
 def get_zstack_params() -> dict:
-    zstack_settings = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
-    range = float(zstack_settings.ids['zstack_range_id'].text)
-    step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
-    z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-        text_label=zstack_settings.ids['zstack_spinner'].text
-    )
+    """The z-stack range, step size and reference for the running GUI.
 
-    return {
-        'range': range,
-        'step_size': step_size,
-        'z_reference': z_reference,
-    }
+    Reads the settings store, not the three widgets. Each widget commits to the
+    store as it changes -- the two TextInputs through the z-stack step handler,
+    the spinner through its position handler -- so the store already holds the
+    stack; parsing the widget text a second time here only created a way for
+    the two lanes to answer differently.
+
+    Raises:
+        ConfigError: the stored stack will not parse -- an unmapped position
+            label, or a range / step size that is not a number.
+    """
+    return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
 def get_zstack_positions() -> tuple[bool, dict]:

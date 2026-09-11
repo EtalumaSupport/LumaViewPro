@@ -18,6 +18,7 @@ import numpy as np
 import psutil
 
 from lvp_logger import logger
+from modules.exceptions import ConfigError
 from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
@@ -413,7 +414,11 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     if text_label in LABEL_MAP:
         return LABEL_MAP[text_label]
 
-    raise Exception(f'Unknown Z-stack position reference: {text_label}')
+    # ConfigError, not a bare Exception: this refusal now reaches the settings
+    # lane as well as the widget lane, and REST middleware can only map the
+    # typed error onto a response. A bare Exception surfaces as an unhandled
+    # server fault for what is a bad value in the caller's config.
+    raise ConfigError(f'Unknown Z-stack position reference: {text_label}')
 
 
 def is_valid_gain_db(value) -> bool:

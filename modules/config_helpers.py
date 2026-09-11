@@ -21,6 +21,7 @@ import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
 from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
@@ -1176,12 +1177,51 @@ def get_selected_labware_from_settings(
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
-    """Read z-stack params from settings dict (no UI needed)."""
-    zstack = settings.get('protocol', {}).get('zstack', {})
+    """Read z-stack params from the settings store.
+
+    The store keeps the stack in a TOP-LEVEL ``zstack`` container -- not under
+    ``protocol`` -- and keeps its reference in ``position``, holding the
+    spinner's display LABEL. Both are written by the z-stack UI. Reading a
+    ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
+    answered with invented values instead of failing.
+
+    ``step_size`` defaults to 0, matching the shipped container, so an
+    unconfigured store reports no stack. Defaulting it to 1 made
+    ``number_of_steps()`` answer 1 for a store that has no z-stack at all.
+
+    ``position`` can only be absent from a HAND-BUILT settings dict -- the
+    template ships it and the load merge fills it in -- so it yields None
+    rather than a guessed reference. A run that does not z-stack never
+    consumes the value, and inventing 'center' is exactly what makes a missing
+    key invisible. The guard lives where the value is used, in
+    ``ZStackConfig.step_positions``.
+
+    Raises:
+        ConfigError: ``position`` holds a label with no config token, or
+            ``range`` / ``step_size`` will not parse as a number.
+    """
+    zstack = settings.get('zstack', {})
+    position = zstack.get('position')
+    parsed = {}
+    for key in ('range', 'step_size'):
+        raw = zstack.get(key, 0)
+        try:
+            parsed[key] = float(raw)
+        except (TypeError, ValueError):
+            # A raw ValueError from float() escapes this lane untyped, so the
+            # GUI and a REST caller see different failures for one corrupt
+            # value. Both get the refusal the rest of the lane raises.
+            raise ConfigError(f'Z-stack {key} is not a number: {raw!r}') from None
     return {
-        'range': float(zstack.get('range', 0)),
-        'step_size': float(zstack.get('step_size', 1)),
-        'z_reference': zstack.get('z_reference', 'center'),
+        'range': parsed['range'],
+        'step_size': parsed['step_size'],
+        'z_reference': (
+            None
+            if position is None
+            else common_utils.convert_zstack_reference_position_setting_to_config(
+                text_label=position
+            )
+        ),
     }
 
 
@@ -1392,8 +1432,8 @@ def get_composite_capture_config_from_settings(
 
 def get_sequenced_capture_config_from_settings(
     settings: dict,
-    objective_helper,
-    wellplate_loader=None,
+    objective_helper: ObjectiveLoader,
+    wellplate_loader: WellPlateLoader | None = None,
 ) -> dict:
     """Build sequenced capture config from settings dict (no UI needed).
 
@@ -1410,7 +1450,10 @@ def get_sequenced_capture_config_from_settings(
             'zstack_params': get_zstack_params_from_settings(settings),
             'use_zstacking': protocol.get('use_zstacking', False),
             'tiling': protocol.get('tiling', '1x1'),
-            'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+            # Overlap is stored top-level, not under protocol. Reading it from
+            # under protocol found nothing and silently gave every headless
+            # run 0% overlap regardless of what the user had configured.
+            'tiling_overlap_percent': settings.get('tiling_overlap_percent', 0.0),
             'layer_configs': get_layer_configs(settings),
             'period': time_params['period'],
             'duration': time_params['duration'],
