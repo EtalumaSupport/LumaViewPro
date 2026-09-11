@@ -677,6 +677,14 @@ class GraphingControls(BoxLayout):
         self.update_graph()
 
     def update_trendline(self, axis: bool = False):
+        # Logged at entry, before the early return: choosing a trendline before
+        # the axes are set is still a user action and would otherwise vanish.
+        # `axis` is the discriminator -- the kv spinner calls this with no
+        # argument, while set_x_axis/set_y_axis pass True, so a record is only
+        # emitted for a real selection and not for an axis-driven refresh.
+        if not axis:
+            gui_logger.select('TRENDLINE', self.ids.trendline_spinner.text)
+
         if self.selected_x_axis is None or self.selected_y_axis is None:
             return
 
@@ -1260,6 +1268,22 @@ class CellCountControls(BoxLayout):
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
+
+    def log_pixels_per_um(self) -> None:
+        """Record a typed pixels-per-um commit.
+
+        Bound on the commit events rather than logged inside
+        pixel_conversion_adjustment, which the kv drives on every keystroke.
+
+        No _APPLIED companion: that handler REJECTS a bad value and leaves the
+        box alone rather than coercing it, so there is no corrected value to
+        report -- the second line exists only where something was changed.
+        """
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced(
+            'CELL_COUNT_PIXELS_PER_UM', self.ids['text_cell_count_pixels_per_um_id'].text
+        )
 
     def pixel_conversion_adjustment(self):
 

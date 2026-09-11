@@ -114,7 +114,8 @@ class ZStack(FloatLayout):
 
         text_input_debounced(name, self.ids[widget_id].text)
 
-    def set_position(self):
+    def set_position(self) -> None:
+        gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
             ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text

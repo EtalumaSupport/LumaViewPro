@@ -3918,6 +3918,8 @@
 
 			TextInput:
 				id: text_cell_count_pixels_per_um_id
+				on_text_validate: root.log_pixels_per_um()
+				on_focus: if not self.focus: root.log_pixels_per_um()
 				valign: 'center'
 				text: "1.0"
 				size_hint_x: None

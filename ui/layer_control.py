@@ -356,9 +356,16 @@ class LayerControl(BoxLayout):
             self.ids['ill_text'].text = new_text
         self.apply_ill_slider()
 
-    def ill_text(self):
+    def ill_text(self) -> None:
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.ill_text()')
+        # Logged before validation and with the raw text: a rejected entry
+        # returns early below, and until now this box produced no record of its
+        # own at all -- a typed illumination was credited to the LED toggle that
+        # apply_settings happens to reach, which reads as a button press.
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
         ill_min = self.ids['ill_slider'].min
         if self.layer == 'BF':
             ill_max = BF_MAX_ILLUMINATION
@@ -374,9 +381,16 @@ class LayerControl(BoxLayout):
                 self.ids['ill_text'].text = str(settings[self.layer]['illumination_ma'])
             finally:
                 self._initializing = False
+            text_input_debounced(
+                f'ILLUMINATION_{self.layer}_APPLIED', settings[self.layer]['illumination_ma']
+            )
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
+
+        # Only when clipping moved it; comparing parsed numbers, not strings.
+        if ill_val != illumination:
+            text_input_debounced(f'ILLUMINATION_{self.layer}_APPLIED', illumination)
         # Text-entry divergence trace for the > ~150 mA silent-fail
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence

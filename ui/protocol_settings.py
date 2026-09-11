@@ -496,7 +496,11 @@ class ProtocolSettings(FloatLayout):
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
 
-    def apply_tiling(self):
+    def apply_tiling(self) -> None:
+        # At entry, not on success: this refuses an already-tiled protocol via a
+        # popup, and a record conditional on success would make that refusal
+        # indistinguishable from the user never pressing the button.
+        gui_logger.button('APPLY_TILING')
         try:
             settings = _app_ctx.ctx.settings
             ctx = _app_ctx.ctx
@@ -574,7 +578,10 @@ class ProtocolSettings(FloatLayout):
         """
         return _app_ctx.ctx.settings['tiling_overlap_percent']
 
-    def apply_zstacking(self):
+    def apply_zstacking(self) -> None:
+        # At entry: this refuses invalid z-stack parameters via a popup, and the
+        # press is what the log records -- the outcome is the main log's job.
+        gui_logger.button('APPLY_ZSTACKING')
         try:
             ctx = _app_ctx.ctx
 
@@ -1133,8 +1140,13 @@ class ProtocolSettings(FloatLayout):
     # Edit steps
     # ------------------------------
     #
-    def handle_step_ui_input_change(self):
+    def handle_step_ui_input_change(self) -> None:
+        from ui.ui_helpers import text_input_debounced
+
         obj = self.ids['step_number_input']
+        # Captured before either path below rewrites the box.
+        typed = obj.text
+        text_input_debounced('STEP_NUMBER', typed)
         try:
             val = int(obj.text)
         except Exception:
@@ -1145,6 +1157,7 @@ class ProtocolSettings(FloatLayout):
                 val = 1
 
             obj.text = f'{val}'
+            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
             return
 
         num_steps = self._protocol.num_steps()
@@ -1157,6 +1170,9 @@ class ProtocolSettings(FloatLayout):
         elif val > num_steps:
             val = num_steps
             obj.text = f'{val}'
+
+        if obj.text != typed:
+            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
 
         self.go_to_step(step_idx=val - 1, protocol=False)
 
@@ -1178,7 +1194,8 @@ class ProtocolSettings(FloatLayout):
         )
 
     # Goto to Previous Step
-    def prev_step(self):
+    def prev_step(self) -> None:
+        gui_logger.button('PREV_STEP')
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -1192,7 +1209,8 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_idx=max(self.curr_step - 1, 0), protocol=False)
 
     # Go to Next Step
-    def next_step(self):
+    def next_step(self) -> None:
+        gui_logger.button('NEXT_STEP')
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
