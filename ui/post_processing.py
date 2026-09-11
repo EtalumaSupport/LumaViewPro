@@ -265,8 +265,16 @@ class ZProjectionControls(BoxLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _init_ui(self, dt=0):
-        self.ids['zprojection_method_spinner'].values = zprojector.ZProjector.methods()
-        self.ids['zprojection_method_spinner'].text = zprojector.ZProjector.methods()[1]
+        # Each assignment below dispatches the spinner's text-change event, so
+        # populating this panel used to record two selections nobody made --
+        # setting .values snaps the text to the first option, then .text moves
+        # it to the default. Declared before each write, because the dispatch is
+        # synchronous and the record would otherwise already be out.
+        methods = zprojector.ZProjector.methods()
+        gui_logger.note_write_back('ZPROJECTION_METHOD', methods[0])
+        self.ids['zprojection_method_spinner'].values = methods
+        gui_logger.note_write_back('ZPROJECTION_METHOD', methods[1])
+        self.ids['zprojection_method_spinner'].text = methods[1]
 
     @show_popup
     def run_zprojection(self, popup, path):

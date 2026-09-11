@@ -389,6 +389,9 @@ class MicroscopeSettings(BoxLayout):
             ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
+            # Restoring the stored position dispatches the spinner's event, which
+            # would read as the user choosing it during startup.
+            gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
             zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
             zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])

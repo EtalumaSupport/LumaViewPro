@@ -14,6 +14,41 @@ import logging
 
 _log = logging.getLogger('LVP.gui_interactions')
 
+_write_backs: dict = {}
+
+
+def note_write_back(name: str, value: object) -> None:
+    """Declare that the APP is about to write, or has just written, ``value``.
+
+    A widget cannot tell the difference between a user operating it and the app
+    assigning to it -- both dispatch the same event, so the handler runs and a
+    record comes out either way. Two shapes of that produce records nobody did:
+
+    - a spinner whose options or text are set during panel setup, which
+      dispatches once per assignment;
+    - a text box whose handler corrects a typed value and writes the correction
+      back, since one Enter runs that handler twice and the second pass reads
+      what the first wrote.
+
+    The writer declares the value; the next record for that name carrying
+    exactly it is recognised as the app's own and dropped. Exactly one is
+    absorbed, so a user who then does the same thing deliberately still records.
+
+    Declare BEFORE a write that dispatches synchronously (the spinner case) and
+    AFTER one whose echo arrives later (the text case).
+    """
+    _write_backs[name] = str(value)
+
+
+def consume_write_back(name: str, value: object) -> bool:
+    """True when this record is the app's own write rather than a user action.
+
+    Consumes the declaration either way, so a declaration that never matched
+    cannot linger and swallow a later genuine record.
+    """
+    expected = _write_backs.pop(name, None)
+    return expected is not None and str(value) == expected
+
 
 def button(name, detail=''):
     """Log a button press."""
@@ -48,8 +83,15 @@ def slider(name, value):
     _log.info(f'SLIDER {name} {value}')
 
 
-def select(name, value):
-    """Log a selection change (spinner, dropdown, etc.)."""
+def select(name: str, value: object) -> None:
+    """Log a selection change (spinner, dropdown, etc.).
+
+    Spinners dispatch their text-change event on a programmatic assignment as
+    well as on a user pick, so a panel that populates its own options would
+    otherwise record a selection at every app start.
+    """
+    if consume_write_back(name, value):
+        return
     _log.info(f'SELECT {name} {value}')
 
 

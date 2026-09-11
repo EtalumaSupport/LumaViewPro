@@ -76,7 +76,7 @@ class ZStack(FloatLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['zstack']['range'] = step_range
 
-        from ui.ui_helpers import note_text_write_back, text_input_debounced
+        from ui.ui_helpers import text_input_debounced
 
         for wid, name in (
             ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
@@ -84,7 +84,7 @@ class ZStack(FloatLayout):
         ):
             if self.ids[wid].text != typed[wid]:
                 text_input_debounced(f'{name}_APPLIED', self.ids[wid].text)
-                note_text_write_back(name, self.ids[wid].text)
+                gui_logger.note_write_back(name, self.ids[wid].text)
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text

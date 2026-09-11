@@ -46,7 +46,7 @@ def clock(monkeypatch):
 
     monkeypatch.setattr(ui_helpers, 'Clock', _Clock)
     monkeypatch.setattr(ui_helpers, '_text_input_debounce_timers', {})
-    monkeypatch.setattr(ui_helpers, '_text_input_write_backs', {})
+    monkeypatch.setattr(ui_helpers.gui_logger, '_write_backs', {})
     return scheduled
 
 
@@ -73,7 +73,7 @@ def test_enter_keeps_the_typed_value_not_the_correction(clock, emitted):
     # first pass -- reads 99, records it, clips to 24, writes 24 into the box
     ui_helpers.text_input_debounced('GAIN_BF', '99')
     ui_helpers.text_input_debounced('GAIN_BF_APPLIED', 24)
-    ui_helpers.note_text_write_back('GAIN_BF', 24)
+    ui_helpers.gui_logger.note_write_back('GAIN_BF', 24)
 
     # second pass -- same Enter, now reading the box the first pass rewrote
     ui_helpers.text_input_debounced('GAIN_BF', '24')
@@ -90,7 +90,7 @@ def test_enter_keeps_the_typed_value_not_the_correction(clock, emitted):
 
 def test_only_one_echo_is_absorbed(clock, emitted):
     """A user who genuinely retypes the corrected value still gets a record."""
-    ui_helpers.note_text_write_back('GAIN_BF', 24)
+    ui_helpers.gui_logger.note_write_back('GAIN_BF', 24)
     ui_helpers.text_input_debounced('GAIN_BF', '24')  # the echo -- dropped
     ui_helpers.text_input_debounced('GAIN_BF', '24')  # deliberate retype -- kept
 
@@ -103,7 +103,7 @@ def test_only_one_echo_is_absorbed(clock, emitted):
 
 def test_a_different_value_is_never_suppressed(clock, emitted):
     """A write-back must not mask an unrelated later entry."""
-    ui_helpers.note_text_write_back('GAIN_BF', 24)
+    ui_helpers.gui_logger.note_write_back('GAIN_BF', 24)
     ui_helpers.text_input_debounced('GAIN_BF', '7')
 
     _fire(clock)
@@ -118,7 +118,7 @@ def test_an_unconsumed_write_back_does_not_outlive_its_line(clock, emitted):
     value -- which is what would happen if it were only cleared on being matched.
     """
     ui_helpers.text_input_debounced('GAIN_BF', '99')
-    ui_helpers.note_text_write_back('GAIN_BF', 24)
+    ui_helpers.gui_logger.note_write_back('GAIN_BF', 24)
     _fire(clock)
 
     ui_helpers.text_input_debounced('GAIN_BF', '24')  # much later, genuinely typed

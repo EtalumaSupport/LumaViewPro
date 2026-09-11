@@ -371,33 +371,7 @@ def live_histo_reverse():
 
 
 _text_input_debounce_timers: dict = {}
-_text_input_write_backs: dict = {}
 _TEXT_INPUT_DEBOUNCE_S: float = 1.5
-
-
-def note_text_write_back(name: str, value: object) -> None:
-    """Declare that the app just wrote ``value`` INTO the box, not the user.
-
-    One Enter runs a text handler twice: kv binds both ``on_text_validate`` and
-    ``on_focus``, and both fire. If the first pass corrected what the user typed
-    and wrote the correction back into the widget, the second pass reads the
-    CORRECTED text and reports it as the typed value -- and because the debounce
-    below is keyed by record name, that second report cancels the first. The
-    bundle then claims the user typed the very value it also reports as a
-    correction.
-
-    A handler that rewrites its own box calls this on the way out, naming what it
-    wrote. The next log call for that name carrying exactly that value is
-    recognised as the echo and dropped, leaving the real typed value standing.
-    Exactly one echo is absorbed, so a user who genuinely retypes the corrected
-    value still gets a record.
-
-    The declaration lives at the handler's exit rather than beside each
-    ``widget.text = ...`` assignment: a handler can rewrite its box on several
-    branches but leaves by only a few, and what matters is the value it settled
-    on.
-    """
-    _text_input_write_backs[name] = str(value)
 
 
 def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_DEBOUNCE_S) -> None:
@@ -417,8 +391,10 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
     Lives here rather than beside the other gui_interactions entries because
     the debounce needs the Kivy Clock and modules/ carries no GUI imports.
     """
-    echoed = _text_input_write_backs.pop(name, None)
-    if echoed is not None and str(value) == echoed:
+    # The app's own write coming back around, not something the user typed.
+    # Checked HERE rather than at the emitter, because the cancel below would
+    # already have destroyed the pending typed line by the time it emits.
+    if gui_logger.consume_write_back(name, value):
         return
 
     existing = _text_input_debounce_timers.pop(name, None)
@@ -432,10 +408,10 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
 
     def _emit(_dt):
         _text_input_debounce_timers.pop(name, None)
-        # A write-back nobody echoed (a click-away commit fires the handler once)
-        # must not outlive this line, or it would swallow a later real entry of
-        # the same value.
-        _text_input_write_backs.pop(name, None)
+        # A declaration nobody echoed (a click-away commit fires the handler
+        # once) must not outlive this line, or it would swallow a later real
+        # entry of the same value.
+        gui_logger.consume_write_back(name, value)
         gui_logger.text_input(name, value)
 
     _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
