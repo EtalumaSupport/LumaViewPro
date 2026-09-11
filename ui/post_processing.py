@@ -295,6 +295,19 @@ class ZProjectionControls(BoxLayout):
             )
         )
 
+    def log_zprojection_method(self) -> None:
+        """Record a z-projection method selection.
+
+        Bound on the spinner's text change, which is what every other logged
+        spinner in this app uses. That event cannot see a re-selection of the
+        value already shown, and it does fire on the programmatic write this
+        panel makes while setting its options up, so a selection record
+        appears at app start. Both are properties of the event rather than of
+        this call, and both are fixed for every spinner at once when spinner
+        selection moves to the dropdown's own event.
+        """
+        gui_logger.select('ZPROJECTION_METHOD', self.ids['zprojection_method_spinner'].text)
+
     def zprojection_callback(self, popup, status_map, result=None, exception=None):
         from modules.notification_center import notifications
 
@@ -481,6 +494,28 @@ class VideoCreationControls(BoxLayout):
             )
         )
 
+    def log_video_gen_fps(self) -> None:
+        """Record a typed playback-rate commit.
+
+        An empty box is meaningful here rather than absent: it means use the
+        recording's own measured rate, which is what the field's hint says.
+        The raw text is recorded so that choice is visible as the user left it.
+        """
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced('VIDEO_GEN_FPS', self.ids['video_gen_fps_id'].text)
+
+    def log_timestamp_overlay(self) -> None:
+        """Record the timestamp-overlay toggle.
+
+        This is a ToggleButton, whose state is the string 'normal' or 'down';
+        both are truthy, so the comparison -- not the raw state -- is what
+        carries the user's intent. The same conversion is how this panel reads
+        the control when it builds a video.
+        """
+        state_down = self.ids['enable_timestamp_overlay_btn'].state == 'down'
+        gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY_BTN', state_down)
+
     def video_builder_callback(self, popup, status_map, result=None, exception=None):
         if result is None:
             popup.text = 'Generating video(s) - FAILED'
@@ -606,6 +641,24 @@ class GraphingControls(BoxLayout):
         self.ax.set_ylabel(self.ids.y_axis_label_input.text)
         self.y_axis_label = self.ids.y_axis_label_input.text
         self.update_graph()
+
+    def log_text_commit(self, name: str, widget_id: str) -> None:
+        """Record a typed commit in one of the graph's three label fields.
+
+        Bound on the commit events rather than inside the live-update handlers
+        those fields already carry: those run on every keystroke, and two of
+        the three are also written programmatically when an axis is chosen, so
+        logging from them would produce a line per character plus lines the
+        user never typed.
+
+        The name and widget id are passed in because all three fields share
+        this method. A no-argument version could not say which field fired it,
+        and since the debounce table is keyed by record name and cancels a
+        pending line on a repeat, the three would also overwrite each other.
+        """
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced(name, self.ids[widget_id].text)
 
     def update_available_axes(self):
         self.available_x_axes = list(self.available_axes)
@@ -858,7 +911,8 @@ class CellCountControls(BoxLayout):
             },
         }
 
-    def apply_method_to_preview_image(self):
+    def apply_method_to_preview_image(self) -> None:
+        gui_logger.button('APPLY_METHOD_TO_PREVIEW')
         self._regenerate_image_preview()
 
     # Decorate function to show popup and run the code below in a thread

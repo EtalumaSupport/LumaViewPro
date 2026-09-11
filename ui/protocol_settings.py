@@ -1466,6 +1466,19 @@ class ProtocolSettings(FloatLayout):
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
 
+    def log_disable_image_saving(self) -> None:
+        """Record the disable-image-saving checkbox.
+
+        The control is collapsed to zero height unless a caller opens it, so
+        it is reachable only in that configuration -- which is the reason a
+        gesture on it is worth a line: a bundle from a run that saved nothing
+        otherwise gives no sign the box was ever touched.
+        """
+        gui_logger.toggle(
+            'PROTOCOL_DISABLE_IMAGE_SAVING',
+            bool(self.ids['protocol_disable_image_saving_id'].active),
+        )
+
     def update_tiling_selection(self):
         gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)
 

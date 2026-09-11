@@ -664,6 +664,8 @@
 
 			TextInput:
 				id: zstack_stepsize_id
+				on_text_validate: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
+				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
 		        size_hint_y: None
@@ -677,6 +679,8 @@
 
 			TextInput:
 				id: zstack_range_id
+				on_text_validate: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
+				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
 		        size_hint_y: None
@@ -1520,6 +1524,7 @@
 							
 				CheckBox:
 					id: protocol_disable_image_saving_id
+					on_release: root.log_disable_image_saving()
 					disabled: app.run_lockout
 					height: '0dp'
 					size_hint_x: None
@@ -1649,6 +1654,8 @@
 			
         TextInput:
             id: video_gen_fps_id
+            on_text_validate: root.log_video_gen_fps()
+            on_focus: if not self.focus: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -1674,6 +1681,7 @@
 
 		ToggleButton:
 			id: enable_timestamp_overlay_btn
+			on_release: root.log_timestamp_overlay()
 			tooltip_text: 'Add real time values to lower left corner of video'
 			size_hint: None, None
 			size: '45dp', '30dp'
@@ -1770,6 +1778,7 @@
 			
 		Spinner:
 			id: zprojection_method_spinner
+			on_text: root.log_zprojection_method()
 			sync_height: True
 	        text: 'Select'
 			font_size:'12sp'
@@ -3590,6 +3599,7 @@
 					text_size: self.size
 				CheckBox:
 					id: logHistogram_id
+					on_release: root.log_histogram_scale()
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3665,6 +3675,8 @@
 
 			TextInput:
 				id: graph_title_input
+				on_text_validate: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
+				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
 				width: '80dp'
@@ -3695,6 +3707,8 @@
 
 			TextInput:
 				id: x_axis_label_input
+				on_text_validate: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
+				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
 				width: '80dp'
@@ -3755,6 +3769,8 @@
 
 			TextInput:
 				id: y_axis_label_input
+				on_text_validate: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
+				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
 				width: '80dp'

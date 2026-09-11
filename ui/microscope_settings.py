@@ -625,8 +625,9 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
         settings['image_output_format']['sequenced'] = fmt
 
-    def select_video_recording_format(self):
+    def select_video_recording_format(self) -> None:
         settings = _app_ctx.ctx.settings
+        gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)
         if self.ids['video_recording_format_spinner'].text == 'mp4':
             settings['video_as_frames'] = False
         else:
