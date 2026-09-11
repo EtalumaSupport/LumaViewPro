@@ -142,8 +142,6 @@ class RecordingResult:
         frames_written: Frames whose final artifact landed on disk.
         write_failures: Frames lost to per-frame write errors (each cost
             exactly that frame; the recording continued).
-        short_delivery: True when the camera delivered fewer frames than
-            the configured rate promised over the measured duration.
         aborted: True when the recording died fatally (writer-lane death)
             or was discarded before drain completed.
         abort_reason: Human-readable cause when ``aborted``; empty string
@@ -161,14 +159,13 @@ class RecordingResult:
             the stop that closed it ('user_stop', 'duration_elapsed',
             'camera_stalled', ...), 'frame_budget_filled' when the
             budget did, 'discarded' on a discard-first close. A support
-            bundle needs this to tell a user stop from a camera death;
-            short_delivery alone cannot.
+            bundle needs this to tell a user stop from a camera death,
+            which the frame counts alone cannot.
     """
 
     frames_selected: int
     frames_written: int
     write_failures: int
-    short_delivery: bool
     aborted: bool
     abort_reason: str
     configured_fps: float
@@ -579,7 +576,6 @@ class VideoRecordingEngine:
             measured_duration = 0.0
             measured_fps = 0.0
         grade = 'camera' if timestamps and self._all_frames_carried_chunks else 'host'
-        short_delivery = self._frames_written < self._config.frame_budget
         manifest_path = None
         manifest_name = self._manifest_name()
         # An aborted recording has no trustworthy measured truth to publish,
@@ -596,14 +592,12 @@ class VideoRecordingEngine:
                 measured_fps=measured_fps,
                 measured_duration=measured_duration,
                 grade=grade,
-                short_delivery=short_delivery,
                 timestamps=timestamps,
             )
         self._result = RecordingResult(
             frames_selected=self._frames_selected,
             frames_written=self._frames_written,
             write_failures=self._write_failures,
-            short_delivery=short_delivery,
             aborted=self._aborted,
             abort_reason=self._abort_reason,
             configured_fps=self._config.fps,
@@ -642,7 +636,6 @@ class VideoRecordingEngine:
         measured_fps: float,
         measured_duration: float,
         grade: str,
-        short_delivery: bool,
         timestamps: tuple,
     ) -> pathlib.Path | None:
         # Caller metadata first, engine truth second: on any key collision
@@ -655,7 +648,6 @@ class VideoRecordingEngine:
                 'frames_selected': self._frames_selected,
                 'frames_written': self._frames_written,
                 'write_failures': self._write_failures,
-                'short_delivery': short_delivery,
                 'end_reason': self._end_reason,
                 'timestamp_grade': grade,
                 'configured_fps': self._config.fps,
