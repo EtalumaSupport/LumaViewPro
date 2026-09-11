@@ -213,45 +213,6 @@ class TestPylon(unittest.TestCase):
             'exposure sweep produced no data -- chunks flow broken or all exposure sets failed',
         )
 
-    def test_chunk_clear_short_circuits_skip_frames(self):
-        """End-to-end: chunks clear pending sources on the FIRST frame
-        after a parameter change, bypassing the skip-frames count entirely.
-        This is the deterministic behavior chunk-driven validity provides
-        over the empirical skip-frames calibration."""
-        from modules.frame_validity import FrameValidity
-
-        fv = FrameValidity()
-
-        target_gain = 5.0
-        self.camera.gain(target_gain)
-        time.sleep(0.5)  # let the new gain propagate
-
-        # Invalidate + record target the same way Lumascope.set_gain_db does.
-        fv.invalidate('gain')
-        fv.set_target('gain', target_gain)
-        pending_before = dict(fv.pending_sources)
-        self.assertIn('gain', pending_before)
-
-        # Grab ONE fresh frame and feed its chunks to count_frame.
-        ok, _ = self.camera.grab_new_capture(timeout=2.0)
-        self.assertTrue(ok)
-        chunks = self.camera.cam_image_handler._base.get_last_chunks()
-        fv.count_frame(chunk_data=chunks)
-
-        pending_after = dict(fv.pending_sources)
-        print('\n=== chunk-clear short-circuit ===')
-        print(f'  pending before    : {pending_before}')
-        print(f'  observed ChunkGain: {chunks.get("Gain") if chunks else None}')
-        print(f'  pending after 1 frame: {pending_after}')
-        print('==================================\n')
-
-        self.assertNotIn(
-            'gain',
-            pending_after,
-            f"Chunk-match must clear 'gain' from pending after 1 frame; "
-            f'chunks={chunks}, target={target_gain}',
-        )
-
     def test_probe_chunk_capabilities(self):
         """T1 (FRAME_VALIDITY_PLAN.md sec.3): static introspection probe
         for chunk-data support. Answers whether ExposureTime / Gain /

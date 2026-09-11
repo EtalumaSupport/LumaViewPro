@@ -29,6 +29,7 @@ defocused frame still produces a valid focus score:
     fv.is_valid_for(exclude_sources=('z_move',))
 """
 
+import datetime
 import threading
 import time
 from typing import ClassVar
@@ -79,10 +80,12 @@ class FrameValidity:
     # Sources that require physical hardware completion in addition to frame count.
     MOTION_SOURCES = frozenset({'xy_move', 'z_move', 'turret'})
 
-    # Sources whose validity can be confirmed deterministically via per-frame
-    # chunk metadata. When chunk_data is passed to count_frame() and the chunk
-    # value matches the requested target within tolerance, the source is
-    # cleared regardless of skip-frames count. LED has no chunk equivalent;
+    # Sources carrying per-frame chunk metadata, used to REJECT a frame at
+    # capture time -- never to accept one. A chunk reports the register value
+    # in force when the camera TAGGED the frame, not the light integrated
+    # into it, so a chunk that AGREES with the target proves nothing about
+    # the pixels; a chunk that DISAGREES proves the frame predates the write.
+    # Only the disagreement direction is sound. LED has no chunk equivalent;
     # motion is firmware-gated via _settle_check_fn.
     CHUNK_VALIDATABLE_SOURCES = frozenset({'gain', 'exposure'})
 
@@ -169,7 +172,7 @@ class FrameValidity:
                 recording_id=profile_trace.NO_RECORDING,
             )
 
-    def count_frame(self, chunk_data: dict | None = None, frame_ts=None):
+    def count_frame(self, frame_ts: datetime.datetime | None = None) -> None:
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
@@ -177,14 +180,6 @@ class FrameValidity:
         Motion sources are cleared only when both frame count AND settle check pass.
 
         Args:
-            chunk_data: Optional per-frame chunk metadata from the camera
-                (e.g. {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}).
-                If provided, chunk-validatable sources (gain, exposure) whose
-                target value matches the chunk value are cleared from pending,
-                short-circuiting the skip-frames count for those sources.
-                LED + motion + turret sources are unaffected (no chunk
-                equivalent or firmware-gated). Backward compat: if None, the
-                existing skip-frames + settle-check path is used unchanged.
             frame_ts: Optional frame identity (the host-side store timestamp
                 returned alongside the grab). When provided, a frame already
                 counted (same timestamp) is ignored. Multiple consumers poll
@@ -206,15 +201,6 @@ class FrameValidity:
                 for s, target in self._pending.items()
                 if self._is_source_settled_unlocked(s, target)
             ]
-            # Chunks short-circuit skip-frames for chunk-validatable sources:
-            # a source is cleared if either the settle-check path OR a chunk
-            # value matches the requested target.
-            if chunk_data is not None:
-                for source in list(self._pending):
-                    if source in settled:
-                        continue
-                    if self._chunk_match_unlocked(source, chunk_data):
-                        settled.append(source)
             for s in settled:
                 del self._pending[s]
             counter = self._frame_counter
@@ -236,33 +222,14 @@ class FrameValidity:
             return self._settle_check_fn(source)
         return True
 
-    def _chunk_match_unlocked(self, source: str, chunk_data: dict) -> bool:
-        """Return True if chunk_data's value for source matches the recorded
-        target within tolerance. Must be called with _lock held.
-
-        Returns False if any of: source has no chunk mapping, chunk_data
-        lacks the relevant key, target was never recorded, or value is
-        outside tolerance.
-        """
-        chunk_key = self.CHUNK_KEY_FOR_SOURCE.get(source)
-        if chunk_key is None:
-            return False
-        chunk_value = chunk_data.get(chunk_key)
-        if chunk_value is None:
-            return False
-        target = self._target_values.get(source)
-        if target is None:
-            return False
-        tolerance = self.DEFAULT_CHUNK_TOLERANCE.get(source, 0.0)
-        return abs(float(chunk_value) - target) <= tolerance
-
-    def set_target(self, source: str, value):
+    def set_target(self, source: str, value: float | None) -> None:
         """Record the requested value for a chunk-validatable source.
 
         The API layer (Lumascope.set_gain_db / set_exposure_ms) calls this
-        after invalidate() so that when chunk metadata arrives via
-        count_frame(chunk_data=...), the validity module can match the
-        chunk against the target and clear the source deterministically.
+        after invalidate() so the capture path can compare a returned
+        frame's chunk against what was asked for and REJECT a frame whose
+        chunk disagrees. The target never clears a source: settling is by
+        frame count alone.
 
         Args:
             source: Source name (e.g. 'gain', 'exposure'). Sources outside
@@ -290,11 +257,12 @@ class FrameValidity:
         with self._lock:
             return self._target_values.get(source)
 
-    def chunk_match(self, source: str, chunk_value, tolerance: float | None = None) -> bool:
+    def chunk_match(
+        self, source: str, chunk_value: float | None, tolerance: float | None = None
+    ) -> bool:
         """Public float-tolerant equality between a chunk value and the recorded target.
 
-        Used by tests and diagnostics. The internal count_frame() uses
-        _chunk_match_unlocked() against the full chunk_data dict.
+        Used by the capture path's stale-frame rejection, and by tests.
 
         Args:
             source: Source name.

@@ -2489,21 +2489,19 @@ class ImagingAPI:
             }
 
             # Drain stale frames until all pending state changes have
-            # settled. Per-frame chunk metadata flows into count_frame so
-            # chunks short-circuit skip-frames for chunk-validatable
-            # sources (gain, exposure). Cameras without chunks return None
-            # and fall back to the existing skip-frames + settle-check
-            # path. Each drained grab passes its frame timestamp so a
-            # frame concurrently counted by the preview poller is not
-            # counted twice.
+            # settled. Settling is by frame count for every camera: a
+            # chunk certifies the register in force when the frame was
+            # tagged, not the light integrated into it, so it can never
+            # stand in for the pipeline flush this wait exists to cover.
+            # Each drained grab passes its frame timestamp so a frame
+            # concurrently counted by the preview poller is not counted
+            # twice.
             while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
                 if _deadline_expired():
                     return _deadline_none('drain-loop')
                 status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
                 if status:
-                    self.frame_validity.count_frame(
-                        chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
-                    )
+                    self.frame_validity.count_frame(frame_ts=drain_frame_ts)
                     drain_iterations += 1
                 else:
                     remaining = self.frame_validity.frames_until_valid(
@@ -2810,9 +2808,7 @@ class ImagingAPI:
                         grab_status, grab_image_ts = self._driver.grab()
 
                     if grab_status:
-                        self.frame_validity.count_frame(
-                            chunk_data=self._get_latest_chunks(), frame_ts=grab_image_ts
-                        )
+                        self.frame_validity.count_frame(frame_ts=grab_image_ts)
                         tmp = self._driver.get_array()  # thread-safe copy
 
                 if not grab_status:
@@ -2859,9 +2855,7 @@ class ImagingAPI:
                             else self._driver.grab()
                         )
                         if retry_status:
-                            self.frame_validity.count_frame(
-                                chunk_data=self._get_latest_chunks(), frame_ts=retry_image_ts
-                            )
+                            self.frame_validity.count_frame(frame_ts=retry_image_ts)
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
@@ -3108,9 +3102,7 @@ class ImagingAPI:
         # frame timestamp dedupes the count so validity skip counts expire
         # against real frames, not poll rate -- counting polls let a capture
         # accept a frame exposed under the previous gain/exposure/LED state.
-        self.frame_validity.count_frame(
-            chunk_data=self._get_latest_chunks(), frame_ts=grab_image_ts
-        )
+        self.frame_validity.count_frame(frame_ts=grab_image_ts)
 
         with self._state_lock:
             self._frame_buffer = tmp
