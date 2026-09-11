@@ -2746,10 +2746,15 @@ class PylonCamera(Camera):
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
         dropped = 0
+        _wq_n = -1  # [DIAG-841] Stage-B backlog at entry; -1 = no worker
         try:
             if not self.cam_image_handler:
                 _outcome = 'no_handler'
                 return False, None
+            _wq = getattr(
+                getattr(self.cam_image_handler, '_worker', None), '_worker_queue', None
+            )  # [DIAG-841]
+            _wq_n = _wq.qsize() if _wq is not None else -1  # [DIAG-841]
 
             try:
                 # Drain all frames captured before this call -- we only want
@@ -2795,13 +2800,14 @@ class PylonCamera(Camera):
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0
                 profile_trace.trace(
                     'pylon_grab_trace.csv',
-                    'ts_ms,duration_ms,dropped_count,outcome,timeout_s',
+                    'ts_ms,duration_ms,dropped_count,outcome,timeout_s,worker_qsize',
                     [
                         int(time.time() * 1000),
                         f'{_dt_ms:.3f}',
                         dropped,
                         _outcome,
                         f'{timeout_s:.3f}',
+                        _wq_n,  # [DIAG-841]
                     ],
                     recording_id=profile_trace.NO_RECORDING,
                 )

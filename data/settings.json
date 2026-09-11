@@ -204,6 +204,8 @@
     "focus_score_enabled": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,
+    "diag_841_preview_count": true,
+    "diag_841_exposure_skip": null,
     "tracemalloc_enabled": false,
     "memory_profile_enabled": false,
     "memory_profile_interval_s": 5.0,

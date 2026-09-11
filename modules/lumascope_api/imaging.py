@@ -3102,7 +3102,8 @@ class ImagingAPI:
         # frame timestamp dedupes the count so validity skip counts expire
         # against real frames, not poll rate -- counting polls let a capture
         # accept a frame exposed under the previous gain/exposure/LED state.
-        self.frame_validity.count_frame(frame_ts=grab_image_ts)
+        if self.frame_validity.DIAG_PREVIEW_COUNT:  # [DIAG-841] bench arm: preview counts or not
+            self.frame_validity.count_frame(frame_ts=grab_image_ts)
 
         with self._state_lock:
             self._frame_buffer = tmp

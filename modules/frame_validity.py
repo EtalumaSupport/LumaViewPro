@@ -35,6 +35,7 @@ import time
 from typing import ClassVar
 
 from lib import profile_trace
+from lvp_logger import logger
 
 
 class FrameValidity:
@@ -79,6 +80,11 @@ class FrameValidity:
 
     # Sources that require physical hardware completion in addition to frame count.
     MOTION_SOURCES = frozenset({'xy_move', 'z_move', 'turret'})
+
+    # [DIAG-841] Bench arm switches, read from settings.json at import
+    # (diag_841_preview_count, diag_841_exposure_skip). NOT FOR MERGE.
+    DIAG_PREVIEW_COUNT: ClassVar[bool] = True
+    DIAG_EXPOSURE_SKIP: ClassVar[int | None] = None
 
     # Sources carrying per-frame chunk metadata, used to REJECT a frame at
     # capture time -- never to accept one. A chunk reports the register value
@@ -193,9 +199,41 @@ class FrameValidity:
         with self._lock:
             if frame_ts is not None:
                 if frame_ts == self._last_counted_frame_ts:
+                    if (
+                        profile_trace.ENABLE_PROFILE_TRACE
+                    ):  # [DIAG-841] a deduped re-poll, attributed
+                        profile_trace.trace(
+                            'frame_validity_count_trace.csv',
+                            'ts_ms,event,thread,frame_counter,frame_ts,pending_count',
+                            [
+                                int(time.time() * 1000),
+                                'dedupe',
+                                threading.current_thread().name,
+                                self._frame_counter,
+                                frame_ts,
+                                len(self._pending),
+                            ],
+                            recording_id=profile_trace.NO_RECORDING,
+                        )
                     return
                 self._last_counted_frame_ts = frame_ts
             self._frame_counter += 1
+            if (
+                profile_trace.ENABLE_PROFILE_TRACE
+            ):  # [DIAG-841] every count, attributed to the thread that counted
+                profile_trace.trace(
+                    'frame_validity_count_trace.csv',
+                    'ts_ms,event,thread,frame_counter,frame_ts,pending_count',
+                    [
+                        int(time.time() * 1000),
+                        'count',
+                        threading.current_thread().name,
+                        self._frame_counter,
+                        frame_ts,
+                        len(self._pending),
+                    ],
+                    recording_id=profile_trace.NO_RECORDING,
+                )
             settled = [
                 s
                 for s, target in self._pending.items()
@@ -363,7 +401,7 @@ class FrameValidity:
                 and not self._settle_check_fn(s)
             )
 
-    def load_camera_timing(self, config: dict):
+    def load_camera_timing(self, config: dict) -> None:
         """Override SKIP_FRAMES from measured per-camera timing config.
 
         Args:
@@ -378,6 +416,11 @@ class FrameValidity:
         for source, count in measured.items():
             if isinstance(count, int) and count >= 0:
                 self.SKIP_FRAMES[source] = count
+        if self.DIAG_EXPOSURE_SKIP is not None:  # [DIAG-841] bench arm: force the exposure skip
+            self.SKIP_FRAMES['exposure'] = self.DIAG_EXPOSURE_SKIP
+        logger.info(
+            f'[DIAG-841] arm: preview_count={self.DIAG_PREVIEW_COUNT} exposure_skip_override={self.DIAG_EXPOSURE_SKIP!r} SKIP_FRAMES in force={dict(self.SKIP_FRAMES)!r}'
+        )
 
     def reset(self):
         """Clear all pending invalidations and reset frame counter.
@@ -394,3 +437,18 @@ class FrameValidity:
             self._frame_counter = 0
             self._target_values.clear()
             self._last_counted_frame_ts = None
+
+
+# [DIAG-841] Read the bench arm switches at import, the same timing as the
+# profile-trace gate, so both are decided before any camera connects.
+def _read_diag_841_settings():
+    from modules.settings_init import load_diag_841_settings
+
+    result = load_diag_841_settings(profile_trace._appdata_root())
+    if not isinstance(result, dict):
+        return
+    FrameValidity.DIAG_PREVIEW_COUNT = bool(result.get('preview_count', True))
+    FrameValidity.DIAG_EXPOSURE_SKIP = result.get('exposure_skip')
+
+
+_read_diag_841_settings()

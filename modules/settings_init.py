@@ -662,6 +662,26 @@ def load_profile_trace_setting(directory: str) -> dict:
     }
 
 
+def load_diag_841_settings(directory: str) -> dict:
+    """[DIAG-841] Read the two bench-arm switches. NOT FOR MERGE.
+
+    Returns {"preview_count": bool, "exposure_skip": int | None}. Missing
+    or unreadable settings resolve to the shipped behaviour (preview
+    counts, exposure skip from the camera timing file).
+    """
+    try:
+        filename = _resolve_settings_path(directory)
+        temp_settings = read_settings_json(filename)
+    except Exception:
+        return {'preview_count': True, 'exposure_skip': None}
+
+    skip = temp_settings.get('diag_841_exposure_skip')
+    return {
+        'preview_count': bool(temp_settings.get('diag_841_preview_count', True)),
+        'exposure_skip': int(skip) if isinstance(skip, int) and skip >= 0 else None,
+    }
+
+
 def load_tracemalloc_setting(directory: str) -> bool:
     """Read tracemalloc_enabled from settings.
 
