@@ -27,6 +27,10 @@ def _data_dir(tmp_path):
     data = tmp_path / 'data'
     data.mkdir()
     shutil.copy(SHIPPED_TEMPLATE, data / 'settings.json')
+    # The factory builds the session's helpers from this root and refuses
+    # to configure the scope without them.
+    for name in ('objectives.json', 'labware.json'):
+        shutil.copy(os.path.join(os.path.dirname(SHIPPED_TEMPLATE), name), data / name)
     return data
 
 

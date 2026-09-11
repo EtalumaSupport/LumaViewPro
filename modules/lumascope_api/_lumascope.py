@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.layer_record import LayerIdentity
+    from modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
 import logging as _logging
@@ -356,13 +357,17 @@ class Lumascope:
                 which axes the simulated scope presents -- an LS850 has
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
-                False; defaults to the 'microscope' setting then 'LS850T'.
+                False; defaults to ``configured_model``, then the
+                'microscope' setting, then 'LS850T'.
             configured_model: The scope model selected in settings, for
                 units whose hardware cannot report one (the Classic/FX2
                 line has no motor board to ask). Optional: a
                 motor-reported model always wins over it (hardware truth
                 outranks a user selection), so callers on self-reporting
-                or simulated hardware construct unchanged. Left None on
+                hardware construct unchanged. A SIMULATED scope reports
+                this as its model (a declared 'LS850' has no turret
+                axis), so the driver and the selection agree from
+                construction. Left None on
                 a unit that also reports no model, layer identity
                 resolves empty and LED use fails loudly by name rather
                 than silently guessing.
@@ -404,7 +409,7 @@ class Lumascope:
             from modules.settings_init import settings
 
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
-            motor_kwargs['model'] = sim_model or default_model
+            motor_kwargs['model'] = sim_model or configured_model or default_model
         self._motion_driver: MotorBoardProtocol = motor_registry.create(
             'auto', simulate=simulate, **motor_kwargs
         )
@@ -686,7 +691,7 @@ class Lumascope:
         self.layer_identity = self._resolve_layer_identity(override_model=override_model)
         return self.layer_identity
 
-    def initialize(self, config) -> None:
+    def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
 
         Call once after construction.  Sets all scope-level hardware
@@ -698,7 +703,18 @@ class Lumascope:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._notify_partial_hardware(config)
-        self.illumination.leds_off()
+        # The safety-off is bound to the impl like every other write here,
+        # never to the public dispatcher: a session factory runs initialize
+        # while its IO lane may be registered but not yet started, and a
+        # dispatch onto that lane blocks for the whole write timeout and then
+        # raises. The board check the dispatcher performs is copied here for
+        # the same reason it lives there: with no board the composition root
+        # installs a Null driver, which is truthy, so the impl's own `if not
+        # self._driver` never fires and the state cache would record LEDs it
+        # never drove. The write is bounded by the serial layer's own read
+        # and write timeouts; nothing else holds the LED lock at bring-up.
+        if self.led_connected:
+            self.illumination._leds_off_impl()
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
@@ -754,18 +770,19 @@ class Lumascope:
                 frame_width, frame_height = refit['width'], refit['height']
         # A rejection surviving reconciliation is a live hardware fault
         # mid-apply. Each apply is contained individually so one faulted
-        # setting cannot skip the rest of bring-up: the callers of
-        # initialize are the app build and the reconnect button, where a
-        # propagated raise aborts startup entirely (no live view, no
+        # setting cannot skip the rest of bring-up: the caller of
+        # initialize is the session's bring-up, where a propagated raise
+        # aborts startup entirely (no live view, no
         # motion config, no session) over a single transient -- the
         # rejection is already logged AND notified at the API layer, and
         # every downstream consumer reads delivered geometry, never these
         # requests, so nothing is left believing a rejected value.
-        # Bring-up binds the impls: initialize runs before (or without)
-        # executor registration -- at reconnect, before set_scope services
-        # the new scope -- and these writes are the scope's own
+        # Bring-up binds the impls: these writes are the scope's own
         # composition, not external commands, so they stay direct on the
-        # calling thread by design.
+        # calling thread by design -- and the caller may hold executor
+        # lanes that are registered but not started (a session factory
+        # configures before it releases the camera), so nothing in this
+        # method may dispatch.
         for label, apply_fn in (
             ('binning', lambda: self.imaging._set_binning_size_impl(binning_size)),
             (
@@ -786,7 +803,7 @@ class Lumascope:
         # Resolving + setting it now -- instead of via the async camera-executor
         # push that the image-mode spinner enqueues -- removes the race where
         # the format lands after streaming begins and forces a redundant
-        # grab-loop restart. The spinner handler skips its push during init.
+        # grab-loop restart. The spinner handler returns early during init.
         pixel_format = image_mode.select_capture_pixel_format(
             config.capture_depth, self.imaging.get_supported_pixel_formats()
         )

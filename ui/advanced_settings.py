@@ -769,11 +769,16 @@ kv = Builder.load_string(
                         size_hint_y: None
                         height: '30dp' if root.xy_stage_supported else 0
                         size_hint_x: None
-                        width: '65dp'
+                        width: '100dp'
                         option_cls: 'SpinnerOption0'
                         text_autoupdate: True
                         values: ('0%', '10%', '15%', '20%')
                         on_text: root.update_tiling_overlap()
+                    # Kivy sizes a Spinner's dropdown to the Spinner itself, so
+                    # the 65dp this carried clipped the option list rather than
+                    # the closed control. The sibling scope spinner above sets
+                    # no width at all; this keeps a fixed one so the row still
+                    # reads as a compact value field next to its label.
 
                 BoxLayout:
                     orientation: 'horizontal'

@@ -20,9 +20,8 @@ instances:
                   FIFO regardless.
 
 The AF lane is intentionally absent from the registry; AutofocusThread
-is constructed in lumaviewpro.py:build() once the Lumascope + the
-AutofocusRunner it drives are available, and lives directly on
-AppContext.
+is constructed by ScopeSession.create once the Lumascope + the
+AutofocusRunner it drives are available, and lives on the session.
 
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
@@ -40,7 +39,9 @@ lens instead of hardcoding executor handle names.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
@@ -101,25 +102,28 @@ class ExecutorBundle:
         return out
 
 
-def create_default(ui_dispatcher) -> ExecutorBundle:
+def create_default(
+    ui_dispatcher: Callable[[Callable, float], Any] | None,
+    ctx_provider: Callable[[], Any] | None = None,
+) -> ExecutorBundle:
     """Construct + start the standard LVP executor topology.
 
     Args:
         ui_dispatcher: Callable matching ``Clock.schedule_once(func, dt)``
             so executors can hand callbacks back to the GUI thread without
             importing Kivy (executors stay GUI-agnostic). Headless callers
-            pass a direct
-            dispatcher (the executor's default is fine for tests; this
-            method requires an explicit dispatcher to make the lifecycle
-            obvious).
+            pass None and callbacks run inline on the worker.
+        ctx_provider: The display thread's context provider -- a callable
+            returning the object that carries the ``scope_display`` widget
+            and the ``scope`` handle, or None while the host has neither.
+            The GUI hands its app context in; a headless host has no
+            display and passes nothing.
 
     Returns:
         ExecutorBundle with every executor constructed, named, aliased,
-        and started. Caller is responsible for calling ``shutdown()`` /
-        ``shutdown_threads()`` at app teardown.
+        and started. The session that owns the bundle tears it down in
+        ``ScopeSession.shutdown()``.
     """
-    import modules.app_context as _app_ctx
-
     io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
     camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
     # F-2: bounded protocol_queue prevents a save thread that falls
@@ -129,17 +133,13 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
         ui_dispatcher=ui_dispatcher,
         protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE,
     )
-    # Thread is constructed here but NOT started. Start happens in
-    # lumaviewpro.py:build() after ctx.scope_display (widget) and
-    # ctx.scope_display_thread (this) are both wired into ctx;
-    # starting earlier races the ctx wiring and silently no-ops.
-    scope_display_thread = ScopeDisplayThread(
-        ui_dispatcher=ui_dispatcher,
-        ctx_provider=lambda: _app_ctx.ctx,
-    )
+    # Thread is constructed here but NOT started. The host starts it once
+    # its display widget and this thread are both reachable through the
+    # provider; starting earlier races that wiring and silently no-ops.
+    scope_display_thread = ScopeDisplayThread(ctx_provider=ctx_provider)
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
-    protocol_thread = ProtocolThread(ui_dispatcher=ui_dispatcher)
+    protocol_thread = ProtocolThread()
     worker_pool = SequentialIOExecutor(
         name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True
     )

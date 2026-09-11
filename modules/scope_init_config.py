@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.image_mode as image_mode
+from modules.exceptions import ConfigError
 
 
 @dataclass
@@ -57,7 +58,21 @@ class ScopeInitConfig:
         LED-driving layer means an LED board is expected, so its absence
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
+
+        Raises:
+            ConfigError: ``frame`` or ``objective_id`` is missing. Every
+                other field has a value ``initialize`` can apply harmlessly
+                when absent; these two do not -- a frame the camera never
+                held is silent-wrong geometry, and an objective default that
+                names no shipped objective was prefix-matched to a real one
+                and stamped into every saved image's scale.
         """
+        missing = [key for key in ('frame', 'objective_id') if key not in settings]
+        if missing:
+            raise ConfigError(
+                f'settings cannot configure a scope: missing {missing}; '
+                'a factory-built session needs both, a file-sourced one has them'
+            )
         binning_size = binning.binning_size_str_to_int(
             text=settings.get('binning', {}).get('size', '1x1')
         )
@@ -78,7 +93,7 @@ class ScopeInitConfig:
             expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
             labware=labware,
-            objective_id=settings.get('objective_id', '4x'),
+            objective_id=settings['objective_id'],
             turret_config=settings.get('turret_objectives'),
             binning_size=binning_size,
             frame_width=settings['frame']['width'],

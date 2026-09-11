@@ -121,7 +121,11 @@ _FRAGILE_PIN = {
     'tests/test_audit_fixes.py': 75,
     'tests/test_camera_log_routing.py': 1,
     'tests/test_camera_sdk_probe_observability.py': 2,
-    'tests/test_capability_gating_ssot.py': 4,
+    # 4 -> 3: test_reconnect_regates_the_ui was deleted with the dead
+    # MicroscopeSettings.reconnect handler it pinned, and its assertion
+    # read ui/microscope_settings.py as source text. Nothing replaced it;
+    # the invariant went with the handler.
+    'tests/test_capability_gating_ssot.py': 3,
     'tests/test_composite_channel_extract_672.py': 2,
     'tests/test_controls_lockout.py': 5,
     'tests/test_dark_floor_capture_guard.py': 1,

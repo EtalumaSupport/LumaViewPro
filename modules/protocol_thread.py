@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# GUI-agnostic: no Kivy imports. The GUI host injects ui_dispatcher
-# (Clock.schedule_once in Kivy; direct invocation in headless tests).
+# GUI-agnostic: no Kivy imports.
 """ProtocolThread -- dedicated long-lived thread that runs a protocol scan loop.
 
 Replaces the queue-of-1 SequentialIOExecutor pattern (`protocol_executor`)
@@ -34,7 +33,6 @@ import queue
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
-from typing import Any
 
 logger = logging.getLogger('LVP.modules.protocol_thread')
 
@@ -49,22 +47,11 @@ class ProtocolThread:
 
     The thread idles on a request queue between runs; when run_protocol()
     is called it picks up the request, drives the supplied callable to
-    completion, and resolves the request's Future.
-
-    Args:
-        ui_dispatcher: optional callable(callback, delay_seconds) for
-            posting work back to the UI thread. Defaults to a direct
-            inline call (headless mode). Reserved for future use; the
-            scan-loop callable itself owns any UI dispatch it needs.
+    completion, and resolves the request's Future. The scan-loop
+    callable itself owns any UI dispatch it needs.
     """
 
-    def __init__(
-        self,
-        *,
-        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
-    ):
-        self._ui_dispatcher = ui_dispatcher or self._direct_dispatch
-
+    def __init__(self):
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._aborted = threading.Event()
@@ -76,15 +63,6 @@ class ProtocolThread:
 
         self._state_lock = threading.Lock()
         self._current_future: Future | None = None
-
-    @staticmethod
-    def _direct_dispatch(fn: Callable, delay: float) -> None:
-        """Headless fallback for ui_dispatcher. Runs inline; delay is
-        ignored (tests tick manually)."""
-        try:
-            fn(0)
-        except Exception:
-            logger.exception('direct_dispatch callback failed')
 
     # ---- lifecycle ----
 

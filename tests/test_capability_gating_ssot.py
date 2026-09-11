@@ -76,19 +76,6 @@ class TestUiGatesOnTheDriver:
         session_src = (REPO / 'modules' / 'scope_session.py').read_text()
         assert 'xystage_configured' not in session_src
 
-    def test_reconnect_regates_the_ui(self):
-        # Control visibility now comes from the drivers, so a reconnect onto
-        # different hardware leaves the previous scope's controls on screen
-        # unless the apply path runs again. There is no second store to
-        # paper over it.
-        tree = ast.parse((REPO / 'ui' / 'microscope_settings.py').read_text())
-        func = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'reconnect'
-        )
-        assert 'reconfigure_for_scope' in ast.unparse(func), (
-            'reconnect must re-gate the UI against the newly attached scope'
-        )
-
 
 class TestCapabilitiesComeFromTheHardware:
     def test_stage_less_scope_reports_no_xy(self):

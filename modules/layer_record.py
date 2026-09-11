@@ -26,6 +26,7 @@ import json
 from dataclasses import dataclass
 
 from lvp_logger import logger
+from modules.exceptions import ConfigError
 from modules.path_utils import resolve_data_file
 
 
@@ -138,6 +139,27 @@ def load_scopes_data(data_file: str | None = None) -> dict:
     except (OSError, ValueError) as e:
         logger.error(f'[LAYER_RECORD] scopes data unreadable at {path}: {e}')
         return {}
+
+
+def load_scope_models(data_file: str | None = None) -> dict:
+    """The model catalogue -- scopes.json's `Models` section -- or a refusal.
+
+    The identity resolver above tolerates an unreadable file: an empty
+    catalogue resolves no identity, and LED use then fails by name. The
+    settings-to-scope bring-up cannot tolerate it: with no catalogue the
+    declared model has no entry, `model_has_turret` answers False, and the
+    slot-1 objective adoption silently never runs -- the one thing the
+    bring-up exists to do on a turret scope. So a missing or malformed
+    section refuses here, naming the file, instead of returning {}.
+    """
+    path = data_file if data_file is not None else resolve_data_file('scopes.json')
+    models = load_scopes_data(data_file).get('Models')
+    if not isinstance(models, dict):
+        raise ConfigError(
+            f'scopes.json at {path} has no usable Models section '
+            f'(found {type(models).__name__}); reinstall or restore the file'
+        )
+    return models
 
 
 def load_layer_catalogue(scopes_data: dict) -> tuple[str, ...]:

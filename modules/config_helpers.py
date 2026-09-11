@@ -16,10 +16,12 @@ import typing
 
 import psutil
 
+import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
 from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
@@ -28,6 +30,7 @@ if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
     from modules.protocol import Protocol
+    from modules.scope_capabilities import ScopeCapabilities
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -259,6 +262,67 @@ def get_ag_ae_max_exposure_ms(layer: str, overrides: dict | None = None) -> floa
         if override is not None:
             return float(override)
     return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+
+
+def log_resolved_optics(
+    objective_id: str,
+    focal_length: float,
+    binning_size: int,
+    *,
+    capabilities: 'ScopeCapabilities | None',
+) -> None:
+    """Record the optics behind image scale, at the moment they are chosen.
+
+    Scale is written into every frame, hyperstack and still as a real
+    PhysicalSizeX, but the values producing it are read off the scope and
+    consumed in process -- so a returned support bundle could only show the
+    shipped default templates, which describe what ships rather than what this
+    scope is set to. On a bench unit the two disagreed in the fourth decimal,
+    which is the size of error a wrong-measurement report is about.
+
+    The um/px comes from the resolver rather than being recomputed, so the
+    logged number cannot drift from the one written into the images. A scope
+    that cannot report its optics still logs, naming the missing input: "no
+    scale" is the condition a returned bundle most needs explained.
+
+    The caller hands in the capabilities of the scope it images with, the
+    way the engine's producers do: resolving them off a GUI context here
+    would make the record silent in exactly the headless session whose
+    images it is meant to explain.
+    """
+    tube_focal_length = None if capabilities is None else capabilities.lens_focal_length_mm
+    pixel_width = None if capabilities is None else capabilities.pixel_size_um
+
+    um_per_pixel = (
+        None
+        if capabilities is None
+        else common_utils.get_pixel_size(
+            focal_length=focal_length, binning_size=binning_size, capabilities=capabilities
+        )
+    )
+
+    if um_per_pixel is None:
+        missing = [
+            name
+            for name, value in (
+                ('active scope', capabilities),
+                ('tube lens focal length', tube_focal_length),
+                ('sensor pixel size', pixel_width),
+            )
+            if value is None
+        ]
+        logger.warning(
+            f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
+            f'binning={binning_size} -- no image scale available, missing: '
+            f'{", ".join(missing)}. Images from this scope carry no PhysicalSizeX.'
+        )
+        return
+
+    logger.info(
+        f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
+        f'tube_focal_length={tube_focal_length}mm sensor_pixel_size={pixel_width}um '
+        f'binning={binning_size} -> {um_per_pixel}um/px'
+    )
 
 
 def get_ag_ae_min_exposure_ms(layer: str) -> float:
@@ -934,11 +998,18 @@ def camera_max_gain_for_ui(imaging) -> float:
 
 
 def get_binning_from_settings(settings: dict) -> int:
-    """Read binning size from settings dict (no UI needed)."""
-    try:
-        return int(settings.get('binning_size', 1))
-    except (ValueError, TypeError):
-        return 1
+    """Read binning size from settings dict (no UI needed).
+
+    Reads the key the GUI actually writes and the template actually ships,
+    ``settings['binning']['size']``, which holds the selector's label ('2x2')
+    rather than a factor. This used to read a top-level ``binning_size``
+    integer that no code writes and no shipped template carries, so it
+    answered 1 for every configuration -- a headless caller silently captured
+    unbinned while the screen showed 2x2. Scope bring-up already reads the
+    label key this way, so this makes the two agree instead of adding a
+    second convention.
+    """
+    return binning.binning_size_str_to_int(settings.get('binning', {}).get('size', '1x1'))
 
 
 def get_frame_dimensions_from_settings(settings: dict) -> dict:
@@ -982,14 +1053,43 @@ def protocol_time_clamped(raw_value: float, unit: str) -> bool:
     return floor_protocol_time(td) != td
 
 
+def _protocol_time_value(protocol: dict, key: str, unit: str) -> float:
+    """One stored period/duration as a number, or a refusal naming it.
+
+    A value that will not parse is refused rather than replaced with a
+    default: the stored number is a schedule the user chose, and quietly
+    substituting one runs the protocol on a timing nobody asked for. The
+    settings load compares container shape only and never inspects scalars,
+    so a hand-edited or hand-built config arrives here with a string where a
+    number belongs, and this is the first place that can say so. Naming the
+    key and the unit is why this does not just call float(): the caller sees
+    which field to fix.
+
+    An ABSENT key still defaults -- the shipped template carries both and the
+    default merge fills them, so absent means a caller built a config without
+    a schedule, not a schedule that got corrupted.
+    """
+    raw = protocol.get(key, 1)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        raise ConfigError(
+            f'protocol {key} is {raw!r}, which is not a number of {unit}; '
+            f'correct {key} in the settings file'
+        ) from None
+
+
 def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """Read protocol time params from settings dict (no UI needed).
 
     Returns dict with 'period' and 'duration' as timedelta objects.
+
+    Raises:
+        ConfigError: a stored period or duration will not parse as a number.
     """
     protocol = settings.get('protocol', {})
-    period_minutes = float(protocol.get('period', 1))
-    duration_hours = float(protocol.get('duration', 1))
+    period_minutes = _protocol_time_value(protocol, 'period', 'minutes')
+    duration_hours = _protocol_time_value(protocol, 'duration', 'hours')
     return {
         'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
         'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
@@ -1077,12 +1177,51 @@ def get_selected_labware_from_settings(
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
-    """Read z-stack params from settings dict (no UI needed)."""
-    zstack = settings.get('protocol', {}).get('zstack', {})
+    """Read z-stack params from the settings store.
+
+    The store keeps the stack in a TOP-LEVEL ``zstack`` container -- not under
+    ``protocol`` -- and keeps its reference in ``position``, holding the
+    spinner's display LABEL. Both are written by the z-stack UI. Reading a
+    ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
+    answered with invented values instead of failing.
+
+    ``step_size`` defaults to 0, matching the shipped container, so an
+    unconfigured store reports no stack. Defaulting it to 1 made
+    ``number_of_steps()`` answer 1 for a store that has no z-stack at all.
+
+    ``position`` can only be absent from a HAND-BUILT settings dict -- the
+    template ships it and the load merge fills it in -- so it yields None
+    rather than a guessed reference. A run that does not z-stack never
+    consumes the value, and inventing 'center' is exactly what makes a missing
+    key invisible. The guard lives where the value is used, in
+    ``ZStackConfig.step_positions``.
+
+    Raises:
+        ConfigError: ``position`` holds a label with no config token, or
+            ``range`` / ``step_size`` will not parse as a number.
+    """
+    zstack = settings.get('zstack', {})
+    position = zstack.get('position')
+    parsed = {}
+    for key in ('range', 'step_size'):
+        raw = zstack.get(key, 0)
+        try:
+            parsed[key] = float(raw)
+        except (TypeError, ValueError):
+            # A raw ValueError from float() escapes this lane untyped, so the
+            # GUI and a REST caller see different failures for one corrupt
+            # value. Both get the refusal the rest of the lane raises.
+            raise ConfigError(f'Z-stack {key} is not a number: {raw!r}') from None
     return {
-        'range': float(zstack.get('range', 0)),
-        'step_size': float(zstack.get('step_size', 1)),
-        'z_reference': zstack.get('z_reference', 'center'),
+        'range': parsed['range'],
+        'step_size': parsed['step_size'],
+        'z_reference': (
+            None
+            if position is None
+            else common_utils.convert_zstack_reference_position_setting_to_config(
+                text_label=position
+            )
+        ),
     }
 
 
@@ -1293,8 +1432,8 @@ def get_composite_capture_config_from_settings(
 
 def get_sequenced_capture_config_from_settings(
     settings: dict,
-    objective_helper,
-    wellplate_loader=None,
+    objective_helper: ObjectiveLoader,
+    wellplate_loader: WellPlateLoader | None = None,
 ) -> dict:
     """Build sequenced capture config from settings dict (no UI needed).
 
@@ -1311,7 +1450,10 @@ def get_sequenced_capture_config_from_settings(
             'zstack_params': get_zstack_params_from_settings(settings),
             'use_zstacking': protocol.get('use_zstacking', False),
             'tiling': protocol.get('tiling', '1x1'),
-            'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+            # Overlap is stored top-level, not under protocol. Reading it from
+            # under protocol found nothing and silently gave every headless
+            # run 0% overlap regardless of what the user had configured.
+            'tiling_overlap_percent': settings.get('tiling_overlap_percent', 0.0),
             'layer_configs': get_layer_configs(settings),
             'period': time_params['period'],
             'duration': time_params['duration'],

@@ -16,6 +16,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -34,7 +36,6 @@ REQUIRED_MANIFEST_KEYS = {
     'end_reason',
     'frames_written',
     'write_failures',
-    'short_delivery',
     'timestamp_grade',
     'measured_fps',
     'measured_duration_s',
@@ -169,7 +170,10 @@ class TestRateContract:
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.frames_selected == 20
-        assert result.short_delivery is True
+        # 50 fps over 2 s promised 100 frames. The shortfall is visible in
+        # the counts themselves, and it is not an error.
+        assert result.frames_selected < result.configured_fps * 2
+        assert result.aborted is False
 
 
 class TestEnqueueIsUnconditional:
@@ -247,7 +251,6 @@ class TestLossIsNeverSilent:
         engine.stop('user_stop')
         engine.discard_pending()
         result = engine.result()
-        assert result.short_delivery is True
         assert result.frames_written < result.frames_selected
 
     def test_zero_frame_recording_reports_honestly(self, tmp_path):
@@ -262,7 +265,6 @@ class TestLossIsNeverSilent:
         result = engine.result()
         assert result.frames_selected == 0
         assert result.frames_written == 0
-        assert result.short_delivery is True
         assert result.aborted is False
         assert result.measured_fps == 0.0
         assert result.measured_duration_s == 0.0
@@ -282,7 +284,7 @@ class TestFatalityClassification:
         assert result.abort_reason != ''
         assert 'critical' in notify.severities()
 
-    def test_short_delivery_is_not_fatal(self, tmp_path):
+    def test_under_delivery_is_not_fatal(self, tmp_path):
         notify = NotifyRecorder()
         engine, _writer, clock, _ = make_engine(tmp_path, notify=notify)
         engine.start(make_config(tmp_path, fps=50, duration_s=1))
@@ -595,7 +597,7 @@ class TestSessionActivityClaim:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=settings)
+        session = ScopeSession.create_headless(settings=complete_settings(**settings))
         yield session
         session.shutdown()
 
@@ -648,8 +650,8 @@ class TestSessionActivityClaim:
 class TestEndReason:
     """The manifest says WHY selection ended, not just that it was short.
 
-    A support bundle must distinguish a user stop from a camera death;
-    short_delivery is true for both.
+    A support bundle must distinguish a user stop from a camera death; the
+    frame counts run short for both.
     """
 
     def test_stop_reason_lands_in_manifest_and_result(self, tmp_path):
@@ -794,7 +796,7 @@ class TestClaimLifetime:
         engine.stop('user_stop')
         engine.discard_pending()
         assert claim.owner is None
-        assert engine.result().short_delivery is True
+        assert engine.result().frames_written < engine.result().frames_selected
 
     def test_start_failure_releases_claim(self, tmp_path, monkeypatch):
         # Nothing outside start() ever holds a reference to this engine, so

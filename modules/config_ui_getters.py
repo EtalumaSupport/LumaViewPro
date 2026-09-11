@@ -9,7 +9,6 @@ headless or REST API mode.
 For GUI-independent equivalents, see config_helpers.py.
 """
 
-import datetime
 import logging
 
 import modules.app_context as _app_ctx
@@ -30,11 +29,10 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 def _live_capabilities():
     """The capability surface of the LIVE scope, or None if not built yet.
 
-    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds
-    first on a scope change (the ``ctx.scope`` registry field is a copy,
-    refreshed later in the same handler). Every capability gate must
-    resolve through here so a reconnect is reflected and the gates can't
-    drift apart.
+    Reads ``ctx.lumaview.scope`` -- the reference a scope swap rebuilds
+    first (the ``ctx.scope`` registry field is a copy, refreshed after
+    it). Every capability gate must resolve through here so a swap is
+    reflected and the gates can't drift apart.
     """
     lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
     scope = getattr(lumaview, 'scope', None)
@@ -74,57 +72,6 @@ def get_field_of_view(focal_length: float, frame_size: dict, binning_size: int) 
         frame_size=frame_size,
         binning_size=binning_size,
         capabilities=capabilities,
-    )
-
-
-def log_resolved_optics(objective_id: str, focal_length: float, binning_size: int) -> None:
-    """Record the optics behind image scale, at the moment they are chosen.
-
-    Scale is written into every frame, hyperstack and still as a real
-    PhysicalSizeX, but the values producing it are read off the scope and
-    consumed in process -- so a returned support bundle could only show the
-    shipped default templates, which describe what ships rather than what this
-    scope is set to. On a bench unit the two disagreed in the fourth decimal,
-    which is the size of error a wrong-measurement report is about.
-
-    The um/px comes from the resolver rather than being recomputed, so the
-    logged number cannot drift from the one written into the images. A scope
-    that cannot report its optics still logs, naming the missing input: "no
-    scale" is the condition a returned bundle most needs explained.
-    """
-    capabilities = _live_capabilities()
-    tube_focal_length = None if capabilities is None else capabilities.lens_focal_length_mm
-    pixel_width = None if capabilities is None else capabilities.pixel_size_um
-
-    um_per_pixel = (
-        None
-        if capabilities is None
-        else common_utils.get_pixel_size(
-            focal_length=focal_length, binning_size=binning_size, capabilities=capabilities
-        )
-    )
-
-    if um_per_pixel is None:
-        missing = [
-            name
-            for name, value in (
-                ('active scope', capabilities),
-                ('tube lens focal length', tube_focal_length),
-                ('sensor pixel size', pixel_width),
-            )
-            if value is None
-        ]
-        logger.warning(
-            f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
-            f'binning={binning_size} -- no image scale available, missing: '
-            f'{", ".join(missing)}. Images from this scope carry no PhysicalSizeX.'
-        )
-        return
-
-    logger.info(
-        f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
-        f'tube_focal_length={tube_focal_length}mm sensor_pixel_size={pixel_width}um '
-        f'binning={binning_size} -> {um_per_pixel}um/px'
     )
 
 
@@ -176,40 +123,35 @@ def is_image_saving_enabled() -> bool:
 
 
 def get_binning_from_ui() -> int:
-    try:
-        text = (
-            _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
-        )
-        # Spinner text may be formatted as "1x1", "2x2", etc. -- extract the first number.
-        if 'x' in text:
-            text = text.split('x')[0]
-        return int(text)
-    except Exception:
-        logger.warning('Failed to read binning from UI, defaulting to 1', exc_info=True)
-        from modules.notification_center import notifications
+    """The binning factor for the running GUI.
 
-        notifications.warning(
-            'Camera',
-            'Binning',
-            'Could not read the binning setting; using 1x1. Check the binning '
-            'selector in microscope settings.',
-        )
-        return 1
+    Reads the settings store, not the selector. The selector commits its label
+    to the store as soon as the user picks one, so the store is the current
+    answer, and it is already what scope bring-up and the native-ROI
+    reconstruction read.
+
+    Reading the widget also had its own failure mode this does not: the
+    selector carries the placeholder 'Select' until a stored value is applied,
+    and parsing that text produced a notification and a factor of 1 -- an
+    answer no headless caller could see and no camera was necessarily at.
+    """
+    return config_helpers.get_binning_from_settings(_app_ctx.ctx.settings)
 
 
 def get_zstack_params() -> dict:
-    zstack_settings = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
-    range = float(zstack_settings.ids['zstack_range_id'].text)
-    step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
-    z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-        text_label=zstack_settings.ids['zstack_spinner'].text
-    )
+    """The z-stack range, step size and reference for the running GUI.
 
-    return {
-        'range': range,
-        'step_size': step_size,
-        'z_reference': z_reference,
-    }
+    Reads the settings store, not the three widgets. Each widget commits to the
+    store as it changes -- the two TextInputs through the z-stack step handler,
+    the spinner through its position handler -- so the store already holds the
+    stack; parsing the widget text a second time here only created a way for
+    the two lanes to answer differently.
+
+    Raises:
+        ConfigError: the stored stack will not parse -- an unmapped position
+            label, or a range / step size that is not a number.
+    """
+    return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
 def get_zstack_positions() -> tuple[bool, dict]:
@@ -303,16 +245,19 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
 
 
 def get_image_capture_config_from_ui() -> ImageCaptureConfig:
-    microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    mode = _app_ctx.ctx.scope_display.image_mode
-    return ImageCaptureConfig.from_image_mode(
-        mode,
-        output_format_live=microscope_settings.ids['live_image_output_format_spinner'].text,
-        output_format_sequenced=microscope_settings.ids[
-            'sequenced_image_output_format_spinner'
-        ].text,
-        jpg_quality=_app_ctx.ctx.settings.get('jpg_quality', 90),
-    )
+    """The image capture config for the running GUI.
+
+    Reads the settings store, not the widgets. Every value here is
+    committed to settings the moment the user picks it -- each output-format
+    spinner handler writes its key, and the image-mode selector writes its
+    key alongside the display mirror it drives -- so the store is already
+    the current answer and the widgets are a rendering of it. Assembling
+    the config from the widgets instead gave a headless caller, which can
+    only see the store, a different answer than the screen; the mode also
+    reaches saved output through capture_depth, so the drift was reachable
+    in the files.
+    """
+    return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
 
 
 def get_sequenced_capture_config_from_ui() -> dict:
@@ -366,44 +311,24 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
 
 
 def get_protocol_time_params() -> dict:
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    try:
-        period = float(protocol_settings.ids['capture_period'].text)
-    except Exception:
-        logger.warning('Failed to read capture period from UI, defaulting to 1', exc_info=True)
-        period = 1
-        from modules.notification_center import notifications
+    """The protocol period and duration for the running GUI.
 
-        notifications.warning(
-            'Protocol',
-            'Capture Timing',
-            'Could not read the capture period; using 1 minute. Check the period '
-            'field and restart the protocol if the timing is wrong.',
-        )
+    Reads the settings store, not the two text fields. Each field commits its
+    parsed value to the store when the user leaves it or presses enter, so the
+    store already holds the schedule; parsing the widget text a second time
+    here only created a way for the two lanes to answer differently.
 
-    period = datetime.timedelta(minutes=period)
-    try:
-        duration = float(protocol_settings.ids['capture_dur'].text)
-    except Exception:
-        logger.warning('Failed to read capture duration from UI, defaulting to 1', exc_info=True)
-        duration = 1
-        from modules.notification_center import notifications
+    It also gave the failure two different shapes. This lane used to swallow
+    an unparseable value, substitute one minute or one hour, and say so in a
+    popup that no headless caller can see, while the settings lane let a raw
+    conversion error escape. Both now surface the one refusal the store lane
+    raises, so a REST caller gets the same failure the screen shows.
 
-        notifications.warning(
-            'Protocol',
-            'Capture Timing',
-            'Could not read the capture duration; using 1 hour. Check the duration '
-            'field and restart the protocol if the timing is wrong.',
-        )
+    The 1-second floor still applies and is still silent, because save and
+    run-start both call this and a clamp warning here would repeat; that
+    warning fires once, at the field edit.
 
-    duration = datetime.timedelta(hours=duration)
-
-    # 1-second floor (preserves the 0 single-scan marker) so a short
-    # interval/duration stays representable and doesn't round to 0 on display.
-    # The clamp is silent here -- this getter runs on every save and run-start,
-    # so notifying here re-warns repeatedly. The clamp warning fires once, at
-    # the field edit, in ProtocolSettings.update_period / update_duration.
-    return {
-        'period': config_helpers.floor_protocol_time(period),
-        'duration': config_helpers.floor_protocol_time(duration),
-    }
+    Raises:
+        ConfigError: a stored period or duration will not parse as a number.
+    """
+    return config_helpers.get_protocol_time_params_from_settings(_app_ctx.ctx.settings)

@@ -18,20 +18,16 @@ from modules import gui_logger
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
-    model_has_turret,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
     get_binning_from_ui,
     get_current_frame_dimensions,
-    get_selected_labware,
 )
 from modules.path_utils import resolve_data_file
-from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
 import modules.image_mode as image_mode
-from ui.ui_helpers import scope_leds_off
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
@@ -200,141 +196,6 @@ class MicroscopeSettings(BoxLayout):
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
 
-    def reconnect(self):
-        ctx = _app_ctx.ctx
-
-        gui_logger.button('RECONNECT_MICROSCOPE')
-
-        # Refuse BEFORE any teardown: the session's set_scope guard also
-        # refuses, but it fires only after disconnect() has already torn
-        # the camera down under whatever was using it -- too late to
-        # protect a live run or a recording still finishing its drain.
-        holder = ctx.session.exclusive_activity
-        if holder is not None or ctx.session.manual_recording.is_busy:
-            busy_with = holder if holder is not None else 'a finishing recording'
-            logger.warning(f'[LVP Main  ] Reconnect refused: {busy_with} owns the hardware')
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Hardware',
-                'Reconnect refused',
-                f'The microscope is busy ({busy_with}). Stop it and let it '
-                'finish before reconnecting.',
-            )
-            return
-
-        logger.info('[LVP Main  ] Reconnecting to microscope...')
-
-        lumaview = ctx.lumaview
-        settings = ctx.settings
-
-        lumaview.scope.disconnect()
-        lumaview.scope = None
-        # The frame-size dedupe record describes the OLD camera; carried
-        # across the swap it would absorb the first matching apply on the
-        # new one (and its in-flight bookkeeping belongs to tasks queued
-        # against the discarded scope).
-        self._frame_size_applier = _CoalescingApplier(name='frame_size')
-        # Reinitialize the scope object (connects motorboard, ledboard, camera)
-        import modules.lumascope_api as lumascope_api
-
-        lumaview.scope = lumascope_api.Lumascope(
-            camera_type=settings['camera_type'],
-            simulate=ctx.simulate_mode,
-            warn_pre_release=False,
-            configured_model=settings.get('microscope'),
-        )
-        _labware_id, labware = get_selected_labware()
-
-        # Single hardware initialization call. Reconnect never re-runs
-        # load_settings, so the position-1 objective adoption must happen
-        # here too or a reconnect would stamp the pre-reconnect selection
-        # over whatever slot the fresh session actually starts on.
-        scope_config = self.scopes.get(settings.get('microscope'))
-        ctx.session.adopt_turret_slot1_objective(
-            model_has_turret=model_has_turret(self.scopes, settings)
-        )
-        config = ScopeInitConfig.from_settings(
-            settings,
-            labware,
-            scope_config=scope_config,
-            layer_identity=lumaview.scope.layer_identity,
-        )
-        lumaview.scope.initialize(config)
-        # Start gate release: configuration is applied, so open the gate and
-        # fire the single grab (the camera-lifecycle split -- connect() left
-        # it configured but not grabbing).
-        lumaview.scope.imaging.start_streaming()
-
-        # The stranded-reference cluster: every object holding the scope
-        # by reference must be rewired here, or it keeps driving the
-        # discarded scope. session.set_scope rewires everything the
-        # session composes (the sequenced-capture engine, the autofocus
-        # runner, the recording controller) and republishes run state;
-        # the push-listener bridge and the ctx registry field the
-        # display path renders from are host-owned, so they rewire
-        # here.
-        ctx.session.set_scope(lumaview.scope)
-        ctx.ui_listener_bridge.rebind(lumaview.scope)
-        ctx.scope = lumaview.scope
-
-        # Re-gate the UI against the scope that is now attached. The control
-        # visibility comes from the drivers, so a reconnect onto different
-        # hardware leaves the previous scope's controls on screen until this
-        # runs -- there is no second store to fall back on.
-        self.reconfigure_for_scope()
-
-        # Restart display
-
-        ctx.scope_display.stop()
-        ctx.scope_display.start()
-
-        # LVP-A-5: ScopeSession owns the standard startup orchestration
-        # (ALL-axis home + turret-positioning) -- same path the App's
-        # on_start uses. Pre-LVP-A-5 this block was open-coded here and
-        # had subtly drifted from the App's version.
-        # Same GUI motion wrappers the App's on_start passes -- see there for
-        # why the widget path rather than the Session's bare-API defaults.
-        from ui.ui_helpers import move_home, move_absolute
-
-        ctx.session.start_application_session(
-            disable_homing=ctx.disable_homing,
-            home_fn=lambda axis: move_home(axis, wait=True),
-            turret_fn=lambda position: move_absolute(
-                axis='T', position=position, wait_until_complete=True
-            ),
-        )
-        # Resync the whole per-camera UI surface from the NEW camera: refresh
-        # the slider caps first (reconnect previously left the gain cap stale,
-        # a blackout risk on a lower-cap camera), then the per-layer ranges +
-        # gates through the single grouping.
-        ctx.max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
-        ctx.max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
-        ctx.image_settings.sync_camera_capability_ranges()
-        # Re-apply the VISIBLE layer (not a hardcoded channel) so its controls
-        # reflect the new camera -- e.g. a non-BF open layer's gain/exposure
-        # sliders get re-enabled when the new camera lacks hardware auto-gain.
-        visible_layer = ctx.image_settings.open_or_default_layer()
-        layer_obj = ctx.image_settings.layer_lookup(layer=visible_layer)
-        layer_obj.apply_settings()
-
-        scope_leds_off()
-
-        # Refresh position display after reconnect (M22)
-        ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
-
-        # Same prompt gate as app startup: reconnect can change which
-        # model is attached, so re-ask only when the objective is
-        # unknowable (never-confirmed install, or the starting position
-        # has no assignment).
-        reconnect_has_turret = model_has_turret(self.scopes, settings)
-        vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(
-            lambda dt: vertical_control.maybe_prompt_objective_selection(reconnect_has_turret), 0
-        )
-
-        logger.info('[LVP Main  ] Reconnection complete.')
-
     # load settings from JSON file
     def load_settings(self, filename='./data/current.json'):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
@@ -366,14 +227,6 @@ class MicroscopeSettings(BoxLayout):
                     )
                 )
 
-            if 'autogain' not in settings['protocol']:
-                settings['protocol']['autogain'] = {
-                    'max_duration_seconds': 1.0,
-                    'target_brightness': 0.3,
-                    'min_gain_db': 0.0,
-                    'max_gain_db': 20.0,
-                }
-
             try:
                 live_folder = pathlib.Path(settings['live_folder'])
                 # Resolve relative paths against Documents app folder when installed,
@@ -403,21 +256,9 @@ class MicroscopeSettings(BoxLayout):
 
             # update GUI values from JSON data:
 
-            # Scope auto-detection. The model selector lives in Advanced
-            # Settings; write the detected (or saved) model to the settings
-            # SSOT here, then reconfigure the UI for it (control visibility +
-            # read-only model label + stage redraw, in that order).
-            detected_model = lumaview.scope.diagnostics.get_microscope_model()
-            if detected_model in self.scopes:
-                logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                settings['microscope'] = detected_model
-            else:
-                # Fires whether or not `filename` exists on disk, so naming it
-                # here would be a guess -- report the value actually in effect.
-                logger.info(
-                    f'[LVP Main  ] No scope model reported by hardware; keeping '
-                    f'stored scope selection {settings["microscope"]!r}'
-                )
+            # The Session adopted the model the hardware reports at
+            # bring-up; render it (control visibility + read-only model
+            # label + stage redraw, in that order).
             self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
@@ -491,20 +332,16 @@ class MicroscopeSettings(BoxLayout):
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
-            # handled by scope.initialize() below
+            # was applied by the Session's bring-up
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
 
-            # The stored objective is only a leftover from the previous
-            # session; on turret models the session starts at position 1,
-            # so that slot's assignment is the real starting objective.
-            # Adopt it BEFORE anything below reads settings -- the spinner,
-            # the optics log, the FOV fields, and scope.initialize() all
-            # derive image scale from this value.
-            scope_config = self.scopes.get(settings.get('microscope'))
-            ctx.session.adopt_turret_slot1_objective(
-                model_has_turret=model_has_turret(self.scopes, settings)
-            )
+            # The settings-to-scope bring-up ran in the Session before this
+            # widget existed: the slot-1 objective is adopted (the stored
+            # one is only a leftover from the previous session), the
+            # labware selected, scope.initialize() applied. Everything
+            # below renders settings, the objective helper and the frozen
+            # capabilities, none of which initialize changes.
             objective_id = settings['objective_id']
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
@@ -512,15 +349,6 @@ class MicroscopeSettings(BoxLayout):
             v_control_objective_spinner.text = objective_id
 
             objective = ctx.session.get_objective_info(objective_id=objective_id)
-
-            # The objective already in place at launch never passes through
-            # the selection handler, so without this a session that changed
-            # nothing would have no record of the scale it was using.
-            config_ui_getters.log_resolved_optics(
-                objective_id=objective_id,
-                focal_length=objective['focal_length'],
-                binning_size=binning_size,
-            )
 
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
@@ -551,21 +379,6 @@ class MicroscopeSettings(BoxLayout):
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
 
-            # Single hardware initialization call -- replaces scattered
-            # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
-            # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
-            _labware_id, labware = get_selected_labware()
-            config = ScopeInitConfig.from_settings(
-                settings,
-                labware,
-                scope_config=scope_config,
-                layer_identity=lumaview.scope.layer_identity,
-            )
-            lumaview.scope.initialize(config)
-            # Start gate release (primary startup site): configuration is
-            # applied, so open the gate and fire the single grab.
-            lumaview.scope.imaging.start_streaming()
-
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
@@ -576,6 +389,9 @@ class MicroscopeSettings(BoxLayout):
             ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
+            # Restoring the stored position dispatches the spinner's event, which
+            # would read as the user choosing it during startup.
+            gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
             zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
             zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
@@ -605,8 +421,6 @@ class MicroscopeSettings(BoxLayout):
             # Advanced Settings now; startup just establishes the setting and
             # pushes the persisted state down to every layer via the single
             # owner (which forces it off on unsupported firmware).
-            if 'stimulation_enabled' not in settings:
-                settings['stimulation_enabled'] = False
             self.apply_stimulation_support()
 
             for layer in common_utils.get_layers():
@@ -703,7 +517,7 @@ class MicroscopeSettings(BoxLayout):
         scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
         if scope_display is None:
             return
-        binning_size = binning.binning_size_str_to_int(self.ids['binning_spinner'].text)
+        binning_size = self._ui_binning_size()
         self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
             binning_size, scope_display.image_mode
         )
@@ -728,6 +542,13 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.image_mode = mode
         settings['image_mode'] = mode
         self._refresh_binning_depth_hint()
+
+        # During app init, scope.initialize() applies the pixel format
+        # synchronously while the camera start gate is still closed; the
+        # mirrors above just reflect the settings being loaded. Pushing a
+        # second apply from here would race that one on the camera lane.
+        if ctx.initializing:
+            return
 
         # Apply the capture depth to the camera. Resolve to a format the
         # sensor actually supports BEFORE pushing, so we never request a
@@ -807,8 +628,9 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
         settings['image_output_format']['sequenced'] = fmt
 
-    def select_video_recording_format(self):
+    def select_video_recording_format(self) -> None:
         settings = _app_ctx.ctx.settings
+        gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)
         if self.ids['video_recording_format_spinner'].text == 'mp4':
             settings['video_as_frames'] = False
         else:
@@ -1046,7 +868,16 @@ class MicroscopeSettings(BoxLayout):
         # recorded (it feeds every native-ROI / FOV / stitch derivation).
         ctx.camera_executor.put(
             IOTask(
-                action=imaging.set_binning_size,
+                # Bind the impl, not the public setter: this task ALREADY runs
+                # on the camera worker, and the public setter dispatches onto
+                # that same lane and blocks on the result -- so it waits for a
+                # queue it is itself holding, and every apply died on the
+                # geometry timeout instead of reaching the camera. The failure
+                # callback then rewrote the selector, which re-entered here and
+                # queued the next doomed apply, so one selection became an
+                # endless timeout cycle. The pixel-format apply below binds its
+                # impl for exactly this reason.
+                action=imaging._set_binning_size_impl,
                 kwargs={'size': new_binning_size},
                 callback=self._on_binning_apply_outcome,
                 cb_args=(new_binning_size_str, prior_binning_size_str, prior_frame),

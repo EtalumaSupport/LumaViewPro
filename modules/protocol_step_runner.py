@@ -360,6 +360,7 @@ class ProtocolStepRunner:
                     # use the body directly.
                     action=p._scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
+                        'layer': step['Color'],
                         'gain_db': step['Gain'],
                         'exposure_ms': step['Exposure'],
                         'auto_gain': True,

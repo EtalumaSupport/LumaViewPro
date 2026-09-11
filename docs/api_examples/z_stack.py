@@ -100,7 +100,8 @@ def main():
     #   from modules.image_save import save_image
     #   save_image(scope, array=image, save_folder='./zstack',
     #              append=f'_Z{i:03d}', ...)
-    # This requires setting objective, labware, and stage offset first.
+    # This requires objective, labware, and stage offset first -- what
+    # session.configure_scope() applies; see protocol_execution.py.
 
     # NOTE: for automatic focusing, run autofocus as a run through the
     # session's protocol runner (LumascopeSkills.md, Running protocols).

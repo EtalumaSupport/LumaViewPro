@@ -100,15 +100,14 @@ def _call_linenos(rel_path: str, func_name: str, class_name: str | None = None) 
 class TestAdoptionRunsBeforeTheStamps:
     """Call-order pins: adoption must precede every settings consumer.
 
-    Both stamp paths (startup load_settings and the reconnect path,
-    which never re-runs load_settings) build ScopeInitConfig from
-    settings and push it into scope.initialize(); an adoption that runs
-    after either build stamps the stale objective into runtime state.
+    The bring-up builds ScopeInitConfig from settings and pushes it
+    into scope.initialize(); an adoption that runs after that build
+    stamps the stale objective into runtime state.
     """
 
-    def _assert_adopts_before_config(self, method_name: str):
-        linenos = _call_linenos('ui/microscope_settings.py', method_name, 'MicroscopeSettings')
-        adopt = linenos.get('ctx.session.adopt_turret_slot1_objective')
+    def _assert_adopts_before_config(self, rel_path, method_name, class_name, adopt_key):
+        linenos = _call_linenos(rel_path, method_name, class_name)
+        adopt = linenos.get(adopt_key)
         build = linenos.get('ScopeInitConfig.from_settings')
         assert adopt is not None, f'{method_name} must adopt the slot-1 objective'
         assert build is not None, f'{method_name} must build ScopeInitConfig'
@@ -117,11 +116,15 @@ class TestAdoptionRunsBeforeTheStamps:
             f'ScopeInitConfig -- the stale objective is already stamped'
         )
 
-    def test_load_settings_adopts_before_config_build(self):
-        self._assert_adopts_before_config('load_settings')
-
-    def test_reconnect_adopts_before_config_build(self):
-        self._assert_adopts_before_config('reconnect')
+    def test_configure_scope_adopts_before_config_build(self):
+        # The startup site's bring-up is the Session's now; the GUI calls
+        # configure_scope() where its adopt call used to sit.
+        self._assert_adopts_before_config(
+            'modules/scope_session.py',
+            'configure_scope',
+            'ScopeSession',
+            'self.adopt_turret_slot1_objective',
+        )
 
     def test_startup_session_no_longer_looks_up_the_position(self):
         # Startup is position 1 by rule; a lookup keyed on the stored

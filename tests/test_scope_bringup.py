@@ -33,6 +33,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import spec_scope
@@ -282,10 +284,13 @@ class TestShutdownOwnership:
         # (or a flipped default) would leak the bundle's threads on
         # every headless session, and nothing else in the suite
         # asserts this teardown.
-        session = ScopeSession.create_headless(settings={})
+        session = ScopeSession.create_headless(settings=complete_settings())
         bundle = session.executor_bundle
         session.shutdown()
 
+        # The scope is the factory's too: the same call disconnects it.
+        assert session.scope.imaging.is_streaming() is False
+        assert session.scope.motor_connected is False
         for wrapper in (bundle.protocol_thread, bundle.scope_display_thread):
             thread = wrapper._thread
             assert thread is None or not thread.is_alive(), (

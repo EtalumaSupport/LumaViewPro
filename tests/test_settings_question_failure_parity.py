@@ -61,6 +61,7 @@ from modules.exceptions import SettingsSaveRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, parse_module
+from tests.settings_fixtures import complete_settings
 from tests.test_objective_prompt_single_flight import _direct_call_names
 from ui.vertical_control import VerticalControl
 
@@ -184,21 +185,21 @@ class _FakeClock:
 
 
 class _VerticalControlStand:
-    """The real prompt methods; only the widget tree is stood in for."""
+    """The real renderer methods; only the widget tree is stood in for."""
 
-    prompt_objective_selection = VerticalControl.prompt_objective_selection
-    maybe_prompt_objective_selection = VerticalControl.maybe_prompt_objective_selection
+    prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
+    _render_objective_question = VerticalControl._render_objective_question
+    _apply_objective_answer = VerticalControl._apply_objective_answer
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(values=list(CATALOGUE), text='')}
+        for position in range(1, 5):
+            self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
 
-    def load_objectives(self):
+    def _refresh_fov(self, objective_id):
         pass
 
     def update_all_turret_btn_states(self, position):
-        pass
-
-    def set_turret_objective(self):
         pass
 
 
@@ -261,6 +262,10 @@ def session(tmp_path, monkeypatch):
     data.mkdir()
     shutil.copy(SHIPPED_TEMPLATE, data / 'settings.json')
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
+    # The factory builds the session's helpers from this root and refuses
+    # to configure the scope without them.
+    for name in ('objectives.json', 'labware.json'):
+        shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
     return ScopeSession.create_headless(source_path=str(tmp_path))
@@ -589,17 +594,40 @@ class TestTheSaveRefusalIsAudible:
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         ]
 
+        def _chain(node):
+            out = []
+            value = node
+            while isinstance(value, ast.Attribute):
+                out.append(value.attr)
+                value = value.value
+            if isinstance(value, ast.Name):
+                out.append(value.id)
+            return out
+
+        calls = [
+            node
+            for node in ast.walk(on_stop)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
         teardown = [
             node.lineno
-            for node in ast.walk(on_stop)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'disconnect'
+            for node in calls
+            if node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
         ]
-        assert teardown, 'on_stop must still tear the hardware down'
-        assert max(teardown) > guard.end_lineno, (
-            'the hardware teardown must sit AFTER the guarded save, not inside it'
+        assert teardown, 'on_stop must still tear the session (and its hardware) down'
+        assert min(teardown) > guard.end_lineno, (
+            'the session teardown must sit AFTER the guarded save, not inside it'
         )
+        # The teardown is the session's, whole: on_stop stops no thread,
+        # lane or hardware itself.
+        stray = [
+            (node.lineno, ast.unparse(node.func))
+            for node in calls
+            if node.func.attr in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
+            or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
+            or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
+        ]
+        assert stray == [], f'on_stop performs teardown steps itself: {stray}'
 
     def test_the_periodic_flush_survives_a_refused_save(self, monkeypatch):
         """A 300 s timer must not turn an expected condition into a
@@ -778,29 +806,35 @@ class TestTheDoubleDeferralFrame:
         _make_provisional(monkeypatch, tmp_path)
 
         vertical_control = _VerticalControlStand()
-        settings = {
-            'microscope': 'LS850',
-            'objective_confirmed': False,
-            'turret_position': 1,
-            'turret_objectives': {1: None},
-            'objective_id': '20x Oly',
-        }
+        # The decision to withhold the question is the Session's, so the
+        # case runs a real one: a fresh install on a turret model, whose
+        # question is owed and must still not be asked while provisional.
+        session = ScopeSession.create_headless(
+            settings=complete_settings(
+                microscope='LS850T',
+                objective_confirmed=False,
+                turret_position=1,
+                turret_objectives={'1': None, '2': None, '3': None, '4': None},
+                objective_id='20x Oly',
+            )
+        )
+        request_shutdown = session.shutdown
+        try:
+            self._run_the_double_deferral_frame(
+                monkeypatch, session, vertical_control, no_hardware, order
+            )
+        finally:
+            request_shutdown()
+
+    def _run_the_double_deferral_frame(
+        self, monkeypatch, session, vertical_control, no_hardware, order
+    ):
+        session.scope._no_hardware = no_hardware
+        settings = session.settings
         ctx = SimpleNamespace(
             settings=settings,
-            lumaview=SimpleNamespace(scope=SimpleNamespace(no_hardware=no_hardware)),
-            session=SimpleNamespace(
-                settings_are_provisional=settings_init.settings_are_provisional,
-                retire_rejected_settings=settings_init.retire_rejected_current_json,
-                update_settings=lambda key, value: settings.__setitem__(key, value),
-            ),
-            motion_settings=SimpleNamespace(
-                ids={
-                    'microscope_settings_id': SimpleNamespace(
-                        scopes={'LS850': {'Turret': True}},
-                    ),
-                    'verticalcontrol_id': vertical_control,
-                }
-            ),
+            session=session,
+            motion_settings=SimpleNamespace(ids={'verticalcontrol_id': vertical_control}),
         )
         monkeypatch.setattr(_app_ctx, 'ctx', ctx)
 

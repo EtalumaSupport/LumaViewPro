@@ -11,7 +11,10 @@ from the contract retires the cluster of latent crash sites that
 consumed it without None-checking.
 """
 
+import datetime
 from unittest.mock import MagicMock
+
+import pytest
 
 
 def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
@@ -166,11 +169,22 @@ class TestGetSelectedLabware:
 
 
 class TestTimingAndBinningParseNotifies:
-    """A failed parse of period / duration / binning notifies the user instead
-    of silently running the protocol with a default value (EXC-M-8)."""
+    """A failed parse must not silently run the protocol on a default value.
+
+    Binning still notifies from its getter. Protocol time no longer does: it
+    refuses, so a headless caller sees the same failure -- the notification
+    for a bad KEYSTROKE now belongs to the field's own handler, which is the
+    only place that sees the typed text.
+    """
 
     @staticmethod
     def _patch(monkeypatch, *, period='1', duration='1', binning='1x1'):
+        """A GUI whose store holds period/duration and whose spinner holds binning.
+
+        The two time fields are set to the same values as the store: they are
+        no longer read for the config, and leaving them in place keeps the
+        harness honest about what a real GUI looks like.
+        """
         ctx = MagicMock()
         period_field = MagicMock()
         period_field.text = period
@@ -185,6 +199,10 @@ class TestTimingAndBinningParseNotifies:
         ctx.motion_settings.ids = {
             'protocol_settings_id': protocol_settings,
             'microscope_settings_id': microscope_settings,
+        }
+        ctx.settings = {
+            'protocol': {'period': period, 'duration': duration},
+            'binning': {'size': binning},
         }
 
         import modules.app_context as app_context
@@ -201,19 +219,70 @@ class TestTimingAndBinningParseNotifies:
         )
         return warnings
 
-    def test_unparseable_period_notifies(self, monkeypatch):
+    def test_unparseable_stored_period_refuses_on_both_lanes(self, monkeypatch):
+        # The whole point of the settings lane: a headless caller must get the
+        # failure the GUI gets. A notification cannot cross that boundary, so
+        # both lanes raise the one error type, and neither substitutes a
+        # default schedule the user never chose.
+        from modules.exceptions import ConfigError
+
         warnings = self._patch(monkeypatch, period='not-a-number')
+        from modules.config_helpers import get_protocol_time_params_from_settings
         from modules.config_ui_getters import get_protocol_time_params
 
-        get_protocol_time_params()
-        assert any('Timing' in title for _, title, _ in warnings)
+        with pytest.raises(ConfigError) as ui_err:
+            get_protocol_time_params()
+        with pytest.raises(ConfigError) as settings_err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': 'not-a-number', 'duration': '1'}}
+            )
 
-    def test_unparseable_binning_notifies(self, monkeypatch):
-        warnings = self._patch(monkeypatch, binning='garbage')
+        # Same failure, and it names the field so the caller can fix it.
+        assert 'period' in str(ui_err.value)
+        assert str(ui_err.value) == str(settings_err.value)
+        # The GUI-only surface is no longer how this is reported.
+        assert warnings == []
+
+    def test_unparseable_stored_duration_refuses(self, monkeypatch):
+        from modules.exceptions import ConfigError
+
+        self._patch(monkeypatch, duration='not-a-number')
+        from modules.config_ui_getters import get_protocol_time_params
+
+        with pytest.raises(ConfigError) as err:
+            get_protocol_time_params()
+        assert 'duration' in str(err.value)
+
+    def test_absent_schedule_still_defaults(self, monkeypatch):
+        # Absent is not corrupt: the shipped template carries both keys and the
+        # default merge fills them, so an absent key means a caller built a
+        # config without a schedule. That keeps working.
+        self._patch(monkeypatch)
+        from modules.config_helpers import get_protocol_time_params_from_settings
+
+        params = get_protocol_time_params_from_settings({})
+        assert params['period'] == datetime.timedelta(minutes=1)
+        assert params['duration'] == datetime.timedelta(hours=1)
+
+    def test_binning_lane_answers_from_the_store_not_the_selector(self, monkeypatch):
+        # The selector is pointed at a label the store does not hold. A factor
+        # that could only have come from the widget is the two lanes drifting,
+        # and only the store is visible to a headless caller.
+        warnings = self._patch(monkeypatch, binning='2x2')
+        ctx_settings_binning = '4x4'
+        import modules.app_context as app_context
+
+        app_context.ctx.settings['binning']['size'] = ctx_settings_binning
+        app_context.ctx.motion_settings.ids['microscope_settings_id'].ids[
+            'binning_spinner'
+        ].text = '2x2'
+
+        from modules.config_helpers import get_binning_from_settings
         from modules.config_ui_getters import get_binning_from_ui
 
-        assert get_binning_from_ui() == 1
-        assert any('Binning' in title for _, title, _ in warnings)
+        assert get_binning_from_ui() == 4
+        assert get_binning_from_ui() == get_binning_from_settings(app_context.ctx.settings)
+        assert warnings == []
 
     def test_valid_values_do_not_notify(self, monkeypatch):
         warnings = self._patch(monkeypatch, period='5', duration='2', binning='2x2')
@@ -253,11 +322,29 @@ class TestImageCaptureConfigSharedBuilder:
     """
 
     @staticmethod
-    def _patch_ui_ctx(monkeypatch, *, mode, live, sequenced, jpg_quality):
+    def _patch_ui_ctx(
+        monkeypatch,
+        *,
+        mode,
+        live,
+        sequenced,
+        jpg_quality,
+        widget_mode=None,
+        widget_live=None,
+        widget_sequenced=None,
+    ):
+        """A running GUI whose store holds mode/live/sequenced/jpg_quality.
+
+        The widgets carry the same values unless a widget_* override points
+        one somewhere else. An override is how a test distinguishes the two
+        possible sources: the store is the only one a headless caller can
+        see, so a value that could only have come from a widget is the
+        lanes drifting apart.
+        """
         live_spinner = MagicMock()
-        live_spinner.text = live
+        live_spinner.text = live if widget_live is None else widget_live
         seq_spinner = MagicMock()
-        seq_spinner.text = sequenced
+        seq_spinner.text = sequenced if widget_sequenced is None else widget_sequenced
         microscope_settings = MagicMock()
         microscope_settings.ids = {
             'live_image_output_format_spinner': live_spinner,
@@ -265,12 +352,41 @@ class TestImageCaptureConfigSharedBuilder:
         }
         ctx = MagicMock()
         ctx.motion_settings.ids = {'microscope_settings_id': microscope_settings}
-        ctx.scope_display.image_mode = mode
-        ctx.settings = {'jpg_quality': jpg_quality}
+        ctx.scope_display.image_mode = mode if widget_mode is None else widget_mode
+        ctx.settings = {
+            'jpg_quality': jpg_quality,
+            'image_output_format': {'live': live, 'sequenced': sequenced},
+            'image_mode': mode,
+        }
 
         import modules.app_context as app_context
 
         monkeypatch.setattr(app_context, 'ctx', ctx)
+
+    def test_ui_lane_answers_from_the_store_not_the_widgets(self, monkeypatch):
+        # Store and widgets deliberately disagree, every field distinguishable.
+        # The GUI commits each of these to settings the moment the user picks
+        # it, so the store is the current answer and the widget is a rendering
+        # of it -- a config assembled from the widgets is the drift itself, and
+        # it is invisible from a headless caller that has only the store.
+        self._patch_ui_ctx(
+            monkeypatch,
+            mode='12bit_scaled',
+            live='OME-TIFF',
+            sequenced='TIFF',
+            jpg_quality=70,
+            widget_mode='8bit',
+            widget_live='JPG',
+            widget_sequenced='JPG',
+        )
+
+        from modules.config_ui_getters import get_image_capture_config_from_ui
+
+        cfg = get_image_capture_config_from_ui()
+
+        assert cfg.image_mode == '12bit_scaled'
+        assert cfg.output_format_live == 'OME-TIFF'
+        assert cfg.output_format_sequenced == 'TIFF'
 
     def test_ui_and_settings_lanes_produce_identical_config(self, monkeypatch):
         mode = '12bit_scientific'

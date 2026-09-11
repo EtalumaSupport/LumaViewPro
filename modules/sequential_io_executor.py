@@ -572,6 +572,17 @@ class SequentialIOExecutor:
         with self._running_task_lock:
             return self._running_task
 
+    @property
+    def worker_alive(self) -> bool:
+        """Whether this lane's worker thread is running.
+
+        False before ``start()`` and after the worker has exited. A
+        submission to a lane with no live worker is never serviced, so
+        a caller that would wait on one (a drain at teardown) reads
+        this first.
+        """
+        return self._worker_thread is not None and self._worker_thread.is_alive()
+
     @running_task.setter
     def running_task(self, value):
         with self._running_task_lock:
@@ -1371,13 +1382,13 @@ class SequentialIOExecutor:
         self.global_cb_args = cb_args
         self.global_cb_kwargs = cb_kwargs
 
-    def shutdown(self, wait=True):
+    def shutdown(self, wait: bool = True) -> None:
         self.pending_shutdown = True
         self.enable()
         self.protocol_end()
         self.clear_pending()
         self.clear_protocol_pending()
-        if self._worker_thread is not None and self._worker_thread.is_alive() and wait:
+        if self.worker_alive and wait:
             # Worker polls pending_shutdown on every queue.get timeout
             # (0.2s); bound the join so a hung task does not block
             # process exit indefinitely.
