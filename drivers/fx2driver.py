@@ -71,6 +71,7 @@ import sys
 import threading
 import time
 import weakref
+from typing import Any
 from collections import deque
 from datetime import datetime
 
@@ -97,6 +98,71 @@ from drivers.registry import camera_registry, led_registry
 # `serial.log` covers RP2040 LED + RP2040 motor + sim + FX2 in one
 # place.
 _serial_log = logging.getLogger('LVP.serial')
+
+# USB device-descriptor fields worth recording for a found device. These
+# are read from the descriptor the backend already holds, so naming them
+# costs no bus traffic.
+#
+# manufacturer / product / serial_number are deliberately ABSENT: pyusb
+# fetches those lazily via string-descriptor control transfers, and a
+# control transfer that does not return is the exact failure this log
+# line exists to help attribute -- so reading them here could hang the
+# connect path on the machine we most need a log from.
+_USB_DESCRIPTOR_FIELDS = (
+    'address',
+    'bDeviceClass',
+    'bDeviceProtocol',
+    'bDeviceSubClass',
+    'bMaxPacketSize0',
+    'bNumConfigurations',
+    'bcdDevice',
+    'bcdUSB',
+    'bus',
+    'idProduct',
+    'idVendor',
+    'port_number',
+    'port_numbers',
+    'speed',
+)
+
+
+def describe_usb_device(dev: Any) -> str:
+    """Render what libusb can tell us about a found FX2 device.
+
+    Bus, address, port chain and negotiated speed are the fields that
+    place the device on a particular host controller -- the attribution
+    a support bundle cannot otherwise carry, since nobody can inspect
+    the machine afterwards.
+
+    Degradation is per-field: a field a backend does not populate is
+    named with its failure reason rather than dropping the line.
+
+    Args:
+        dev: A ``usb.core.Device`` returned by ``usb.core.find``.
+
+    Returns:
+        str: Space-separated ``Name=value`` pairs, sorted by name so two
+            bundles from one machine diff cleanly.
+    """
+    parts = []
+    for name in _USB_DESCRIPTOR_FIELDS:
+        try:
+            value = getattr(dev, name)
+        except Exception as e:
+            parts.append(f'{name}=<unreadable: {type(e).__name__}>')
+            continue
+        if value is None:
+            continue
+        # IDs and the BCD fields are conventionally read in hex: bcdUSB
+        # 0x0200 is "USB 2.0" at a glance where 512 is not, and the USB
+        # generation a device negotiated is part of placing it on a host
+        # controller.
+        if name in ('idVendor', 'idProduct', 'bcdUSB', 'bcdDevice'):
+            parts.append(f'{name}=0x{value:04X}')
+        else:
+            parts.append(f'{name}={value!r}')
+    return ' '.join(parts)
+
 
 # Vendor-request integer -> human-readable name. Populated lazily after
 # the VR_* constants below are defined.
@@ -656,6 +722,7 @@ class _FX2Connection:
         dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
         if dev is not None:
             self._dev = dev
+            logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
             self._setup_device()
             logger.info(
                 '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
@@ -682,6 +749,7 @@ class _FX2Connection:
             dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
             if dev is not None:
                 self._dev = dev
+                logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
                 self._setup_device()
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',

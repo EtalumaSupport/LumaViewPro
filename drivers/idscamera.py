@@ -5,6 +5,7 @@ import math
 import re
 import threading
 import time
+from typing import Any
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
 # core binding and the ipl-extension bridge resolve against. The stack is
@@ -275,6 +276,60 @@ def _access_status_name(raw) -> str:
     return _NODE_ACCESS_STATUS_NAMES.get(code, f'AccessStatus({code})')
 
 
+# Descriptor accessors worth recording for a discovered device, in the
+# SDK's own terms. This list is explicit because the peak API has no
+# "tell me what you carry" call: the descriptor's generic Info() takes a
+# GenTL info command the caller must already know, so there is nothing
+# to enumerate. It mirrors the documented DeviceInformationRole set plus
+# the openability flag, which is what a reconnect post-mortem needs.
+#
+# The peak descriptor is device IDENTITY only -- unlike a Pylon device
+# info it carries nothing about the host-side transport binding (no
+# driver kind, port or transfer mode), so a stall inside an SDK call
+# cannot be attributed to a machine from this surface.
+_IDS_DESCRIPTOR_ACCESSORS = (
+    'AccessStatus',
+    'DisplayName',
+    'ID',
+    'IsOpenable',
+    'Key',
+    'ModelName',
+    'SerialNumber',
+    'TLType',
+    'TimestampTickFrequency',
+    'UserDefinedName',
+    'VendorName',
+    'Version',
+)
+
+
+def describe_device_descriptor(descriptor: Any) -> str:
+    """Render what the peak SDK can tell us about a discovered device.
+
+    Degradation is per-accessor so one unsupported or raising call
+    cannot cost the whole description: the field is named with its
+    failure reason, leaving a visible gap rather than a silent one.
+
+    Args:
+        descriptor: A peak DeviceDescriptor from the device manager.
+
+    Returns:
+        str: Space-separated ``Name=value`` pairs, sorted by name so two
+            bundles from one machine diff cleanly.
+    """
+    parts = []
+    for name in _IDS_DESCRIPTOR_ACCESSORS:
+        try:
+            value = getattr(descriptor, name)()
+        except Exception as e:
+            parts.append(f'{name}=<unreadable: {type(e).__name__}>')
+            continue
+        if name == 'AccessStatus':
+            value = _access_status_name(value)
+        parts.append(f'{name}={value!r}')
+    return ' '.join(parts)
+
+
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
     """IDS Peak driver for the U3-34L0XCP-M (Sony IMX676, packed Mono10/12).
@@ -391,6 +446,10 @@ class IDSCamera(Camera):
                 descriptor = devices[0]
             except IndexError as e:
                 raise ConnectionError('Could not find IDS camera') from e
+            # Recorded before the open attempt so a device that is found
+            # but cannot be opened still leaves its identity in the log.
+            for _i, _d in enumerate(devices):
+                logger.info(f'[CAM Class ]   device[{_i}]: {describe_device_descriptor(_d)}')
             self.active, descriptor = self._open_device_with_retry(
                 descriptor,
                 refresh=lambda: self._refresh_descriptor_matching(descriptor),

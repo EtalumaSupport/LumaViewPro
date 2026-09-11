@@ -6,6 +6,7 @@ import os
 import queue
 import threading
 import time
+from typing import Any
 
 from pypylon import genicam, pylon
 
@@ -70,6 +71,53 @@ def _log_cam(level: str, message: str) -> None:
             prefix for grep-ability (matches the prefix in the main log).
     """
     log_to(logger, _cam_log, level=level, message=message)
+
+
+def describe_device_info(dev_info: Any) -> str:
+    """Render every property the SDK reports for an enumerated device.
+
+    The property list comes from the SDK, not from a set of getters
+    here. A CDeviceInfo carries roughly three dozen properties and
+    which of them are populated depends on the transport, so any
+    hand-picked set both misses the fields that identify what sits
+    UNDER the SDK -- the USB driver kind, its Windows driver key, the
+    port and the transfer mode -- and silently stops growing when a
+    pylon release adds one. Those transport fields are what attributes
+    a stall inside an SDK call to a machine, and a support bundle is
+    the only place they can ever be read from.
+
+    Degradation is per-property so one bad accessor cannot cost the
+    whole description: a property the SDK marks unavailable is simply
+    not applicable to this transport and is skipped, while one whose
+    read raises is named with its reason, so a gap is visible rather
+    than silent.
+
+    Args:
+        dev_info: An enumerated device-info object exposing the SDK's
+            generic property interface (``GetPropertyNames`` returning
+            ``(count, names)``, ``GetPropertyValue`` returning
+            ``(available, value)``).
+
+    Returns:
+        str: Space-separated ``Name=value`` pairs, sorted by name so two
+            bundles from one machine diff cleanly, or a marker naming
+            why no description could be built.
+    """
+    try:
+        _, _names = dev_info.GetPropertyNames()
+    except Exception as e:
+        return f'<device info unreadable: {type(e).__name__}: {e}>'
+
+    _parts = []
+    for _name in sorted(_names):
+        try:
+            _available, _value = dev_info.GetPropertyValue(_name)
+        except Exception as e:
+            _parts.append(f'{_name}=<unreadable: {type(e).__name__}>')
+            continue
+        if _available:
+            _parts.append(f'{_name}={_value!r}')
+    return ' '.join(_parts)
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
@@ -918,20 +966,7 @@ class PylonCamera(Camera):
                     f'{len(_devs)} device(s)',
                 )
                 for _i, _d in enumerate(_devs):
-                    try:
-                        _log_cam(
-                            'info',
-                            f'[CAM Class ]   device[{_i}]: '
-                            f'model={_d.GetModelName()!r} '
-                            f'serial={_d.GetSerialNumber()!r} '
-                            f'tl={_d.GetTLType()!r} '
-                            f'device_class={_d.GetDeviceClass()!r}',
-                        )
-                    except Exception as _e_acc:
-                        _log_cam(
-                            'debug',
-                            f'[CAM Class ]   device[{_i}]: enumeration accessor failed: {_e_acc}',
-                        )
+                    _log_cam('info', f'[CAM Class ]   device[{_i}]: {describe_device_info(_d)}')
             except Exception as _e_enum:
                 _log_cam(
                     'warning', f'[CAM Class ] pylon TlFactory.EnumerateDevices() failed: {_e_enum}'
