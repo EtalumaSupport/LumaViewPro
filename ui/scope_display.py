@@ -883,11 +883,6 @@ class ScopeDisplay(Image):
         if display_counter % 10 == 0:
             Clock.schedule_once(self._reset_display_counter, 0)
 
-            if active_layer_config is not None and active_layer_config['auto_gain']:
-                from modules.sequential_io_executor import IOTask
-
-                ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
-
         t_eng_stats = 0
         # Display-path compute for THIS frame; set by whichever render branch runs
         # (mono downscale, or the bullseye transform when its rate cap lets it
@@ -1298,26 +1293,3 @@ class ScopeDisplay(Image):
             )
             self._display_fps_count = 0
             self._display_fps_last_time = now
-
-    def get_true_gain_exp(self, layer):
-        ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.imaging.gain_db_cached
-        actual_exp = ctx.scope.imaging.exposure_ms_cached
-        Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
-
-    def update_auto_gain_ui(self, layer, actual_gain, actual_exp):
-        ctx = _app_ctx.ctx
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        # A non-physical reading (the cache's never-read seed or its
-        # deliberate post-auto invalidation) has no honest slider position
-        # -- skip the field rather than push a below-minimum value that
-        # would persist into layer settings on the next slider write.
-        # Only update if values changed to prevent unnecessary ScrollView layout recalculation
-        if common_utils.is_valid_gain_db(actual_gain) and (
-            abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01
-        ):
-            layer_obj.ids['gain_slider'].value = actual_gain
-        if common_utils.is_valid_exposure_ms(actual_exp) and (
-            abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01
-        ):
-            layer_obj.ids['exp_slider'].value = actual_exp
