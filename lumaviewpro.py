@@ -605,11 +605,12 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
                     logger.warning(f'[INIT      ] per-channel settings log skipped: {e}')
 
-            # Apply transmitted-layer slider caps (50 mA on BF / PC / DF)
-            # before either branch below fires. The .kv ships ill_slider
-            # at max=500; without this call the cap stays unapplied until
-            # the user first toggles the settings panel, leaving BF / PC
-            # / DF channels exposed at slider-default 500 mA.
+            # Hide the composite-threshold and false-colour controls on the
+            # transmitted channels, which have no colour to composite.
+            #
+            # This does NOT bound illumination, whatever its name suggests:
+            # the transmitted slider cap is applied by the capability sync,
+            # which the settings panel already runs at startup.
             try:
                 ctx.image_settings.update_transmitted()
             except Exception as e:  # grain: ignore NAKED_EXCEPT

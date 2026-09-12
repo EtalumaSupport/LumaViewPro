@@ -12,6 +12,7 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_ui_getters import (
     camera_autogain_supported,
+    get_layer_exposure_slider_max,
     get_layer_illumination_slider_max,
 )
 
@@ -444,29 +445,30 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
     def set_layer_exposure_ranges(self):
-        ctx = _app_ctx.ctx
+        """Size each layer's exposure slider from the connected camera's cap,
+        through the getter that also applies the transmitted-layer policy.
+
+        The one owner of exp_slider.max. The policy numbers live beside the
+        illumination policy below the GUI rather than as literals here, so the
+        bound a non-GUI caller is held to and the bound the slider shows come
+        from the same place.
+        """
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
-            layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
-
-            if layer == 'BF':
-                # M25: Cap at 50ms but don't exceed camera capability.
-                layer_obj.ids['exp_slider'].max = min(50, ctx.max_exposure)
-            else:
-                # M25: Cap at 200ms but don't exceed camera capability.
-                layer_obj.ids['exp_slider'].max = min(200, ctx.max_exposure)
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
-            layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
     def set_layer_gain_ranges(self):

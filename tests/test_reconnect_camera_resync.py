@@ -31,14 +31,18 @@ guards; the pure cap resolvers are exercised directly.
 """
 
 import ast
+import inspect
 import pathlib
 from types import SimpleNamespace
 
 from modules.config_helpers import (
+    BF_MAX_MANUAL_EXPOSURE_MS,
     DEFAULT_MAX_EXPOSURE_MS,
     DEFAULT_MAX_GAIN_DB,
+    TRANSMITTED_MAX_MANUAL_EXPOSURE_MS,
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
+    layer_max_exposure_ms_for_ui,
 )
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -269,3 +273,40 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
         assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
             'sync_camera_capability_ranges must still run the clamp.'
         )
+
+
+class TestManualExposurePolicy:
+    """The transmitted layers' manual exposure ceilings, which nothing asserted.
+
+    BF / PC / DF light is bright enough that the useful manual range sits far
+    under the sensor's maximum, so their sliders stop below the camera cap.
+    The numbers lived as literals in ui/image_settings.py with no home below
+    the GUI and no test, so a non-GUI caller was held to a different bound
+    than the slider showed -- and nothing would have caught a change to either.
+    """
+
+    def test_bf_stops_at_its_own_ceiling(self):
+        assert layer_max_exposure_ms_for_ui(10_000.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
+
+    def test_the_other_transmitted_layers_stop_higher(self):
+        for layer in ('PC', 'DF'):
+            assert (
+                layer_max_exposure_ms_for_ui(10_000.0, layer) == TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
+            ), layer
+
+    def test_a_lower_camera_cap_wins(self):
+        # The policy narrows the camera; it never widens past what the body can do.
+        assert layer_max_exposure_ms_for_ui(30.0, 'BF') == 30.0
+        assert layer_max_exposure_ms_for_ui(120.0, 'DF') == 120.0
+
+    def test_every_other_layer_gets_the_camera_cap(self):
+        for layer in ('Blue', 'Green', 'Red', 'Lumi'):
+            assert layer_max_exposure_ms_for_ui(10_000.0, layer) == 10_000.0, layer
+
+    def test_the_manual_ceiling_is_not_the_auto_ceiling(self):
+        # DEFAULT_AG_AE_MAX_EXPOSURE_MS bounds what the AUTO loop may drive to
+        # and is overridable per install; reusing it here would let auto-exposure
+        # tuning silently resize the manual slider. The resolver takes no settings
+        # argument, so no install override can reach it.
+        assert 'settings' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
+        assert 'overrides' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters

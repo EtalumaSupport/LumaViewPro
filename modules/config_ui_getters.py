@@ -98,6 +98,15 @@ def get_layer_illumination_slider_max(layer: str) -> int | None:
     return config_helpers.layer_max_illumination_ma_for_ui(caps, layer)
 
 
+def get_layer_exposure_slider_max(layer: str) -> float:
+    """The exposure-slider upper bound for ``layer``: the connected camera's
+    cap, narrowed to the manual transmitted policy. The exposure twin of
+    get_layer_illumination_slider_max, reading the cap the settings load
+    resolved through camera_max_exposure_for_ui.
+    """
+    return config_helpers.layer_max_exposure_ms_for_ui(_app_ctx.ctx.max_exposure, layer)
+
+
 def get_layer_illumination_text_max(layer: str) -> int | None:
     """The illumination text-entry upper bound for ``layer``: BF alone may be
     typed above its slider. None before the scope is built.

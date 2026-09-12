@@ -1017,6 +1017,29 @@ def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: s
     return cap
 
 
+# Manual exposure ceilings for the transmitted layers, in ms. Their light is
+# bright enough that the useful manual range sits far under the sensor's
+# maximum, so the slider stops here rather than at the camera's cap.
+#
+# Deliberately NOT DEFAULT_AG_AE_MAX_EXPOSURE_MS: that one bounds what the AUTO
+# loop may drive to and is overridable per install through
+# settings['ag_ae_max_exposure_ms'], so reusing it would let auto-exposure
+# tuning silently resize the manual slider. It is also keyed by channel class,
+# where the manual ceiling differs between BF and the other transmitted layers.
+BF_MAX_MANUAL_EXPOSURE_MS = 50.0
+TRANSMITTED_MAX_MANUAL_EXPOSURE_MS = 200.0
+
+
+def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
+    """The exposure-slider upper bound for one layer: the camera's own cap,
+    narrowed to the manual transmitted policy for BF / PC / DF.
+    """
+    if layer not in common_utils.get_transmitted_layers():
+        return camera_max_ms
+    ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
+    return min(ceiling, camera_max_ms)
+
+
 def layer_illumination_text_max_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
     """The illumination text-entry upper bound for one layer. BF alone may be
     typed above its slider; every other layer's text bound is its slider's.
