@@ -87,6 +87,27 @@ def firmware_stim_supported() -> bool:
     return bool(caps.supports('firmware_stim')) if caps is not None else False
 
 
+def get_layer_illumination_slider_max(layer: str) -> int | None:
+    """The illumination-slider upper bound for ``layer`` from the live scope's
+    LED driver, narrowed to the transmitted-layer policy; None before the
+    scope is built (the .kv placeholder stands until then).
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return None
+    return config_helpers.layer_max_illumination_ma_for_ui(caps, layer)
+
+
+def get_layer_illumination_text_max(layer: str) -> int | None:
+    """The illumination text-entry upper bound for ``layer``: BF alone may be
+    typed above its slider. None before the scope is built.
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return None
+    return config_helpers.layer_illumination_text_max_for_ui(caps, layer)
+
+
 def camera_autogain_supported() -> bool:
     """True when the connected camera has hardware auto-gain or auto-exposure.
 

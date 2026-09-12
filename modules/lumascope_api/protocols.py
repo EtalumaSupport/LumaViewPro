@@ -92,6 +92,7 @@ class ProtocolsAPI:
         return Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self.tiling_configs_path(),
+            led_max_ma=self._scope.capabilities.led_max_ma,
         )
 
     def create_protocol(

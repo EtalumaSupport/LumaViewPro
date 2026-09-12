@@ -14,14 +14,18 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
+from modules.config_ui_getters import (
+    firmware_stim_supported,
+    get_layer_illumination_text_max,
+)
 from modules.exceptions import ProtocolError
 from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
-# Brightfield allows higher illumination/exposure than fluorescence channels
-# because BF LED power is lower and longer exposures don't risk photobleaching.
-BF_MAX_ILLUMINATION = 500
+# Brightfield allows longer exposures than fluorescence channels because
+# they don't risk photobleaching. Its illumination bounds come from the
+# resolver in modules.config_helpers, beside the LED driver's cap.
 BF_MAX_EXPOSURE_MS = 1000
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
@@ -276,8 +280,6 @@ class LayerControl(BoxLayout):
             return
         settings = ctx.settings
 
-        from modules.config_ui_getters import firmware_stim_supported
-
         if (
             self.layer in common_utils.get_fluorescence_layers()
             and settings['stimulation_enabled']
@@ -370,9 +372,9 @@ class LayerControl(BoxLayout):
 
         text_input_debounced(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
         ill_min = self.ids['ill_slider'].min
-        if self.layer == 'BF':
-            ill_max = BF_MAX_ILLUMINATION
-        else:
+        # Before the scope is built the slider's placeholder is the only bound.
+        ill_max = get_layer_illumination_text_max(self.layer)
+        if ill_max is None:
             ill_max = self.ids['ill_slider'].max
         try:
             ill_val = float(self.ids['ill_text'].text)

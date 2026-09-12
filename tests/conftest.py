@@ -419,7 +419,9 @@ def scale_capabilities():
     test that needs a real scale (scale bar, tiling, field-of-view readout)
     hands in optics that report one. The values match Etaluma's Classic optics
     so geometry assertions written against the previous default stay valid.
+    The LED cap is the EL-0940 firmware's, because a Protocol built from
+    capabilities carries it into validate_steps.
     """
     from types import SimpleNamespace
 
-    return SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8)
+    return SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000)

@@ -166,9 +166,12 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'capture_root': '',
         'tiling': '1x1',
     }
+    # Built under the EL-0940 firmware ceiling, so the illumination checks
+    # exercise a cap the way a scope-built protocol does.
     return Protocol(
         tiling_configs_file_loc=TILING_CONFIGS,
         config=config,
+        led_max_ma=1000,
     )
 
 

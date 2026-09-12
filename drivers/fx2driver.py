@@ -2360,6 +2360,9 @@ class FX2LEDController:
     def available_channels(self) -> tuple:
         return tuple(self._COLOR_TO_CH.values())  # (0, 1, 2, 3)
 
+    def max_ma(self) -> int:
+        return self._MAX_MA
+
     def available_colors(self) -> tuple:
         return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
 

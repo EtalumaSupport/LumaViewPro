@@ -997,6 +997,35 @@ def camera_max_gain_for_ui(imaging) -> float:
     return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
 
 
+# Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
+# are far brighter per mA than the fluorescence channels, so the slider
+# stops well under the board's ceiling; the BF text entry deliberately
+# reaches higher for the rare sample that needs it (Eric, 2026-09-12:
+# "slider at 50, but you can type up to 500 still"). Both are bounded by
+# what the connected board can actually be asked for.
+TRANSMITTED_MAX_ILLUMINATION_MA = 50
+BF_TEXT_MAX_ILLUMINATION_MA = 500
+
+
+def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
+    """The illumination-slider upper bound for one layer: the connected LED
+    driver's cap, narrowed to the transmitted-layer policy for BF / PC / DF.
+    """
+    cap = int(capabilities.led_max_ma)
+    if layer in common_utils.get_transmitted_layers():
+        return min(TRANSMITTED_MAX_ILLUMINATION_MA, cap)
+    return cap
+
+
+def layer_illumination_text_max_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
+    """The illumination text-entry upper bound for one layer. BF alone may be
+    typed above its slider; every other layer's text bound is its slider's.
+    """
+    if layer == 'BF':
+        return min(BF_TEXT_MAX_ILLUMINATION_MA, int(capabilities.led_max_ma))
+    return layer_max_illumination_ma_for_ui(capabilities, layer)
+
+
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed).
 

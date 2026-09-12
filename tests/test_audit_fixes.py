@@ -8607,57 +8607,41 @@ class TestManualVideoSpinners:
 
 
 class TestBfIlluminationCapAtStartup:
-    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) must be
-    applied at app startup, not on first settings-panel toggle. The
-    .kv ships ill_slider with max=500; without an init-time
-    update_transmitted() call the cap stays unapplied and BF / PC /
-    DF channels can be driven up to 500 mA from the slider on first
-    use.
+    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) are applied at
+    startup by the same per-layer capability grouping that sizes the gain
+    and exposure sliders, which `_init_ui` runs on the first Clock tick --
+    before `complete_initialization` (scheduled at 0.3 s) applies the
+    default BF layer. The .kv ships ill_slider at max=500 as the
+    pre-connect placeholder; the setter is the one owner.
     """
 
     def _src(self):
         import pathlib
 
-        return pathlib.Path('lumaviewpro.py').read_text()
+        return pathlib.Path('ui/image_settings.py').read_text()
 
-    def test_complete_initialization_calls_update_transmitted(self):
+    def test_the_capability_grouping_sets_the_illumination_ranges(self):
         src = self._src()
-        idx = src.find('def complete_initialization')
-        assert idx >= 0, 'complete_initialization not found in lumaviewpro.py'
-        # Slice through the next def at the matching indent.
-        next_def = src.find('\n        def ', idx + 1)
-        if next_def < 0:
-            # complete_initialization is the last nested def in build();
-            # cap by the trailing Clock.schedule_once call instead.
-            next_def = src.find('Clock.schedule_once(complete_initialization', idx)
-        assert next_def > idx
-        body = src[idx:next_def]
-        assert 'ctx.image_settings.update_transmitted()' in body, (
-            'complete_initialization must call '
-            'ctx.image_settings.update_transmitted() so transmitted '
-            'slider caps are applied at startup, not on first '
-            'settings-panel toggle.'
-        )
-
-    def test_update_transmitted_runs_before_accordion_branch(self):
-        # Startup no longer has a separate protocol branch: it always applies
-        # the default BF layer via accordion_collapse and does not move to
-        # step 1. The cap must still be applied before that settings-apply.
-        src = self._src()
-        idx = src.find('def complete_initialization')
+        idx = src.find('def sync_camera_capability_ranges')
         assert idx >= 0
-        next_def = src.find('Clock.schedule_once(complete_initialization', idx)
-        assert next_def > idx
-        body = src[idx:next_def]
-        ut_pos = body.find('ctx.image_settings.update_transmitted()')
-        accordion_pos = body.find('ctx.image_settings.accordion_collapse()')
-        assert ut_pos > 0
-        assert accordion_pos > 0
-        assert ut_pos < accordion_pos, (
-            'update_transmitted() must run before accordion_collapse() '
-            'fires apply_settings on BF, otherwise BF gets applied at '
-            'the .kv-default 500 mA before the cap.'
-        )
+        body = src[idx : src.find('\n    def ', idx + 1)]
+        assert 'self.set_layer_illumination_ranges()' in body
+
+    def test_init_ui_runs_the_grouping(self):
+        src = self._src()
+        idx = src.find('def _init_ui')
+        assert idx >= 0
+        body = src[idx : src.find('\n    def ', idx + 1)]
+        assert 'self.sync_camera_capability_ranges()' in body
+
+    def test_the_transmitted_cap_is_policy_below_the_gui(self):
+        from types import SimpleNamespace
+
+        from modules.config_helpers import layer_max_illumination_ma_for_ui
+
+        caps = SimpleNamespace(led_max_ma=1000)
+        for layer in ('BF', 'PC', 'DF'):
+            assert layer_max_illumination_ma_for_ui(caps, layer) == 50
 
 
 class TestModSliderScrollWheel:
@@ -9725,11 +9709,10 @@ class TestTimeoutParamNamesUseSecondSuffix:
 
 
 class TestLedMaxMaCanonicalHomeIsCapabilities:
-    """Freeze audit Finding #38 -- `Lumascope.LED_MAX_MA` was a class
-    constant that duplicated `capabilities.led_max_ma` (same value,
-    two SoTs). The class constant is retired; the canonical home is
-    `modules.scope_capabilities.LED_MAX_MA` (module-level) which
-    `capabilities.led_max_ma` mirrors per-instance."""
+    """`Lumascope.LED_MAX_MA` was a class constant that duplicated
+    `capabilities.led_max_ma` (same value, two SoTs). The class constant is
+    retired, and the capability is not a constant at all: it is whatever
+    the connected LED driver publishes through `max_ma()`."""
 
     def test_lumascope_class_does_not_carry_led_max_ma(self):
         from modules.lumascope_api import Lumascope
@@ -9739,10 +9722,8 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
             'callers read scope.capabilities.led_max_ma instead.'
         )
 
-    def test_capabilities_led_max_ma_matches_canonical_constant(self, sim_scope):
-        from modules.scope_capabilities import LED_MAX_MA
-
-        assert sim_scope.capabilities.led_max_ma == LED_MAX_MA
+    def test_capabilities_led_max_ma_is_the_drivers_answer(self, sim_scope):
+        assert sim_scope.capabilities.led_max_ma == sim_scope._led_driver.max_ma()
 
     def test_illumination_validation_reads_capabilities(self, sim_scope):
         """The validation gate inside IlluminationAPI.led_on must read

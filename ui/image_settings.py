@@ -10,6 +10,10 @@ from kivy.uix.scrollview import ScrollView
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.config_ui_getters import (
+    camera_autogain_supported,
+    get_layer_illumination_slider_max,
+)
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -480,6 +484,18 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['gain_slider'].max = ctx.max_gain
 
+    def set_layer_illumination_ranges(self):
+        """Size each layer's illumination slider from the connected LED
+        driver's cap, through the getter that also applies the transmitted-
+        layer policy. The one owner of ill_slider.max; the .kv value is the
+        placeholder until the scope is built.
+        """
+        for layer in common_utils.get_layers():
+            bound = get_layer_illumination_slider_max(layer)
+            if bound is None:
+                continue
+            self.layer_lookup(layer=layer).ids['ill_slider'].max = bound
+
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
 
@@ -498,8 +514,6 @@ class ImageSettings(BoxLayout):
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
-        from modules.config_ui_getters import camera_autogain_supported
-
         supported = camera_autogain_supported()
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -516,6 +530,7 @@ class ImageSettings(BoxLayout):
         """
         self.set_layer_exposure_ranges()
         self.set_layer_gain_ranges()
+        self.set_layer_illumination_ranges()
         self.set_layer_autogain_support()
         self.clamp_layer_settings_to_caps()
 
@@ -623,9 +638,7 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['false_color_label'].text = ''
             layer_obj.ids['false_color'].color = (0.0,) * 4
 
-            # Adjust 'Illumination' range
             layer_obj.ids['ill_slider'].step = 1
-            layer_obj.ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
         """Called by Kivy on every accordion item collapse/expand.

@@ -228,7 +228,19 @@ class Protocol:
         'Stim_Enabled',
     ]
 
-    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):
+    # The LED current cap this protocol was built under, from the scope's
+    # capabilities; None means no authority was given (a file opened with no
+    # scope, e.g. for post-processing) and validate_steps checks format only.
+    _led_max_ma: int | None = None
+
+    def __init__(
+        self,
+        tiling_configs_file_loc: pathlib.Path,
+        config: dict | None = None,
+        *,
+        led_max_ma: int | None = None,
+    ):
+        self._led_max_ma = led_max_ma
 
         self._objective_loader = ObjectiveLoader()
 
@@ -635,11 +647,15 @@ class Protocol:
             except (ValueError, TypeError):
                 errors.append(f'{label}: Exposure is not a valid number')
 
-            # Illumination
+            # Illumination -- the cap is the connected board's, when known
             try:
                 illum = float(step.get('Illumination', 0))
-                if illum < 0 or illum > 1000:
-                    errors.append(f'{label}: Illumination must be 0-1000 mA, got {illum}')
+                if illum < 0:
+                    errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
+                elif self._led_max_ma is not None and illum > self._led_max_ma:
+                    errors.append(
+                        f'{label}: Illumination must be 0-{self._led_max_ma} mA, got {illum}'
+                    )
             except (ValueError, TypeError):
                 errors.append(f'{label}: Illumination is not a valid number')
 
@@ -1692,7 +1708,11 @@ class Protocol:
 
         config['steps'] = steps_df
 
-        protocol = cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
+        protocol = cls(
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            config=config,
+            led_max_ma=capabilities.led_max_ma,
+        )
 
         # Validate step fields -- reject protocol if any errors found
         validation_errors = protocol.validate_steps()
@@ -1842,7 +1862,11 @@ class Protocol:
 
     @classmethod
     def from_file(
-        cls, file_path: pathlib.Path, tiling_configs_file_loc: pathlib.Path | None
+        cls,
+        file_path: pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path | None,
+        *,
+        led_max_ma: int | None = None,
     ) -> 'Protocol | bool':
         """
         Returns Protocol object loaded from file on success
@@ -2345,7 +2369,11 @@ class Protocol:
                     message=warn_msg,
                 )
 
-        return cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
+        return cls(
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            config=config,
+            led_max_ma=led_max_ma,
+        )
 
     def mark_zstack_starts_and_ends(self) -> None:
         df = self.steps().copy()

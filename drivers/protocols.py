@@ -157,6 +157,13 @@ class LEDBoardProtocol(Protocol):
     def available_channels(self) -> tuple[int, ...]: ...
     def available_colors(self) -> tuple[str, ...]: ...
 
+    # --- Bounds ---
+    # The largest per-channel current this board can be asked for, in mA.
+    # Boards differ (the Classic peripheral's full scale is not the
+    # EL-0940 firmware's), and only the driver knows its own; the API's
+    # range guard and every UI bound read it from capabilities.
+    def max_ma(self) -> int: ...
+
     # --- Diagnostics ---
     def read_led_current(self, channel: int) -> float | None: ...
 

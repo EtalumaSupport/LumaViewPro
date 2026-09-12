@@ -122,6 +122,12 @@ class NullLEDBoard:
         """Null implementation: no hardware = no firmware STIM support."""
         return False
 
+    def max_ma(self) -> int:
+        """No board, so no legal current above zero. Nothing compares against
+        it: the API refuses LED commands on a Null board before its range
+        guard runs."""
+        return 0
+
     def wait_until_on(self, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass
