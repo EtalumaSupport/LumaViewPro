@@ -453,22 +453,23 @@ class ImageSettings(BoxLayout):
         bound a non-GUI caller is held to and the bound the slider shows come
         from the same place.
         """
+        camera_max_ms = _app_ctx.ctx.max_exposure
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
-            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(layer)
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
     def set_layer_gain_ranges(self):

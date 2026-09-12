@@ -98,13 +98,16 @@ def get_layer_illumination_slider_max(layer: str) -> int | None:
     return config_helpers.layer_max_illumination_ma_for_ui(caps, layer)
 
 
-def get_layer_exposure_slider_max(layer: str) -> float:
+def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
     """The exposure-slider upper bound for ``layer``: the connected camera's
-    cap, narrowed to the manual transmitted policy. The exposure twin of
-    get_layer_illumination_slider_max, reading the cap the settings load
-    resolved through camera_max_exposure_for_ui.
+    cap, narrowed to the manual transmitted policy.
+
+    Takes the cap rather than reading it off the app context -- the caller
+    already holds the value the settings load resolved through
+    camera_max_exposure_for_ui, and a module reaching up for it is the
+    direction this layer is not allowed to depend in.
     """
-    return config_helpers.layer_max_exposure_ms_for_ui(_app_ctx.ctx.max_exposure, layer)
+    return config_helpers.layer_max_exposure_ms_for_ui(camera_max_ms, layer)
 
 
 def get_layer_illumination_text_max(layer: str) -> int | None:
