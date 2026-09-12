@@ -331,10 +331,10 @@ def test_grab_new_capture_returns_worker_stored_frame():
     handler.frame_generation.return_value = 7
     handler.wait_for_new_frame.return_value = True
     cropped = np.zeros((1900, 1900), dtype=np.uint16)
-    handler.get_last_image.return_value = (True, cropped, 'TS', 12)
+    handler.get_last_image.return_value = (True, cropped, 'TS', 12, 3)
     cam.cam_image_handler = handler
 
-    ok, ts = cam.grab_new_capture(1.0)
+    ok, ts, _seq = cam.grab_new_capture(1.0)
 
     assert ok is True
     assert ts == 'TS'
@@ -354,7 +354,7 @@ def test_grab_new_capture_times_out_without_touching_stream():
     handler.wait_for_new_frame.return_value = False  # no new frame in time
     cam.cam_image_handler = handler
 
-    ok, ts = cam.grab_new_capture(0.01)
+    ok, ts, _seq = cam.grab_new_capture(0.01)
 
     assert ok is False
     assert ts is None

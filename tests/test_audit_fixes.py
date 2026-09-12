@@ -3112,7 +3112,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         imaging, cam = _sim_backed_imaging()
         blown = np.full((4, 4), 255, dtype=np.uint8)
         monkeypatch.setattr(cam, 'get_array', lambda: blown)
-        grab_results = iter([(True, _dt.datetime.now()), (False, None)])
+        grab_results = iter([(True, _dt.datetime.now(), 1), (False, None, None)])
         monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
         out = imaging.get_image(all_ones_check=True)
         assert np.array_equal(out, blown), (

@@ -51,7 +51,9 @@ def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
     assert sim_scope.imaging.is_streaming()
     with (
         patch.object(sim_scope.imaging.frame_validity, 'frames_until_valid', return_value=1),
-        patch.object(sim_scope.imaging._driver, 'grab_new_capture', return_value=(False, None)),
+        patch.object(
+            sim_scope.imaging._driver, 'grab_new_capture', return_value=(False, None, None)
+        ),
         patch.object(imaging_module, 'logger'),
     ):
         result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)

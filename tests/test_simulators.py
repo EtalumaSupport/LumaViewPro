@@ -730,7 +730,7 @@ class TestSimulatedCamera:
     def test_grab_returns_image(self):
         cam = SimulatedCamera()
         cam.open_and_start()
-        result, ts = cam.grab()
+        result, ts, _seq = cam.grab()
         assert result is True
         assert ts is not None
         assert isinstance(cam.array, np.ndarray)
@@ -743,7 +743,7 @@ class TestSimulatedCamera:
         # drivers). `timeout=1000` here would have been 1000 seconds and
         # passed only because the simulator doesn't honor the timeout.
         cam.open_and_start()
-        result, ts = cam.grab_new_capture(timeout_s=5.0)
+        result, ts, _seq = cam.grab_new_capture(timeout_s=5.0)
         assert result is True
         assert ts is not None
         assert isinstance(cam.array, np.ndarray)
@@ -765,7 +765,7 @@ class TestSimulatedCamera:
     def test_grab_not_grabbing_returns_false(self):
         cam = SimulatedCamera()
         cam.stop_grabbing()
-        result, _ts = cam.grab()
+        result, _ts, _seq = cam.grab()
         assert result is False
 
     def test_image_brightness_varies_with_exposure(self):

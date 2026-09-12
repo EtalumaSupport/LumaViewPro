@@ -3098,7 +3098,7 @@ class IDSCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout_s):
+    def grab_new_capture(self, timeout_s: float) -> tuple:
         """Return a frame captured AFTER this call, via the shared latest-frame
         path -- never by driving the data stream directly.
 
@@ -3115,10 +3115,10 @@ class IDSCamera(Camera):
         """
         handler = self.cam_image_handler
         if not handler:
-            return False, None
+            return False, None, None
         since = handler.frame_generation()
         if not handler.wait_for_new_frame(since, timeout_s):
-            return False, None
+            return False, None, None
         return self.grab()
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):

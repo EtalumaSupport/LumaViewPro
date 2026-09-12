@@ -315,7 +315,10 @@ class ImagingAPI:
         # from Phase 3 where motion.py / illumination.py referenced
         # self._scope.frame_validity. Lumascope.__init__ wires up the
         # motion-settle check after this slot is set.
-        self.frame_validity = FrameValidity()
+        # The frame-count source is read late, through this lambda: the
+        # composition root assigns _driver after this constructor runs, so
+        # binding the driver itself here would capture nothing.
+        self.frame_validity = FrameValidity(self._frames_delivered)
 
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
@@ -392,6 +395,16 @@ class ImagingAPI:
             return self._camera_cache['binning']
 
     # --- Private helpers (relocated from Lumascope) ---
+
+    def _frames_delivered(self) -> int:
+        """Frames the camera has delivered so far, for frame validity.
+
+        Zero with no driver attached: no frame has arrived, which is what
+        the number says. A write recorded against 0 is then satisfied by the
+        first frame that ever arrives, which is the correct reading of "the
+        camera had delivered nothing when this was written".
+        """
+        return self._driver.frames_delivered if self._driver else 0
 
     def _load_camera_timing(self) -> None:
         """Load per-camera timing config if available.
@@ -2499,9 +2512,11 @@ class ImagingAPI:
             while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
                 if _deadline_expired():
                     return _deadline_none('drain-loop')
-                status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+                status, _drain_frame_ts, drain_seq = self._driver.grab_new_capture(
+                    timeout_s=grab_timeout_s
+                )
                 if status:
-                    self.frame_validity.count_frame(frame_ts=drain_frame_ts)
+                    self.frame_validity.count_frame(drain_seq)
                     drain_iterations += 1
                 else:
                     remaining = self.frame_validity.frames_until_valid(
@@ -2801,14 +2816,14 @@ class ImagingAPI:
                 # set_gain_db/set_exposure from another thread mid-frame.
                 with self._cam_lock:
                     if force_new_capture:
-                        grab_status, grab_image_ts = self._driver.grab_new_capture(
+                        grab_status, grab_image_ts, grab_seq = self._driver.grab_new_capture(
                             new_capture_timeout_s
                         )
                     else:
-                        grab_status, grab_image_ts = self._driver.grab()
+                        grab_status, grab_image_ts, grab_seq = self._driver.grab()
 
                     if grab_status:
-                        self.frame_validity.count_frame(frame_ts=grab_image_ts)
+                        self.frame_validity.count_frame(grab_seq)
                         tmp = self._driver.get_array()  # thread-safe copy
 
                 if not grab_status:
@@ -2849,13 +2864,13 @@ class ImagingAPI:
                     # silently (the prior behavior) hid real data corruption.
                     retry_frame = None
                     with self._cam_lock:
-                        retry_status, retry_image_ts = (
+                        retry_status, _retry_image_ts, retry_seq = (
                             self._driver.grab_new_capture(new_capture_timeout_s)
                             if force_new_capture
                             else self._driver.grab()
                         )
                         if retry_status:
-                            self.frame_validity.count_frame(frame_ts=retry_image_ts)
+                            self.frame_validity.count_frame(retry_seq)
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
@@ -3094,15 +3109,19 @@ class ImagingAPI:
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts, frame_significant_bits = self._driver.grab_latest()
+        grab_status, tmp, grab_image_ts, frame_significant_bits, grab_seq = (
+            self._driver.grab_latest()
+        )
         if not grab_status or tmp is None:
             return None, None
         # grab_latest() returns the same buffered frame on every poll, and
         # this preview path can poll faster than the camera delivers. The
-        # frame timestamp dedupes the count so validity skip counts expire
-        # against real frames, not poll rate -- counting polls let a capture
-        # accept a frame exposed under the previous gain/exposure/LED state.
-        self.frame_validity.count_frame(frame_ts=grab_image_ts)
+        # frame's arrival ordinal dedupes the count so validity skip counts
+        # retire against real frames, not poll rate -- counting polls let a
+        # capture accept a frame exposed under the previous gain/exposure/LED
+        # state. The ordinal also keeps a frame this path grabbed before a
+        # write from retiring any of that write's wait.
+        self.frame_validity.count_frame(grab_seq)
 
         with self._state_lock:
             self._frame_buffer = tmp

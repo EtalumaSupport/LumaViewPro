@@ -2749,7 +2749,7 @@ class PylonCamera(Camera):
         try:
             if not self.cam_image_handler:
                 _outcome = 'no_handler'
-                return False, None
+                return False, None, None
 
             try:
                 # Drain all frames captured before this call -- we only want
@@ -2763,16 +2763,16 @@ class PylonCamera(Camera):
                 if dropped > 1:
                     logger.debug(f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
-                result, image, image_ts = self.cam_image_handler._frame_queue.get(
+                result, image, image_ts, image_seq = self.cam_image_handler._frame_queue.get(
                     block=True, timeout=timeout_s
                 )
                 if result is False:
                     _outcome = 'result_false'
-                    return False, None
+                    return False, None, None
 
                 self.array = image
                 _outcome = 'success'
-                return True, image_ts
+                return True, image_ts, image_seq
 
             except queue.Empty:
                 # Expected outcome when no frame arrives within `timeout_s`.
@@ -2783,13 +2783,13 @@ class PylonCamera(Camera):
                     f'[CAM Class ] grab_new_capture timed out after '
                     f'{timeout_s:.1f}s (no frame queued; dropped {dropped} stale)'
                 )
-                return False, None
+                return False, None, None
             except Exception as ex:
                 _outcome = 'exception'
                 _cam_log.exception(
                     f'[CAM Class ] grab_new_capture raised {type(ex).__name__}: {ex}'
                 )
-                return False, None
+                return False, None, None
         finally:
             if _trace_enabled and _t0 is not None:
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0
@@ -4398,11 +4398,14 @@ class _PylonImageGrabWorker:
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
         self._base._store_frame(img, ts, chunks=chunks, significant_bits=significant_bits)
+        # Read back the ordinal the store just assigned, so the queued copy
+        # and the buffered one describe the same frame by the same number.
+        seq = self._base.last_img_seq
         try:
             if not self._frame_queue.empty():
                 with contextlib.suppress(queue.Empty):
                     self._frame_queue.get_nowait()
-            self._frame_queue.put_nowait((True, img, ts))
+            self._frame_queue.put_nowait((True, img, ts, seq))
         except queue.Full:
             # latest-wins; older drop is intended (legacy consumer can
             # only hold one frame). Log at debug so the cause stays in

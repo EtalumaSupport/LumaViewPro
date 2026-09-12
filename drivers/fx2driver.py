@@ -1991,18 +1991,18 @@ class FX2Camera(Camera):
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
-    def grab_new_capture(self, timeout_s: float = 5.0):
+    def grab_new_capture(self, timeout_s: float = 5.0) -> tuple:
         """Block until a NEW frame arrives. Used by autofocus / protocols."""
         self.cam_image_handler.reset()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            ok, img, ts, _significant_bits = self.cam_image_handler.get_last_image()
+            ok, img, ts, _significant_bits, seq = self.cam_image_handler.get_last_image()
             if ok:
                 with self._array_lock:
                     self.array = img
-                return True, ts
+                return True, ts, seq
             time.sleep(0.01)
-        return False, None
+        return False, None, None
 
     # -- Frame size --------------------------------------------------------
 

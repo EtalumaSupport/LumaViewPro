@@ -164,15 +164,15 @@ class TestProcessFrame(unittest.TestCase):
         ts = 12345.0
         worker._process_frame(gr, ts)
         base._store_frame.assert_called_once()
-        success, _, got_ts = frame_queue.get_nowait()
+        success, _, got_ts, _seq = frame_queue.get_nowait()
         self.assertTrue(success)
         self.assertEqual(got_ts, ts)
 
     def test_drains_stale_before_putting(self):
         worker, _, _base, frame_queue = _make_worker()
-        frame_queue.put_nowait((True, 'stale_img', 0.0))
+        frame_queue.put_nowait((True, 'stale_img', 0.0, 0))
         worker._process_frame(_FakeGrabResult(), 99.0)
-        _success, _, ts = frame_queue.get_nowait()
+        _success, _, ts, _seq = frame_queue.get_nowait()
         self.assertEqual(ts, 99.0)
         self.assertTrue(frame_queue.empty())
 

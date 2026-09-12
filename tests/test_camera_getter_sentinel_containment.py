@@ -69,8 +69,8 @@ class _StampedFrameHandler:
 
     def get_last_image(self):
         if self._significant_bits is None:
-            return False, None, None, None
-        return True, 'frame', None, self._significant_bits
+            return False, None, None, None, None
+        return True, 'frame', None, self._significant_bits, 1
 
 
 class ScriptedCameraDriver:
@@ -92,6 +92,9 @@ class ScriptedCameraDriver:
     last_stamped_significant_bits = Camera.last_stamped_significant_bits
     significant_bits = Camera.significant_bits
     last_significant_bits = Camera.last_significant_bits
+    # Reuses the real rule: the ordinal comes from the attached handler, and
+    # is 0 when there is none -- nothing has been delivered.
+    frames_delivered = Camera.frames_delivered
 
     def __init__(self, scripts: dict, active: bool = True):
         self.active = active

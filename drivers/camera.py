@@ -43,6 +43,14 @@ class ImageHandlerBase:
         # mis-scaled (and crashed) the downconvert.
         self.last_img_significant_bits = None
         self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
+        # Arrival ordinal: how many frames this handler has delivered, and the
+        # ordinal of the buffered one. Frame validity decides whether a frame
+        # predates a hardware write by comparing these, so the value must be
+        # something that cannot run backwards -- a wall clock can (DST, an NTP
+        # step, a VM resume), and a settle count measured against a timestamp
+        # that jumped forward never completes.
+        self._frames_delivered = 0
+        self.last_img_seq = None
         self._failed_grabs = 0
         # Per-frame consumers (manual record today; per-frame plugins later).
         # Snapshotted-then-released under _frame_lock at _store_frame time so
@@ -65,8 +73,19 @@ class ImageHandlerBase:
         )
         self._last_arrival_t = None
 
-    def get_last_image(self):
-        """Return (success, image, timestamp, significant_bits). Thread-safe.
+    @property
+    def frames_delivered(self) -> int:
+        """How many frames this handler has stored since construction.
+
+        Read at the moment a hardware write is issued, this is the ordinal of
+        the last frame that had already arrived -- so a later frame can be
+        told apart from one that was already in flight.
+        """
+        with self._frame_lock:
+            return self._frames_delivered
+
+    def get_last_image(self) -> tuple:
+        """Return (success, image, timestamp, significant_bits, seq). Thread-safe.
 
         No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
@@ -85,8 +104,14 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             if not self.last_result:
-                return False, None, None, None
-            return True, self.last_img, self.last_img_ts, self.last_img_significant_bits
+                return False, None, None, None, None
+            return (
+                True,
+                self.last_img,
+                self.last_img_ts,
+                self.last_img_significant_bits,
+                self.last_img_seq,
+            )
 
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
@@ -107,14 +132,22 @@ class ImageHandlerBase:
                 return None
             return self.last_chunks
 
-    def reset(self):
-        """Clear frame buffer and failure counter."""
+    def reset(self) -> None:
+        """Clear frame buffer and failure counter.
+
+        Deliberately leaves ``_frames_delivered`` alone. It is an ordinal, not
+        buffer state: restarting it would let a frame arriving after a reset
+        carry a lower number than one that arrived before, which is exactly
+        the backwards step the ordinal exists to rule out. The buffered
+        frame's own ordinal clears with the frame it describes.
+        """
         with self._frame_lock:
             self.last_result = False
             self.last_img = None
             self.last_img_ts = None
             self.last_img_significant_bits = None
             self.last_chunks = None
+            self.last_img_seq = None
         self._failed_grabs = 0
 
     def register_frame_callback(self, cb) -> None:
@@ -176,6 +209,8 @@ class ImageHandlerBase:
             self.last_img_ts = timestamp
             self.last_img_significant_bits = significant_bits
             self.last_chunks = chunks
+            self._frames_delivered += 1
+            self.last_img_seq = self._frames_delivered
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
         # Snapshot under lock + invoke outside: a callback that takes >0
@@ -663,7 +698,7 @@ class Camera(ABC):
         """
         handler = self.cam_image_handler
         if handler is not None:
-            success, _image, _ts, significant_bits = handler.get_last_image()
+            success, _image, _ts, significant_bits, _seq = handler.get_last_image()
             if success and significant_bits is not None:
                 return significant_bits
         return None
@@ -889,32 +924,51 @@ class Camera(ABC):
         """
         pass
 
+    @property
+    def frames_delivered(self) -> int:
+        """Frames this camera has delivered since the handler was built.
+
+        Read when a hardware register is written, this names the last frame
+        that had already arrived, so a frame handed to frame validity later
+        can be told apart from one that was already in flight when the write
+        went out. Returns 0 before a handler exists -- no frame has arrived,
+        which is what the number means.
+        """
+        handler = self.cam_image_handler
+        return handler.frames_delivered if handler is not None else 0
+
     def grab(self) -> tuple:
         """Grab the most recent frame from the image handler.
 
         On success, the image is also stored in ``self.array``.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``. The arrival ordinal travels WITH the
+                frame: read separately afterwards it could describe a newer
+                frame than the one returned here, and frame validity uses it
+                to decide whether this frame predates a hardware write.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
-                return False, None
+                return False, None, None
 
         if not self.cam_image_handler:
-            return False, None
+            return False, None, None
 
         try:
-            result, image, image_ts, _significant_bits = self.cam_image_handler.get_last_image()
+            result, image, image_ts, _significant_bits, image_seq = (
+                self.cam_image_handler.get_last_image()
+            )
             if not result:
-                return False, None
+                return False, None, None
 
             with self._array_lock:
                 self.array = image
-            return True, image_ts
+            return True, image_ts, image_seq
         except Exception as ex:
             _cam_log.exception(f'[CAM Class ] grab() - get_last_image() failed: {ex}')
-            return False, None
+            return False, None, None
 
     def get_array(self) -> np.ndarray:
         """Return a copy of the last grabbed image. Thread-safe.
@@ -935,23 +989,27 @@ class Camera(ABC):
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, significant_bits: int | None)``.
+                timestamp: datetime | None, significant_bits: int | None,
+                seq: int | None)``.
                 The depth is carried with the frame so the caller scales it by
                 the depth it was captured under, not a separately-queried one.
+                The arrival ordinal rides along for the same reason: the live
+                preview counts these frames toward settle counts, and a frame
+                read back separately could be a newer one.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
-                return False, None, None, None
+                return False, None, None, None, None
 
         if not self.cam_image_handler:
-            return False, None, None, None
+            return False, None, None, None, None
 
         try:
-            result, image, image_ts, image_significant_bits = (
+            result, image, image_ts, image_significant_bits, image_seq = (
                 self.cam_image_handler.get_last_image()
             )
             if not result or image is None:
-                return False, None, None, None
+                return False, None, None, None, None
 
             # self.array feeds get_array(); nothing else reads it. Stored
             # and returned arrays are the SAME object (copied once at the
@@ -960,10 +1018,10 @@ class Camera(ABC):
             # in-place mutation would leak into get_array() of this frame.
             with self._array_lock:
                 self.array = image
-            return True, image, image_ts, image_significant_bits
+            return True, image, image_ts, image_significant_bits, image_seq
         except Exception as ex:
             _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
-            return False, None, None, None
+            return False, None, None, None, None
 
     def register_frame_callback(self, cb) -> None:
         """Register a per-frame callback.

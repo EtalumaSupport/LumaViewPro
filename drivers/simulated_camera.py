@@ -76,6 +76,10 @@ class SimulatedCamera(Camera):
 
         self._lock = threading.RLock()
         self._last_grab_ts = None
+        # Arrival ordinal of the last generated frame. Monotone for the life
+        # of the instance: frame validity reads it to tell a frame that
+        # arrived after a hardware write from one already in flight.
+        self._grab_seq = 0
 
         # Per-frame callback delivery (mirrors the Pylon/IDS ImageHandler
         # callback surface). SimulatedCamera has no SDK callback thread,
@@ -844,10 +848,14 @@ class SimulatedCamera(Camera):
         frame and the frame rate is limited by exposure time.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``. The ordinal advances only when a NEW
+                frame is generated, so the exposure-gated path below returns
+                the previous frame's own number rather than a fresh one --
+                the same frame handed out twice is one frame.
         """
         if not self._grabbing:
-            return False, None
+            return False, None, None
 
         if self._grab_delay > 0:
             time.sleep(self._grab_delay)
@@ -859,14 +867,25 @@ class SimulatedCamera(Camera):
             last = getattr(self, '_last_frame_time', 0.0)
             if now - last < exposure_s:
                 # Not enough time has passed -- return the previous frame
-                return True, self._last_grab_ts
+                return True, self._last_grab_ts, self._grab_seq
             self._last_frame_time = now
 
         with self._lock:
             self.array = self._generate_image()
             self._last_grab_ts = datetime.datetime.now()
+            self._grab_seq += 1
 
-        return True, self._last_grab_ts
+        return True, self._last_grab_ts, self._grab_seq
+
+    @property
+    def frames_delivered(self) -> int:
+        """Frames generated so far (overrides Camera.frames_delivered).
+
+        SimulatedCamera does not use ImageHandlerBase, so it carries its own
+        ordinal rather than delegating to a handler.
+        """
+        with self._lock:
+            return self._grab_seq
 
     def grab_latest(self) -> tuple:
         """Single-copy grab for display pipeline (overrides Camera.grab_latest).
@@ -880,7 +899,7 @@ class SimulatedCamera(Camera):
                 timestamp: datetime | None, significant_bits: int | None)``.
         """
         if not self._grabbing:
-            return False, None, None, None
+            return False, None, None, None, None
 
         if self._grab_delay > 0:
             time.sleep(self._grab_delay)
@@ -892,7 +911,7 @@ class SimulatedCamera(Camera):
             if now - last < exposure_s:
                 with self._lock:
                     img = self.array.copy() if self.array.size > 0 else None
-                return True, img, self._last_grab_ts, self.significant_bits
+                return True, img, self._last_grab_ts, self.significant_bits, self._grab_seq
             self._last_frame_time = now
 
         with self._lock:
@@ -900,7 +919,7 @@ class SimulatedCamera(Camera):
             self._last_grab_ts = datetime.datetime.now()
             img = self.array.copy()
 
-        return True, img, self._last_grab_ts, self.significant_bits
+        return True, img, self._last_grab_ts, self.significant_bits, self._grab_seq
 
     def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).
@@ -910,10 +929,11 @@ class SimulatedCamera(Camera):
                 proportional to exposure is applied (capped at 0.1 s).
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``.
         """
         if not self._grabbing:
-            return False, None
+            return False, None, None
 
         # Simulate exposure delay (capped to avoid slow tests)
         delay = min(self._exposure_us / 1_000_000.0, 0.1)
@@ -923,8 +943,9 @@ class SimulatedCamera(Camera):
         with self._lock:
             self.array = self._generate_image()
             self._last_grab_ts = datetime.datetime.now()
+            self._grab_seq += 1
 
-        return True, self._last_grab_ts
+        return True, self._last_grab_ts, self._grab_seq
 
     # ------------------------------------------------------------------
     # Gain
