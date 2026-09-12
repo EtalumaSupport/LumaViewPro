@@ -527,11 +527,30 @@ class ImageSettings(BoxLayout):
         drift to a subset (reconnect previously refreshed only exposure ranges).
         Callers that change the camera (reconnect) must refresh ctx.max_gain /
         ctx.max_exposure first -- these setters read those caps.
+
+        The setters run with every layer marked initializing. Narrowing a
+        slider's max makes Kivy clamp its value, which fires on_value into the
+        layer's handler; by the time this runs, load_settings has already
+        cleared the flag, so without this the app's own bound-application would
+        be recorded as a user drag and would overwrite the stored value with
+        the bound. Every other programmatic widget write in LayerControl takes
+        the same flag for the same reason.
+
+        clamp_layer_settings_to_caps stays OUTSIDE the flag: its store write is
+        the deliberate reconciliation of a value the hardware cannot honor, not
+        a display correction.
         """
-        self.set_layer_exposure_ranges()
-        self.set_layer_gain_ranges()
-        self.set_layer_illumination_ranges()
-        self.set_layer_autogain_support()
+        layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_layers()]
+        for layer_obj in layer_objs:
+            layer_obj._initializing = True
+        try:
+            self.set_layer_exposure_ranges()
+            self.set_layer_gain_ranges()
+            self.set_layer_illumination_ranges()
+            self.set_layer_autogain_support()
+        finally:
+            for layer_obj in layer_objs:
+                layer_obj._initializing = False
         self.clamp_layer_settings_to_caps()
 
     def clamp_layer_settings_to_caps(self):

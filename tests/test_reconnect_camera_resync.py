@@ -181,3 +181,91 @@ class TestLoadSettingsResync:
             'load_settings must not carry an inline gain_db/exposure_ms clamp-persist '
             '(it duplicates clamp_layer_settings_to_caps).'
         )
+
+
+class TestCapabilitySyncDoesNotImpersonateTheUser:
+    """The app's own bound-application must not read back as a user drag.
+
+    Narrowing a slider's max makes Kivy clamp its value, which fires on_value
+    into LayerControl's handler. By the time sync_camera_capability_ranges
+    runs, load_settings has already cleared the per-layer _initializing flag
+    (it clears it in sync_widgets_from_settings' finally), so the handler is
+    live: it rewrote settings[layer][...] with the bound and emitted a SLIDER
+    record crediting the user. Measured in the simulator with nobody touching
+    the app -- a stored BF illumination of 500 became 50 in current.json, and
+    a stored DF exposure of 500 became 200, each with a matching SLIDER line.
+
+    clamp_layer_settings_to_caps must stay outside the flag: it reconciles a
+    value the hardware cannot honor, which is a real settings change.
+    """
+
+    def _sync_method(self):
+        return _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
+
+    def test_setters_run_under_the_initializing_flag(self):
+        method = self._sync_method()
+        try_nodes = [n for n in ast.walk(method) if isinstance(n, ast.Try)]
+        assert try_nodes, (
+            'sync_camera_capability_ranges must run its setters inside try/finally '
+            'so the _initializing flag is cleared even if a setter raises.'
+        )
+        guarded = {
+            n.func.attr
+            for try_node in try_nodes
+            for n in ast.walk(try_node)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr.startswith('set_layer_')
+        }
+        for setter in (
+            'set_layer_exposure_ranges',
+            'set_layer_gain_ranges',
+            'set_layer_illumination_ranges',
+            'set_layer_autogain_support',
+        ):
+            assert setter in guarded, (
+                f'{setter} must run inside the _initializing guard -- outside it, '
+                'the Kivy max-clamp reaches the layer handler and is recorded as a drag.'
+            )
+
+    def test_the_flag_is_set_and_cleared(self):
+        method = self._sync_method()
+        writes = [
+            n
+            for n in ast.walk(method)
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Attribute) and t.attr == '_initializing'
+        ]
+        values = {n.value.value for n in writes if isinstance(n.value, ast.Constant)}
+        assert values == {True, False}, (
+            'sync_camera_capability_ranges must both set and clear _initializing; '
+            f'found {values or "no writes"}.'
+        )
+        finallys = [n for n in ast.walk(method) if isinstance(n, ast.Try) and n.finalbody]
+        cleared_in_finally = any(
+            isinstance(n, ast.Assign)
+            and isinstance(n.value, ast.Constant)
+            and n.value.value is False
+            for try_node in finallys
+            for stmt in try_node.finalbody
+            for n in ast.walk(stmt)
+        )
+        assert cleared_in_finally, 'The flag must be cleared in a finally, not on the happy path.'
+
+    def test_clamp_stays_outside_the_guard(self):
+        method = self._sync_method()
+        in_try = any(
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == 'clamp_layer_settings_to_caps'
+            for try_node in [x for x in ast.walk(method) if isinstance(x, ast.Try)]
+            for n in ast.walk(try_node)
+        )
+        assert not in_try, (
+            'clamp_layer_settings_to_caps must stay OUTSIDE the _initializing guard -- '
+            'it reconciles a value the hardware cannot honor, which is a real change.'
+        )
+        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
+            'sync_camera_capability_ranges must still run the clamp.'
+        )
