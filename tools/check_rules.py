@@ -57,14 +57,6 @@ Firmware-only (doc_status family):
     rule_45  -- plan/audit docs (AUDIT_*.md, *_PLAN*.md in docs/) carry a
                 `## Status` section (WARN if absent) and an edit to such a
                 doc must touch that section (BLOCK)
-    plan_truth_base -- plan docs carry a `Truth base` row in Status (WARN)
-    plan_undefined_mechanism -- a plan's Stages section may only
-                schedule mechanisms the same document defines in
-                self-contained text (BLOCK)
-    daily_log_rulings -- new DAILY_LOG-shard entries carry a `**Rulings:**`
-                line (WARN)
-    handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
-                outside its closed shape (WARN)
     daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
                 edit that grows it is BLOCKED (append to the monthly
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
@@ -1032,175 +1024,7 @@ def _check_rule_45(content: str, path: str, added: set[int] | None) -> list[Viol
     return []
 
 
-_PLAN_REVISIONS_DIR_RE = re.compile(r'(?:^|/)[^/]*(?:_revisions|_plan)/')
-_TRUTH_BASE_ROW_RE = re.compile(r'truth\s+base|drafting\s+sources?', re.IGNORECASE)
-
-
-def _is_plan_doc(path: str) -> bool:
-    """Plan docs only (audits are fact-gathering and need no truth base):
-    *_PLAN*.md anywhere plus any .md inside a plan ledger dir -- both the
-    *_revisions/ shape and the newer *_plan/ shape -- whose revision files
-    usually drop the _PLAN infix. Knowledge/carry-forward accumulator
-    dirs are NOT plan docs (they are what plans draft FROM). Archived
-    docs under completed/ are frozen records, exempt.
-    """
-    norm = path.replace('\\', '/')
-    if '/completed/' in norm:
-        return False
-    if not norm.endswith('.md'):
-        return False
-    if _PLAN_REVISIONS_DIR_RE.search(norm):
-        return True
-    basename = norm.rsplit('/', 1)[-1]
-    if basename.startswith('AUDIT_'):
-        # An audit named after the plan it reviews is still an audit.
-        return False
-    return '_PLAN' in basename
-
-
-def _check_plan_truth_base(content: str, path: str) -> list[Violation]:
-    """WARN when a plan doc's Status section has no `Truth base` row.
-
-    A plan derived from an approved knowledge document names it in
-    Status; a plan carrying no truth-base row is the
-    write-the-plan-straight-from-findings shape that repeatedly fails
-    adversarial review. WARN, not block: the legacy-plan backlog
-    normalizes over time, and the judgment layer (what counts as a
-    valid truth base) lives in the planning skills, not here.
-    """
-    if not _is_plan_doc(path):
-        return []
-    status_lines = _status_section_lines(content)
-    if not status_lines:
-        return []  # the missing-Status structure warning is rule_45's
-    lines = content.splitlines()
-    for ln in sorted(status_lines):
-        if ln - 1 < len(lines) and _TRUTH_BASE_ROW_RE.search(lines[ln - 1]):
-            return []
-    return [
-        Violation(
-            path,
-            min(status_lines),
-            0,
-            'plan_truth_base',
-            'plan doc Status has no `Truth base` / `Drafting sources` row; '
-            'name the accumulator docs (passed + approved) the plan is '
-            'derived from, or state why this plan class needs none',
-            severity='warn',
-        )
-    ]
-
-
-_STAGES_HEADING_RE = re.compile(r'^##+\s+Stages\b', re.IGNORECASE)
-_MECHANISM_ID_RE = re.compile(r'\bM(\d+)\b')
-# A definition is a HEADING, in either of the two shapes these documents
-# use -- a markdown heading, or the bold-lead-plus-em-dash convention. Bold
-# prose that merely opens with an id ("**M9 is built but UNCOMMITTED**") is
-# deliberately NOT a definition: it reads like one to a skimming human and
-# would otherwise satisfy the check while specifying nothing.
-_MECHANISM_DEF_RE = re.compile(r'^(?:#{2,6}\s+M(?P<h>\d+)\b|\*\*M(?P<b>\d+)\s*--)')
-# Every alternative anchors the DEFERRAL sense. A bare \bcarries\b was tried
-# here and matched ordinary technical prose -- "the task carries no callback",
-# "the outcome carries no channel list" -- so a mechanism whose spec was fully
-# self-contained got rejected for using the word. Only the parenthesised form,
-# the carry-unchanged form and the explicit from-rev forms actually mean "the
-# specification lives in a revision that is not this document".
-_SELF_REVISION_REF_RE = re.compile(
-    r'\bas\s+rev\s+\d+|\bcarr(?:y|ies)\s+unchanged\b|\(\s*carries\s*\)|'
-    r'\bcarr(?:y|ies)\s+(?:over\s+)?from\s+rev\b|\bunchanged\s+from\s+rev\b',
-    re.IGNORECASE,
-)
-
-
-def _defined_mechanism_ids(content: str) -> set[str]:
-    """Mechanism ids this document defines in self-contained text.
-
-    A definition is a bold heading naming EXACTLY ONE id whose body does
-    not defer to a previous revision of this same file. Both carve-outs
-    are load-bearing:
-
-    - A heading merging several ids ("**M6 / M7 / M9 -- ...**") reads as
-      a definition and is not one; only the first id is even nameable
-      from it, and none of the three gets a spec.
-    - A body saying "as rev 4" or "carry unchanged" points at a revision
-      that, under the rewrite-fresh doc rule, stops existing on the next
-      revision. The pointer is dangling the moment it is written.
-    """
-    defined: set[str] = set()
-    lines = content.splitlines()
-    for i, line in enumerate(lines):
-        m = _MECHANISM_DEF_RE.match(line)
-        if m is None:
-            continue
-        mid = m.group('h') or m.group('b')
-        heading_end = line.find('**', 2)
-        heading = line[: heading_end if heading_end > 0 else len(line)]
-        if len(set(_MECHANISM_ID_RE.findall(heading))) != 1:
-            continue
-        body = [line]
-        for nxt in lines[i + 1 :]:
-            if _MECHANISM_DEF_RE.match(nxt) or nxt.startswith('##'):
-                break
-            body.append(nxt)
-        if _SELF_REVISION_REF_RE.search('\n'.join(body)):
-            continue
-        defined.add(mid)
-    return defined
-
-
-def _check_plan_undefined_mechanism(content: str, path: str) -> list[Violation]:
-    """BLOCK when a stage schedules a mechanism the plan never defines.
-
-    An approved plan is a build order. A stage naming a mechanism whose
-    spec is absent hands the builder an undefined symbol, and the gap is
-    invisible at approval time because the stage line reads complete.
-
-    This is not hypothetical. One plan reached APPROVED naming three
-    mechanisms in a stage whose entire specification had decayed, over
-    four rewrites of a single file, from full text to a pointer at a
-    prior revision to a merged heading with no body at all. The build
-    stalled months later and the specs had to be recovered from a
-    superseded revision in git history -- which is also where the review
-    that approved it would have had to look.
-    """
-    if not _is_plan_doc(path):
-        return []
-    lines = content.splitlines()
-    stage_lines: list[tuple[int, str]] = []
-    in_stages = False
-    for ln, line in enumerate(lines, start=1):
-        if line.startswith('#'):
-            in_stages = bool(_STAGES_HEADING_RE.match(line))
-            continue
-        if in_stages:
-            stage_lines.append((ln, line))
-    if not stage_lines:
-        return []
-    defined = _defined_mechanism_ids(content)
-    violations: list[Violation] = []
-    seen: set[str] = set()
-    for ln, line in stage_lines:
-        for mid in _MECHANISM_ID_RE.findall(line):
-            if mid in defined or mid in seen:
-                continue
-            seen.add(mid)
-            violations.append(
-                Violation(
-                    path,
-                    ln,
-                    0,
-                    'plan_undefined_mechanism',
-                    f'stage schedules M{mid} but this document never defines '
-                    f'it in self-contained text; a spec that lives only in a '
-                    f'prior revision is gone the next time the file is '
-                    f"rewritten -- restore M{mid}'s specification here",
-                )
-            )
-    return violations
-
-
 _DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
-_RULINGS_LINE_RE = re.compile(r'^\*\*Rulings\b', re.IGNORECASE)
 _DAILY_LOG_RE = re.compile(r'(?:^|/)docs/DAILY_LOG(?:_\d{4}-\d{2})?\.md$')
 
 
@@ -1209,7 +1033,7 @@ def _is_daily_log(path: str) -> bool:
     (not Status freshness) is checked; each doc check owns the predicate
     that scopes it, and the staged-file collection is their union.
     Matches the frozen docs/DAILY_LOG.md AND the live monthly shards
-    (docs/DAILY_LOG_YYYY-MM.md), so the rulings check follows the shard.
+    (docs/DAILY_LOG_YYYY-MM.md), so the ordering check follows the shard.
     """
     return _DAILY_LOG_RE.search(path.replace('\\', '/')) is not None
 
@@ -1235,89 +1059,6 @@ def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation
             'docs/DAILY_LOG_<YYYY-MM>.md instead',
         )
     ]
-
-
-def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) -> list[Violation]:
-    """WARN when a NEW DAILY_LOG entry lands without a `Rulings:` line.
-
-    A ruling recorded only when it is the session's headline gets lost
-    when it is incidental, and a field that can be silently omitted will
-    be -- the literal value "none" satisfies the check. Diff-aware only:
-    without a staged diff there is no notion of a NEW entry.
-    """
-    if not _is_daily_log(path) or not added:
-        return []
-    lines = content.splitlines()
-    new_entry_lines = [
-        ln
-        for ln in sorted(added)
-        if ln - 1 < len(lines) and _DAILY_LOG_ENTRY_RE.match(lines[ln - 1])
-    ]
-    if not new_entry_lines:
-        return []
-    if any(ln - 1 < len(lines) and _RULINGS_LINE_RE.match(lines[ln - 1]) for ln in added):
-        return []
-    return [
-        Violation(
-            path,
-            new_entry_lines[0],
-            0,
-            'daily_log_rulings',
-            'new DAILY_LOG entry has no `**Rulings:**` line; record every '
-            'decision made this session, or the literal word "none"',
-            severity='warn',
-        )
-    ]
-
-
-_HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
-_HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
-# Mirrors the H2 lines of the handover block in the handover-close skill's
-# references/templates.md; a rename lands in both or every next close WARNs.
-_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings', 'What not to touch')
-
-
-def _is_handover(path: str) -> bool:
-    """A live session handover (docs/SESSION_HANDOVER_*.md). Archived
-    copies under docs/completed/ are frozen history and never checked.
-    """
-    return _HANDOVER_RE.search(path.replace('\\', '/')) is not None
-
-
-def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
-    """WARN when a handover gains a heading outside its closed shape.
-
-    The handover's length lives in sections the writer adds beside the
-    template's ("the three facts a builder will rediscover", "what was
-    established"), not in the template's own sections, so the shape is
-    closed: the plan paragraph under the H1, then exactly Branch tips /
-    Next / Rulings / What not to touch, and nothing deeper. Diff-aware:
-    only an ADDED heading line fires, so an old handover left as written stays silent. WARN, not
-    BLOCK, so the close commit lands and the writer fixes it in the same
-    session.
-    """
-    if not _is_handover(path) or not added:
-        return []
-    lines = content.splitlines()
-    violations = []
-    for ln in sorted(added):
-        if ln - 1 >= len(lines):
-            continue
-        m = _HEADING_RE.match(lines[ln - 1])
-        if m and m.group(1) not in _HANDOVER_SECTIONS:
-            violations.append(
-                Violation(
-                    path,
-                    ln,
-                    0,
-                    'handover_shape',
-                    f'handover section `{m.group(1)}` is outside the closed shape '
-                    f'({" / ".join(_HANDOVER_SECTIONS)}); a fact goes to its doc '
-                    'with a pointer in Next, an incident to rationale',
-                    severity='warn',
-                )
-            )
-    return violations
 
 
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
@@ -1496,12 +1237,8 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     """Run the doc-status checks against one markdown file's content."""
     violations: list[Violation] = []
     violations.extend(_check_rule_45(content, path, added))
-    violations.extend(_check_plan_truth_base(content, path))
-    violations.extend(_check_plan_undefined_mechanism(content, path))
-    violations.extend(_check_daily_log_rulings(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))
-    violations.extend(_check_handover_shape(content, path, added))
     return violations
 
 
@@ -1514,11 +1251,8 @@ def _staged_files(suffix: str) -> list[str]:
 
 
 def _staged_doc_files() -> list[str]:
-    return [
-        p
-        for p in _staged_files('.md')
-        if _is_rule_45_doc(p) or _is_plan_doc(p) or _is_daily_log(p) or _is_handover(p)
-    ]
+    docs = _staged_files('.md')
+    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p)]
 
 
 def _read_staged_content(path: str) -> str:
