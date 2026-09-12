@@ -40,7 +40,7 @@ from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
-from modules import gui_logger
+from modules import exceptions, gui_logger
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
@@ -268,20 +268,61 @@ class ProtocolSettings(FloatLayout):
         self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
     # Update Protocol Period
+    def commit_period(self) -> float | None:
+        """Store the typed capture period as soon as it is a number.
+
+        Bound to the field's ``on_text``, so the store tracks the field on
+        every keystroke rather than waiting for enter or focus loss. Kivy
+        runs a button's handler BEFORE the focus-loss commit, so without
+        this a user who types a period and clicks Run, Save or New Protocol
+        is read from a store still holding the previous value -- while the
+        screen shows the new one.
+
+        Silent and tolerant by design: a half-typed value is not an error,
+        it is just not a value yet, and the enter / focus-loss path still
+        reports one that never parses. Reporting here instead would consume
+        the notification bus's dedup slot for this category and swallow the
+        legitimate sub-second clamp warning that follows it.
+
+        The store write is deliberately OUTSIDE the parse guard: an absent
+        ``protocol`` container is a broken configuration, not a typing
+        error, and the template ships the key.
+        """
+        try:
+            raw_period = float(self.ids['capture_period'].text)
+        except ValueError:
+            return None
+        _app_ctx.ctx.settings['protocol']['period'] = raw_period
+        return raw_period
+
+    def commit_duration(self) -> float | None:
+        """Store the typed capture duration as soon as it is a number.
+
+        The period twin above carries the reasoning; this is the same
+        contract for the duration field.
+        """
+        try:
+            raw_duration = float(self.ids['capture_dur'].text)
+        except ValueError:
+            return None
+        _app_ctx.ctx.settings['protocol']['duration'] = raw_duration
+        return raw_duration
+
     def update_period(self):
-        settings = _app_ctx.ctx.settings
+        # One import for the three messages below, deferred to call time the
+        # way every notification site in this file is.
+        from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
         try:
-            raw_period = float(self.ids['capture_period'].text)
-            settings['protocol']['period'] = raw_period
+            raw_period = self.commit_period()
+            if raw_period is None:
+                raise ValueError(self.ids['capture_period'].text)
             # Warn once, at the edit, when a sub-1s period is raised to the 1s
             # minimum -- so the user is told why the field shows 0.016667 min
             # instead of their typed value. The getter stays silent so save /
             # run-start do not re-warn.
             if config_helpers.protocol_time_clamped(raw_period, 'minutes'):
-                from modules.notification_center import notifications
-
                 notifications.warning(
                     'Protocol',
                     'Capture Timing',
@@ -291,12 +332,30 @@ class ProtocolSettings(FloatLayout):
                 )
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
+            # Say so where the value was typed. The store keeps its previous
+            # period, so without this the edit would look like it was taken
+            # while the protocol still ran on the old schedule.
+            notifications.warning(
+                'Protocol',
+                'Capture Timing',
+                'The capture period was not a number, so it was not changed. '
+                'Enter a period in minutes.',
+            )
 
         text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        time_params = get_protocol_time_params()
+        try:
+            time_params = get_protocol_time_params()
+        except exceptions.ConfigError as e:
+            # The stored schedule itself is unusable -- a hand-edited settings
+            # file reaches here, because the load compares container shape and
+            # never scalar values. Render what the store refused and leave the
+            # protocol on its current timing rather than crashing the handler.
+            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
+            notifications.warning('Protocol', 'Capture Timing', str(e))
+            return
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -304,17 +363,16 @@ class ProtocolSettings(FloatLayout):
 
     # Update Protocol Duration
     def update_duration(self):
-        settings = _app_ctx.ctx.settings
+        from modules.notification_center import notifications
 
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
-            raw_duration = float(self.ids['capture_dur'].text)
-            settings['protocol']['duration'] = raw_duration
+            raw_duration = self.commit_duration()
+            if raw_duration is None:
+                raise ValueError(self.ids['capture_dur'].text)
             # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
             # 0.016667 min). Warn once, at the edit, with the hour value.
             if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
-                from modules.notification_center import notifications
-
                 notifications.warning(
                     'Protocol',
                     'Capture Timing',
@@ -324,12 +382,25 @@ class ProtocolSettings(FloatLayout):
                 )
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
+            # Same reason as the period field: the store keeps its previous
+            # duration, so a silent return would look like the edit was taken.
+            notifications.warning(
+                'Protocol',
+                'Capture Timing',
+                'The capture duration was not a number, so it was not changed. '
+                'Enter a duration in hours.',
+            )
 
         text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        time_params = get_protocol_time_params()
+        try:
+            time_params = get_protocol_time_params()
+        except exceptions.ConfigError as e:
+            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
+            notifications.warning('Protocol', 'Capture Timing', str(e))
+            return
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -425,7 +496,11 @@ class ProtocolSettings(FloatLayout):
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
 
-    def apply_tiling(self):
+    def apply_tiling(self) -> None:
+        # At entry, not on success: this refuses an already-tiled protocol via a
+        # popup, and a record conditional on success would make that refusal
+        # indistinguishable from the user never pressing the button.
+        gui_logger.button('APPLY_TILING')
         try:
             settings = _app_ctx.ctx.settings
             ctx = _app_ctx.ctx
@@ -503,7 +578,10 @@ class ProtocolSettings(FloatLayout):
         """
         return _app_ctx.ctx.settings['tiling_overlap_percent']
 
-    def apply_zstacking(self):
+    def apply_zstacking(self) -> None:
+        # At entry: this refuses invalid z-stack parameters via a popup, and the
+        # press is what the log records -- the outcome is the main log's job.
+        gui_logger.button('APPLY_ZSTACKING')
         try:
             ctx = _app_ctx.ctx
 
@@ -1062,8 +1140,13 @@ class ProtocolSettings(FloatLayout):
     # Edit steps
     # ------------------------------
     #
-    def handle_step_ui_input_change(self):
+    def handle_step_ui_input_change(self) -> None:
+        from ui.ui_helpers import text_input_debounced
+
         obj = self.ids['step_number_input']
+        # Captured before either path below rewrites the box.
+        typed = obj.text
+        text_input_debounced('STEP_NUMBER', typed)
         try:
             val = int(obj.text)
         except Exception:
@@ -1074,6 +1157,8 @@ class ProtocolSettings(FloatLayout):
                 val = 1
 
             obj.text = f'{val}'
+            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
+            gui_logger.note_write_back('STEP_NUMBER', obj.text)
             return
 
         num_steps = self._protocol.num_steps()
@@ -1086,6 +1171,10 @@ class ProtocolSettings(FloatLayout):
         elif val > num_steps:
             val = num_steps
             obj.text = f'{val}'
+
+        if obj.text != typed:
+            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
+            gui_logger.note_write_back('STEP_NUMBER', obj.text)
 
         self.go_to_step(step_idx=val - 1, protocol=False)
 
@@ -1107,7 +1196,8 @@ class ProtocolSettings(FloatLayout):
         )
 
     # Goto to Previous Step
-    def prev_step(self):
+    def prev_step(self) -> None:
+        gui_logger.button('PREV_STEP')
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -1121,7 +1211,8 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_idx=max(self.curr_step - 1, 0), protocol=False)
 
     # Go to Next Step
-    def next_step(self):
+    def next_step(self) -> None:
+        gui_logger.button('NEXT_STEP')
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -1394,6 +1485,19 @@ class ProtocolSettings(FloatLayout):
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
+
+    def log_disable_image_saving(self) -> None:
+        """Record the disable-image-saving checkbox.
+
+        The control is collapsed to zero height unless a caller opens it, so
+        it is reachable only in that configuration -- which is the reason a
+        gesture on it is worth a line: a bundle from a run that saved nothing
+        otherwise gives no sign the box was ever touched.
+        """
+        gui_logger.toggle(
+            'PROTOCOL_DISABLE_IMAGE_SAVING',
+            bool(self.ids['protocol_disable_image_saving_id'].active),
+        )
 
     def update_tiling_selection(self):
         gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)

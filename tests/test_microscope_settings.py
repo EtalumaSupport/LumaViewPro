@@ -607,7 +607,12 @@ class TestSelectBinningSynchronousCommit:
             get_available_binning_sizes=lambda: [1, 2, 4],
             get_pixel_alignment=lambda: {'width': 4, 'height': 4},
             get_binning_size=lambda: 1,
-            set_binning_size=lambda size: True,
+            # Only the impl is offered, deliberately. The queued task runs ON
+            # the camera worker, so binding the public setter would dispatch
+            # onto that same lane and block waiting for it. Leaving the public
+            # setter off this fake means a rebind to it fails here too, not
+            # only in the structural guard.
+            _set_binning_size_impl=lambda size: True,
         )
         ctx = SimpleNamespace(
             settings=settings,
@@ -740,3 +745,54 @@ class TestImageModeOutcome:
         assert settings['image_mode'] == '8bit'
         assert scope_display.image_mode == '8bit'
         assert fake_self.ids['image_mode_spinner'].text == im.IMAGE_MODE_LABELS['8bit']
+
+
+class TestImageModeMirrorAgreesWithTheStore:
+    """The display mirror never disagrees with the stored mode.
+
+    Config is assembled from the store, while the on-screen depth hints read
+    the mirror; capture_depth rides the mode into saved output, so the two
+    answering differently would change the file without changing the screen.
+    Agreement holds because every site that writes the mirror writes the
+    stored key in the same breath, and the mirror's untouched default is the
+    same mode the resolver reports for a store that has never been written.
+    """
+
+    def test_every_mode_the_mirror_can_hold_resolves_to_itself(self):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        for mode in image_mode_real._MODE_TABLE:
+            settings = {'image_mode': mode}
+            scope_display = SimpleNamespace(image_mode=mode)
+            assert image_mode_real.resolve_settings_image_mode(settings) == (
+                scope_display.image_mode
+            ), f'mirror and store disagree for {mode}'
+
+    def test_the_untouched_mirror_matches_an_unwritten_store(self):
+        # Before any selection the mirror carries its property default and the
+        # store has no mode at all -- the state a hand-built settings dict is
+        # also in. Both must name the same mode, or the GUI and a headless
+        # caller would start out disagreeing.
+        import modules.image_mode as image_mode_real
+
+        assert image_mode_real.resolve_settings_image_mode({}) == (
+            image_mode_real.DEFAULT_IMAGE_MODE
+        )
+
+    def test_a_revert_leaves_the_mirror_and_the_store_in_agreement(self):
+        # The rejected-format revert is the one path that rewrites both after
+        # the commit; it must not restore one and leave the other.
+        import modules.image_mode as image_mode_real
+
+        for prior in image_mode_real._MODE_TABLE:
+            fn, fake_self, settings, scope_display, _im = TestImageModeOutcome()._make(
+                committed_mode='12bit_scaled'
+            )
+            fn(fake_self, '12bit_scaled', prior, result=False, exception=None)
+
+            assert settings['image_mode'] == prior
+            assert (
+                image_mode_real.resolve_settings_image_mode(settings) == scope_display.image_mode
+            ), f'revert to {prior} left the mirror and the store disagreeing'

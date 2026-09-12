@@ -21,6 +21,7 @@ and the chunk gate are the production objects.
 from __future__ import annotations
 
 import ast
+import logging
 import threading
 from unittest.mock import patch
 
@@ -147,6 +148,7 @@ def _logged(level: str) -> list[str]:
 
 def _arm(imaging, settings, *, resume_after_capture):
     imaging._apply_layer_camera_settings_impl(
+        layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
         auto_gain=True,
@@ -365,6 +367,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     imaging, cam = _build_inert()
     lvp_logger.logger.reset_mock()
     imaging._apply_layer_camera_settings_impl(
+        layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
         auto_gain=True,
@@ -384,6 +387,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     imaging, cam = _build_inert()
     lvp_logger.logger.reset_mock()
     imaging._apply_layer_camera_settings_impl(
+        layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
         auto_gain=True,
@@ -436,6 +440,7 @@ def test_restore_re_arm_clamps_a_trimmed_snapshot():
     any arm."""
     imaging, cam = _build_inert()
     imaging._apply_layer_camera_settings_impl(
+        layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
         auto_gain=True,
@@ -495,3 +500,58 @@ def test_run_start_owns_a_standing_live_arm():
     ]
     assert 'save_camera_state' in attrs and '_take_auto_gain_arm_for_run' in attrs
     assert attrs.index('save_camera_state') < attrs.index('_take_auto_gain_arm_for_run')
+
+
+class _ApiLogCollector(logging.Handler):
+    """Records what the API surface logged, for assertions about api.log.
+
+    _api_log is a plain stdlib logger ('LVP.api'), not the LVP logger the
+    conftest mocks, so a handler on it sees the real records.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
+    """Two layers at identical gain and exposure must not log identically.
+
+    Without the layer, a live view whose Red and Lumi both sit at 20 dB /
+    100 ms writes two byte-identical api.log lines in the same
+    millisecond, which reads as one call logged twice -- a double-apply
+    bug that has to be disproved by hand every time someone reads the log.
+    """
+    imaging, _ = _build(ae_lands_on_ms=50.0)
+    collector = _ApiLogCollector()
+    api_log = logging.getLogger('LVP.api')
+    # The logger carries no level of its own, so it inherits root's WARNING
+    # and drops these INFO records before any handler runs. The app's own
+    # logging setup lowers it; the suite's does not.
+    previous_level = api_log.level
+    api_log.setLevel(logging.INFO)
+    api_log.addHandler(collector)
+    try:
+        for layer in ('Red', 'Lumi'):
+            imaging._apply_layer_camera_settings_impl(
+                layer=layer,
+                gain_db=20.0,
+                exposure_ms=100.0,
+                auto_gain=False,
+            )
+    finally:
+        api_log.removeHandler(collector)
+        api_log.setLevel(previous_level)
+
+    applied = [m for m in collector.messages if m.startswith('apply_layer_camera_settings')]
+    assert len(applied) == 2, f'expected one line per layer, got {applied}'
+    assert applied[0] != applied[1], (
+        f'both layers logged the same line, so the log cannot tell one apply '
+        f'from two: {applied[0]!r}'
+    )
+    assert 'Red' in applied[0] and 'Lumi' in applied[1], (
+        f'each line must name its own layer: {applied}'
+    )

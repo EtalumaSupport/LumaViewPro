@@ -99,6 +99,39 @@ class TestDerivations:
         session = _make_session(file_io_executor=None)
         assert session.protocol_files_draining is False
 
+    def test_close_drain_pending_covers_both_video_drain_sources(self):
+        """What a close would interrupt on the video side, in one read.
+
+        Two independent drains can hold queued frames at close: a manual
+        recording's own, and a finished run's video-step tail. The close
+        handler used to OR them together itself; the fact belongs here,
+        where every consumer -- GUI, headless, REST -- reads the same one.
+        """
+        session = _make_session(_file_executor(active=False))
+        session.manual_recording._engine = None
+        session.sequenced_capture_runner = MagicMock(video_drain_busy=False)
+        assert session.close_drain_pending is False
+
+        session.manual_recording._engine = MagicMock(is_recording=False, is_draining=True)
+        assert session.close_drain_pending is True, 'a recording drain is pending work'
+
+        session.manual_recording._engine = None
+        session.sequenced_capture_runner.video_drain_busy = True
+        assert session.close_drain_pending is True, "a run's video tail is pending work"
+
+    def test_a_live_recording_is_both_capturing_and_close_pending(self):
+        """The close gate needs the two apart, and they overlap.
+
+        recording_capturing is the narrower fact: it alone means the rest
+        of the take is still to come, which is what the close confirms
+        about. close_drain_pending stays true across the whole window.
+        """
+        session = _make_session(_file_executor(active=False))
+        session.sequenced_capture_runner = MagicMock(video_drain_busy=False)
+        session.manual_recording._engine = MagicMock(is_recording=True, is_draining=False)
+        assert session.recording_capturing is True
+        assert session.close_drain_pending is True
+
 
 class TestTransitionNotification:
     def test_claim_grant_and_release_notify(self):

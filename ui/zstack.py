@@ -46,6 +46,12 @@ class ZStack(FloatLayout):
         logger.info('[LVP Main  ] ZStack.set_steps()')
         settings = _app_ctx.ctx.settings
 
+        # This handler rewrites the widget only when it coerces a bad entry, so
+        # comparing the text before and after IS the coercion signal. The typed
+        # value itself is recorded by log_step_field, which the kv binds ahead
+        # of this handler on the same events so it reads the box first.
+        typed = {wid: self.ids[wid].text for wid in ('zstack_stepsize_id', 'zstack_range_id')}
+
         try:
             step_size = float(self.ids['zstack_stepsize_id'].text)
             if step_size < 0:
@@ -70,6 +76,16 @@ class ZStack(FloatLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['zstack']['range'] = step_range
 
+        from ui.ui_helpers import text_input_debounced
+
+        for wid, name in (
+            ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
+            ('zstack_range_id', 'ZSTACK_RANGE'),
+        ):
+            if self.ids[wid].text != typed[wid]:
+                text_input_debounced(f'{name}_APPLIED', self.ids[wid].text)
+                gui_logger.note_write_back(name, self.ids[wid].text)
+
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
         )
@@ -83,7 +99,24 @@ class ZStack(FloatLayout):
 
         self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
-    def set_position(self):
+    def log_step_field(self, name: str, widget_id: str) -> None:
+        """Record a typed commit in one of the two z-stack extent fields.
+
+        Both fields share ``set_steps`` as their handler, so a log call placed
+        inside it could not say which field the user edited and would fire for
+        both whenever either committed. Logging from the binding keeps each
+        field's record its own.
+
+        The value recorded is what the user typed. ``set_steps`` coerces a bad
+        entry to 0; that coercion is the system reacting, which belongs in the
+        main log, while this file records what the user did.
+        """
+        from ui.ui_helpers import text_input_debounced
+
+        text_input_debounced(name, self.ids[widget_id].text)
+
+    def set_position(self) -> None:
+        gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
             ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text

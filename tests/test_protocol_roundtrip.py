@@ -2742,4 +2742,6 @@ class TestFeedLossEndsVideoStep:
         assert manifests, 'the recording manifest must exist'
         manifest = json.loads(manifests[0].read_text())
         assert manifest['end_reason'] == 'camera_stalled'
-        assert manifest['short_delivery'] is True
+        # The dead feed means the recording never reached the frames the
+        # configured rate promised over the configured duration.
+        assert manifest['frames_written'] < vc['fps'] * vc['duration']

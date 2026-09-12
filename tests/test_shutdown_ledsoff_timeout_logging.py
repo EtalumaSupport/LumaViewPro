@@ -3,7 +3,8 @@
 
 Bug
 ---
-The app-exit leds_off wait caught every exception with one message,
+The shutdown leds_off wait (in the Session's ``shutdown()``, so every
+host gets it) caught every exception with one message,
 "leds_off via io_executor timed out / failed" -- firing the identical
 warning whether the task genuinely failed or merely sat queued behind
 protocol-abort cleanup that had ALREADY turned the LEDs off. A bench
@@ -25,7 +26,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-LVP_MAIN_SRC = REPO / 'lumaviewpro.py'
+SESSION_SRC = REPO / 'modules' / 'scope_session.py'
 
 
 def _result_try_nodes(tree: ast.AST):
@@ -47,7 +48,7 @@ def _result_try_nodes(tree: ast.AST):
 def test_shutdown_ledsoff_wait_distinguishes_timeout():
     """The shutdown leds_off wait must catch TimeoutError separately and
     consult the LED state cache in that branch."""
-    tree = ast.parse(LVP_MAIN_SRC.read_text())
+    tree = ast.parse(SESSION_SRC.read_text())
     for try_node in _result_try_nodes(tree):
         handler_names = [ast.unparse(h.type) for h in try_node.handlers if h.type is not None]
         if 'TimeoutError' not in handler_names:
@@ -70,7 +71,7 @@ def test_shutdown_ledsoff_wait_distinguishes_timeout():
         )
         return
     raise AssertionError(
-        'lumaviewpro.py must catch TimeoutError separately on the shutdown '
+        'scope_session.py must catch TimeoutError separately on the shutdown '
         'leds_off future wait; a single generic except conflates "queued '
         'behind cleanup at exit" with a real failure'
     )

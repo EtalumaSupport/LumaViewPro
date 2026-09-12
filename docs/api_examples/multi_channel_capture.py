@@ -76,9 +76,9 @@ def main():
     # NOTE: To save images, import from modules.image_save:
     #     from modules.image_save import save_image, save_live_image
     #     save_image(scope, array=image, save_folder='./out', ...)
-    # These require setting an objective, labware, and stage offset
-    # for metadata generation. See protocol_execution.py for a more
-    # complete workflow.
+    # These require an objective, labware, and stage offset for metadata
+    # generation -- what session.configure_scope() (or the factories that
+    # call it) applies. See protocol_execution.py for a complete workflow.
 
 
 if __name__ == '__main__':

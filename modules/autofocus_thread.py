@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# GUI-agnostic: no Kivy imports. The GUI host injects ui_dispatcher
-# (Clock.schedule_once in Kivy; direct invocation in headless tests).
+# GUI-agnostic: no Kivy imports.
 """AutofocusThread -- dedicated long-lived thread that runs AF requests.
 
 Replaces the queue-of-1 SequentialIOExecutor pattern that previously
@@ -32,7 +31,6 @@ in-flight run is not affected.
 import logging
 import queue
 import threading
-from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any
 
@@ -57,19 +55,14 @@ class AutofocusThread:
     Args:
         afe: an AutofocusRunner instance. The thread calls
             afe.run(**kwargs, abort_event=self._aborted) per request.
-        ui_dispatcher: optional callable(callback, delay_seconds) for
-            posting work back to the UI thread. Defaults to a direct
-            inline call (headless mode).
     """
 
     def __init__(
         self,
         *,
         afe: Any,
-        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
     ):
         self._afe = afe
-        self._ui_dispatcher = ui_dispatcher or self._direct_dispatch
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -82,15 +75,6 @@ class AutofocusThread:
 
         self._state_lock = threading.Lock()
         self._current_future: Future | None = None
-
-    @staticmethod
-    def _direct_dispatch(fn: Callable, delay: float) -> None:
-        """Headless fallback for ui_dispatcher. Runs inline; delay is
-        ignored (tests tick manually)."""
-        try:
-            fn(0)
-        except Exception:
-            logger.exception('direct_dispatch callback failed')
 
     # ---- lifecycle ----
 

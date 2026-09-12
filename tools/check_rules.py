@@ -63,6 +63,8 @@ Firmware-only (doc_status family):
                 self-contained text (BLOCK)
     daily_log_rulings -- new DAILY_LOG-shard entries carry a `**Rulings:**`
                 line (WARN)
+    handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
+                outside its closed shape (WARN)
     daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
                 edit that grows it is BLOCKED (append to the monthly
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
@@ -1050,6 +1052,9 @@ def _is_plan_doc(path: str) -> bool:
     if _PLAN_REVISIONS_DIR_RE.search(norm):
         return True
     basename = norm.rsplit('/', 1)[-1]
+    if basename.startswith('AUDIT_'):
+        # An audit named after the plan it reviews is still an audit.
+        return False
     return '_PLAN' in basename
 
 
@@ -1265,6 +1270,56 @@ def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) ->
     ]
 
 
+_HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
+_HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
+# Mirrors the H2 lines of the handover block in the handover-close skill's
+# references/templates.md; a rename lands in both or every next close WARNs.
+_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings', 'What not to touch')
+
+
+def _is_handover(path: str) -> bool:
+    """A live session handover (docs/SESSION_HANDOVER_*.md). Archived
+    copies under docs/completed/ are frozen history and never checked.
+    """
+    return _HANDOVER_RE.search(path.replace('\\', '/')) is not None
+
+
+def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a handover gains a heading outside its closed shape.
+
+    The handover's length lives in sections the writer adds beside the
+    template's ("the three facts a builder will rediscover", "what was
+    established"), not in the template's own sections, so the shape is
+    closed: the plan paragraph under the H1, then exactly Branch tips /
+    Next / Rulings / What not to touch, and nothing deeper. Diff-aware:
+    only an ADDED heading line fires, so an old handover left as written stays silent. WARN, not
+    BLOCK, so the close commit lands and the writer fixes it in the same
+    session.
+    """
+    if not _is_handover(path) or not added:
+        return []
+    lines = content.splitlines()
+    violations = []
+    for ln in sorted(added):
+        if ln - 1 >= len(lines):
+            continue
+        m = _HEADING_RE.match(lines[ln - 1])
+        if m and m.group(1) not in _HANDOVER_SECTIONS:
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'handover_shape',
+                    f'handover section `{m.group(1)}` is outside the closed shape '
+                    f'({" / ".join(_HANDOVER_SECTIONS)}); a fact goes to its doc '
+                    'with a pointer in Next, an incident to rationale',
+                    severity='warn',
+                )
+            )
+    return violations
+
+
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
 
@@ -1446,6 +1501,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations.extend(_check_daily_log_rulings(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))
+    violations.extend(_check_handover_shape(content, path, added))
     return violations
 
 
@@ -1459,7 +1515,9 @@ def _staged_files(suffix: str) -> list[str]:
 
 def _staged_doc_files() -> list[str]:
     return [
-        p for p in _staged_files('.md') if _is_rule_45_doc(p) or _is_plan_doc(p) or _is_daily_log(p)
+        p
+        for p in _staged_files('.md')
+        if _is_rule_45_doc(p) or _is_plan_doc(p) or _is_daily_log(p) or _is_handover(p)
     ]
 
 

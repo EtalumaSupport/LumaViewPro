@@ -4,8 +4,8 @@
 Two defects lived in this flow.
 
 The slot key: `turret_objectives` is loaded from JSON, so its keys are
-strings, while the Set/Reset handlers pick the slot with `range(1, 5)` and
-so held an int. Writing the int added a SECOND entry beside the string one
+strings, while the Set/Reset handlers picked the slot with `range(1, 5)` and
+so held an int (the writers now live on the Session, keyed the same way). Writing the int added a SECOND entry beside the string one
 -- the string key kept its old value, every reader keyed by string saw the
 stale answer, and the saved file carried a duplicate key that resolved
 last-wins on the next load.
@@ -56,12 +56,12 @@ class TestTurretSlotKeyMatchesTheFile:
                 f'settings pipeline is the only place that may convert them'
             )
 
-    def test_set_and_reset_write_the_runtime_key_type(self):
-        import ui.vertical_control as vc
+    def test_assign_and_clear_write_the_runtime_key_type(self):
+        from modules.scope_session import ScopeSession
 
-        for name in ('set_turret_objective', 'reset_turret_objective'):
-            src = inspect.getsource(getattr(vc.VerticalControl, name))
-            assert "settings['turret_objectives'][selected_turret]" in src, (
+        for name in ('assign_turret_objective', 'clear_turret_objective'):
+            src = inspect.getsource(getattr(ScopeSession, name))
+            assert "self.settings['turret_objectives'][position]" in src, (
                 f'{name} must key the slot by the int the pipeline guarantees; '
                 f'a str() key writes a second entry beside the real one'
             )
@@ -83,10 +83,10 @@ class TestSelectingAnObjectiveIsQuiet:
         # create / modify / add / run, and those really do refuse.
         import textwrap
 
-        import ui.vertical_control as vc
+        from modules.scope_session import ScopeSession
 
         src = ast.unparse(
-            ast.parse(textwrap.dedent(inspect.getsource(vc.VerticalControl.select_objective)))
+            ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
         )
         assert 'notifications.' not in src, (
             'selecting an objective must not raise a notification: it is the first '

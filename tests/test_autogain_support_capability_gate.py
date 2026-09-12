@@ -10,7 +10,7 @@ The fix:
   - ``config_ui_getters.camera_autogain_supported()`` is the single gate: True
     when the live camera reports hardware auto-gain OR auto-exposure (the one
     control drives both). It resolves through ``_live_capabilities()``, which
-    reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds --
+    reads ``ctx.lumaview.scope`` -- the reference a scope swap rebuilds --
     not the build-time ``ctx.scope`` registry field. The sibling
     ``firmware_stim_supported()`` shares that accessor, so the stale-scope bug
     can't live on in one gate but not the other. Fails safe to True (show) when
@@ -18,8 +18,8 @@ The fix:
   - ``LayerControl.camera_autogain_support`` is an orthogonal runtime gate (like
     ``show_camera_controls``), AND-ed with the per-layer static
     ``autogain_support`` in the kv so Lumi stays hidden regardless. Set on every
-    layer at both capability-sync points: ``ImageSettings._init_ui`` (connect)
-    and ``MicroscopeSettings.reconnect`` (scope-change / reconnect).
+    layer by the capability-sync grouping ``ImageSettings._init_ui`` runs on
+    connect (a scope swap re-runs the same grouping).
   - The effective enable is derived NON-DESTRUCTIVELY at the consumption point
     (``LayerControl.effective_auto_gain`` = saved preference AND capability),
     used by ``apply_settings`` for the slider-disable / camera enable. The
@@ -93,8 +93,8 @@ class TestAutogainGetter:
         assert camera_autogain_supported() is False
 
     def test_reads_live_scope_not_stale_registry(self, monkeypatch):
-        # The gate must read ctx.lumaview.scope (reconnect rebuilds it), not the
-        # ctx.scope registry field reconnect never refreshes. A stale ctx.scope
+        # The gate must read ctx.lumaview.scope (a scope swap rebuilds it first),
+        # not the ctx.scope registry field refreshed after it. A stale ctx.scope
         # reporting True must NOT keep the control visible on an AG-less camera.
         ctx = _ctx_reporting()  # live scope: no AG/AE
         ctx.scope.capabilities.camera_supports_auto_gain = True  # stale registry
@@ -241,12 +241,4 @@ class TestUiWiring:
         assert _calls_named(method, 'sync_camera_capability_ranges'), (
             'ImageSettings._init_ui must apply the autogain gate (via the '
             'sync_camera_capability_ranges grouping) on connect.'
-        )
-
-    def test_reconnect_applies_autogain_support_on_reconnect(self):
-        # reconnect applies the gate via the same grouping as connect.
-        method = _method_node(MS_PATH, 'reconnect')
-        assert _calls_named(method, 'sync_camera_capability_ranges'), (
-            'MicroscopeSettings.reconnect must re-apply the autogain gate (via '
-            'the sync_camera_capability_ranges grouping) on scope-change / reconnect.'
         )

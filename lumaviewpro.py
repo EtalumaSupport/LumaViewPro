@@ -113,15 +113,10 @@ if __name__ == '__main__':
     import modules.app_context as app_context
     import modules.common_utils as common_utils
     import modules.config_helpers as config_helpers
-    import modules.coord_transformations as coord_transformations
-    import modules.labware_loader as labware_loader
     import modules.lvp_lock as lvp_lock
-    import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
     from modules.plugins import fire_settings_save_hooks
-    from modules.autofocus_runner import AutofocusRunner
-    from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
 
     global profiling_helper
@@ -370,6 +365,8 @@ from modules.app_config import (
 from modules.app_config import (
     load_mode as _load_mode,
 )
+from modules.exceptions import ConfigError
+from modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
 # (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
@@ -451,6 +448,12 @@ class LumaViewProApp(TooltipMixin, App):
     run_lockout = BooleanProperty(False)
     recording_active = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
+
+    # The in-flight drain-close poller, or None when no close is running.
+    # Declared here so the close handler can read it before any close has
+    # assigned it -- the alternative is every reader defending itself with
+    # getattr, which is how one of them eventually forgets.
+    _drain_close_watch = None
 
     def publish_run_state(self, dt=0):
         """Write the three kv mirrors from the session derivations.
@@ -643,8 +646,8 @@ class LumaViewProApp(TooltipMixin, App):
                 0,
             )
 
-        # ScopeSession owns startup orchestration so REST API, headless tools, and
-        # the reconnect handler in ui/microscope_settings.py all hit the same path.
+        # ScopeSession owns startup orchestration so REST API, headless tools and
+        # the GUI all hit the same path.
         # The GUI drives motion through the ui_helpers wrappers: they set the
         # window title during the home, and the turret one goes through the
         # widget that also reconciles the objective, spinner and button state.
@@ -698,53 +701,6 @@ class LumaViewProApp(TooltipMixin, App):
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
-    def shutdown_threads(self) -> None:
-        """Stop profiling and shut down every executor in the bundle.
-
-        Order matters: long-lived consumer threads (autofocus_thread,
-        scope_display_thread) stop BEFORE the SequentialIOExecutor
-        lanes they consume. Otherwise a consumer mid-iteration can
-        find its lane already shut down and either hang waiting for
-        a queue dispatch that never fires or surface a misleading
-        post-shutdown exception. AF holds io_executor + camera_executor;
-        scope_display holds camera_executor.
-        """
-        logger.info('[LVP Main  ] Shutting down threads...')
-
-        if profiling_helper is not None:
-            profiling_helper.stop()
-
-        # Every executor handle lives on ctx; if build() never completed there
-        # is nothing to tear down. Stop order is preserved exactly (consumer
-        # threads before the lanes they consume) -- only the source of each
-        # handle changed from a module global to ctx.
-        if ctx is None:
-            logger.info('[LVP Main  ] Threads shut down.')
-            return
-
-        if ctx.autofocus_thread is not None:
-            ctx.autofocus_thread.stop(timeout=2.0)
-
-        if ctx.scope_display_thread is not None:
-            ctx.scope_display_thread.stop()
-
-        if ctx.protocol_thread is not None:
-            ctx.protocol_thread.stop(timeout=2.0)
-
-        if ctx.io_executor is not None:
-            ctx.io_executor.shutdown(wait=False)
-
-        if ctx.camera_executor is not None:
-            ctx.camera_executor.shutdown(wait=False)
-
-        if ctx.file_io_executor is not None:
-            ctx.file_io_executor.shutdown(wait=False)
-
-        if ctx.worker_pool is not None:
-            ctx.worker_pool.shutdown(wait=False)
-
-        logger.info('[LVP Main  ] Threads shut down.')
-
     def _prompt_objective_if_needed(self) -> None:
         """Ask the objective question when the objective is unknowable.
 
@@ -754,14 +710,8 @@ class LumaViewProApp(TooltipMixin, App):
         settings were provisional the question was suppressed because
         its answer could not be kept.
         """
-        import modules.config_helpers as config_helpers
-
-        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
-        model_has_turret = config_helpers.model_has_turret(microscope_settings.scopes, ctx.settings)
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(
-            lambda dt: vertical_control.maybe_prompt_objective_selection(model_has_turret), 0
-        )
+        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
 
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.
@@ -800,7 +750,7 @@ class LumaViewProApp(TooltipMixin, App):
                 retired = ctx.session.retire_rejected_settings()
             except Exception:
                 logger.error(
-                    '[LVP Main  ] could not retire the unreadable settings file',
+                    '[LVP Main  ] could not retire the rejected settings file',
                     exc_info=True,
                 )
                 from modules.notification_center import notifications
@@ -831,7 +781,7 @@ class LumaViewProApp(TooltipMixin, App):
                 # message does not repeat it; the two buttons carry the
                 # question, so the body only states the stakes.
                 show_confirmation_popup(
-                    title='Settings file could not be read',
+                    title='Settings file could not be used',
                     message=(
                         f'{reason}\n\n'
                         'Your file has not been changed, and nothing will be '
@@ -845,7 +795,7 @@ class LumaViewProApp(TooltipMixin, App):
                 )
             except Exception:
                 logger.critical(
-                    '[LVP Main  ] could not ask about the unreadable settings '
+                    '[LVP Main  ] could not ask about the rejected settings '
                     'file; refusing to run with saving disabled',
                     exc_info=True,
                 )
@@ -907,11 +857,11 @@ class LumaViewProApp(TooltipMixin, App):
         stage = Stage()
 
         # Wire NotificationCenter to UI popups BEFORE any hardware init.
-        # MainDisplay() below constructs Lumascope -> LED/motor boards
-        # -> connect(), which can fire notifications.error() for silent-
-        # board detection or any other early hardware failure. If the
-        # listener is registered AFTER hardware init, those early errors
-        # go to the log but never reach the user as popups.
+        # The session factory below constructs Lumascope -> LED/motor
+        # boards -> connect(), which can fire notifications.error() for
+        # silent-board detection or any other early hardware failure. If
+        # the listener is registered AFTER hardware init, those early
+        # errors go to the log but never reach the user as popups.
         from modules.notification_center import Severity, notifications
 
         from ui.notification_popup import notification_popup_bridge
@@ -949,45 +899,70 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as _e:
                     logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
             Window.bind(focus=self._on_window_focus)
-            # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
-            # -> FX2). The legacy settings['camera_type'] field is vestigial.
-            lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
+
+            # Clock.schedule_once is the UI dispatcher: the executor lanes
+            # post callbacks to the Kivy main thread without importing
+            # Kivy themselves.
+            from kivy.clock import Clock
+
+            _ui = Clock.schedule_once
+
+            # Also set the global dispatcher for kivy_utils.schedule_ui()
+            from modules.kivy_utils import set_ui_dispatcher
+
+            set_ui_dispatcher(_ui)
+
+            # The Session composes the instrument -- the scope (the camera
+            # registry picks by priority, Pylon -> IDS -> FX2), the three
+            # data-file helpers, the executor topology and the autofocus
+            # pair -- and brings the scope up (configure from settings,
+            # then release the camera start gate) before it returns. What
+            # only this host knows goes in by name. The pre-release
+            # warning is gated off: the GUI ships in the same commit as
+            # the API, so it has nothing to tell it and would only reach
+            # the user's console. A raise inside the factory tears down
+            # what it had started before it reaches here.
+            def _compose(from_settings):
+                return ScopeSession.create(
+                    settings=from_settings,
+                    source_path=source_path,
+                    simulate=simulate_mode,
+                    warn_pre_release=False,
+                    ui_dispatcher=_ui,
+                    af_ui_update_func=_handle_autofocus_ui,
+                    settings_saved_hook=_notify_plugins_of_settings_save,
+                    engineering_mode=ENGINEERING_MODE,
+                    display_ctx_provider=lambda: app_context.ctx,
+                )
+
+            # A stored value the settings store cannot configure a scope
+            # from -- a malformed binning label, a missing frame -- reaches
+            # here as ConfigError, and there is nothing above build() to
+            # catch it, so without this the app does not launch at all. Come
+            # up on the shipped template instead, the same recovery
+            # settings_init already runs for an unreadable current.json.
+            # The user's file is NOT repaired: a value we cannot interpret
+            # is not a value we may overwrite.
+            try:
+                scope_session = _compose(settings)
+            except ConfigError as unusable:
+                logger.exception(
+                    '[LVP Main  ] Stored settings cannot configure a scope; '
+                    'coming up on the shipped defaults.'
+                )
+                # Republishes the store IN PLACE and marks the session
+                # provisional, so `settings` below is the template and every
+                # save raises until the user resolves it. Reassigning the name
+                # here instead would strand every other holder of this dict on
+                # the rejected values.
+                fall_back_to_template(logger, source_path, str(unusable))
+                scope_session = _compose(settings)
+            lumaview = MainDisplay(scope=scope_session.scope)
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
         except Exception:
-            logger.exception('[LVP Main  ] Cannot open main display.')
+            logger.exception('[LVP Main  ] Cannot compose the session or open the main display.')
             raise
-
-        # load labware file
-        wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
-        coordinate_transformer = coord_transformations.CoordinateTransformer()
-
-        objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
-
-        # ExecutorRegistry.create_default constructs all SequentialIOExecutor
-        # lanes (plus stage and turret aliases) and the protocol_thread, then
-        # starts them; every entry point shares this topology so the watchdog
-        # snapshot and engineering plugin see one truth.
-        # Clock.schedule_once is passed as the UI dispatcher so executors can post
-        # callbacks to the Kivy main thread without importing Kivy themselves.
-        from kivy.clock import Clock
-
-        _ui = Clock.schedule_once
-
-        # Also set the global dispatcher for kivy_utils.schedule_ui()
-        from modules.kivy_utils import set_ui_dispatcher
-
-        set_ui_dispatcher(_ui)
-
-        from modules.executor_registry import create_default as _create_executors
-
-        executor_bundle = _create_executors(_ui)
-        io_executor = executor_bundle.io_executor
-        camera_executor = executor_bundle.camera_executor
-        protocol_thread = executor_bundle.protocol_thread
-        file_io_executor = executor_bundle.file_io_executor
-        scope_display_thread = executor_bundle.scope_display_thread
-        worker_pool = executor_bundle.worker_pool
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.
@@ -995,74 +970,27 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        autofocus_runner = AutofocusRunner(
-            scope=lumaview.scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
-            ui_update_func=_handle_autofocus_ui,
-        )
-
-        # AutofocusThread owns the actual AF worker thread; AFE is the
-        # per-iteration state machine the thread drives. Construct after
-        # AFE so the wiring is one-way (thread holds AFE, AFE is unaware
-        # of the thread except via the abort_event passed to run()).
-        autofocus_thread = AutofocusThread(
-            afe=autofocus_runner,
-            ui_dispatcher=_ui,
-        )
-        autofocus_thread.start()
-
-        # GUI-independent scope session; persisted to ctx.session so
-        # other methods read off ctx. The session composes the ONE
-        # sequenced-capture engine from the injected executors, AF
-        # pair, and protocol thread -- and its run-state derivations
-        # need the file-drain fact, so the FILE executor handle rides
-        # the injection list too. Constructing the session also services
-        # the scope (executor registration, bundle, source path) -- the
-        # session owns scope bring-up so a reconnect-built scope gets
-        # the identical servicing through set_scope. The bundle is
-        # handed over for that servicing only; this host keeps teardown
-        # (shutdown_threads), which is why owns_executors stays False.
-        scope_session = ScopeSession(
-            settings=settings,
-            scope=lumaview.scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            file_io_executor=file_io_executor,
-            protocol_thread=protocol_thread,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            z_ui_update_func=_handle_autofocus_ui,
-            settings_saved_hook=_notify_plugins_of_settings_save,
-            engineering_mode=ENGINEERING_MODE,
-        )
-        sequenced_capture_runner = scope_session.sequenced_capture_runner
-
-        # Create AppContext -- central service registry
+        # Create AppContext -- central service registry. Every handle is
+        # the session's object, read off it: one store, no second
+        # construction.
         ctx = AppContext(
-            scope=lumaview.scope,
+            scope=scope_session.scope,
             lumaview=lumaview,
             session=scope_session,
-            sequenced_capture_runner=sequenced_capture_runner,
-            autofocus_runner=autofocus_runner,
+            sequenced_capture_runner=scope_session.sequenced_capture_runner,
+            autofocus_runner=scope_session.autofocus_runner,
             version=version,
             source_path=source_path,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            protocol_thread=protocol_thread,
-            file_io_executor=file_io_executor,
-            autofocus_thread=autofocus_thread,
-            scope_display_thread=scope_display_thread,
-            worker_pool=worker_pool,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
+            io_executor=scope_session.io_executor,
+            camera_executor=scope_session.camera_executor,
+            protocol_thread=scope_session.protocol_thread,
+            file_io_executor=scope_session.file_io_executor,
+            autofocus_thread=scope_session.autofocus_thread,
+            scope_display_thread=scope_session.executor_bundle.scope_display_thread,
+            worker_pool=scope_session.executor_bundle.worker_pool,
+            wellplate_loader=scope_session.wellplate_loader,
+            coordinate_transformer=scope_session.coordinate_transformer,
+            objective_helper=scope_session.objective_helper,
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
@@ -1071,8 +999,6 @@ class LumaViewProApp(TooltipMixin, App):
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
-            disable_homing=disable_homing,
-            simulate_mode=simulate_mode,
             live_view_fps=live_view_fps,
             focus_round=focus_round,
         )
@@ -1192,9 +1118,9 @@ class LumaViewProApp(TooltipMixin, App):
         enable_engineering_logs(ctx.engineering_mode)
 
         # NotificationCenter -> UI popup bridge was registered at the
-        # top of build(), BEFORE MainDisplay() / Lumascope() / hardware
-        # init, so any early hardware errors surface as popups instead
-        # of being logged-only.
+        # top of build(), BEFORE the session factory / Lumascope() /
+        # hardware init, so any early hardware errors surface as popups
+        # instead of being logged-only.
 
         # CPU profiling -- enabled via cprofile_enabled in settings.json,
         # independent of debug_mode (which otherwise silently started a
@@ -1270,6 +1196,16 @@ class LumaViewProApp(TooltipMixin, App):
         # produces a silent shutdown -- the gap that prompted this hook.
         logger.info(f'[LVP Main  ] on_request_close fired; protocol_running={protocol_running}')
         gui_logger.window_event('close-requested', f'protocol_running={protocol_running}')
+
+        if self._drain_close_watch is not None:
+            # A close is already draining. This is a SECOND close request --
+            # a Kivy Popup is modal only for in-canvas touch, so the window's
+            # X still reaches here while the progress popup is up. Logged
+            # above and then ignored: running the close path again starts a
+            # second poller and a second popup over the same drain.
+            logger.info('[LVP Main  ] close already in progress; ignoring the request')
+            return True  # Prevent window from closing
+
         if protocol_running:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
@@ -1283,10 +1219,30 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        recording = ctx.session.manual_recording
-        runner = ctx.sequenced_capture_runner
-        protocol_tail_busy = runner is not None and runner.video_drain_busy
-        if recording.is_busy or protocol_tail_busy:
+        if ctx.session.recording_capturing:
+            # Still capturing, so the rest of the take is what closing
+            # costs -- stopping is irreversible and there is no resume.
+            # Read BEFORE the drain check below: a live recording is also
+            # draining, so that branch would otherwise swallow this one
+            # and the app would close without ever asking.
+            Clock.schedule_once(
+                lambda dt: show_confirmation_popup(
+                    title='Confirm Exit',
+                    message=(
+                        'A video recording is in progress.\n\n'
+                        'Exiting now ends the recording and keeps what has been '
+                        'captured so far.\n\n'
+                        'Are you sure you want to exit?'
+                    ),
+                    confirm_text='Confirm Exit',
+                    cancel_text='Cancel',
+                    on_confirm=self._close_with_drain_progress,
+                )
+            )
+
+            return True  # Prevent window from closing
+
+        if ctx.session.close_drain_pending:
             # Queued video frames -- a manual recording's, or a finished
             # run's video-step tail -- are still being written to their
             # final artifacts. A silent block reads as a hang and a
@@ -1331,11 +1287,16 @@ class LumaViewProApp(TooltipMixin, App):
         def _watch(dt):
             if _busy():
                 set_message(f'Finishing video writes -- {_pending()} frames remaining.')
-                return
-            Clock.unschedule(self._drain_close_watch)
+                return True
+            # Returning False is what actually stops a Kivy interval, and it
+            # stops THIS event whatever the attribute now holds. Unscheduling
+            # through the attribute alone is not enough: it names whichever
+            # close wrote it last, so an earlier event would keep ticking --
+            # and every tick calls stop() again.
             self._drain_close_watch = None
             popup.dismiss()
             self.stop()
+            return False
 
         self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
 
@@ -1361,9 +1322,7 @@ class LumaViewProApp(TooltipMixin, App):
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
     def on_stop(self) -> None:
-        """Kivy lifecycle hook: tear down hardware, save settings, exit cleanly."""
-        lumaview = ctx.lumaview
-
+        """Kivy lifecycle hook: save settings, tear the session down, exit cleanly."""
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
         # Suppress notification-listener dispatch during shutdown so the user
@@ -1393,21 +1352,14 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
 
-        # Stop the periodic metrics logger so its Clock intervals and
-        # the camera-temp tick don't survive into shutdown and try to
-        # log against torn-down hardware.
-        try:
-            ctx.session.stop_metrics()
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] metrics stop failed during shutdown: {e}')
-
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
         # The abort above only signals; the hardware teardown (LED off,
         # camera restore, return-to-position) runs on the protocol thread.
-        # Shutdown tears the executors down right after this block, so wait
-        # -- bounded -- for that cleanup to finish before proceeding. Per
-        # PERFORMANCE_BUDGETS.md row shutdown_protocol_cleanup_wait_s. The
-        # leds_off drain below is the belt-and-suspenders if it times out.
+        # The session teardown below tears the executors down right after
+        # this block, so wait -- bounded -- for that cleanup to finish
+        # before proceeding. Per PERFORMANCE_BUDGETS.md row
+        # shutdown_protocol_cleanup_wait_s. The session's own LED drain is
+        # the belt-and-suspenders if it times out.
         try:
             if ctx.sequenced_capture_runner is not None and not (
                 ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
@@ -1419,75 +1371,16 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
 
-        # Stop the scope-display thread BEFORE the executor cascade --
-        # otherwise the FPS-paced loop submits work against a half-
-        # disconnected scope and floods the shutdown log.
-        try:
-            if ctx.scope_display is not None:
-                ctx.scope_display.stop()
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] scope_display stop during shutdown failed: {e}')
-
-        # Drain LEDs through io_executor BEFORE shutdown_threads tears
-        # the executor down. Routing the leds_off through the same
-        # serial-bus serialization lane as the rest of LED writes
-        # prevents the ad-hoc-Thread-vs-in-flight-IOTask race that
-        # existed when this call was a bare daemon Thread. The 2 s
-        # fut.result timeout preserves the prior MainThread-doesn't-
-        # block-on-slow-serial behavior.
-        logger.info('[LVP Main  ] lumaview.scope.illumination.leds_off()')
-        try:
-            from modules.sequential_io_executor import IOTask
-
-            fut = (
-                ctx.io_executor.put(
-                    IOTask(action=lumaview.scope.illumination._leds_off_impl),
-                    return_future=True,
-                )
-                if ctx.io_executor is not None
-                else None
-            )
-            if fut is not None:
-                try:
-                    fut.result(timeout=2.0)
-                except TimeoutError:
-                    # The io_executor can still be draining protocol-abort
-                    # cleanup at exit, and that cleanup turns LEDs off
-                    # itself -- this expiry does not mean LEDs were left
-                    # on. Log the cached channel state so the post-mortem
-                    # answers that question directly.
-                    states = lumaview.scope.illumination.get_led_states()
-                    lit = sorted(c for c, s in states.items() if s.get('enabled'))
-                    state_text = (
-                        'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
-                    )
-                    logger.warning(
-                        f'[LVP Main  ] shutdown leds_off still queued on '
-                        f'io_executor after 2.0s; LED state cache reports '
-                        f'{state_text}'
-                    )
-                except Exception as e:
-                    logger.warning(f'[LVP Main  ] shutdown leds_off failed: {e}')
-            else:
-                logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] leds_off submission failed during shutdown: {e}')
-
-        self.shutdown_threads()
-
-        # Considered removing this stop_motion() call, since disconnect() below calls
-        # stop_motion() as its first step; rejected because shutdown_threads ran BEFORE
-        # disconnect, and any in-flight motion should stop before we tear down the
-        # executors that own the move callbacks. Revisit if shutdown_threads and disconnect
-        # are consolidated into one teardown.
-        lumaview.scope.motion.stop_motion()
+        if profiling_helper is not None:
+            profiling_helper.stop()
 
         # The hardware-presence gate lives inside the session's save_settings,
         # so every caller (engineering plugin, REST, scheduled save) gets the
         # same guard. Pass force=True only to override. A refusal must not
-        # abort shutdown -- the disconnect below is hardware teardown. INFO,
-        # not WARNING: the errors log ships in every support bundle and a
-        # hardware-less clean exit is not an error.
+        # abort shutdown -- the session teardown below is hardware teardown.
+        # INFO, not WARNING: the errors log ships in every support bundle
+        # and a hardware-less clean exit is not an error. The save comes
+        # BEFORE the teardown: it needs the hardware the teardown removes.
         from modules.exceptions import SettingsSaveRefusedError
 
         try:
@@ -1495,8 +1388,13 @@ class LumaViewProApp(TooltipMixin, App):
         except SettingsSaveRefusedError as e:
             logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
-        logger.info('[LVP Main  ] lumaview.scope.disconnect()')
-        lumaview.scope.disconnect()
+        # The one teardown: metrics, the LED drain through the io lane,
+        # the consumer threads, the lanes, motion stopped, the scope
+        # disconnected. Kivy's run() falls through to a second on_stop
+        # after an in-loop stop(); that pass finds the session already
+        # shut and logs it.
+        logger.info('[LVP Main  ] ctx.session.shutdown()')
+        ctx.session.shutdown()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

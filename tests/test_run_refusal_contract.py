@@ -46,6 +46,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.settings_fixtures import complete_settings
+
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
 # sequenced_capture_runner imports it.
@@ -323,8 +325,7 @@ class TestHeadlessRefusalDoesNotHang:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=settings)
-        session.start_executors()
+        session = ScopeSession.create_headless(settings=complete_settings(**settings))
         runner = session.create_protocol_runner()
         try:
             # First: a valid run completes and arms wait_for_completion.

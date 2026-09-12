@@ -3,6 +3,7 @@
 import numpy as np
 
 import modules.common_utils as common_utils
+from modules.exceptions import ConfigError
 
 
 class ZStackConfig:
@@ -33,6 +34,12 @@ class ZStackConfig:
             start_pos = self._current_z_value - self._range / 2
         elif self._current_z_reference == 'bottom':
             start_pos = self._current_z_value
+        else:
+            # Without this branch an unmapped reference -- or the None a
+            # settings dict with no stored position yields -- leaves start_pos
+            # unbound and throws UnboundLocalError on the next line, naming a
+            # local variable instead of the bad reference that caused it.
+            raise ConfigError(f'Unknown Z-stack position reference: {self._current_z_reference!r}')
 
         position_values = (np.arange(n_steps) * self._step_size + start_pos).tolist()
         max_precision = common_utils.max_decimal_precision(parameter='z')

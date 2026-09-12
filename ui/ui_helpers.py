@@ -378,14 +378,25 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
     """Log a text field's value once the user has stopped typing.
 
     Each call cancels the previous pending log for ``name`` and schedules a
-    fresh one ``delay_s`` out, so per-character ``on_text`` traffic collapses
-    to the single committed value. Used by the protocol period / duration /
-    capture-root fields and the manual-video max-fps / max-duration fields,
-    all of which fire per character.
+    fresh one ``delay_s`` out, so a burst of calls collapses to one log line
+    carrying the settled value.
+
+    The burst it exists for is NOT per-character typing: the text fields that
+    use it commit on enter and on focus loss, and a single edit fires both, so
+    an undebounced log would record the same value twice. A field that also
+    commits per keystroke (the protocol period and duration now do, so the
+    settings store tracks what is on screen) sends a longer burst through the
+    same collapse, which is why the debounce is the right shape either way.
 
     Lives here rather than beside the other gui_interactions entries because
     the debounce needs the Kivy Clock and modules/ carries no GUI imports.
     """
+    # The app's own write coming back around, not something the user typed.
+    # Checked HERE rather than at the emitter, because the cancel below would
+    # already have destroyed the pending typed line by the time it emits.
+    if gui_logger.consume_write_back(name, value):
+        return
+
     existing = _text_input_debounce_timers.pop(name, None)
     if existing is not None:
         try:
@@ -397,6 +408,10 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
 
     def _emit(_dt):
         _text_input_debounce_timers.pop(name, None)
+        # A declaration nobody echoed (a click-away commit fires the handler
+        # once) must not outlive this line, or it would swallow a later real
+        # entry of the same value.
+        gui_logger.consume_write_back(name, value)
         gui_logger.text_input(name, value)
 
     _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)

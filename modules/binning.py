@@ -1,22 +1,54 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-BINNING_SIZE_MAP = {
-    '1x1': 1,
-    '2x2': 2,
-    '4x4': 4,
-}
+from modules.exceptions import ConfigError
 
 
 def binning_size_str_to_int(text: str) -> int:
-    return BINNING_SIZE_MAP.get(text, 1)
+    """Parse a binning label ``'NxN'`` into its factor N.
+
+    A binning label is arithmetic, not a lookup: the offered set is the
+    camera's own supported-factor list rendered as ``f'{s}x{s}'``, so a
+    hardcoded table here is a second source of truth for which factors may
+    exist -- and the narrower one, which silently answered 1 for every
+    label it did not carry.
+
+    Only a POSITIVE SQUARE label is a binning factor. The three shapes the
+    old table was containing by accident all have live consequences:
+    ``'0x0'`` divides the native ROI by zero, ``'-1x-1'`` persists a
+    negative native ROI, and ``'2x4'`` is not a single factor at all.
+
+    Raises:
+        ConfigError: on anything that is not a positive square label, and
+            NOTHING ELSE. Callers boundary on ConfigError alone, so a
+            leaked ValueError or AttributeError -- from a bare ``int()`` on
+            a placeholder, or a ``.split`` on a non-string ``"size": 4`` --
+            would walk straight past them into the host's re-raise.
+    """
+    if not isinstance(text, str):
+        raise ConfigError(f'binning size must be an NxN label, got {type(text).__name__}: {text!r}')
+    halves = text.split('x')
+    if len(halves) != 2:
+        raise ConfigError(f'binning size is not an NxN label: {text!r}')
+    try:
+        width = int(halves[0])
+        height = int(halves[1])
+    except ValueError:
+        raise ConfigError(f'binning size is not an NxN label: {text!r}') from None
+    if width != height:
+        raise ConfigError(f'binning size is not square: {text!r}')
+    if width < 1:
+        raise ConfigError(f'binning size must be at least 1x1: {text!r}')
+    return width
 
 
-def binning_size_int_to_str(val: int):
-    for k, v in BINNING_SIZE_MAP.items():
-        if v == val:
-            return k
+def binning_size_int_to_str(val: int) -> str:
+    """Format a binning factor as its ``'NxN'`` label.
 
-    return '1x1'
+    Does NOT raise. Its one production caller is fed
+    ``imaging.get_binning_size()``, which contracts to >= 1, and it sits in
+    a failure-recovery path where raising would be the hazard.
+    """
+    return f'{val}x{val}'
 
 
 def _align_down(value: int, alignment: int) -> int:

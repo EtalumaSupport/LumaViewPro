@@ -317,7 +317,14 @@ class MotionSettings(BoxLayout):
             vert_control.ids['tiling_box_label_id'].opacity = 0
 
     # Hide (and unhide) motion settings
-    def toggle_settings(self):
+    def toggle_settings(self) -> None:
+        # A ToggleButton's state is 'normal' or 'down' and both are truthy, so
+        # the comparison is what carries the user's intent. Named for the panel
+        # rather than the button because ImageSettings has a same-named handler
+        # logging its own panel, and the two must stay tellable apart.
+        gui_logger.toggle(
+            'MOTION_SETTINGS_PANEL', self.ids['toggle_motionsettings'].state == 'down'
+        )
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()

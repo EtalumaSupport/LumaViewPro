@@ -17,19 +17,21 @@ Usage
 """
 
 import copy
+import dataclasses
 import json
 import os
 import threading
 import time
 import typing
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.common_utils import CustomJSONizer
-from modules.exceptions import SettingsSaveRefusedError
+from modules.exceptions import ConfigError, SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
@@ -52,6 +54,31 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     logger.error('[ScopeSession] scheduled callback raised', exc_info=exc)
 
 
+@dataclasses.dataclass(frozen=True)
+class ObjectiveQuestion:
+    """The objective is unknowable; this is what to ask the user.
+
+    Returned by ``ScopeSession.objective_question`` when no one has ever
+    confirmed the objective on this install, or the turret sits on a slot
+    with no assignment. The pixel size derived from the objective is
+    stamped into the scale bar and every saved image's metadata, and a
+    wrong scale cannot be told from a measured one afterwards -- so the
+    session exposes the question instead of assuming silently, and a
+    host renders it however it likes. The answer goes back through
+    ``ScopeSession.confirm_objective``.
+
+    Attributes:
+        turret_position: The slot the answer binds to, or None on a
+            non-turret model.
+        proposed: The catalogue id to offer as the default.
+        choices: The catalogue, in its shipped order.
+    """
+
+    turret_position: int | None
+    proposed: str
+    choices: tuple[str, ...]
+
+
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session."""
 
@@ -72,6 +99,7 @@ class ScopeSession:
         autofocus_thread=None,
         z_ui_update_func=None,
         owns_executors: bool = False,
+        owns_scope: bool = False,
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
         engineering_mode: bool = False,
@@ -107,6 +135,11 @@ class ScopeSession:
         # thread in the GUI): a threaded host must serialize
         # start_metrics / stop_metrics / set_scope itself.
         self._metrics_started = False
+        # Whether a shutdown() pass has COMPLETED. Written True as the last
+        # statement of that pass, so a pass that raised part-way leaves a
+        # retry possible; read at entry to make the second call a logged
+        # no-op. Host-serialized like the metrics flag.
+        self._shut_down = False
         self.io_executor = io_executor
         self.camera_executor = camera_executor
         self.wellplate_loader = wellplate_loader
@@ -127,6 +160,14 @@ class ScopeSession:
         # host-composed session tear down its host's executors.
         self.executor_bundle = executor_bundle
         self._owns_executors = owns_executors
+        # The same fact for the scope: True only when a factory BUILT it,
+        # False for a scope a host passed in or swapped in with set_scope.
+        # Decides whether shutdown() runs the hardware half (LEDs off,
+        # motion stopped, disconnect). Coupled to the object here, at
+        # construction, because _abandon() can run before a factory
+        # returns and a directly constructed session calls shutdown()
+        # too -- a flag patched on afterwards would miss both.
+        self._owns_scope = owns_scope
         # The canonical file-IO executor lives on the bundle; expose it here
         # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
         # source the one shared FILE executor instead of constructing a
@@ -228,7 +269,7 @@ class ScopeSession:
             scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
         scope.protocols.register_source_path(self.source_path)
 
-    def set_scope(self, scope) -> None:
+    def set_scope(self, scope: object) -> None:
         """Rewire this session onto a NEW scope after a reconnect.
 
         The session and its recording controller each hold the scope by
@@ -237,7 +278,9 @@ class ScopeSession:
         homes it; a recording captures from it). The new scope is
         serviced FIRST (executors, bundle, source path), before any
         holder is rewired onto it, so nothing can dispatch against a
-        rewired-but-unserviced scope.
+        rewired-but-unserviced scope. After the swap the session owns
+        neither scope: ``shutdown()`` disconnects neither, the caller
+        disconnects both.
 
         Raises:
             RuntimeError: An exclusive activity still owns the hardware.
@@ -264,6 +307,9 @@ class ScopeSession:
         old_metrics_logger = self.scope.metrics_logger if self._metrics_started else None
         self._register_scope_services(scope)
         self.scope = scope
+        # The swapped-in scope is the caller's, and the old one is now
+        # the caller's to disconnect too: shutdown() tears down neither.
+        self._owns_scope = False
         self.manual_recording.set_scope(scope)
         self.sequenced_capture_runner.set_scope(scope)
         if self.autofocus_runner is not None:
@@ -311,6 +357,21 @@ class ScopeSession:
     def recording_capturing(self) -> bool:
         """True while a manual recording is live (not its drain)."""
         return self.manual_recording.is_recording
+
+    @property
+    def close_drain_pending(self) -> bool:
+        """True while either video drain still holds queued frames.
+
+        What a close would interrupt on the video side, in one read: a
+        manual recording's own drain, or a finished run's video-step
+        tail. A closing host needs both, and asking it to OR them itself
+        puts the derivation somewhere headless and REST cannot reach.
+
+        True for a LIVE recording too, since its frames are also
+        outstanding -- a caller that needs "still capturing" specifically
+        wants ``recording_capturing``, which is the narrower fact.
+        """
+        return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
 
     @property
     def protocol_files_draining(self) -> bool:
@@ -381,55 +442,192 @@ class ScopeSession:
         scope: object | None = None,
         io_executor: 'SequentialIOExecutor | None' = None,
         camera_executor: 'SequentialIOExecutor | None' = None,
+        *,
+        simulate: bool = False,
+        warn_pre_release: bool = True,
+        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
+        af_ui_update_func: Callable[[float], None] | None = None,
+        settings_saved_hook: Callable[[dict], None] | None = None,
+        engineering_mode: bool = False,
+        display_ctx_provider: Callable[[], Any] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
-        This is the main entry point.  Pass in existing objects when the GUI
-        has already created them, or omit them for headless / script use.
+        This is the one composition path: the GUI, REST and scripts all
+        build their session here, passing what only a host knows as the
+        keyword arguments below. Pass ``scope`` or the two lanes to reuse
+        objects you built; omit them and the factory builds and starts
+        them.
 
         When io_executor / camera_executor are omitted, the full production
         executor bundle is built via executor_registry.create_default so L2
-        callers get the same topology lumaviewpro.py runs: IO + CAMERA +
-        FILE + WORKER_POOL executors plus protocol_thread (started) and
+        callers get the same topology the GUI runs: IO + CAMERA + FILE +
+        WORKER_POOL executors plus protocol_thread (started) and
         scope_display_thread (constructed, not started). When callers pass
-        executor handles in, those are used and no bundle is created.
+        executor handles in, those are used and no bundle is created; a
+        lane the caller did not pass is constructed here and never started.
+
+        A scope the factory builds is brought up before this returns
+        (``configure_scope``, then the camera start gate released) and is
+        torn down by ``shutdown()``; a scope passed in is the caller's
+        bring-up and the caller's teardown.
+
+        Keyword arguments, each with the one consumer it feeds:
+            simulate: build a simulated scope (the model from
+                ``settings['microscope']``). Ignored when ``scope`` is passed.
+            warn_pre_release: whether this construction fires the
+                pre-release FutureWarning -- the factory's own call and the
+                scope constructor's. A host that ships with the API passes
+                False; a separately shipped caller leaves the default.
+            ui_dispatcher: ``schedule_once(func, dt)``'s shape; the four
+                lanes marshal their callbacks through it. None runs them
+                inline on the worker.
+            af_ui_update_func: ``(pos) -> None``; the autofocus runner's
+                ``ui_update_func`` and the capture engine's
+                ``z_ui_update_func`` -- one callable, both consumers.
+            settings_saved_hook: called with the snapshot after a
+                successful ``save_settings``.
+            engineering_mode: stored on the session as the mode it was
+                built in.
+            display_ctx_provider: the display thread's context provider
+                (host-only: the GUI's app context; None for a host with
+                no display).
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
 
-        _fire_pre_release_warning()
+        if warn_pre_release:
+            _fire_pre_release_warning()
 
+        built_scope = False
         if scope is None:
             import modules.lumascope_api as lumascope_api
 
-            scope = lumascope_api.Lumascope(configured_model=settings.get('microscope'))
-            # connect() leaves the camera configured but NOT grabbing (the
-            # camera-lifecycle start gate). The GUI releases the gate in its
-            # own bring-up; for a scope THIS session constructed there is no
-            # other bring-up, so release it here or headless captures time
-            # out forever. Scopes passed in by a caller are that caller's
-            # bring-up responsibility (already released, or deliberately
-            # stopped -- either way not ours to restart).
-            scope.imaging.start_streaming()
+            scope = lumascope_api.Lumascope(
+                simulate=simulate,
+                warn_pre_release=warn_pre_release,
+                configured_model=settings.get('microscope'),
+            )
+            # The bring-up -- configure from settings, then release the
+            # camera start gate -- happens below, once the session exists,
+            # for a scope THIS factory built. A scope passed in by a caller
+            # is that caller's bring-up responsibility: they call
+            # configure_scope() and start_streaming() themselves.
+            built_scope = True
 
         executor_bundle = None
         if io_executor is None and camera_executor is None:
             from modules.executor_registry import create_default
 
-            executor_bundle = create_default(ui_dispatcher=None)
+            executor_bundle = create_default(
+                ui_dispatcher=ui_dispatcher, ctx_provider=display_ctx_provider
+            )
             io_executor = executor_bundle.io_executor
             camera_executor = executor_bundle.camera_executor
         else:
             from modules.sequential_io_executor import SequentialIOExecutor
 
             if io_executor is None:
-                io_executor = SequentialIOExecutor(name='IO')
+                io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
             if camera_executor is None:
-                camera_executor = SequentialIOExecutor(name='CAMERA')
+                camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
 
         # Service registration (executors, bundle, source path) happens in
         # __init__ for every session-composed scope -- nothing here.
 
-        # Optional helpers -- import and construct if available.
+        wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
+
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+            ui_update_func=af_ui_update_func,
+        )
+
+        # Both ownership facts go in HERE, before _bring_up can call
+        # _abandon on a refusal: a session torn down mid-factory must
+        # already know what it owns.
+        session = cls(
+            settings=settings,
+            scope=scope,
+            io_executor=io_executor,
+            camera_executor=camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+            executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
+            z_ui_update_func=af_ui_update_func,
+            owns_scope=built_scope,
+            owns_executors=executor_bundle is not None,
+            settings_saved_hook=settings_saved_hook,
+            engineering_mode=engineering_mode,
+        )
+        if built_scope:
+            cls._bring_up(session)
+        return session
+
+    @classmethod
+    def create_headless(
+        cls,
+        settings: dict | None = None,
+        source_path: str = '.',
+        engineering_mode: bool = False,
+    ) -> 'ScopeSession':
+        """Create a headless session with simulated hardware.
+
+        Convenience factory for REST API, CLI scripts, and tests.
+        Uses simulated drivers so no physical hardware is needed.
+
+        This is ``create(simulate=True)`` with the settings resolved from
+        disk when none are passed; the topology, the bring-up and the
+        teardown are ``create``'s.
+        """
+        if settings is None:
+            from modules.settings_init import settings as default_settings
+
+            if default_settings is not None:
+                settings = default_settings.copy()
+            else:
+                # Settings not loaded yet (e.g. headless/test usage) -- resolve
+                # the same file the GUI reads (current.json first, then
+                # settings.json) so headless state matches the running app,
+                # instead of hardcoding settings.json and ignoring live state.
+                # The same preparation the GUI runs -- shape check, folds,
+                # repairs, default merge -- not just the file read. Reading
+                # alone yields a dict that parses and is silently missing
+                # whatever newer releases added to the template.
+                #
+                # A directory with no shipped template is not an installation:
+                # a session configured from an empty dict would have no frame
+                # and no objective, so it refuses here, naming the root. An
+                # unusable current.json surfaces the same way: the GUI answers
+                # that by asking the user, and there is nobody to ask here.
+                try:
+                    settings, _rejected = settings_init.prepare_settings(
+                        logger, source_path, fall_back_to_template=False
+                    )
+                except FileNotFoundError as e:
+                    raise ConfigError(
+                        f'no data/settings.json under {source_path!r}: not an LVP '
+                        'installation root; pass source_path or run from one'
+                    ) from e
+
+        return cls.create(
+            settings,
+            source_path=source_path,
+            simulate=True,
+            engineering_mode=engineering_mode,
+        )
+
+    @staticmethod
+    def _build_helpers(source_path: str) -> tuple:
+        """The three data-file helpers, each guarded so one corrupt file
+        disables one feature with a notification instead of the whole
+        composition. A helper that failed is ``None`` here and refuses at
+        ``configure_scope`` by name."""
         # Every silent helper-init failure has a downstream AttributeError
         # waiting for whichever UI action first reads the missing helper;
         # surface a warning at the failure site so the user knows which
@@ -492,114 +690,51 @@ class ScopeSession:
                 'Check that data/objectives.json exists and is valid.',
             )
 
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
-        )
-
-        return cls(
-            settings=settings,
-            scope=scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            owns_executors=executor_bundle is not None,
-        )
+        return wellplate_loader, coordinate_transformer, objective_helper
 
     @classmethod
-    def create_headless(
-        cls,
-        settings: dict | None = None,
-        source_path: str = '.',
-        engineering_mode: bool = False,
-    ) -> 'ScopeSession':
-        """Create a headless session with simulated hardware.
+    def _bring_up(cls, session: 'ScopeSession') -> None:
+        """Configure the scope a factory built, then release the camera start
+        gate -- in that order, because ``initialize`` applies the capture
+        pixel format synchronously and wants the gate still closed. A raise
+        anywhere in here leaves the caller with no session object to tear
+        down, so this tears down what the factory started before it lets
+        the raise out; a caller's own executor lanes are never touched."""
+        try:
+            session.configure_scope()
+            session.scope.imaging.start_streaming()
+        except BaseException:
+            session._abandon()
+            session.scope.disconnect()
+            raise
+        # The one marker for "the camera is grabbing and the session is
+        # up": a host measures its own consumer's start against it.
+        logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
 
-        Convenience factory for REST API, CLI scripts, and tests.
-        Uses simulated drivers so no physical hardware is needed.
+    def _abandon(self) -> None:
+        """Stop what a factory started for a session it will not return.
 
-        Builds the full production executor topology (IO + CAMERA + FILE +
-        WORKER_POOL + protocol_thread + scope_display_thread) so headless
-        callers get the same pipelining as lumaviewpro.py instead of a
-        degraded 2-executor subset.
+        Owned executors, the display and protocol threads, the AF thread
+        and the scope's hardware half go through ``shutdown``. A session
+        over caller-passed lanes stops only its own scheduler and AF
+        thread: ``shutdown`` would stop the caller's lanes too, and a
+        lane cannot be restarted; the factory's ``_bring_up`` disconnects
+        the scope it built on that path.
         """
-        from modules.lumascope_api._lumascope import _fire_pre_release_warning
-        from modules.executor_registry import create_default
-        import modules.lumascope_api as lumascope_api
-
-        _fire_pre_release_warning()
-
-        if settings is None:
-            from modules.settings_init import settings as default_settings
-
-            if default_settings is not None:
-                settings = default_settings.copy()
-            else:
-                # Settings not loaded yet (e.g. headless/test usage) -- resolve
-                # the same file the GUI reads (current.json first, then
-                # settings.json) so headless state matches the running app,
-                # instead of hardcoding settings.json and ignoring live state.
-                # The same preparation the GUI runs -- shape check, folds,
-                # repairs, default merge -- not just the file read. Reading
-                # alone yields a dict that parses and is silently missing
-                # whatever newer releases added to the template.
-                #
-                # A missing file is normal (fresh install) and resolves to an
-                # empty config. An unusable one is not: the GUI answers that by
-                # asking the user, and there is nobody to ask here. Returning
-                # the template instead would hand an L2 caller a plausible
-                # config that is not theirs, so it surfaces.
-                try:
-                    settings, _rejected = settings_init.prepare_settings(
-                        logger, source_path, fall_back_to_template=False
-                    )
-                except FileNotFoundError:
-                    settings = {}
-
-        scope = lumascope_api.Lumascope(simulate=True, configured_model=settings.get('microscope'))
-        # Release the camera start gate: connect() leaves the sim camera
-        # configured but NOT grabbing, and this factory is the whole
-        # bring-up for the simulated session -- without the release every
-        # capture would time out.
-        scope.imaging.start_streaming()
-
-        executor_bundle = create_default(ui_dispatcher=None)
-
-        # Service registration (executors, bundle, source path) happens in
-        # __init__ for every session-composed scope -- nothing here.
-
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            camera_executor=executor_bundle.camera_executor,
-            io_executor=executor_bundle.io_executor,
-            file_io_executor=executor_bundle.file_io_executor,
-        )
-
-        return cls(
-            settings=settings,
-            scope=scope,
-            io_executor=executor_bundle.io_executor,
-            camera_executor=executor_bundle.camera_executor,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            owns_executors=True,
-            engineering_mode=engineering_mode,
-        )
+        if self._owns_executors:
+            self.shutdown()
+            return
+        self._scheduler.shutdown()
+        if self.autofocus_thread is not None:
+            self.autofocus_thread.stop(timeout=2.0)
 
     @staticmethod
-    def _build_autofocus_pair(*, scope, camera_executor, io_executor, file_io_executor):
+    def _build_autofocus_pair(
+        *, scope, camera_executor, io_executor, file_io_executor, ui_update_func=None
+    ):
         """Real AF runner + started AF thread for a factory-built session,
-        so headless AF-bearing runs get the same wiring the GUI composes."""
+        so every host gets the same wiring; ``ui_update_func`` is the
+        host's Z-position renderer, None for a host with no display."""
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
 
@@ -608,6 +743,7 @@ class ScopeSession:
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
+            ui_update_func=ui_update_func,
         )
         autofocus_thread = AutofocusThread(afe=autofocus_runner)
         autofocus_thread.start()
@@ -678,13 +814,99 @@ class ScopeSession:
         with self.settings_lock:
             self.settings[key] = value
 
+    def configure_scope(self) -> None:
+        """Configure the scope from this session's settings -- the bring-up.
+
+        Once, after construction, on a real scope: adopt the model the
+        hardware reports when the catalogue knows it (a WRITE into this
+        session's ``settings['microscope']`` -- hardware truth outranks
+        the stored selection; a model outside the catalogue, or no motor
+        board to ask, leaves the stored one), normalize the turret slot
+        keys a caller-supplied dict may still carry as JSON strings,
+        resolve the model's catalogue entry, adopt the slot-1 objective,
+        select the labware, build the init config and run
+        ``Lumascope.initialize``. The factories run this for the scope they
+        build; a host that constructs the session directly, or hands
+        ``create`` its own scope, calls it once itself. Every step runs on
+        the calling thread; nothing here dispatches.
+
+        Raises:
+            ConfigError: a settings key ``initialize`` cannot do without is
+                missing (``frame``, ``objective_id``); ``objective_id`` names
+                no shipped objective; a data file a helper needs is absent or
+                unreadable (``labware.json``, ``objectives.json``); or the
+                model catalogue has no usable ``Models`` section.
+        """
+        import modules.config_helpers as config_helpers
+        from modules import layer_record
+        from modules.scope_init_config import ScopeInitConfig
+
+        # The catalogue first: its refusal must land before anything below
+        # mutates the caller's dict.
+        scope_models = layer_record.load_scope_models()
+        # The hardware's own model outranks the stored selection, and it
+        # has to land before the two reads of the selection below, or a
+        # unit whose file says the wrong model configures for the wrong
+        # axes. The motor driver caches its identity at connect, so the
+        # read is synchronous; no board (or a board with no model) reports
+        # None and the stored selection stands.
+        detected = self.scope.diagnostics.get_microscope_model()
+        stored = self.settings.get('microscope')
+        if detected is not None and detected in scope_models and detected != stored:
+            self.update_settings('microscope', detected)
+            logger.info(
+                f'[Session  ] scope reports model {detected}; settings said {stored!r} '
+                '-- the hardware wins'
+            )
+        elif detected is not None and detected not in scope_models:
+            logger.info(
+                f'[Session  ] scope reports model {detected}, not in the catalogue; '
+                f'the stored model {stored!r} stands'
+            )
+        # A caller-supplied dict never went through prepare_settings, whose
+        # normalizer is the one boundary between the file's string slot keys
+        # and the runtime's ints; without it the adoption below reads slot 1
+        # as unassigned and silently keeps the stored objective.
+        settings_init._normalize_turret_slot_keys(self.settings)
+        scope_config = scope_models.get(self.settings.get('microscope'))
+        self.adopt_turret_slot1_objective(
+            model_has_turret=config_helpers.model_has_turret(scope_models, self.settings)
+        )
+        for helper, data_file in (
+            (self.wellplate_loader, 'labware.json'),
+            (self.objective_helper, 'objectives.json'),
+            (self.coordinate_transformer, 'the coordinate transformer'),
+        ):
+            if helper is None:
+                raise ConfigError(
+                    f'cannot configure the scope: {data_file} did not load under '
+                    f'{self.source_path!r} (see the earlier error); a data root '
+                    'without the shipped files is not an installation'
+                )
+        _labware_id, labware = config_helpers.get_selected_labware_from_settings(
+            self.settings, self.wellplate_loader
+        )
+        config = ScopeInitConfig.from_settings(
+            self.settings,
+            labware,
+            scope_config=scope_config,
+            layer_identity=self.scope.layer_identity,
+        )
+        self.scope.initialize(config)
+        # The objective in place at bring-up never passes through the
+        # selection member, so without this a session that changed
+        # nothing would have no record of the scale it was using.
+        # `initialize` has just validated the id, so the lookup is a dict.
+        objective_id = self.settings['objective_id']
+        info = self.objective_helper.get_objective_info(objective_id=objective_id)
+        self._log_resolved_optics(objective_id, info['focal_length'])
+
     def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
         """Make position 1's assignment the session's starting objective.
 
-        This method is not part of the L2 API surface: the hosting
-        environment calls it once per startup/reconnect before settings
-        are consumed; an L2 caller changes objectives through the
-        selection surface.
+        This method is not part of the L2 API surface: ``configure_scope``
+        calls it once per bring-up, before settings are consumed; an L2
+        caller changes objectives through the selection surface.
 
         Startup leaves the turret at position 1 (homing puts it there),
         so the stored objective_id is a leftover from the previous
@@ -726,7 +948,7 @@ class ScopeSession:
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
 
-        True while the user's current.json could not be read and no one
+        True while the user's current.json could not be used and no one
         has decided its fate. While it holds, every save aimed at
         current.json raises SettingsSaveRefusedError -- resolve with
         retire_rejected_settings() after the user has chosen to start
@@ -735,7 +957,7 @@ class ScopeSession:
         return settings_init.settings_are_provisional()
 
     def retire_rejected_settings(self) -> 'str | None':
-        """Resolve the provisional-settings state: retire the unreadable file.
+        """Resolve the provisional-settings state: retire the rejected file.
 
         Moves the unusable current.json aside (renamed, never deleted --
         it is the user's only copy) so a fresh one can take its place,
@@ -758,7 +980,7 @@ class ScopeSession:
         Raises:
             SettingsSaveRefusedError: reason='settings_provisional' when
                 the app is running on the shipped template because
-                current.json could not be read AND the save targets
+                current.json could not be used AND the save targets
                 current.json (force does not override; a save aimed at
                 any other destination still writes). reason='no_hardware'
                 when no hardware was connected this session and force is
@@ -769,14 +991,14 @@ class ScopeSession:
         # Outside the force gate on purpose: force means "save even though no
         # hardware was connected", not "save over a file we were told to leave
         # alone". The settings in memory right now are the shipped template,
-        # loaded because the user's own file could not be read; writing them
+        # loaded because the user's own file could not be used; writing them
         # to current.json would replace their entire configuration with
         # defaults. Resolved by retire_rejected_settings() once the user
         # has actually chosen to start over.
         if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
             logger.warning(
                 '[Session  ] save_settings: refused -- running on default '
-                'settings because current.json could not be read. Not '
+                'settings because current.json could not be used. Not '
                 'overwriting it until the user decides.'
             )
             raise SettingsSaveRefusedError(reason='settings_provisional', file=file)
@@ -828,6 +1050,224 @@ class ScopeSession:
         """
         return self.objective_helper.get_objective_info(objective_id=objective_id)
 
+    # ------------------------------------------------------------------
+    # The objective: the question, the answer and the plain writers
+    # ------------------------------------------------------------------
+
+    def _require_objective_catalogue(self) -> None:
+        if self.objective_helper is None:
+            raise ConfigError(
+                'the objective catalogue is unavailable: objectives.json did not load '
+                f'under {self.source_path!r}'
+            )
+
+    def objective_question(self) -> 'ObjectiveQuestion | None':
+        """Does the objective need confirming? The question, or None.
+
+        A read, for any host: the GUI renders the answer as a popup, a
+        REST caller reads it as state. Two ways the session cannot know
+        what is in the light path: no person has ever confirmed the
+        objective on this install (the settings template ships a default
+        that would otherwise set image scale silently forever), or the
+        DECLARED turret model's current position has no assignment. The
+        declared model, not the live capability: a dead motorboard
+        reports no axes, and that is exactly when a stale objective must
+        not pass unasked.
+
+        Two conditions withhold an owed question, each leaving one log
+        line per call so a bundle can say why nothing was asked: with no
+        hardware there is nothing in the light path and no capture to
+        stamp; while settings are provisional every write is refused, so
+        an answer given now would be lost -- the host re-asks when they
+        resolve. No line is logged for a returned question: the renderer
+        logs its own show, and a polled read must not log per poll.
+
+        Raises:
+            ConfigError: the catalogue is unavailable or empty, the
+                model catalogue cannot be read, or the stored
+                ``turret_position`` is not a whole number.
+        """
+        import modules.config_helpers as config_helpers
+        from modules import layer_record
+
+        self._require_objective_catalogue()
+        has_turret = config_helpers.model_has_turret(
+            layer_record.load_scope_models(), self.settings
+        )
+        first_run = not self.settings.get('objective_confirmed', False)
+        slots = self.settings.get('turret_objectives') or {}
+        if has_turret:
+            # A stored 0, '' or False reads as position 1, the slot homing
+            # leaves the turret on. Coerced here because nothing types the
+            # value where the file is read, so a hand-edited "2" arrives
+            # as a string.
+            raw = self.settings.get('turret_position') or 1
+            try:
+                position = int(raw)
+            except (TypeError, ValueError):
+                raise ConfigError(f'turret_position must be a whole number, got {raw!r}') from None
+            slot_unassigned = slots.get(position) is None
+        else:
+            position = None
+            slot_unassigned = False
+        if not (first_run or slot_unassigned):
+            return None
+        if self.scope.no_hardware:
+            logger.info('[Session  ] objective question withheld -- no hardware this session')
+            return None
+        if self.settings_are_provisional():
+            logger.info(
+                '[Session  ] objective question deferred -- settings are provisional and '
+                'the answer could not be kept'
+            )
+            return None
+        choices = tuple(self.objective_helper.get_objectives_list())
+        if not choices:
+            raise ConfigError(
+                'the objective catalogue is empty; cannot ask which objective is installed'
+            )
+        proposed = (slots.get(position) if position is not None else None) or self.settings.get(
+            'objective_id'
+        )
+        if proposed not in choices:
+            proposed = choices[0]
+        return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
+
+    def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
+        """Answer the objective question: this objective is in the light path.
+
+        Selects the objective, assigns it to ``turret_position`` when one
+        is given, and records that a person has confirmed the objective
+        on this install. Returns whether the objective changed.
+
+        Raises:
+            ConfigError: ``objective_id`` is not exactly a catalogue key,
+                or the catalogue is unavailable. Nothing is written.
+            ValueError: ``turret_position`` is not a slot number 1-4.
+        """
+        changed = self.select_objective(objective_id)
+        if turret_position is not None:
+            self.assign_turret_objective(turret_position, objective_id)
+        with self.settings_lock:
+            self.settings['objective_confirmed'] = True
+        logger.info(
+            f'[Session  ] objective confirmed: {objective_id!r}'
+            + (f' at turret position {turret_position}' if turret_position is not None else '')
+        )
+        return changed
+
+    def select_objective(self, objective_id: str) -> bool:
+        """Make ``objective_id`` the active objective. Returns whether it changed.
+
+        The one writer of the active objective for every host: the
+        settings store and the scope's runtime state move together, and
+        the resolved optics are recorded, because the pixel size derived
+        here is stamped into every capture. Selecting the objective
+        already held is a no-op -- a programmatic re-selection (a turret
+        move, a settings load) is not a change.
+
+        Raises:
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+                Refused before any write, for every id including the one
+                held: the catalogue loader matches prefixes, so a partial
+                id would otherwise bind silently to the first match, and
+                '' to the first entry.
+        """
+        self._require_objective_catalogue()
+        if objective_id not in self.objective_helper.get_objectives_list():
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        if objective_id == self.settings.get('objective_id'):
+            return False
+        info = self.objective_helper.get_objective_info(objective_id=objective_id)
+        # Selecting an objective the turret does not hold is a normal step
+        # of assigning it: the user picks the objective, then binds it to
+        # a position. Logged, not refused: the moments where an unassigned
+        # objective actually blocks something (creating, modifying, adding
+        # to and running a protocol) each refuse there.
+        assigned = [
+            objective
+            for objective in (self.settings.get('turret_objectives') or {}).values()
+            if objective is not None
+        ]
+        if assigned and objective_id not in assigned:
+            logger.info(
+                f'[Session  ] Objective {objective_id!r} selected with no turret '
+                f'position assigned; assigned objectives are {assigned}'
+            )
+        self.scope.runtime_state.set_objective(objective_id=objective_id)
+        with self.settings_lock:
+            self.settings['objective_id'] = objective_id
+        self._log_resolved_optics(objective_id, info['focal_length'])
+        return True
+
+    def assign_turret_objective(self, position: int, objective_id: str) -> None:
+        """Bind ``objective_id`` to turret slot ``position``.
+
+        Raises:
+            ValueError: ``position`` is not a slot number 1-4.
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+        """
+        self._require_objective_catalogue()
+        self._check_turret_slot(position)
+        if objective_id not in self.objective_helper.get_objectives_list():
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        with self.settings_lock:
+            self.settings['turret_objectives'][position] = objective_id
+        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
+
+    def clear_turret_objective(self, position: int) -> None:
+        """Leave turret slot ``position`` unassigned.
+
+        Raises:
+            ValueError: ``position`` is not a slot number 1-4.
+        """
+        self._check_turret_slot(position)
+        with self.settings_lock:
+            self.settings['turret_objectives'][position] = None
+        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
+
+    @staticmethod
+    def _check_turret_slot(position) -> None:
+        if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
+            raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
+
+    def set_turret_position(self, position: int) -> None:
+        """Record the slot the turret landed on.
+
+        Records, never refuses: the position is a fact of the motion that
+        already happened, and a slot key outside 1-4 is constructible from
+        a hand-edited settings file, so refusing here would only turn a
+        landed move into an error. Recording the position the turret is
+        already on is a no-op. A change onto a slot with no assignment is
+        logged as a warning on a scope with a live turret -- the previous
+        objective would otherwise keep setting the image scale silently;
+        ``objective_question`` then owes the question.
+
+        Raises:
+            TypeError: ``position`` is not an int.
+        """
+        if not isinstance(position, int) or isinstance(position, bool):
+            raise TypeError(f'turret position must be an int, got {position!r}')
+        if position == self.settings.get('turret_position'):
+            return
+        with self.settings_lock:
+            self.settings['turret_position'] = position
+        if (
+            self.scope.capabilities.has_turret
+            and (self.settings.get('turret_objectives') or {}).get(position) is None
+        ):
+            logger.warning(f'[Session  ] turret at position {position} with no objective assigned')
+
+    def _log_resolved_optics(self, objective_id: str, focal_length: float) -> None:
+        import modules.config_helpers as config_helpers
+
+        config_helpers.log_resolved_optics(
+            objective_id,
+            focal_length,
+            self.scope.imaging.get_binning_size(),
+            capabilities=self.scope.capabilities,
+        )
+
     def get_current_plate_position(self) -> dict:
         import modules.config_helpers as config_helpers
 
@@ -875,7 +1315,13 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     def start_executors(self) -> None:
-        """Start the IO and camera executors."""
+        """Start the IO and camera lanes.
+
+        This method is not part of the L2 API surface: the factories start
+        the lanes they build, and a host that hands its own lanes in starts
+        them itself. A second start on a running lane spawns a second
+        worker thread beside the first.
+        """
         self.io_executor.start()
         self.camera_executor.start()
 
@@ -952,50 +1398,105 @@ class ScopeSession:
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
-        Teardown scope follows the explicit ownership fact, never
-        bundle-presence: every host hands its bundle in for scope
-        servicing, so "holds a bundle" no longer means "built the
-        topology". A session that OWNS its executors (the factories)
-        stops the long-lived consumer threads BEFORE the executor lanes
-        they consume -- a consumer mid-iteration that finds its lane
-        already shut down can hang on a dispatch that never fires
-        (scope_display_thread consumes camera_executor; protocol_thread
-        drives io + camera + file lanes). A non-owning session still
-        stops the handles the caller passed in (io, camera, and the AF
-        thread) -- not-owner is not a no-op -- but never the host's
-        bundle. Running metrics stop first, or their ticks would
-        outlive the executors they snapshot.
+        Two ownership facts decide what that is, both constructor state.
+        ``owns_scope`` (a factory BUILT the scope) is the hardware half:
+        the LEDs drained through the io lane while its worker is alive,
+        motion stopped, the scope disconnected -- so a headless host gets
+        the same teardown the GUI gets. ``owns_executors`` (a factory
+        BUILT the executor topology) is the lane half: the long-lived
+        consumer threads stop BEFORE the lanes they consume (a consumer
+        mid-iteration that finds its lane already shut can hang on a
+        dispatch that never fires; scope_display_thread consumes
+        camera_executor, protocol_thread drives io + camera + file), then
+        the four lanes. A session over caller-passed lanes shuts those
+        lanes and its AF thread instead -- never a host's bundle. Neither
+        half returns before the other. Running metrics stop first, or
+        their ticks would outlive the executors they snapshot.
+
+        A scope passed in or swapped in with ``set_scope`` is left
+        connected: it is the caller's. A second call is a logged no-op; a
+        call that raised part-way can be called again.
         """
+        if self._shut_down:
+            logger.info('[Session  ] shutdown() called again -- nothing to do')
+            return
         self.stop_metrics()
         # Settle any run's merge outcome FIRST. The executor teardown below
         # does not wait for the file lanes to drain, so a merge still
         # waiting on this run's writes can never finish -- and a caller
         # blocked on the result would wait out its whole bound for an
-        # answer that is no longer coming. Ahead of the non-owner early
-        # return, because a borrowed-executor session tears down the same
-        # way from the waiter's point of view.
+        # answer that is no longer coming. A borrowed-executor session
+        # tears down the same way from the waiter's point of view.
         runner = self.sequenced_capture_runner
         if runner is not None:
             outcome = runner.merge_outcome()
             if outcome is not None:
                 outcome.settle_unfinished('shutdown')
-        # The session owns its scheduler: shut it down here, before the
-        # non-owner early return below, so a session that borrowed its
+        # The session owns its scheduler: a session that borrowed its
         # executors still ends its own timers (a live health check
         # outliving the session would fire into torn-down state).
         self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
+        if self._owns_scope and self.io_executor.worker_alive:
+            # Drain the LEDs through the io lane BEFORE the lanes go down,
+            # on the same serial-bus lane as every other LED write, so it
+            # cannot race an in-flight LED task the way a bare thread did.
+            # Only while the lane's worker is alive: a submission to a lane
+            # with no worker is never serviced, and the wait would run out
+            # its bound for nothing -- disconnect() below turns the LEDs
+            # off inline either way. The 2 s bound keeps the calling
+            # thread from blocking on slow serial.
+            logger.info('[Session  ] shutdown: leds_off through the io lane')
+            try:
+                from modules.sequential_io_executor import IOTask
+
+                fut = self.io_executor.put(
+                    IOTask(action=self.scope.illumination._leds_off_impl),
+                    return_future=True,
+                )
+                if fut is None:
+                    logger.warning('[Session  ] io lane refused the shutdown leds_off')
+                else:
+                    try:
+                        fut.result(timeout=2.0)
+                    except TimeoutError:
+                        # The lane can still be draining protocol-abort
+                        # cleanup, which turns the LEDs off itself -- this
+                        # expiry does not mean LEDs were left on. The cached
+                        # channel state answers that question directly.
+                        states = self.scope.illumination.get_led_states()
+                        lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                        state_text = (
+                            'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
+                        )
+                        logger.warning(
+                            f'[Session  ] shutdown leds_off still queued on the io lane '
+                            f'after 2.0s; LED state cache reports {state_text}'
+                        )
+                    except Exception as e:
+                        logger.warning(f'[Session  ] shutdown leds_off failed: {e}')
+            except Exception as e:
+                logger.warning(f'[Session  ] leds_off submission failed during shutdown: {e}')
         if not self._owns_executors:
             self.shutdown_executors()
-            return
-        bundle = self.executor_bundle
-        bundle.scope_display_thread.stop()
-        bundle.protocol_thread.stop(timeout=2.0)
-        bundle.io_executor.shutdown(wait=False)
-        bundle.camera_executor.shutdown(wait=False)
-        bundle.file_io_executor.shutdown(wait=False)
-        bundle.worker_pool.shutdown(wait=False)
+        else:
+            bundle = self.executor_bundle
+            bundle.scope_display_thread.stop()
+            bundle.protocol_thread.stop(timeout=2.0)
+            bundle.io_executor.shutdown(wait=False)
+            bundle.camera_executor.shutdown(wait=False)
+            bundle.file_io_executor.shutdown(wait=False)
+            bundle.worker_pool.shutdown(wait=False)
+        if self._owns_scope:
+            # After the lanes: an in-flight move's callbacks have their
+            # lanes shut before the move is stopped. disconnect() stops
+            # motion again itself, turns the LEDs off inline and bounded,
+            # ends the motion monitor and unregisters the atexit hook; it
+            # is repeatable, so a host's own later disconnect is harmless.
+            self.scope.motion.stop_motion()
+            self.scope.disconnect()
+        self._shut_down = True
 
     def start_application_session(
         self,
@@ -1004,34 +1505,37 @@ class ScopeSession:
         home_fn: typing.Callable | None = None,
         turret_fn: typing.Callable | None = None,
     ) -> None:
-        """LVP-A-5: queue the standard startup home + turret-positioning sequence.
+        """Queue the standard startup home + turret-positioning sequence.
 
-        Replaces the inline blocks in lumaviewpro.py:on_start AND
-        ui/microscope_settings.py reconnect handler -- both previously
-        open-coded the same ALL-axis home + turret-positioning sequence
-        with a Rule-2 single-source-of-truth violation (drift risk if
-        one branch ever updated without the other).
+        The one implementation of the startup motion for every host:
+        the App's launch and its reconnect handler once open-coded the
+        same ALL-axis home + turret-positioning pair, and the two
+        copies drifted.
 
         After this method returns, the io_executor has been told to:
 
-        1. (when ``disable_homing=False``) home ALL axes via ``move_home``.
-           Firmware homes Z, T, X, Y in one routine; on Z-only boards
-           it homes what it has and reports the missing axes.
+        1. home ALL axes via ``move_home``. Firmware homes Z, T, X, Y in
+           one routine; on Z-only boards it homes what it has and
+           reports the missing axes.
 
-        2. (when ``self.scope.capabilities.has_turret`` is True) move T-axis
-           to the position that matches ``settings['objective_id']`` --
-           falls back to position 1 if the objective isn't in the turret
-           config. Updates ``settings['turret_position']`` so later code
-           reads the actual position.
+        2. (when ``self.scope.capabilities.has_turret`` is True) move T
+           to position 1, the slot whose objective was adopted at
+           configure, and record it in ``settings['turret_position']``
+           so later code reads the actual position.
+
+        ``disable_homing=True`` skips BOTH steps: no startup motion on
+        any axis. The turret is left where it is, like the stage axes,
+        and no turret position is recorded -- positioning it without a
+        home would be an absolute move against a reference the caller
+        asked us not to establish. The skip is the requested behaviour,
+        so it is logged, not signalled.
 
         Headless / REST callers can use this exact same call to apply
         the standard startup orchestration without copy-pasting from
         the App.
 
         Args:
-            disable_homing: If True, skip the home step but still run
-                turret-positioning. Matches the App's ``--no-home``
-                CLI flag semantics.
+            disable_homing: If True, issue no startup motion at all.
             home_fn: Callable taking an axis name and returning whether
                 the home succeeded. Defaults to the motion API.
             turret_fn: Callable taking a turret position. Defaults to
@@ -1049,6 +1553,10 @@ class ScopeSession:
         exists, so before injection this method could not run outside
         the GUI despite the docstring above promising it could.
         """
+        if disable_homing:
+            logger.info('startup motion skipped: homing disabled; the turret is left where it is')
+            return
+
         if home_fn is None:
             home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
         if turret_fn is None:
@@ -1060,7 +1568,7 @@ class ScopeSession:
         # secondary cascade users report -- a second error on top of the
         # home's own, for motion that could never have been correct. The
         # home already notified, so this stays a log.
-        if not disable_homing and not home_fn('ALL'):
+        if not home_fn('ALL'):
             logger.error(
                 'Homing did not succeed -- skipping startup turret '
                 'positioning; the stage reference is unknown'
@@ -1073,8 +1581,7 @@ class ScopeSession:
             # else would split the claimed optics from the physical
             # glass. After a real home this move is a physical no-op,
             # but it still must be issued -- it is the only startup
-            # path that highlights the turret button, and with homing
-            # disabled it is the only T positioning at all.
+            # path that highlights the turret button.
             START_POSITION = 1
-            self.settings['turret_position'] = START_POSITION
+            self.set_turret_position(START_POSITION)
             turret_fn(START_POSITION)

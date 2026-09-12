@@ -37,7 +37,7 @@ def build_protocol_config():
     """
     return {
         'labware_id': '96 Well Plate',
-        'objective_id': '4x',
+        'objective_id': '4x Oly',
         'period': datetime.timedelta(minutes=5),  # Time between scans
         'duration': datetime.timedelta(hours=1),  # Total protocol duration
         'use_zstacking': False,
@@ -77,27 +77,31 @@ def build_protocol_config():
 
 
 def main():
-    # Create scope in simulate mode
-    scope = Lumascope(simulate=True)
+    # Real settings: the documented loader reads data/current.json (falling
+    # back to the shipped template) and validates it. A hand-built dict has
+    # to carry at least 'frame' and 'objective_id', or the bring-up refuses.
+    import modules.settings_init as settings_init
+    from lvp_logger import logger
+
+    settings_init.load_lvp_settings(logger, '.')
+    settings = settings_init.settings
+    settings['live_folder'] = str(pathlib.Path('./capture').resolve())
+
+    # Create scope in simulate mode. The simulated motor board reports the
+    # model it is declared with, so declaring the settings' model keeps the
+    # bring-up's model check silent -- it has nothing to correct.
+    scope = Lumascope(simulate=True, configured_model=settings['microscope'])
     print('Scope initialized (simulate=True)')
 
-    # Build session settings (minimal for headless operation)
-    settings = {
-        'live_folder': str(pathlib.Path('./capture').resolve()),
-        'stage_offset': {'x': 0, 'y': 0},
-    }
-
-    # Create a ScopeSession -- the GUI-independent state container
+    # Create a ScopeSession -- the GUI-independent state container. The
+    # factory starts the executor lanes. We built the scope ourselves, so the
+    # bring-up is ours: configure it from the settings, then start the camera
+    # feed (connect() leaves the camera configured but not grabbing). A
+    # session whose scope the factory built gets both steps for free.
     session = ScopeSession.create(settings=settings, scope=scope)
-    session.start_executors()
-    print('Session created, executors started')
-
-    # Start the camera feed before any capture. connect() configures the
-    # camera but does not begin grabbing (the lifecycle split); until the feed
-    # is running, capture_and_wait returns None. The GUI does this during
-    # bring-up; a headless script must do it explicitly.
+    session.configure_scope()
     scope.imaging.start_streaming()
-    print('Camera streaming started')
+    print('Session created, scope configured')
 
     # Create a ProtocolRunner from the session
     runner = session.create_protocol_runner()
@@ -156,9 +160,11 @@ def main():
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')
 
-    # Clean up
+    # Clean up. The scope was ours, so the disconnect is ours: session
+    # shutdown leaves a caller-passed scope alone. A factory-built scope is
+    # disconnected by session.shutdown() itself.
     runner.shutdown()
-    session.shutdown_executors()
+    session.shutdown()
     scope.disconnect()
     print('Scope disconnected')
 

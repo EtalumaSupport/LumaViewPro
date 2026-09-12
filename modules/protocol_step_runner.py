@@ -200,11 +200,23 @@ class ProtocolStepRunner:
         # every poll of every move.
         step = p._protocol.step(idx=p._curr_step)
 
+        # A z-stack slice never triggers its own sweep. Focusing every slice
+        # walks them all onto the same plane and the stack spans nothing, so
+        # the group is focused ONCE, at its first slice, and every slice is
+        # then placed from that result. Auto_Focus on a slice marks which one
+        # is the group's reference plane, not which one sweeps.
+        zstack_focus_anchor = p._protocol.zstack_group_focus_anchor(step_idx=p._curr_step)
+        wants_af = (
+            zstack_focus_anchor is not None
+            if step['Z-Stack Group ID'] != -1
+            else bool(step.get('Auto_Focus'))
+        )
+
         # AF already pushed the Z UI to best_focus_position; do not
         # overwrite with the pre-AF step['Z']. AFE.complete() being
         # True at this point means the most recent AF run finished
         # with a result that AFE has already scheduled to the UI.
-        if step.get('Auto_Focus') and p._autofocus_runner.complete():
+        if wants_af and p._autofocus_runner.complete():
             pass
         elif p._z_ui_update_func is not None:
             _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
@@ -238,8 +250,9 @@ class ProtocolStepRunner:
             )
             step = dict(step)
             step['Auto_Focus'] = False
+            wants_af = False
 
-        if step['Auto_Focus'] and p._af_future is None:
+        if wants_af and p._af_future is None:
             if p._callbacks.autofocus_in_progress:
                 _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
 
@@ -272,8 +285,50 @@ class ProtocolStepRunner:
             )
             return
 
-        if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
+        if wants_af and p._af_future is not None and not p._af_future.done():
             return
+
+        # Place the whole z-stack group the moment its focus is known, then move
+        # THIS slice to where the placement put it.
+        #
+        # A step's move is issued at the END of the previous step, from the
+        # stored frame. So the sweep's result arrives too late for the very
+        # slice that produced it: placement reaches slices 2..N (their moves
+        # have not gone out yet) and can never reach this one, which would
+        # otherwise capture wherever autofocus parked the stage and put the
+        # found focus at the stack's BOTTOM instead of its reference plane.
+        # Re-issuing the move here is what makes the stack span its range.
+        #
+        # Placing before the Auto_Gain arm below matters: gain converges on
+        # whatever the camera is grabbing, so arming first and moving second
+        # would converge it on a plane this slice does not capture.
+        #
+        # The move is one-shot per step. Placement is idempotent (a second
+        # call computes a zero shift), but the move is not -- re-issuing it on
+        # every poll would return here forever and the step would never reach
+        # its capture.
+        if wants_af and zstack_focus_anchor is not None and p._focus_placed_step != p._curr_step:
+            found_z = p._autofocus_runner.best_focus_position()
+            if found_z is not None:
+                moved = p._protocol.apply_zstack_group_focus(
+                    reference_step_idx=zstack_focus_anchor, z=found_z
+                )
+                logger.info(
+                    f'[Capture   ] Z-stack group placed around Z={found_z} ({moved} slices)'
+                )
+                # Read the target back out of the stored frame rather than
+                # computing it: the frame is what every other slice's move is
+                # issued from, so reading it here keeps this slice on the same
+                # ladder as its siblings.
+                placed_z = float(p._protocol.step(idx=p._curr_step)['Z'])
+                self._move_axis_through_io('Z', placed_z)
+                p._focus_placed_step = p._curr_step
+                if p._callbacks.move_position:
+                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
+                # Let the next poll's motion gate settle the stage before the
+                # capture. That poll also re-reads the step row, so the frame
+                # this slice is saved with carries the placed Z.
+                return
 
         # Light the channel LED, then arm continuous Auto_Gain against the lit
         # scene. Hardware AG converges on whatever the camera is grabbing; if
@@ -305,6 +360,7 @@ class ProtocolStepRunner:
                     # use the body directly.
                     action=p._scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
+                        'layer': step['Color'],
                         'gain_db': step['Gain'],
                         'exposure_ms': step['Exposure'],
                         'auto_gain': True,
@@ -327,17 +383,17 @@ class ProtocolStepRunner:
             return
 
         # Update Z position with autofocus results
-        if step['Auto_Focus'] and p._update_z_pos_from_autofocus:
+        if wants_af:
             new_z_pos = p._autofocus_runner.best_focus_position()
-            if new_z_pos is not None:
-                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-            else:
+            if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
+            elif zstack_focus_anchor is None and p._update_z_pos_from_autofocus:
+                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
 
         if p._callbacks.autofocus_complete:
             _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)
 
-        if step['Auto_Focus']:
+        if wants_af:
             p._autofocus_count += 1
 
         # --- Capture ---
