@@ -2734,11 +2734,13 @@ class PylonCamera(Camera):
                 draining queued frames.
 
         Returns:
-            tuple: ``(success: bool, timestamp: float | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``.
                 ``success=False`` if the camera is inactive, the handler
                 is missing, or no frame arrived within ``timeout_s``.
-                ``timestamp`` is the host-side capture timestamp on
-                success, ``None`` otherwise.
+                ``timestamp`` is the host-side capture time on success
+                and ``seq`` the frame's arrival ordinal; both ``None``
+                otherwise.
         """
         # Per-grab duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).

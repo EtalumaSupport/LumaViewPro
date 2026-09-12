@@ -896,7 +896,8 @@ class SimulatedCamera(Camera):
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, significant_bits: int | None)``.
+                timestamp: datetime | None, significant_bits: int | None,
+                seq: int | None)``.
         """
         if not self._grabbing:
             return False, None, None, None, None

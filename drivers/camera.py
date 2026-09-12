@@ -699,7 +699,7 @@ class Camera(ABC):
         ImageHandlerBase (to avoid a metaclass conflict with the SDK event
         handler) and exposes only the method surface, so reaching the
         attribute directly raises AttributeError on a Pylon camera. The
-        4-tuple read is atomic under the handler's frame lock, so the
+        tuple is read atomically under the handler's frame lock, so the
         stamp cannot describe a different frame than the one returned
         beside it.
         """
@@ -1087,8 +1087,10 @@ class Camera(ABC):
             timeout_s: Maximum wait in seconds.
 
         Returns:
-            tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``. The frame itself is read back with
+                ``get_array()``; the arrival ordinal travels with the
+                grab for the same reason as in ``grab()``.
         """
         pass
 

@@ -1,4 +1,4 @@
 4.0.0-beta36
-2026-09-12 01:17
+2026-09-12 01:18
 fix/841-count-only-post-write-frames
-1f260944
+0bf2061f
