@@ -4137,25 +4137,28 @@ class ImageHandler(pylon.ImageEventHandler):
         self._base.reset()
 
     def get_last_image(self) -> tuple:
-        """Return ``(success, image_copy, timestamp)`` with validity guard.
+        """The base handler's ``get_last_image``, refusing a detached device.
 
-        Wraps the base ``ImageHandlerBase.get_last_image`` with a
-        parent-camera validity check: if the camera has been marked
-        removed or ``self._parent.active`` has been cleared, returns
-        ``(False, None, None)`` immediately rather than handing back
-        a frame from a no-longer-attached device.
+        If the camera has been marked removed or ``self._parent.active``
+        has been cleared, answers ``ImageHandlerBase.NO_FRAME`` rather
+        than handing back a frame from a no-longer-attached device. The
+        no-frame answer is the base's own, not a local copy: every reader
+        unpacks this tuple positionally, and a copy here went short each
+        time the base tuple grew.
 
         Returns:
             tuple: ``(success: bool, image: ndarray | None,
-                timestamp: float | None)``.
+                timestamp: datetime | None, significant_bits: int | None,
+                seq: int | None)`` -- the ``ImageHandlerBase.get_last_image``
+                shape.
         """
         try:
             if self._parent._device_removed:
-                return False, None, None
+                return self._base.NO_FRAME
             if self._parent.active is None:
-                return False, None, None
+                return self._base.NO_FRAME
         except Exception:
-            return False, None, None
+            return self._base.NO_FRAME
 
         return self._base.get_last_image()
 

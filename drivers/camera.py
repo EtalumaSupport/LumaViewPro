@@ -31,6 +31,13 @@ class ImageHandlerBase:
 
     MAX_CONSECUTIVE_FAILURES = 128
 
+    # The no-frame answer of get_last_image(), in the delivered-frame shape.
+    # Owned here because the Pylon handler composes this class and answers
+    # no-frame from its own detached-device guard: a second copy of the tuple
+    # went short each time this one grew, and every reader unpacks it
+    # positionally.
+    NO_FRAME = (False, None, None, None, None)
+
     def __init__(self):
         self._frame_lock = threading.Lock()
         self.last_result = False
@@ -104,7 +111,7 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             if not self.last_result:
-                return False, None, None, None, None
+                return self.NO_FRAME
             return (
                 True,
                 self.last_img,
