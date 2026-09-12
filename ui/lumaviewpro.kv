@@ -2741,7 +2741,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					text: format(ill_slider.value, '.4g')
 					on_text_validate: root.ill_text()
 					on_focus: if not self.focus: root.ill_text()
 
@@ -3091,7 +3090,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					text: format(gain_slider.value, '.3g')
 					on_text_validate: root.gain_text()
 					on_focus: if not self.focus: root.gain_text()
 
@@ -3144,7 +3142,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					text: format(exp_slider.value, '.4g')
 					# text: format(10 ** exp_slider.value, '.3g')
 					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()

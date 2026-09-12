@@ -148,30 +148,37 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
     or text widget must wrap the write in _initializing=True so the on_value
     handler doesn't re-enter."""
 
-    def test_ill_text_wraps_slider_write(self):
+    def test_the_typed_paths_write_widgets_only_through_the_wrapped_writer(self):
+        """ill_text and the generic text handler must not write a widget
+        themselves. Both hand the value to the one writer, which is where the
+        wrapping is asserted below -- an inline write here would be a slider
+        write with no suppression, which the handler reads back as a drag."""
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, 'LayerControl', 'ill_text')
-        body = _source_of(func)
-        # The slider.value assignment must be inside a self._initializing=True block
-        assert 'self._initializing = True' in body, (
-            'ill_text must wrap programmatic widget writes in _initializing=True (#617)'
-        )
-        assert 'self._initializing = False' in body, (
-            'ill_text must reset _initializing = False after the write'
-        )
+        for method in ('ill_text', '_validate_and_apply_text_input', 'exp_text'):
+            body = _source_of(_find_method(tree, 'LayerControl', method))
+            assert '_show_value_on_widgets' in body, (
+                f'{method} must render through _show_value_on_widgets'
+            )
+            assert 'slider.value' not in body, f'{method} must not assign a slider value itself'
 
-    def test_validate_and_apply_text_input_wraps_widget_writes(self):
+    def test_the_widget_writer_wraps_its_writes(self):
+        """The wrapping the typed paths used to carry inline now lives in the
+        one writer they share."""
         tree = _parse(LAYER_CONTROL)
-        func = _find_method(tree, 'LayerControl', '_validate_and_apply_text_input')
-        body = _source_of(func)
+        body = _source_of(_find_method(tree, 'LayerControl', '_show_value_on_widgets'))
         assert 'self._initializing = True' in body, (
-            '_validate_and_apply_text_input must wrap widget writes (#617)'
+            '_show_value_on_widgets must wrap programmatic widget writes'
         )
-        # slider.value set must be after _initializing = True
+        # The slider write must be after the flag is raised.
         init_pos = body.find('self._initializing = True')
         slider_set_pos = body.find('slider.value')
         assert init_pos != -1 and slider_set_pos != -1
         assert init_pos < slider_set_pos, '_initializing=True must be set before the slider write'
+        # And the flag must come back down: restored to what it was, so a
+        # caller that is already suppressing keeps its own guard.
+        assert 'self._initializing = was_initializing' in body, (
+            '_show_value_on_widgets must restore the previous flag state, not clear it'
+        )
 
     def test_update_camera_ui_is_text_only(self):
         """The camera listener handler must only update text widgets,

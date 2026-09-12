@@ -208,6 +208,10 @@ class _Widget:
         self.visible = None
         self.opacity = None
         self.max = None
+        # None bounds clip nothing, so a stand widget renders the stored
+        # value unchanged and the assertions below read the store, not a
+        # bound this fake invented.
+        self.min = None
 
 
 class _NoSettingsCtx:
@@ -234,6 +238,10 @@ class _LayerStand:
         self._initializing = False
         self.visibility_calls = 0
         self.effective_auto_gain = LayerControl.effective_auto_gain.__get__(self)
+        self._show_value_on_widgets = LayerControl._show_value_on_widgets.__get__(self)
+        self.render_layer_values_from_settings = (
+            LayerControl.render_layer_values_from_settings.__get__(self)
+        )
 
     def update_stim_controls_visibility(self):
         self.visibility_calls += 1

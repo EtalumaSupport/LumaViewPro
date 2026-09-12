@@ -30,6 +30,15 @@ BF_MAX_EXPOSURE_MS = 1000
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
+# The three settings a layer shows twice -- once on a slider, once in a text
+# box -- paired with the widgets that show them. Illumination is absent from
+# the layers with no LED, so a renderer skips a key the layer does not carry.
+_LAYER_VALUE_WIDGETS = (
+    ('ill_slider', 'ill_text', 'illumination_ma'),
+    ('gain_slider', 'gain_text', 'gain_db'),
+    ('exp_slider', 'exp_text', 'exposure_ms'),
+)
+
 # ------------------------------------------------------------------
 # Diagnostic toggle for the "illumination slider > ~150 mA silently
 # fails to light LED on LS620 FX2" bench investigation
@@ -236,19 +245,8 @@ class LayerControl(BoxLayout):
         else:
             settings[self.layer][settings_key] = clipped
 
-        # Update widgets -- wrapped in _initializing so the slider's
-        # on_value handler does not re-enter and double-fire apply_settings
-        # (#617). Settings are already written above.
-        self._initializing = True
-        try:
-            # The slider can only represent up to its own max; a typed value
-            # above value_max's allowance pins the slider at max while the
-            # setting + text keep the larger value.
-            slider_value = min(clipped, slider.max)
-            slider.value = float(slider_value) if cast is float else int(slider_value)
-            self.ids[text_id].text = str(clipped)
-        finally:
-            self._initializing = False
+        # The settings write above is the commit; this is the display half.
+        self._show_value_on_widgets(slider_id, text_id, clipped, cast=cast)
 
         # text_input (not slider): this is a typed commit, and the twin slider
         # emits SLIDER for the same setting, so sharing the verb would make a
@@ -415,16 +413,7 @@ class LayerControl(BoxLayout):
             )
         settings[self.layer]['illumination_ma'] = illumination
 
-        # Wrap programmatic widget writes so on_value does not re-enter
-        # ill_slider and re-fire apply_settings (#617).
-        self._initializing = True
-        try:
-            self.ids['ill_slider'].value = float(
-                np.clip(illumination, ill_min, self.ids['ill_slider'].max)
-            )
-            self.ids['ill_text'].text = str(illumination)
-        finally:
-            self._initializing = False
+        self._show_value_on_widgets('ill_slider', 'ill_text', illumination)
 
         gui_logger.note_write_back(f'ILLUMINATION_{self.layer}', illumination)
 
@@ -505,15 +494,17 @@ class LayerControl(BoxLayout):
             # for that field rather than push a non-physical one.
             gain_known = common_utils.is_valid_gain_db(gain)
             exp_known = common_utils.is_valid_exposure_ms(exp)
+            # Rounded to the resolution the control has: an achieved value
+            # carrying more digits than any path can re-enter would make the
+            # store and every widget showing it disagree forever.
             if gain_known:
-                settings[self.layer]['gain_db'] = gain
-                self.ids['gain_slider'].value = gain
-                self.ids['gain_text'].text = str(round(gain, 1))
+                settings[self.layer]['gain_db'] = round(gain, 1)
             if exp_known:
-                # The API decided what to store (the achieved exposure
-                # floored to the class's usable floor); the display only
-                # keeps it inside this slider's own range. The raw value
-                # reaches the user through the lock's state below.
+                # The API decided the value (the achieved exposure floored
+                # to the class's usable floor); what is STORED is that value
+                # reconciled against the camera's own range, which is what
+                # this slider's bounds carry. The raw value reaches the user
+                # through the lock's state below.
                 stored = float(
                     np.clip(
                         lock.stored_exposure_ms,
@@ -521,9 +512,9 @@ class LayerControl(BoxLayout):
                         self.ids['exp_slider'].max,
                     )
                 )
-                settings[self.layer]['exposure_ms'] = stored
-                self.ids['exp_slider'].value = stored
-                self.ids['exp_text'].text = str(round(stored, 2))
+                settings[self.layer]['exposure_ms'] = round(stored, 2)
+            if gain_known or exp_known:
+                self.render_layer_values_from_settings()
 
         settings[self.layer]['auto_gain'] = state
         self.apply_settings()
@@ -631,17 +622,7 @@ class LayerControl(BoxLayout):
 
         settings[self.layer]['exposure_ms'] = exposure
 
-        # Wrap programmatic widget writes so on_value does not re-enter
-        # exp_slider and re-fire apply_exp_slider (#617).
-        self._initializing = True
-        try:
-            self.ids['exp_slider'].value = float(
-                np.clip(exposure, exp_min, self.ids['exp_slider'].max)
-            )
-            # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
-            self.ids['exp_text'].text = str(exposure)
-        finally:
-            self._initializing = False
+        self._show_value_on_widgets('exp_slider', 'exp_text', exposure)
 
         gui_logger.note_write_back(f'EXPOSURE_{self.layer}', exposure)
 
@@ -1104,13 +1085,10 @@ class LayerControl(BoxLayout):
                 self.ids['false_color'].active = step['False_Color']
 
             if 'Illumination' in step:
-                ill = step['Illumination']
-                self.ids['ill_text'].text = str(ill)
-                self.ids['ill_slider'].value = float(ill)
+                self._show_value_on_widgets('ill_slider', 'ill_text', step['Illumination'])
 
             if 'Gain' in step:
-                self.ids['gain_text'].text = str(step['Gain'])
-                self.ids['gain_slider'].value = float(step['Gain'])
+                self._show_value_on_widgets('gain_slider', 'gain_text', step['Gain'])
 
             if 'Auto_Gain' in step:
                 # The box drives the gain/exposure widgets' enabled state in
@@ -1121,8 +1099,7 @@ class LayerControl(BoxLayout):
                 )
 
             if 'Exposure' in step:
-                self.ids['exp_text'].text = str(step['Exposure'])
-                self.ids['exp_slider'].value = float(step['Exposure'])
+                self._show_value_on_widgets('exp_slider', 'exp_text', step['Exposure'])
 
             if 'Sum' in step:
                 self.ids['sum_text'].text = str(step['Sum'])
@@ -1168,6 +1145,60 @@ class LayerControl(BoxLayout):
         finally:
             self._initializing = False
 
+    def _show_value_on_widgets(self, slider_id: str, text_id: str, value, cast=float):
+        """Show one stored value on the slider and the text box that share it.
+
+        The text box takes the value itself; the slider takes the nearest
+        position it can represent. A slider's range is a convenience range that
+        can be narrower than what the box accepts, so a stored value above it
+        pins the slider at its maximum while the box keeps the real number.
+        Only one of the two representations may lose precision, and it is never
+        the one the user reads the setting from.
+
+        Both writes run with the layer's handlers suppressed: these are
+        display, and a slider's on_value handler exists to record what the USER
+        did -- unsuppressed, it commits the written value back over the stored
+        one and logs it as a drag. The previous flag state is RESTORED rather
+        than cleared, so a caller that is already suppressing (a layer still
+        initializing, a capability sync narrowing every slider) still has its
+        own guard when this returns.
+        """
+        slider = self.ids[slider_id]
+        on_slider = cast(np.clip(value, slider.min, slider.max))
+        was_initializing = self._initializing
+        self._initializing = True
+        try:
+            slider.value = on_slider
+            self.ids[text_id].text = str(value)
+        finally:
+            self._initializing = was_initializing
+
+    def render_layer_values_from_settings(self, layer_settings=None):
+        """Render this layer's stored illumination, gain and exposure.
+
+        The one store-to-widget path for the three settings that appear on both
+        a slider and a text box. Callers reconcile the store against the
+        camera's PHYSICAL caps before calling: a value the hardware cannot
+        honor is wrong in the store, not merely too large for the slider, and
+        pinning the slider would hide it instead of correcting it.
+
+        Pass *layer_settings* when the caller already holds a snapshot of this
+        layer's settings. Reading the store again here would take the lock a
+        second time and could see a DIFFERENT state, leaving some widgets
+        rendered from one snapshot and some from another; a caller with no
+        snapshot passes nothing and this reads the store once, under the lock.
+        """
+        if layer_settings is None:
+            ctx = _app_ctx.ctx
+            with ctx.settings_lock:
+                stored = ctx.settings[self.layer]
+                layer_settings = {
+                    key: stored[key] for _, _, key in _LAYER_VALUE_WIDGETS if key in stored
+                }
+        for slider_id, text_id, settings_key in _LAYER_VALUE_WIDGETS:
+            if settings_key in layer_settings:
+                self._show_value_on_widgets(slider_id, text_id, layer_settings[settings_key])
+
     def sync_widgets_from_settings(self):
         """Point every widget of this layer at its stored settings.
 
@@ -1194,10 +1225,7 @@ class LayerControl(BoxLayout):
                     'composite_brightness_threshold'
                 ]
 
-            if 'illumination_ma' in layer_settings:
-                self.ids['ill_slider'].value = layer_settings['illumination_ma']
-            self.ids['gain_slider'].value = layer_settings['gain_db']
-            self.ids['exp_slider'].value = layer_settings['exposure_ms']
+            self.render_layer_values_from_settings(layer_settings)
 
             self.ids['false_color'].active = layer_settings['false_color']
             self.ids['sum_slider'].value = layer_settings.get('sum', 1)

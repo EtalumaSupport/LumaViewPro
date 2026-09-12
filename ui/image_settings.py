@@ -565,17 +565,32 @@ class ImageSettings(BoxLayout):
         value -- and its slider -- down to the cap for every layer, the same
         reconciliation load_settings performs, so connect and reconnect agree.
         An over-cap value cannot be honored by the hardware regardless.
+
+        Runs BEFORE anything renders the store, on every path that reaches it:
+        a value the camera cannot honor is wrong in the store, so rendering it
+        first would pin the slider against the cap and present the pending
+        reconciliation as a legitimate divergence between the two widgets.
+
+        The re-render and the apply are both explicit. They used to arrive as
+        side effects of writing the slider -- the layer's handler re-committed
+        the value (crediting the user with a drag it never made) and its
+        debounced trigger was what actually told the camera, which on the
+        reconnect path was the only apply there was.
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
         for layer in common_utils.get_layers():
-            layer_obj = self.layer_lookup(layer=layer)
+            reconciled = False
             if settings[layer]['gain_db'] > ctx.max_gain:
                 settings[layer]['gain_db'] = ctx.max_gain
-                layer_obj.ids['gain_slider'].value = ctx.max_gain
+                reconciled = True
             if settings[layer]['exposure_ms'] > ctx.max_exposure:
                 settings[layer]['exposure_ms'] = ctx.max_exposure
-                layer_obj.ids['exp_slider'].value = ctx.max_exposure
+                reconciled = True
+            if reconciled:
+                layer_obj = self.layer_lookup(layer=layer)
+                layer_obj.render_layer_values_from_settings()
+                layer_obj.apply_settings()
 
     def open_or_default_layer(self):
         """The layer whose accordion is expanded, or 'BF' when none is open.

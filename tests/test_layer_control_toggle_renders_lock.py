@@ -15,6 +15,7 @@ to its own slider range.
 from __future__ import annotations
 
 import ast
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -27,6 +28,7 @@ from modules.lumascope_api.imaging import (
     stored_exposure_after_lock,
 )
 from tests import ast_seams
+from ui.layer_control import _LAYER_VALUE_WIDGETS
 
 
 def _method_source(name: str) -> str:
@@ -36,14 +38,25 @@ def _method_source(name: str) -> str:
 
 
 def _compile_callback():
-    """update_auto_gain_cb as a standalone callable."""
+    """update_auto_gain_cb as a standalone callable, together with the render
+    path it hands the stored values to -- all three compiled from the same
+    production source, so what puts the value on the slider here is what does
+    it in the app."""
     ns = {
         'np': np,
         'logger': MagicMock(),
         'common_utils': real_common_utils,
-        '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings={})),
+        '_app_ctx': SimpleNamespace(
+            ctx=SimpleNamespace(settings={}, settings_lock=threading.Lock())
+        ),
+        '_LAYER_VALUE_WIDGETS': _LAYER_VALUE_WIDGETS,
     }
-    exec(compile(_method_source('update_auto_gain_cb'), '<update_auto_gain_cb>', 'exec'), ns)
+    for name in (
+        '_show_value_on_widgets',
+        'render_layer_values_from_settings',
+        'update_auto_gain_cb',
+    ):
+        exec(compile(_method_source(name), f'<{name}>', 'exec'), ns)
     return ns['update_auto_gain_cb'], ns['_app_ctx']
 
 
@@ -59,6 +72,8 @@ def _lock(state, exposure_ms, gain_db, floor_ms, ceiling_ms) -> AutoGainLock:
 def _fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     fake = SimpleNamespace()
     fake.layer = layer
+    # The render path suppresses the layer's handlers around its writes.
+    fake._initializing = False
     fake.ids = {
         'auto_gain': MagicMock(state='normal'),
         'exp_slider': MagicMock(min=slider_min, max=slider_max),
@@ -71,6 +86,12 @@ def _fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
 
 
 def _bind(fake, cb):
+    # The callback delegates the widget writes; the fake needs that path for
+    # the same reason the real layer does. cb.__globals__ IS the namespace it
+    # was compiled into, so these are the same functions it will call.
+    ns = cb.__globals__
+    for name in ('_show_value_on_widgets', 'render_layer_values_from_settings'):
+        setattr(fake, name, ns[name].__get__(fake))
     return lambda result: cb(fake, result=result)
 
 
