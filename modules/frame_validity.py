@@ -449,6 +449,10 @@ def _read_diag_841_settings():
         return
     FrameValidity.DIAG_PREVIEW_COUNT = bool(result.get('preview_count', True))
     FrameValidity.DIAG_EXPOSURE_SKIP = result.get('exposure_skip')
+    logger.info(
+        f'[DIAG-841] arm at import: preview_count={FrameValidity.DIAG_PREVIEW_COUNT} '
+        f'exposure_skip_override={FrameValidity.DIAG_EXPOSURE_SKIP!r}'
+    )
 
 
 _read_diag_841_settings()
