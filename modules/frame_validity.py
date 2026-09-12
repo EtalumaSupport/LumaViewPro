@@ -240,7 +240,12 @@ class FrameValidity:
             self._frame_counter += 1
             settled = []
             for source, pending in self._pending.items():
-                if frame_seq > pending.at_seq:
+                # A source still pending at zero is a motion source waiting on
+                # its axis: the frame count is met, the physical move is not.
+                # It goes on seeing frames for the length of the move, and what
+                # it publishes is frames STILL NEEDED -- a count that stops at
+                # zero rather than running down one per frame into nonsense.
+                if frame_seq > pending.at_seq and pending.remaining > 0:
                     pending.remaining -= 1
                 if self._is_source_settled_unlocked(source, pending):
                     settled.append(source)
@@ -369,7 +374,13 @@ class FrameValidity:
 
     @property
     def pending_sources(self) -> dict:
-        """Current pending sources and the frames each still needs (for debugging)."""
+        """Current pending sources and the frames each still needs (for debugging).
+
+        Zero means the frame count is met, NOT that the source has settled:
+        a motion source holds at zero while its axis is still moving. Read
+        is_valid, frames_until_valid() or unsettled_motion_sources() for
+        settledness.
+        """
         with self._lock:
             return {s: p.remaining for s, p in self._pending.items()}
 

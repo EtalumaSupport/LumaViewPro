@@ -254,6 +254,51 @@ class TestPendingSourcesDebug:
         fv.invalidate('led')
         assert fv.frame_counter == 2
 
+    def test_a_long_move_never_reports_a_negative_count(self):
+        """A motion source stays pending while the axis moves, so frames keep
+        arriving after its skip count is already met. The count it reports is
+        frames STILL NEEDED, which has no values below zero -- it stops at
+        zero instead of running down one per frame for the length of the move.
+        """
+        fv = FrameValidity(_frames)
+        moving = True
+        fv.set_settle_check(lambda source: not moving)
+        fv.invalidate('z_move')
+        for _ in range(500):
+            fv.count_frame(_f())
+        assert fv.pending_sources == {'z_move': 0}
+        # Zero frames needed is not settled: the axis is still moving, so the
+        # drain continues and the source stays pending.
+        assert fv.frames_until_valid() == 1
+        assert not fv.is_valid
+        moving = False
+        assert fv.is_valid
+        assert fv.frames_until_valid() == 0
+
+    def test_no_source_ever_reports_a_negative_count(self):
+        """The invariant the case above is one instance of.
+
+        pending_sources is a published surface an L2 caller renders, and
+        every value in it is a frame count; frames_until_valid() is the
+        same quantity for the whole set. Mixed traffic -- invalidations
+        landing mid-drain, the axis starting and stopping, a reset in the
+        middle -- must not produce a negative in either.
+        """
+        fv = FrameValidity(_frames)
+        moving = True
+        fv.set_settle_check(lambda source: not moving)
+        sources = ('led', 'gain', 'exposure', 'z_move', 'xy_move', 'turret')
+        for step in range(600):
+            if step % 7 == 0:
+                fv.invalidate(sources[step % len(sources)])
+            if step % 23 == 0:
+                moving = not moving
+            if step % 101 == 0:
+                fv.reset()
+            fv.count_frame(_f())
+            assert all(v >= 0 for v in fv.pending_sources.values())
+            assert fv.frames_until_valid() >= 0
+
 
 class TestEdgeCases:
     """Edge cases and boundary conditions."""

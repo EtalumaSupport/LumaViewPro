@@ -1034,7 +1034,9 @@ fv.is_valid                                # bool property -- next frame valid r
 fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care about Z motion
 fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
-fv.pending_sources                         # dict {source: frames still needed} (snapshot)
+fv.pending_sources                         # dict {source: frames still needed} (snapshot); 0 means
+                                           # the frame count is met, NOT that the source settled --
+                                           # a motion source holds at 0 while its axis still moves
 fv.invalidation_counts                     # dict {source: total invalidate() calls} — monotone
                                            # history frames can never erase; snapshot before a
                                            # grab and compare (!=) after to detect a mid-window
