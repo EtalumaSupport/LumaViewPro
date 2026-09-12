@@ -2214,12 +2214,20 @@ class FX2LEDController:
     _COLOR_TO_CH = _COLOR_TO_CH  # module-level dict
     _CH_TO_COLOR = _CH_TO_COLOR
 
-    # Max mA per channel -- used to scale (0, _max_ma) -> (0, 255)
-    # brightness. 200 mA is approximate; real max depends on LED model
-    # and series resistor value. Not safety-critical because the FX2
-    # hardware enforces its own current limit via the peripheral
-    # controller.
-    _MAX_MA = 200
+    # Full-scale drive current of the Classic LED peripheral, shared by
+    # all four channels; the brightness byte is linear in current up to
+    # it. 840 mA is the hardware owner's figure (2026-09-12), pending an
+    # ammeter confirm on an LS620 -- if the sweep disagrees, this one
+    # constant is the fix. The FX2 has no current readback, so nothing in
+    # software can check delivered against requested.
+    _MAX_MA = 840
+
+    # The peripheral frames a command as [0xFF, channel, brightness]. A
+    # brightness byte of 0xFF repeats the preamble and the frame is
+    # dropped -- the channel goes DARK at the top of the scale, not
+    # bright. Full scale therefore encodes as 0xFE (~837 mA), under one
+    # LSB of the wire's resolution.
+    _BRIGHTNESS_MAX = 0xFE
 
     # ------------------------------------------------------------------
     # Byte-level wire trace for bench investigation of the "illumination
@@ -2228,8 +2236,9 @@ class FX2LEDController:
     #   * LED-toggle entry at FX2LEDController.led_on (mA + type)
     #   * mA->brightness conversion input/output
     #   * Each of the 3 I2C bytes written (hex dump)
-    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (the _MAX_MA=200
-    #     clamp to the 0xFF I2C preamble byte at mA >= 200)
+    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (historically the
+    #     saturated byte; _ma_to_brightness now stops at _BRIGHTNESS_MAX, so
+    #     the flag firing means the ceiling has been bypassed)
     # Companion gates live in modules/lumascope_api/illumination.py
     # (cache-equality check) and ui/layer_control.py (slider vs text entry
     # points). Toggle by either:
@@ -2329,8 +2338,8 @@ class FX2LEDController:
             time.sleep(0.01)
 
     def _ma_to_brightness(self, mA) -> int:
-        """Convert mA to 0-255 brightness value."""
-        brightness = max(0, min(255, round(float(mA) * 255.0 / self._MAX_MA)))
+        """Convert mA to the 0-0xFE brightness byte (0xFF is the preamble)."""
+        brightness = max(0, min(self._BRIGHTNESS_MAX, round(float(mA) * 255.0 / self._MAX_MA)))
         # Workaround trace for mA->byte conversion. See the
         # _FX2_DEBUG_WIRE block above for the full instrumentation
         # rationale (LED driver brightness curve verification).
