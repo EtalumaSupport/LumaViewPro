@@ -976,17 +976,19 @@ fv.is_valid                                # bool property -- next frame valid r
 fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care about Z motion
 fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
-fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.pending_sources                         # dict {source: frames still needed} (snapshot)
 fv.invalidation_counts                     # dict {source: total invalidate() calls} — monotone
                                            # history frames can never erase; snapshot before a
                                            # grab and compare (!=) after to detect a mid-window
                                            # invalidation even when frames already settled it
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
-fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
-                                           # pass the grab timestamp as frame_ts so the same
-                                           # buffered frame polled twice counts once; chunk_data
-                                           # (ChunkExposureTime/ChunkGain) clears gain/exposure
-                                           # deterministically when it matches the requested target
+fv.count_frame(frame_seq)                  # mark a frame as drained (the API's capture paths do this)
+                                           # frame_seq is the arrival ordinal the driver's grab returns
+                                           # WITH the frame: the same buffered frame polled twice counts
+                                           # once, and a frame grabbed before a hardware write cannot
+                                           # retire that write's wait. Chunk metadata never clears a
+                                           # source; capture_and_wait uses it to reject a frame whose
+                                           # exposure / gain disagree with what was requested
 ```
 
 `set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
