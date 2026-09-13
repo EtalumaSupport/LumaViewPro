@@ -39,6 +39,7 @@ from modules.config_helpers import (
     BF_MAX_MANUAL_EXPOSURE_MS,
     DEFAULT_MAX_EXPOSURE_MS,
     DEFAULT_MAX_GAIN_DB,
+    FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS,
     TRANSMITTED_MAX_MANUAL_EXPOSURE_MS,
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
@@ -47,6 +48,7 @@ from modules.config_helpers import (
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
+LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
 MS_PATH = REPO_ROOT / 'ui' / 'microscope_settings.py'
 
 
@@ -299,9 +301,34 @@ class TestManualExposurePolicy:
         assert layer_max_exposure_ms_for_ui(30.0, 'BF') == 30.0
         assert layer_max_exposure_ms_for_ui(120.0, 'DF') == 120.0
 
-    def test_every_other_layer_gets_the_camera_cap(self):
-        for layer in ('Blue', 'Green', 'Red', 'Lumi'):
-            assert layer_max_exposure_ms_for_ui(10_000.0, layer) == 10_000.0, layer
+    def test_fluorescence_stops_at_its_own_ceiling(self):
+        for layer in ('Blue', 'Green', 'Red'):
+            assert (
+                layer_max_exposure_ms_for_ui(10_000.0, layer) == FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
+            ), layer
+
+    def test_luminescence_alone_gets_the_camera_cap(self):
+        """The exemption, asserted on its own so it cannot be folded away.
+
+        Integrating as long as the sensor allows is what the channel is for, so
+        Lumi is the one layer with no manual ceiling. Every other class narrows.
+        """
+        assert layer_max_exposure_ms_for_ui(10_000.0, 'Lumi') == 10_000.0
+
+    def test_a_body_that_caps_low_narrows_every_class(self):
+        """A camera whose own cap sits under the policy ceilings.
+
+        The FX2 boards cap exposure at 178 ms -- above the per-frame readout
+        time the sensor inserts blanking rows, which changes the byte rate
+        mid-stream and desyncs the frame parser. Nothing may hand any layer a
+        bound above what the attached body will honor.
+        """
+        for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
+            assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
+        assert layer_max_exposure_ms_for_ui(178.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
+        assert layer_max_exposure_ms_for_ui(178.0, 'PC') == 178.0
+        assert layer_max_exposure_ms_for_ui(178.0, 'Red') == 178.0
+        assert layer_max_exposure_ms_for_ui(178.0, 'Lumi') == 178.0
 
     def test_the_manual_ceiling_is_not_the_auto_ceiling(self):
         # DEFAULT_AG_AE_MAX_EXPOSURE_MS bounds what the AUTO loop may drive to
@@ -310,3 +337,104 @@ class TestManualExposurePolicy:
         # argument, so no install override can reach it.
         assert 'settings' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
         assert 'overrides' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
+
+
+class TestTypedExposureCeiling:
+    """The exposure TEXT box is bounded by the camera, not by its slider.
+
+    The slider's range is a manual convenience range, deliberately narrower
+    than the sensor on most classes. The box is the physical limit, so the
+    two bounds cannot share a source: reading the slider's max made the box
+    inherit a policy number, and brightfield read a GUI constant that matched
+    no camera at all -- on a body whose real cap is 178 ms that constant let a
+    user store an exposure the sensor silently clamped away.
+    """
+
+    def _exp_text(self) -> ast.FunctionDef:
+        return _method_node(LAYER_CONTROL_PATH, 'exp_text')
+
+    def test_the_bound_comes_from_the_camera_resolver(self):
+        assert _name_calls(self._exp_text(), 'get_exposure_text_max'), (
+            'exp_text must resolve its upper bound through get_exposure_text_max.'
+        )
+
+    def test_no_layer_is_special_cased(self):
+        """One rule for every layer: the slider carries all the narrowing.
+
+        A layer-name comparison here is how the brightfield constant survived.
+        """
+        compares = [
+            n
+            for n in ast.walk(self._exp_text())
+            if isinstance(n, ast.Compare)
+            for c in n.comparators
+            if isinstance(c, ast.Constant) and isinstance(c.value, str)
+        ]
+        assert not compares, (
+            f'exp_text must not branch on a layer name; found {len(compares)} string compare(s).'
+        )
+
+    def test_the_gui_constant_is_gone(self):
+        src = LAYER_CONTROL_PATH.read_text(encoding='utf-8')
+        assert 'BF_MAX_EXPOSURE_MS' not in src, (
+            'A GUI-side exposure ceiling constant matches no camera; the bound '
+            'belongs to the attached body.'
+        )
+
+    def test_no_camera_means_no_ceiling(self):
+        """None, not a substituted default.
+
+        camera_max_exposure_for_ui answers the no-camera case with
+        DEFAULT_MAX_EXPOSURE_MS so a slider always has some range to draw.
+        Reusing it here would raise the typed ceiling on a camera drop and
+        re-open exactly the divergence this resolver closes.
+        """
+        import modules.app_context as _app_ctx
+        from modules.config_ui_getters import get_exposure_text_max
+
+        def _ctx_with(lumaview):
+            return SimpleNamespace(lumaview=lumaview)
+
+        def _scope_reporting(cap):
+            return SimpleNamespace(
+                scope=SimpleNamespace(imaging=SimpleNamespace(max_exposure_ms_cached=cap))
+            )
+
+        prior = _app_ctx.ctx
+        try:
+            # No scope built yet.
+            _app_ctx.ctx = _ctx_with(None)
+            assert get_exposure_text_max() is None
+
+            # A scope whose camera reports no cap still has no honest ceiling.
+            _app_ctx.ctx = _ctx_with(_scope_reporting(None))
+            assert get_exposure_text_max() is None
+
+            # A body that caps low is reported at its real cap, not a default.
+            _app_ctx.ctx = _ctx_with(_scope_reporting(178.0))
+            assert get_exposure_text_max() == 178.0
+        finally:
+            _app_ctx.ctx = prior
+
+    def test_the_resolver_does_not_substitute_the_slider_default(self):
+        """Asserted on the BODY, not the source text.
+
+        The docstring names the resolver it rejects, and must keep naming it --
+        that is the whole reason the two look interchangeable.
+        """
+        import modules.config_ui_getters as getters
+
+        fn = ast.parse(inspect.getsource(getters.get_exposure_text_max)).body[0]
+        called = {
+            n.func.id
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        } | {
+            n.func.attr
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        }
+        assert 'camera_max_exposure_for_ui' not in called, (
+            'get_exposure_text_max must read the cap directly; that resolver '
+            'substitutes the no-camera default and would hide a low-capping body.'
+        )

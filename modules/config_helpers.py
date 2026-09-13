@@ -1029,14 +1029,27 @@ def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: s
 BF_MAX_MANUAL_EXPOSURE_MS = 50.0
 TRANSMITTED_MAX_MANUAL_EXPOSURE_MS = 200.0
 
+# Fluorescence exposures past a second stop being a usable manual range: the
+# Pylon sensors reach ten seconds, which puts every useful slider position in
+# the first tenth of the track. Luminescence is deliberately absent from this
+# policy -- integrating as long as the sensor allows is that channel's purpose,
+# so its slider goes to the camera's own cap (Eric, 2026-09-12).
+FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS = 1000.0
+
 
 def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
     """The exposure-slider upper bound for one layer: the camera's own cap,
-    narrowed to the manual transmitted policy for BF / PC / DF.
+    narrowed to the manual policy for its channel class.
+
+    Luminescence takes the cap unnarrowed; every other class has a manual
+    ceiling that is usually far below what the sensor can do.
     """
-    if layer not in common_utils.get_transmitted_layers():
+    if layer in common_utils.get_transmitted_layers():
+        ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
+    elif layer in common_utils.get_fluorescence_layers():
+        ceiling = FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
+    else:
         return camera_max_ms
-    ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
     return min(ceiling, camera_max_ms)
 
 

@@ -16,6 +16,7 @@ import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.config_ui_getters import (
     firmware_stim_supported,
+    get_exposure_text_max,
     get_layer_illumination_text_max,
 )
 from modules.exceptions import ProtocolError
@@ -23,10 +24,9 @@ from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
-# Brightfield allows longer exposures than fluorescence channels because
-# they don't risk photobleaching. Its illumination bounds come from the
-# resolver in modules.config_helpers, beside the LED driver's cap.
-BF_MAX_EXPOSURE_MS = 1000
+# Brightfield's illumination bounds come from the resolver in
+# modules.config_helpers, beside the LED driver's cap; its exposure bounds
+# come from the camera, through the resolvers in modules.config_ui_getters.
 SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
@@ -590,10 +590,11 @@ class LayerControl(BoxLayout):
 
         text_input_debounced(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
         exp_min = self.ids['exp_slider'].min
-        # exp_max = self.ids['exp_slider'].max
-        if self.layer == 'BF':
-            exp_max = BF_MAX_EXPOSURE_MS
-        else:
+        # The box is bounded by what the sensor can actually honor, not by the
+        # slider's manual range. With no camera to report a cap there is no
+        # honest ceiling, so the slider's bound is the only one there is.
+        exp_max = get_exposure_text_max()
+        if exp_max is None:
             exp_max = self.ids['exp_slider'].max
 
         try:
