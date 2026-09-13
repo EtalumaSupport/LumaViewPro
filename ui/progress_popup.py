@@ -127,6 +127,13 @@ kv = Builder.load_string(
         Label:
             text: root.text
             size_hint: 1, 0.6
+            # Without an explicit text_size a Kivy Label does not wrap, and
+            # these carry whole sentences from the post-processor -- a refusal
+            # explaining itself runs past twice the width of the status lines
+            # this popup was built for, and ran off the edge unread.
+            text_size: self.width, None
+            halign: 'center'
+            valign: 'middle'
 
         ProgressBar:
             value: root.progress

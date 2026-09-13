@@ -23,6 +23,33 @@ from lvp_logger import logger
 # output. Used in the empty-output user message so the popup explains which
 # capture dimension was missing instead of saying "No images found" in a
 # folder that visibly has images.
+# What to do INSTEAD, when a function refuses a specific kind of derived input.
+# Keyed by (function that refused, what was excluded) because the remedy is a
+# property of neither alone: stitching refuses composites because the channels
+# have to be stitched BEFORE they are merged, while that same pair the other way
+# round is the supported route. A pair that is absent here adds no sentence --
+# saying nothing beats guessing, and a remedy attached to a refusal it does not
+# fit is the defect this table exists to avoid.
+_EXCLUDED_REMEDY = {
+    (PostFunction.STITCHED, PostFunction.COMPOSITE): (
+        ' Stitch the source channel images first, then generate a composite '
+        'from the Stitched folder.'
+    ),
+}
+
+
+def _remedy_for(post_function, excluded_kinds) -> str:
+    """The 'do this instead' sentences for what a function turned away.
+
+    Silent for any pair nobody wrote down, which is the point: the remedy has
+    to fit the refusal, and one that does not is worse than none.
+    """
+    return ''.join(
+        _EXCLUDED_REMEDY.get((post_function, kind), '')
+        for kind in sorted(excluded_kinds, key=lambda k: k.value)
+    )
+
+
 _MULTI_FRAME_REQUIREMENT = {
     PostFunction.VIDEO: 'multiple time points per scan position',
     PostFunction.ZPROJECT: 'multiple Z-slices per scan position',
@@ -295,11 +322,13 @@ class ProtocolPostProcessor(abc.ABC):
         pre_filter_df = df
         df = self._filter_ignored_types(df=df)
         excluded_counts: dict[str, int] = {}
+        excluded_kinds: set = set()
         dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
         for _, dropped in dropped_rows.iterrows():
             for flag in PostFunction.list_values():
                 if dropped[flag]:
                     category = f'{flag.lower()} file(s)'
+                    excluded_kinds.add(PostFunction(flag))
                     break
             else:
                 category = 'other file(s)'
@@ -314,6 +343,7 @@ class ProtocolPostProcessor(abc.ABC):
             )
         else:
             excluded_text = ''
+            excluded_kinds = set()
 
         groups = self._get_groups(df)
 
@@ -555,11 +585,12 @@ class ProtocolPostProcessor(abc.ABC):
                 # by the folder's structure -- a structural hint here sent
                 # users hunting for missing tiles a composite folder has.
                 fname_lower = fname.lower()
+                remedy = _remedy_for(self._post_function, excluded_kinds)
                 msg = (
                     f'No {fname_lower} was generated: this folder holds '
                     f'{excluded_text}, which are derived outputs excluded '
                     f'from {fname_lower} generation. Only source channel '
-                    f'images are processed.{single_skip_note}'
+                    f'images are processed.{remedy}{single_skip_note}'
                 )
                 logger.info(f'[{self._name} ] {msg}')
                 return {
