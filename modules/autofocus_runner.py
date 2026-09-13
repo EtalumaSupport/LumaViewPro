@@ -800,6 +800,24 @@ class AutofocusRunner:
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
 
+    def clear_result(self) -> None:
+        """Drop the last result so it cannot outlive the run that made it.
+
+        The result answers one question -- what did THIS run's autofocus
+        find -- but the attribute is reset only at run() entry, so a value
+        stayed valid from one autofocus's start to the NEXT autofocus's
+        start. A run therefore clears it before producing one.
+
+        Deliberately NOT guarded on _af_in_progress the way reset() is. A
+        prior autofocus can still be unwinding when the next run starts,
+        because run cleanup proceeds once its wait times out, and that is
+        exactly the case where a stale value would be read; a guard would
+        make the clear a no-op precisely there. The guard reset() carries
+        protects _params, which run() reads on the AF thread -- the result
+        is only ever WRITTEN there, so clearing it alone races nothing.
+        """
+        self._best_focus_position = None
+
     def _move_absolute_position(self, position):
         # Internal-caller contract of the motion API: the public members are
         # dispatchers that serialize EXTERNAL callers onto the io worker,
