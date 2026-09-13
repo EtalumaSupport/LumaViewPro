@@ -26,8 +26,8 @@ from modules.protocol_post_processor import _remedy_for
 class TestTheRemedyFitsTheRefusal:
     def test_stitching_refusing_composites_names_the_supported_route(self):
         remedy = _remedy_for(PostFunction.STITCHED, {PostFunction.COMPOSITE})
-        assert 'Stitch the source channel images first' in remedy
-        assert 'Stitched folder' in remedy
+        assert 'Stitch the channels first' in remedy
+        assert 'composite the result' in remedy
 
     def test_stitching_refusing_videos_offers_nothing(self):
         """The guard against a per-function remedy: videos are not answered by
@@ -36,8 +36,8 @@ class TestTheRemedyFitsTheRefusal:
 
     def test_a_mixed_folder_names_only_the_remedy_that_applies(self):
         remedy = _remedy_for(PostFunction.STITCHED, {PostFunction.COMPOSITE, PostFunction.VIDEO})
-        assert 'Stitch the source channel images first' in remedy
-        assert remedy.count('Stitch the source channel images first') == 1
+        assert 'Stitch the channels first' in remedy
+        assert remedy.count('Stitch the channels first') == 1
 
     def test_another_function_refusing_composites_offers_nothing(self):
         assert _remedy_for(PostFunction.ZPROJECT, {PostFunction.COMPOSITE}) == ''

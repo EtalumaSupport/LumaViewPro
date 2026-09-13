@@ -32,8 +32,7 @@ from lvp_logger import logger
 # fit is the defect this table exists to avoid.
 _EXCLUDED_REMEDY = {
     (PostFunction.STITCHED, PostFunction.COMPOSITE): (
-        ' Stitch the source channel images first, then generate a composite '
-        'from the Stitched folder.'
+        ' Stitch the channels first, then composite the result.'
     ),
 }
 
@@ -587,10 +586,9 @@ class ProtocolPostProcessor(abc.ABC):
                 fname_lower = fname.lower()
                 remedy = _remedy_for(self._post_function, excluded_kinds)
                 msg = (
-                    f'No {fname_lower} was generated: this folder holds '
-                    f'{excluded_text}, which are derived outputs excluded '
-                    f'from {fname_lower} generation. Only source channel '
-                    f'images are processed.{remedy}{single_skip_note}'
+                    f'No {fname_lower} was generated: this folder holds only '
+                    f'{excluded_text}, which are derived outputs.'
+                    f'{remedy}{single_skip_note}'
                 )
                 logger.info(f'[{self._name} ] {msg}')
                 return {
