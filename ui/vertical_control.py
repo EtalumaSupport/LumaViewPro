@@ -354,34 +354,43 @@ class VerticalControl(BoxLayout):
         live_histo_reverse()
         Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
 
-        # Update per-layer focus in settings so new protocol steps use the
-        # AF result, not the stale pre-AF Z value.
-        try:
-            focus_z = ctx.scope.motion.get_current_position('Z')
-            layer = common_utils.get_opened_layer(ctx.image_settings)
-            if layer is not None:
-                with ctx.settings_lock:
-                    ctx.settings[layer]['focus'] = focus_z
-                logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
-                # AF restored the camera from committed settings; an
-                # uncommitted text edit (typed, no Enter) would keep
-                # showing a value the hardware no longer has. Re-point
-                # the widgets at the truth.
-                try:
-                    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                    layer_obj.sync_widgets_from_settings()
-                except Exception as e:
-                    logger.warning(f'[AF] Widget sync after AF failed: {e}')
-        except Exception as e:
-            logger.warning(f'[AF] Failed to update layer focus after AF: {e}')
-
         # Defensive abort -- if the AF thread is somehow still in flight
         # at the completion path, this is a no-op; if not, it unwinds.
+        # Ahead of the store write below, which is allowed to raise: the
+        # unwind must not be skippable by a failure in the focus update.
         try:
             if ctx.autofocus_thread is not None:
                 ctx.autofocus_thread.abort()
         except Exception:
             logger.debug('[AF] defensive AF-thread abort at completion failed', exc_info=True)
+
+        # Ask the autofocus what it found. Sampling the stage instead
+        # reads an in-transit coordinate: the pre-AF restore is issued
+        # without waiting, so at this point the stage may still be
+        # travelling, and that coordinate was committed to the layer and
+        # persisted. No result means no answer to store -- an autofocus
+        # that found nothing must leave the layer's focus alone.
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        focus_z = (
+            ctx.autofocus_runner.best_focus_position() if ctx.autofocus_runner is not None else None
+        )
+        if layer is not None and focus_z is not None:
+            with ctx.settings_lock:
+                ctx.settings[layer]['focus'] = focus_z
+            logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
+
+        # AF restored the camera from committed settings; an uncommitted
+        # text edit (typed, no Enter) would keep showing a value the
+        # hardware no longer has. Re-point the widgets at the truth. Not
+        # conditional on a result: the camera restore happens on every
+        # terminal path, and these widgets show illumination, gain and
+        # exposure rather than focus.
+        if layer is not None:
+            try:
+                layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                layer_obj.sync_widgets_from_settings()
+            except Exception as e:
+                logger.warning(f'[AF] Widget sync after AF failed: {e}')
 
     def run_autofocus_from_ui(self):
         try:
