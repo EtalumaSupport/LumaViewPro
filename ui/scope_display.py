@@ -755,7 +755,6 @@ class ScopeDisplay(Image):
         self,
         *,
         active_layer,
-        active_layer_config,
         open_layer,
         dispatch_time=0,
         generation=0,

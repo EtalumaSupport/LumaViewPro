@@ -516,28 +516,32 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Stage B1: publish Kivy-side layer state to scope_display_thread at
         # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
-        # thread (executors must stay GUI-agnostic). This callback reads
-        # get_active_layer_config() + engineering-mode open-layer and
-        # pushes them onto the thread; the thread reads under _config_lock
-        # at each frame start. Staleness is bounded by 33ms (one tick).
+        # thread (executors must stay GUI-agnostic). This callback reads the
+        # open layer and pushes it onto the thread; the thread reads under
+        # _config_lock at each frame start. Staleness is bounded by 33ms (one
+        # tick).
+        #
+        # The open drawer is read ONCE per tick and serves both fields below:
+        # they are the same question, and the answer must not be allowed to
+        # differ between them within a tick.
         def _publish_layer_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
-            active_layer = None
-            active_layer_config = None
-            open_layer = None
-            try:
-                from modules.config_ui_getters import get_active_layer_config
+            import modules.common_utils as _cu
 
-                active_layer, active_layer_config = get_active_layer_config()
+            opened_layer = None
+            try:
+                opened_layer = _cu.get_opened_layer(ctx.image_settings)
             except Exception as e:
                 logger.debug(
                     '[LVP Main  ] _publish_layer_config: '
-                    'get_active_layer_config failed; using defaults this '
+                    'get_opened_layer failed; using defaults this '
                     'tick: %s: %s',
                     type(e).__name__,
                     e,
                 )
+            active_layer = opened_layer
+            open_layer = None
             # During a protocol scan, override the accordion-derived
             # active layer with the currently-executing step's color
             # so the live preview's false-color tint matches the
@@ -553,28 +557,13 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception:
                     curr_color = None
                 if curr_color is not None:
-                    try:
-                        from modules.config_helpers import get_layer_configs
-
-                        cfgs = get_layer_configs(ctx.settings, [curr_color])
-                        active_layer = curr_color
-                        active_layer_config = cfgs.get(curr_color, active_layer_config)
-                    except Exception as e:
-                        logger.debug(
-                            '[LVP Main  ] _publish_layer_config: '
-                            'get_layer_configs(%s) failed; sticking with '
-                            'accordion-derived layer: %s: %s',
-                            curr_color,
-                            type(e).__name__,
-                            e,
-                        )
+                    active_layer = curr_color
+            # Engineering mode wants the drawer the user has open, which is
+            # NOT active_layer once the override above has fired.
             if ctx.engineering_mode and ctx.image_settings is not None:
-                import modules.common_utils as _cu
-
-                open_layer = _cu.get_opened_layer(ctx.image_settings)
+                open_layer = opened_layer
             ctx.scope_display_thread.update_layer_config(
                 active_layer,
-                active_layer_config,
                 open_layer,
             )
 

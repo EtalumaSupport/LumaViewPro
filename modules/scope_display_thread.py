@@ -15,7 +15,7 @@ Public API:
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
   set_fps(fps)          -- runtime FPS-cap change
-  update_layer_config(active_layer, active_layer_config, open_layer)
+  update_layer_config(active_layer, open_layer)
                         -- UI-thread publishes Kivy widget state for
                            the next frame
   bump_protocol_hold(hold_seconds)
@@ -108,7 +108,6 @@ class ScopeDisplayThread:
         # (publish rate ~30Hz, render rate <=30Hz).
         self._config_lock = threading.Lock()
         self._active_layer: str | None = None
-        self._active_layer_config: dict | None = None
         self._open_layer: str | None = None
         self._fps: int = 30
         self._min_frame_interval: float = 1.0 / 30
@@ -216,12 +215,10 @@ class ScopeDisplayThread:
     def update_layer_config(
         self,
         active_layer: str | None,
-        active_layer_config: dict | None,
         open_layer: str | None,
     ) -> None:
         with self._config_lock:
             self._active_layer = active_layer
-            self._active_layer_config = active_layer_config
             self._open_layer = open_layer
 
     def bump_protocol_hold(self, hold_seconds: float) -> None:
@@ -292,7 +289,6 @@ class ScopeDisplayThread:
             # Snapshot config under lock; release before doing work.
             with self._config_lock:
                 active_layer = self._active_layer
-                active_layer_config = self._active_layer_config
                 open_layer = self._open_layer
                 min_frame_interval = self._min_frame_interval
                 hold_until = self._protocol_hold_until
@@ -319,7 +315,6 @@ class ScopeDisplayThread:
             try:
                 status = widget._render_one_frame(
                     active_layer=active_layer,
-                    active_layer_config=active_layer_config,
                     open_layer=open_layer,
                     dispatch_time=cycle_start,
                     generation=self._generation,
