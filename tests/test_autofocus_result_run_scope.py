@@ -349,3 +349,70 @@ class TestGuiStoresWhatTheAutofocusFound:
             'restore is non-blocking, so the sample is an in-transit '
             'coordinate; read best_focus_position() instead (#816).'
         )
+
+
+# ---------------------------------------------------------------------------
+# The protocol Z copy-back is gated on the run finishing (#824)
+# ---------------------------------------------------------------------------
+
+
+def _protocol_settings_stub(stored_z, focused_z):
+    """The collaborators _autofocus_run_complete_callback touches on the
+    no-files-pending path."""
+    import modules.app_context as app_context
+
+    protocol = MagicMock()
+    protocol.steps.return_value = {'Z': list(stored_z)}
+    focused_protocol = MagicMock()
+    focused_protocol.steps.return_value = {'Z': list(focused_z)}
+
+    file_io_executor = MagicMock()
+    file_io_executor.is_protocol_queue_active.return_value = False
+    ctx = SimpleNamespace(file_io_executor=file_io_executor)
+
+    stub = SimpleNamespace(
+        _protocol=protocol,
+        _scan_files_completed_event=threading.Event(),
+        _reset_run_autofocus_scan_button=lambda: None,
+    )
+    return stub, ctx, protocol, focused_protocol, app_context
+
+
+def _call_scan_complete(monkeypatch, stub, ctx, focused_protocol, app_context, status):
+    import ui.protocol_settings as ps
+
+    monkeypatch.setattr(app_context, 'ctx', ctx)
+    monkeypatch.setattr(ps, 'live_histo_reverse', lambda: None)
+    ps.ProtocolSettings._autofocus_run_complete_callback(
+        stub, protocol=focused_protocol, status=status
+    )
+
+
+class TestProtocolZCopyBackIsGatedOnCompletion:
+    def test_a_completed_run_copies_the_focused_z_back(self, monkeypatch):
+        """Completed: the scan finished, so its Z column is the
+        answer."""
+        stub, ctx, protocol, focused, app_context = _protocol_settings_stub(
+            stored_z=[10.0, 20.0], focused_z=[11.5, 21.5]
+        )
+
+        _call_scan_complete(monkeypatch, stub, ctx, focused, app_context, status='completed')
+
+        assert protocol.steps()['Z'] == [11.5, 21.5], (
+            f'a completed autofocus scan must copy its Z column back; got {protocol.steps()["Z"]}'
+        )
+
+    @pytest.mark.parametrize('status', ['aborted', 'failed', 'failed_at_start'])
+    def test_an_unfinished_run_leaves_the_protocol_z_untouched(self, monkeypatch, status):
+        """Not completed: a scan the user aborted, or one that
+        failed, has a partial Z column. Copying it back overwrites the
+        user's protocol with the steps that never ran (#824)."""
+        stub, ctx, protocol, focused, app_context = _protocol_settings_stub(
+            stored_z=[10.0, 20.0], focused_z=[11.5, 20.0]
+        )
+
+        _call_scan_complete(monkeypatch, stub, ctx, focused, app_context, status=status)
+
+        assert protocol.steps()['Z'] == [10.0, 20.0], (
+            f'a {status} scan must not overwrite the protocol Z column; got {protocol.steps()["Z"]}'
+        )

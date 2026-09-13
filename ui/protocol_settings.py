@@ -1639,9 +1639,16 @@ class ProtocolSettings(FloatLayout):
         # Reset completion event for this run (thread-safe)
         self._scan_files_completed_event.clear()
 
-        # Copy the Z-heights from the autofocus scan into the protocol first
+        # Copy the Z-heights from the autofocus scan into the protocol
+        # first -- but only from a scan that actually finished. An aborted
+        # or failed scan focused some prefix of its steps and left the
+        # rest at their pre-scan values, so copying that column back
+        # overwrites the user's protocol with the steps that never ran.
+        # The run's own terminal status is the only thing that can tell
+        # the two apart; where the stage ended cannot.
         focused_protocol = kwargs['protocol']
-        self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
+        if kwargs.get('status') == 'completed':
+            self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
 
         file_io_executor = ctx.file_io_executor
 
