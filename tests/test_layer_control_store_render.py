@@ -62,6 +62,7 @@ KV_LINES = (REPO / 'ui' / 'lumaviewpro.kv').read_text(encoding='utf-8').splitlin
 RENDERER = 'render_layer_values_from_settings'
 PRIMITIVE = '_show_value_on_widgets'
 VALUE_SLIDERS = ('ill_slider', 'gain_slider', 'exp_slider')
+UI_SOURCES = sorted(p for p in (REPO / 'ui').rglob('*.py'))
 
 
 def _tree(path: pathlib.Path) -> ast.Module:
@@ -84,6 +85,78 @@ def _calls(node: ast.AST, name: str) -> bool:
         )
         for n in ast.walk(node)
     )
+
+
+def _kv_sliders_binding_on_value() -> set[str]:
+    """Every slider id in the kv whose own block binds ``on_value``."""
+
+    def indent(line: str) -> int:
+        expanded = line.expandtabs(4)
+        return len(expanded) - len(expanded.lstrip(' '))
+
+    found = set()
+    for i, line in enumerate(KV_LINES):
+        match = re.match(r'\s*id:\s*([A-Za-z_][A-Za-z0-9_]*)', line)
+        if not match or 'slider' not in match.group(1):
+            continue
+        depth = indent(line)
+        block = []
+        for after in KV_LINES[i + 1 :]:
+            if after.strip() and indent(after) < depth:
+                break
+            block.append(after.strip())
+        for before in reversed(KV_LINES[max(0, i - 20) : i]):
+            if before.strip() and indent(before) < depth:
+                break
+            block.append(before.strip())
+        if any(b.startswith('on_value:') for b in block):
+            found.add(match.group(1))
+    return found
+
+
+def _slider_value_writes(func: ast.FunctionDef) -> set[str]:
+    """The widget ids whose ``.value`` *func* assigns, in any of the three
+    forms a write can take."""
+    aliases = {}
+    for n in ast.walk(func):
+        if not isinstance(n, ast.Assign) or len(n.targets) != 1:
+            continue
+        target = n.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        widget_id = _resolve_widget_id(n.value)
+        if widget_id:
+            aliases[target.id] = widget_id
+
+    written = set()
+    for n in ast.walk(func):
+        if not isinstance(n, ast.Assign):
+            continue
+        for t in n.targets:
+            if not (isinstance(t, ast.Attribute) and t.attr == 'value'):
+                continue
+            widget_id = _resolve_widget_id(t.value)
+            if widget_id is None and isinstance(t.value, ast.Name):
+                widget_id = aliases.get(t.value.id)
+            if widget_id:
+                written.add(widget_id)
+    return written
+
+
+def _resolve_widget_id(node: ast.AST) -> str | None:
+    """``self.ids['x']`` or ``self.ids.x`` -> ``'x'``."""
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == 'ids'
+    ):
+        return node.slice.value
+    if isinstance(node, ast.Attribute):
+        base = node.value
+        if isinstance(base, ast.Attribute) and base.attr == 'ids':
+            return node.attr
+    return None
 
 
 def _assigned_subscript_attrs(node: ast.AST, attr: str) -> set[str]:
@@ -166,19 +239,54 @@ class TestThePrimitiveIsTheOneWriter:
         )
 
     def test_nothing_else_writes_one_of_the_three_sliders(self):
-        """The store-corruption vector: any other slider write reaches the
-        handler, which commits the slider's value over the user's."""
+        """The store-corruption vector: a programmatic write to a slider that
+        binds on_value reaches the handler, which commits the written value
+        over the user's and logs it as a drag.
+
+        Scoped to the three the layer renders, and it reads all three write
+        forms -- ``self.ids['x'].value``, ``self.ids.x.value``, and a local
+        alias bound from either. The alias form is the one the predecessor
+        lock could not see, and it is the form the writer itself uses.
+
+        What this does NOT reach: a slider handed in from another widget,
+        because the resolution below only follows names bound from
+        ``self.ids``. That is a real gap, stated rather than implied.
+        """
         offenders = {}
-        for path in (LAYER_CONTROL_PATH, IMAGE_SETTINGS_PATH, MS_PATH):
+        for path in UI_SOURCES:
             for node in ast.walk(_tree(path)):
                 if not isinstance(node, ast.FunctionDef) or node.name == PRIMITIVE:
                     continue
-                written = _assigned_subscript_attrs(node, 'value') & set(VALUE_SLIDERS)
+                written = _slider_value_writes(node) & set(VALUE_SLIDERS)
                 if written:
                     offenders[f'{path.name}:{node.name}'] = sorted(written)
         assert not offenders, (
             f'These write a value slider directly instead of through {PRIMITIVE}: {offenders}'
         )
+
+    def test_the_kv_still_names_exactly_the_sliders_this_locks(self):
+        """A slider binding ``on_value`` is a store-commit vector: Kivy fires
+        that handler for a PROGRAMMATIC write, not only a user drag, which is
+        the whole shape of this bug.
+
+        Pinned so that binding a new slider to on_value fails here and forces
+        the question "who writes it, and is that write suppressed?" rather
+        than shipping a fourth instance quietly.
+
+        jpg_quality_slider is in the pin and is NOT covered by the lock above:
+        it is a known open instance of this same shape in another widget --
+        microscope_settings.load_settings writes it and update_jpg_quality
+        has no guard, so a stored value other than the kv default emits a
+        phantom SLIDER JPG_QUALITY at startup with nobody touching the app.
+        Listing it keeps it visible instead of letting the pin imply it is
+        clean.
+        """
+        assert _kv_sliders_binding_on_value() == {
+            'ill_slider',
+            'gain_slider',
+            'exp_slider',
+            'jpg_quality_slider',
+        }
 
 
 class TestTheRendererRendersTheStore:
