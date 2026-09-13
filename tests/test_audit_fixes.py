@@ -4074,17 +4074,6 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
         assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
 
-    def test_capture_and_wait_accepts_earliest_image_ts(self):
-        """capture_and_wait must forward earliest_image_ts so save_live_image's
-        public signature stays stable for L2 SDK callers."""
-        import inspect
-
-        sig = inspect.signature(ImagingAPI.capture_and_wait)
-        assert 'earliest_image_ts' in sig.parameters, (
-            'capture_and_wait must accept earliest_image_ts so save_live_image '
-            'can forward its existing parameter.'
-        )
-
 
 class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending

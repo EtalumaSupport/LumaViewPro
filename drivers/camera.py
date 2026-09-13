@@ -107,7 +107,8 @@ class ImageHandlerBase:
         live preview can freeze without an error surfacing here. Capture and
         autofocus paths must not rely on this method for freshness: they go
         through grab_new_capture(), which resets the handler and waits for a
-        genuinely new frame, backed by the imaging layer's timestamp gate.
+        genuinely new frame, and a summed capture additionally requires each
+        frame's arrival ordinal to exceed the one before it.
         """
         with self._frame_lock:
             if not self.last_result:

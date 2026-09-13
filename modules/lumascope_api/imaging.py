@@ -2322,7 +2322,6 @@ class ImagingAPI:
         accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
-        earliest_image_ts: datetime.datetime | None = None,
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0,
@@ -2353,10 +2352,6 @@ class ImagingAPI:
                 anyway -- for callers whose dark frames are legitimate
                 while lit: autofocus sweeps (an out-of-focus fluorescence
                 plane can carry no signal) and benchmark probes.
-            earliest_image_ts: Reject frames captured before this timestamp.
-                Forwarded to the final get_image call; complements the
-                frame-validity drain for callers that also want a wall-clock
-                lower bound on the returned frame.
             timeout_s: Timeout (seconds) for the final get_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
@@ -2559,7 +2554,6 @@ class ImagingAPI:
 
             image = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
-                earliest_image_ts=earliest_image_ts,
                 all_ones_check=all_ones_check,
                 dark_floor_check=expected_lit and not accept_dark,
                 timeout_s=timeout_s,
@@ -2620,7 +2614,6 @@ class ImagingAPI:
         accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
-        earliest_image_ts: datetime.datetime | None = None,
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0,
@@ -2665,7 +2658,6 @@ class ImagingAPI:
                 'accept_dark': accept_dark,
                 'exclude_sources': exclude_sources,
                 'all_ones_check': all_ones_check,
-                'earliest_image_ts': earliest_image_ts,
                 'timeout_s': timeout_s,
                 'sum_count': sum_count,
                 'sum_delay_s': sum_delay_s,
@@ -2730,7 +2722,6 @@ class ImagingAPI:
     def _get_image_impl(
         self,
         force_to_8bit: bool = True,
-        earliest_image_ts: datetime.datetime | None = None,
         timeout_s: float = 5.0,
         all_ones_check: bool = False,
         dark_floor_check: bool = False,
@@ -2755,7 +2746,6 @@ class ImagingAPI:
 
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
-            earliest_image_ts: Reject frames captured before this timestamp.
             timeout_s: Max seconds to wait for a valid frame.
             all_ones_check: Reject saturated (all-max-value) frames.
             dark_floor_check: Reject frames with essentially no pixel above
@@ -2806,6 +2796,10 @@ class ImagingAPI:
             return None
 
         tmp_buffer = []
+        # Arrival ordinal of the frame most recently taken into the sum; None
+        # until the first one lands. Local by construction: a bound that
+        # outlived one capture would reject the next capture's frames.
+        earliest_seq = None
         timeout_td = datetime.timedelta(seconds=timeout_s)
         for _ in range(sum_count):
             start_time = datetime.datetime.now()
@@ -2816,11 +2810,11 @@ class ImagingAPI:
                 # set_gain_db/set_exposure from another thread mid-frame.
                 with self._cam_lock:
                     if force_new_capture:
-                        grab_status, grab_image_ts, grab_seq = self._driver.grab_new_capture(
+                        grab_status, _grab_image_ts, grab_seq = self._driver.grab_new_capture(
                             new_capture_timeout_s
                         )
                     else:
-                        grab_status, grab_image_ts, grab_seq = self._driver.grab()
+                        grab_status, _grab_image_ts, grab_seq = self._driver.grab()
 
                     if grab_status:
                         self.frame_validity.count_frame(grab_seq)
@@ -2957,17 +2951,22 @@ class ImagingAPI:
                             time.sleep(0.05)
                         continue
 
-                # Accept the frame
-                if earliest_image_ts is None:
+                # Accept the frame. Each frame of a sum must be NEWER than the
+                # one before it, judged by arrival ordinal: frame numbers only
+                # go up, while wall time runs backwards across a DST fall-back,
+                # an NTP correction or a host resume -- and a sum ordered on a
+                # clock that jumped forward rejects every genuinely new frame
+                # until it times out, losing the capture. The first frame of a
+                # sum has nothing to be newer than.
+                if earliest_seq is None or grab_seq > earliest_seq:
                     tmp_buffer.append(tmp)
                     break
 
-                if grab_image_ts > earliest_image_ts:
-                    tmp_buffer.append(tmp)
-                    break
-
-                logger.warning(
-                    f'[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}'
+                # The expected path for a buffered camera, not a fault: the
+                # driver returned the frame we already summed, so poll again.
+                logger.debug(
+                    f'[SCOPE API ] get_image: frame {grab_seq} already summed '
+                    f'(need > {earliest_seq}); waiting for the next arrival'
                 )
 
                 # Timestamp not met -- check timeout then retry
@@ -2977,7 +2976,7 @@ class ImagingAPI:
                 time.sleep(0.05)
 
             if sum_count > 1:
-                earliest_image_ts = grab_image_ts + datetime.timedelta(milliseconds=1)
+                earliest_seq = grab_seq
                 if sum_iteration_callback is not None:
                     sum_iteration_callback()
 
@@ -3037,7 +3036,6 @@ class ImagingAPI:
     def get_image(
         self,
         force_to_8bit: bool = True,
-        earliest_image_ts: datetime.datetime | None = None,
         timeout_s: float = 5.0,
         all_ones_check: bool = False,
         sum_count: int = 1,
@@ -3063,7 +3061,6 @@ class ImagingAPI:
         """
         return self._get_image_impl(
             force_to_8bit=force_to_8bit,
-            earliest_image_ts=earliest_image_ts,
             timeout_s=timeout_s,
             all_ones_check=all_ones_check,
             sum_count=sum_count,
