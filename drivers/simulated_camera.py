@@ -76,6 +76,10 @@ class SimulatedCamera(Camera):
 
         self._lock = threading.RLock()
         self._last_grab_ts = None
+        # Payload depth of the last generated frame, stamped when it was
+        # generated. Derived from the pixel format, which can change while a
+        # frame sits buffered, so the buffered frame carries its own.
+        self._last_grab_bits = None
         # Arrival ordinal of the last generated frame. Monotone for the life
         # of the instance: frame validity reads it to tell a frame that
         # arrived after a hardware write from one already in flight.
@@ -424,11 +428,8 @@ class SimulatedCamera(Camera):
                 cbs = list(self._registered_frame_callbacks)
             if not cbs:
                 return
-            with self._lock:
-                self.array = self._generate_image()
-                ts = datetime.datetime.now()
-                self._last_grab_ts = ts
-                image = self.array.copy()
+            image, ts, _bits, _seq = self._mint_frame()
+            image = image.copy()
             for cb in cbs:
                 try:
                     cb(image, ts, None)
@@ -839,6 +840,48 @@ class SimulatedCamera(Camera):
 
         return img
 
+    def _mint_frame(self) -> tuple:
+        """Generate the next frame and publish it as one event.
+
+        The pixels, the timestamp, the payload depth and the arrival ordinal
+        describe ONE frame. A caller able to write or read any of them apart
+        from the others is how a frame gets handed out under a number, or a
+        depth, belonging to a different frame -- and an ordinal that runs
+        ahead of its pixels retires a settle count the pixels predate, which
+        is a capture taken under the previous gain/exposure/LED state.
+
+        The depth is stamped here rather than derived on the way out: it
+        follows the pixel format, and the format can change while a frame
+        sits buffered.
+
+        Returns:
+            tuple: ``(image, timestamp, significant_bits, seq)`` -- the values
+                just published. Callers RETURN THESE; re-reading the fields
+                after the lock drops is the tear this method exists to close.
+        """
+        with self._lock:
+            self.array = self._generate_image()
+            self._last_grab_ts = datetime.datetime.now()
+            self._last_grab_bits = self.significant_bits
+            self._grab_seq += 1
+            return self.array, self._last_grab_ts, self._last_grab_bits, self._grab_seq
+
+    def _snapshot_frame(self) -> tuple:
+        """Return the buffered frame's four fields from one lock acquisition.
+
+        The exposure-gated paths hand back the frame already in the buffer
+        rather than minting a new one. They still have to read its four
+        fields together: the callback pump mints frames on its own thread, so
+        a field read after the lock drops can belong to the next frame.
+
+        Returns:
+            tuple: ``(image, timestamp, significant_bits, seq)``; image is
+                None when no frame has been generated yet.
+        """
+        with self._lock:
+            img = self.array if self.array.size > 0 else None
+            return img, self._last_grab_ts, self._last_grab_bits, self._grab_seq
+
     def grab(self) -> tuple:
         """Return the last generated image (non-blocking).
 
@@ -867,15 +910,12 @@ class SimulatedCamera(Camera):
             last = getattr(self, '_last_frame_time', 0.0)
             if now - last < exposure_s:
                 # Not enough time has passed -- return the previous frame
-                return True, self._last_grab_ts, self._grab_seq
+                _img, ts, _bits, seq = self._snapshot_frame()
+                return True, ts, seq
             self._last_frame_time = now
 
-        with self._lock:
-            self.array = self._generate_image()
-            self._last_grab_ts = datetime.datetime.now()
-            self._grab_seq += 1
-
-        return True, self._last_grab_ts, self._grab_seq
+        _img, ts, _bits, seq = self._mint_frame()
+        return True, ts, seq
 
     @property
     def frames_delivered(self) -> int:
@@ -910,17 +950,12 @@ class SimulatedCamera(Camera):
             now = time.monotonic()
             last = getattr(self, '_last_frame_time', 0.0)
             if now - last < exposure_s:
-                with self._lock:
-                    img = self.array.copy() if self.array.size > 0 else None
-                return True, img, self._last_grab_ts, self.significant_bits, self._grab_seq
+                img, ts, bits, seq = self._snapshot_frame()
+                return True, (None if img is None else img.copy()), ts, bits, seq
             self._last_frame_time = now
 
-        with self._lock:
-            self.array = self._generate_image()
-            self._last_grab_ts = datetime.datetime.now()
-            img = self.array.copy()
-
-        return True, img, self._last_grab_ts, self.significant_bits, self._grab_seq
+        img, ts, bits, seq = self._mint_frame()
+        return True, img.copy(), ts, bits, seq
 
     def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).
@@ -941,12 +976,8 @@ class SimulatedCamera(Camera):
         if delay > 0:
             time.sleep(delay)
 
-        with self._lock:
-            self.array = self._generate_image()
-            self._last_grab_ts = datetime.datetime.now()
-            self._grab_seq += 1
-
-        return True, self._last_grab_ts, self._grab_seq
+        _img, ts, _bits, seq = self._mint_frame()
+        return True, ts, seq
 
     # ------------------------------------------------------------------
     # Gain
