@@ -949,12 +949,14 @@ def _is_rule_45_doc(path: str) -> bool:
     Fires on docs/ markdown whose basename is AUDIT_* or contains _PLAN
     (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...).
     Archived docs under docs/completed/ are exempt -- they are frozen
-    records, not live trackers. CLAUDE.md, DAILY_LOG, TODO, README,
-    SESSION_HANDOVER, MEMORY, and the hardware reference do not match the
-    pattern, so they are exempt by construction.
+    records, not live trackers. Handovers are exempt by name: their
+    basename used to carry a free-text headline, and one headline
+    contained the word PLAN, so the substring match alone is not enough.
+    CLAUDE.md, DAILY_LOG, TODO, README, MEMORY, and the hardware reference
+    do not match the pattern, so they are exempt by construction.
     """
     norm = path.replace('\\', '/')
-    if '/completed/' in norm:
+    if '/completed/' in norm or '/SESSION_HANDOVER_' in norm:
         return False
     return _RULE_45_DOC_RE.search(norm) is not None
 
