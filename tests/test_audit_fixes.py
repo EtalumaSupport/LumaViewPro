@@ -1440,10 +1440,11 @@ class TestG3_AutofocusFailureNotification:
         assert captured == [], 'unattended (protocol) AF failure must suppress the modal popup'
 
     def test_af_degenerate_curve_notifies_user(self, monkeypatch):
-        """A flat focus curve must pop 'Autofocus Failed' and keep the
-        scan-center Z (no best-focus move)."""
+        """A flat focus curve must pop 'Autofocus Failed' and report no
+        result: the sweep chose no focus, so there is no position to
+        report and the stage goes back where it started."""
         from modules.notification_center import notifications
-        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+        from tests.af_drives import af_runner_and_scope, drive_af
 
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
@@ -1457,8 +1458,8 @@ class TestG3_AutofocusFailureNotification:
         assert 'flat or invalid' in captured[0][2], (
             f'popup must explain the flat/invalid curve; got {captured[0]}'
         )
-        assert result == AF_CENTER_Z, (
-            'degenerate abort must keep the current (scan-center) Z position'
+        assert result is None, (
+            f'a degenerate curve found no focus and must report none; got {result}'
         )
 
 

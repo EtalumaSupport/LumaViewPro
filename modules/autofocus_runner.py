@@ -244,14 +244,6 @@ class AutofocusRunner:
             f'step={self._params["resolution"]:.1f} '
             f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---'
         )
-        # Snapshot Z so abort / exception exits can restore the user's
-        # pre-AF position. On success the fine-pass move overrides this
-        # with best_focus_position.
-        try:
-            self._saved_z_position = self._scope.motion.get_current_position('Z')
-        except Exception as e:
-            logger.debug(f'[AF] Could not snapshot pre-AF Z position: {e}')
-            self._saved_z_position = None
         self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
         self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
         last_gc_time = time.monotonic()
@@ -424,15 +416,22 @@ class AutofocusRunner:
                 self._scope.motion.set_precision_mode('Z', True)
             except Exception:
                 logger.debug('[AF] precision restore in finally failed', exc_info=True)
-            if not completed_successfully and self._saved_z_position is not None:
+            # A run that chose a focus leaves the stage standing there; one
+            # that chose none -- degenerate curve, abort, exception, refused
+            # lease -- puts the stage back where the run found it. The result
+            # IS that question, so the restore asks it rather than a separate
+            # flag, and reads the scan centre: the same pre-AF Z, written once
+            # before the sweep and never mutated, so there is no absent value
+            # to guard against.
+            if self._best_focus_position is None:
+                pre_af_z = self._params['center']
                 try:
                     # The non-dispatching body: AF runs while the executors
                     # are held by the run, so the public dispatcher would
                     # refuse this restore.
-                    self._scope.motion._move_absolute_impl('Z', self._saved_z_position)
+                    self._scope.motion._move_absolute_impl('Z', pre_af_z)
                     _af_log.info(
-                        f'[AF DIAG] Non-success exit: restored Z to '
-                        f'pre-AF position {self._saved_z_position:.2f}'
+                        f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                     )
                 except Exception:
                     logger.warning(
@@ -724,20 +723,21 @@ class AutofocusRunner:
         scores = df['score']
         if scores.max() == 0 or scores.isna().all():
             logger.warning(
-                'Autofocus: degenerate focus curve (all scores zero or NaN) -- aborting, keeping current Z position'
+                'Autofocus: degenerate focus curve (all scores zero or NaN) -- '
+                'no focus found; returning the stage to its pre-autofocus Z'
             )
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
             self._notify_af_failure(
                 'Autofocus Failed',
                 'Focus curve is flat or invalid -- check sample and illumination',
             )
-            # Restore Z precision ON before bailing so the held
-            # current-Z position is reached accurately on any
-            # subsequent move.
+            # Restore Z precision ON before bailing so the pre-AF position
+            # the unwind restores is reached accurately.
             self._scope.motion.set_precision_mode('Z', True)
             self._is_focusing_event.clear()
-            self._is_complete_event.set()
-            self._best_focus_position = self._params['center']
+            # No result and no completion event: this sweep chose nothing.
+            # The unwind's restore reads exactly that and takes the stage
+            # back to where the run started.
             return
 
         best_focus_position = self._find_best(df=df)
@@ -960,7 +960,6 @@ class AutofocusRunner:
         self._saved_led_state = None
         self._led_lease = None
         self._saved_camera_state = None
-        self._saved_z_position = None
         self._camera_gain = None
         self._camera_exposure = None
         self._sweep_targets_source = 'step'
