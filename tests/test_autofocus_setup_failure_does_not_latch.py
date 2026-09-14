@@ -33,6 +33,7 @@ _mock_settings_init = MagicMock()
 _mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.lumascope_api.illumination import LedTransition
 from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
 
 
@@ -257,24 +258,27 @@ def test_every_setup_statement_sits_inside_the_bracket():
     )
 
 
-def test_a_failure_during_the_unwind_does_not_latch_the_runner():
-    """D12: the same defect as the setup window, on the other side of the try.
+def test_a_failure_during_the_unwind_does_not_latch_the_runner(monkeypatch):
+    """D12 + D15: a cleanup failure costs the run neither its claim nor its
+    answer.
 
-    Moving the setup inside the bracket made the finally the thing that
-    guarantees the claim is released -- and the finally's own restore
-    chain was only partly guarded. A camera that vanished during the
-    restore skipped `_af_in_progress.clear()` and produced the identical
-    session-killing symptom, on a run that otherwise SUCCEEDED.
-
-    The release now sits in its own nested finally, so no restore
-    statement -- including one added later -- can be reached past.
+    This test asserted the opposite one commit ago, deliberately. The
+    release moved into its own nested finally first, which stopped the
+    runner being latched but still let the cleanup's exception stand in
+    for the run's outcome. Guarding the restore steps finishes the job:
+    the run that found a focus reports it, and the camera failure is in
+    the log where a cleanup failure belongs.
     """
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
     runner, scope = af_runner_and_scope()
     scope.imaging.restore_camera_state.side_effect = SetupError('camera went away mid-restore')
 
-    with pytest.raises(SetupError):
-        drive_af(runner)
+    result = drive_af(runner)
 
+    assert result == AF_CENTER_Z, (
+        "a cleanup failure must not become the run's answer; the sweep found "
+        f'a focus and must report it, got {result}'
+    )
     assert runner._af_in_progress.is_set() is False, (
         'a raise in the unwind must not latch the runner for the session'
     )
@@ -293,8 +297,21 @@ UNWIND_SEAMS = [
 
 
 def _break_unwind(scope, seam):
+    """Break one UNWIND step, and only in the unwind.
+
+    The LED seam must fire on AF_TO_CAPTURE alone. Breaking `apply`
+    wholesale breaks AF_ENTER first, which runs inside the try during
+    setup -- that measures the setup window, not the unwind, and an
+    earlier version of this file made exactly that mistake.
+    """
     if seam == 'led_apply':
-        scope.illumination.acquire_led_lease.return_value.apply.side_effect = SetupError('usb')
+        lease = scope.illumination.acquire_led_lease.return_value
+
+        def _raise_on_af_end(transition, ctx):
+            if transition is LedTransition.AF_TO_CAPTURE:
+                raise SetupError('usb')
+
+        lease.apply.side_effect = _raise_on_af_end
     elif seam == 'camera_restore':
         scope.imaging.restore_camera_state.side_effect = SetupError('usb')
     else:
@@ -317,8 +334,10 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
         runner, scope = af_runner_and_scope()
         _break_unwind(scope, seam)
 
-        with pytest.raises(SetupError):
-            drive_af(runner)
+        assert drive_af(runner) == AF_CENTER_Z, (
+            f'a {label} failure is cleanup, not the run; the run must still '
+            'report the focus it found'
+        )
 
         assert runner._af_in_progress.is_set() is False, (
             f'a raise from the {label} must not latch the in-progress flag'
@@ -337,8 +356,7 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
         runner, scope = af_runner_and_scope()
         _break_unwind(scope, seam)
 
-        with pytest.raises(SetupError):
-            drive_af(runner)
+        drive_af(runner)
 
         scope.illumination.acquire_led_lease.return_value.apply.side_effect = None
         scope.imaging.restore_camera_state.side_effect = None
@@ -387,4 +405,158 @@ def test_the_release_is_structurally_unreachable_past():
     ]
     assert 'restore_camera_state' in restore_attrs, (
         'the restore chain belongs in the inner try, not beside the release'
+    )
+
+
+class RunError(Exception):
+    """Raised from the run BODY, so a test can tell the run's own failure
+    apart from the cleanup's."""
+
+
+class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
+    """D16: a cleanup failure never stands in for the run's answer.
+
+    A raise inside a finally REPLACES the exception in flight. That is how
+    a camera that vanished during cleanup used to erase the reason the run
+    actually failed -- including an abort the caller had asked for, which
+    is the common path, not an exotic one.
+    """
+
+    def test_the_runs_own_exception_reaches_the_caller(self, monkeypatch):
+        runner, scope = af_runner_and_scope()
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        monkeypatch.setattr(runner, '_iterate', lambda: (_ for _ in ()).throw(RunError('boom')))
+        scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
+
+        with pytest.raises(RunError):
+            drive_af(runner)
+
+    def test_an_abort_is_still_reported_as_an_abort(self, monkeypatch):
+        """The common case: the caller stopped the run, and the cleanup
+        then failed. The caller must hear about their own abort."""
+        import threading
+
+        from modules.exceptions import AutofocusAborted
+
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
+        runner, scope = af_runner_and_scope()
+        abort = threading.Event()
+        real_iterate = runner._iterate
+
+        def _iterate_then_abort():
+            real_iterate()
+            abort.set()
+
+        monkeypatch.setattr(runner, '_iterate', _iterate_then_abort)
+        scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
+
+        with pytest.raises(AutofocusAborted):
+            drive_af(runner, abort_event=abort)
+
+        assert runner._af_in_progress.is_set() is False
+        assert runner._led_lease is None
+
+
+def test_an_led_failure_still_re_arms_the_live_view(monkeypatch):
+    """D17: the harm that made this change worth building.
+
+    The auto-gain lock CONSUMES a live-view arm and only the camera
+    restore puts it back. The LED transition runs first, so before this
+    change an LED failure cost the user their live-view auto gain with no
+    message -- the camera restore was never reached at all.
+
+    The seam fires on AF_TO_CAPTURE alone: breaking `apply` wholesale
+    would break AF_ENTER during setup and measure the wrong window.
+    """
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+    runner, scope = af_runner_and_scope()
+    _break_unwind(scope, 'led_apply')
+
+    assert drive_af(runner) == AF_CENTER_Z
+
+    assert scope.imaging.restore_camera_state.called, (
+        'the camera restore is the ONLY thing that re-arms a live-view auto-gain '
+        'arm; an LED failure ahead of it must not cost the user that arm'
+    )
+
+
+def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
+    """D18: the preservation lock.
+
+    Guards that swallow are indistinguishable from steps that never ran,
+    unless something asserts the steps DO run when nothing is broken.
+    """
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+    runner, scope = af_runner_and_scope()
+
+    assert drive_af(runner, keep_led_on=True, led_color='Green') == AF_CENTER_Z
+
+    assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
+    assert scope.illumination.acquire_led_lease.return_value.apply.called, (
+        'the AF-end LED transition must still run'
+    )
+    assert scope.imaging.restore_camera_state.called, 'the camera restore must still run'
+
+
+# The one restore statement that is deliberately NOT guarded, and the proof
+# that it needs no guard: its only calls are the two camera getters, which
+# route through _live_validated_read -- a try that catches every driver
+# exception and answers from the last-known-good cache -- plus a locked
+# attribute read. Guarding it would be dead code. Any OTHER unguarded
+# call-bearing statement in the chain is the N+1 defect and fails the build.
+_UNGUARDABLE_BY_PROOF = '[AF DIAG] Clearing _af_in_progress'
+
+
+def test_no_restore_step_can_be_added_unguarded():
+    """D19: the N+1 lock.
+
+    Per-step guards fix the steps that exist today and leave the seventh
+    one, whenever someone adds it, to be written unguarded -- where it
+    would again replace the run's outcome with the cleanup's. This makes
+    that a build failure instead of a customer's failure.
+
+    The release block is exempt by construction: it is the nested
+    try/finally the restore chain lives inside, pinned separately by the
+    structural test above.
+    """
+    import ast
+
+    from tests import ast_seams
+
+    run = ast_seams.find_def('modules/autofocus_runner.py', 'run', class_name='AutofocusRunner')
+    assert run is not None
+    outer = [n for n in run.body if isinstance(n, ast.Try) and n.finalbody]
+    assert len(outer) == 1
+    inner = [n for n in outer[0].finalbody if isinstance(n, ast.Try) and n.finalbody]
+    assert len(inner) == 1, 'the release must still be the inner finally'
+
+    unguarded = []
+    exempted = 0
+    for stmt in inner[0].body:
+        if isinstance(stmt, ast.Try):
+            continue
+        if any(isinstance(node, ast.Try) for node in ast.walk(stmt)):
+            continue
+        if not any(isinstance(node, ast.Call) for node in ast.walk(stmt)):
+            continue
+        unparsed = ast.unparse(stmt)
+        if _UNGUARDABLE_BY_PROOF in unparsed:
+            exempted += 1
+            continue
+        unguarded.append(unparsed.splitlines()[0][:70])
+
+    assert not unguarded, (
+        'every call-bearing statement in the restore chain must sit inside a '
+        "try/except, or a cleanup failure becomes the run's answer. Add the "
+        'guard, or add an exemption here with the proof that the statement '
+        f'cannot raise. Unguarded: {unguarded}'
+    )
+    # The exemption is only safe while the statement it names is still there
+    # and still unguarded. If it is renamed, deleted or wrapped, the exemption
+    # stops matching -- and would silently excuse nothing, or something else
+    # later. Asserted from the same walk rather than by reading the source.
+    assert exempted == 1, (
+        f'the exemption names {_UNGUARDABLE_BY_PROOF!r}, which must match exactly '
+        f'one unguarded statement in the restore chain; matched {exempted}. '
+        'Update the exemption and its proof together.'
     )
