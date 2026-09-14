@@ -19,6 +19,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
+from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA
 from drivers.registry import led_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
@@ -46,6 +47,12 @@ class SimulatedLEDBoard:
         'DF': 5,
     }
     _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+
+    # Emulates the EL-0940 firmware, so its ceiling is that firmware's.
+    _MAX_MA = FIRMWARE_LED_CH_MAX_MA
+
+    def max_ma(self) -> int:
+        return self._MAX_MA
 
     def __init__(
         self,

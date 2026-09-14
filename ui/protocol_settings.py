@@ -427,10 +427,18 @@ class ProtocolSettings(FloatLayout):
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars
         sanitized = Protocol.sanitize_step_name(text)
+        # What the user typed, then what sanitizing made of it. Recording only
+        # the sanitized string asserts the user typed something they did not,
+        # and the box binds both commit events, so the second pass reads the
+        # sanitized text back -- declared below so it is not taken for a typed
+        # value.
+        text_input_debounced('CAPTURE_ROOT', text)
+        if sanitized != text:
+            text_input_debounced('CAPTURE_ROOT_APPLIED', sanitized)
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
-        text_input_debounced('CAPTURE_ROOT', sanitized)
+        gui_logger.note_write_back('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
     def select_labware(self, labware: str | None = None):
@@ -452,6 +460,9 @@ class ProtocolSettings(FloatLayout):
             center_plate_str = 'Center Plate'
             spinner = self.ids['labware_spinner']
             spinner.values = [center_plate_str]
+            # Forcing the spinner re-enters this method through its text event;
+            # the app falling back to Center Plate is not the user choosing it.
+            gui_logger.note_write_back('LABWARE', center_plate_str)
             spinner.text = center_plate_str
             settings['protocol']['labware'] = labware
 
@@ -1628,9 +1639,16 @@ class ProtocolSettings(FloatLayout):
         # Reset completion event for this run (thread-safe)
         self._scan_files_completed_event.clear()
 
-        # Copy the Z-heights from the autofocus scan into the protocol first
+        # Copy the Z-heights from the autofocus scan into the protocol
+        # first -- but only from a scan that actually finished. An aborted
+        # or failed scan focused some prefix of its steps and left the
+        # rest at their pre-scan values, so copying that column back
+        # overwrites the user's protocol with the steps that never ran.
+        # The run's own terminal status is the only thing that can tell
+        # the two apart; where the stage ended cannot.
         focused_protocol = kwargs['protocol']
-        self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
+        if kwargs.get('status') == 'completed':
+            self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
 
         file_io_executor = ctx.file_io_executor
 

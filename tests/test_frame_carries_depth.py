@@ -37,7 +37,7 @@ class TestImageHandlerBaseCouplesDepth:
         h = ImageHandlerBase()
         img = np.zeros((4, 4), dtype=np.uint16)
         h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12)
-        result, _out_img, _out_ts, sig = h.get_last_image()
+        result, _out_img, _out_ts, sig, _seq = h.get_last_image()
         assert result is True
         assert sig == 12
 
@@ -50,7 +50,7 @@ class TestImageHandlerBaseCouplesDepth:
         h = ImageHandlerBase()
         h._store_frame(np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12)
         # (no new frame stored under the new format)
-        _, _, _, sig = h.get_last_image()
+        _, _, _, sig, _seq = h.get_last_image()
         assert sig == 12
 
 
@@ -64,12 +64,12 @@ class TestGrabLatestCarriesDepth:
         cam.connect()
         assert cam.set_pixel_format('Mono12')
         cam.start_grabbing()
-        result, _img, _ts, sig = cam.grab_latest()
+        result, _img, _ts, sig, _seq = cam.grab_latest()
         assert result is True
         assert sig == 12
 
         assert cam.set_pixel_format('Mono8')
-        result, _img, _ts, sig = cam.grab_latest()
+        result, _img, _ts, sig, _seq = cam.grab_latest()
         assert sig == 8
 
 
@@ -92,7 +92,7 @@ class TestGetImageFromBufferUsesFrameDepth:
         # to 8. grab_latest hands back the frame WITH its own depth (12); the live
         # query (8) is the stale value the consumer must NOT use.
         mono12_white = np.full((64, 64), 4095, dtype=np.uint16)
-        monkeypatch.setattr(cam, 'grab_latest', lambda: (True, mono12_white, 1.0, 12))
+        monkeypatch.setattr(cam, 'grab_latest', lambda: (True, mono12_white, 1.0, 12, 1))
         monkeypatch.setattr(SimulatedCamera, 'significant_bits', property(lambda self: 8))
 
         scope = Lumascope.__new__(Lumascope)
@@ -125,7 +125,7 @@ class TestLastSignificantBitsViaMethodContract:
 
         # A composition-style handler (the Pylon shape): exposes get_last_image
         # but NOT the raw last_img_significant_bits attribute.
-        handler = SimpleNamespace(get_last_image=lambda: (True, None, None, 12))
+        handler = SimpleNamespace(get_last_image=lambda: (True, None, None, 12, 1))
         assert not hasattr(handler, 'last_img_significant_bits')
 
         # The property reads the stamp via last_stamped_significant_bits;
@@ -141,7 +141,7 @@ class TestLastSignificantBitsViaMethodContract:
         from drivers.camera import Camera
 
         # No frame stored yet -> get_last_image reports failure -> live depth.
-        handler = SimpleNamespace(get_last_image=lambda: (False, None, None, None))
+        handler = SimpleNamespace(get_last_image=lambda: (False, None, None, None, None))
         cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
         cam.last_stamped_significant_bits = lambda: Camera.last_stamped_significant_bits(cam)
         assert Camera.last_significant_bits.fget(cam) == 16

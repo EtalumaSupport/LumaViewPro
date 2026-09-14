@@ -1440,10 +1440,11 @@ class TestG3_AutofocusFailureNotification:
         assert captured == [], 'unattended (protocol) AF failure must suppress the modal popup'
 
     def test_af_degenerate_curve_notifies_user(self, monkeypatch):
-        """A flat focus curve must pop 'Autofocus Failed' and keep the
-        scan-center Z (no best-focus move)."""
+        """A flat focus curve must pop 'Autofocus Failed' and report no
+        result: the sweep chose no focus, so there is no position to
+        report and the stage goes back where it started."""
         from modules.notification_center import notifications
-        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+        from tests.af_drives import af_runner_and_scope, drive_af
 
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
@@ -1457,8 +1458,8 @@ class TestG3_AutofocusFailureNotification:
         assert 'flat or invalid' in captured[0][2], (
             f'popup must explain the flat/invalid curve; got {captured[0]}'
         )
-        assert result == AF_CENTER_Z, (
-            'degenerate abort must keep the current (scan-center) Z position'
+        assert result is None, (
+            f'a degenerate curve found no focus and must report none; got {result}'
         )
 
 
@@ -3077,7 +3078,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         arrays = [blown, blown]  # initial + retry both blown -> full walk runs
         monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
 
-        orig_fraction = ImagingAPI._saturated_fraction
+        orig_fraction = ImagingAPI.saturated_fraction
         lock_was_free = []
 
         def probing_fraction(frame, significant_bits):
@@ -3095,7 +3096,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             lock_was_free.append(seen['free'])
             return orig_fraction(frame, significant_bits)
 
-        monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
+        monkeypatch.setattr(ImagingAPI, 'saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
         assert out is not None
         assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
@@ -3115,7 +3116,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         imaging, cam = _sim_backed_imaging()
         blown = np.full((4, 4), 255, dtype=np.uint8)
         monkeypatch.setattr(cam, 'get_array', lambda: blown)
-        grab_results = iter([(True, _dt.datetime.now()), (False, None)])
+        grab_results = iter([(True, _dt.datetime.now(), 1), (False, None, None)])
         monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
         out = imaging.get_image(all_ones_check=True)
         assert np.array_equal(out, blown), (
@@ -4074,17 +4075,6 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
         assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
 
-    def test_capture_and_wait_accepts_earliest_image_ts(self):
-        """capture_and_wait must forward earliest_image_ts so save_live_image's
-        public signature stays stable for L2 SDK callers."""
-        import inspect
-
-        sig = inspect.signature(ImagingAPI.capture_and_wait)
-        assert 'earliest_image_ts' in sig.parameters, (
-            'capture_and_wait must accept earliest_image_ts so save_live_image '
-            'can forward its existing parameter.'
-        )
-
 
 class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
@@ -4229,43 +4219,11 @@ def _sim_backed_imaging():
     return imaging, cam
 
 
-class TestCaptureAndWaitPassesChunksToValidity:
-    """capture_and_wait's drain loop reads per-frame chunk metadata and
-    passes it to count_frame so chunk-match can short-circuit skip-frames
-    for gain/exposure on chunk-supporting cameras. Backward compat:
-    cameras without chunks return None and fall back to skip-frames."""
-
-    def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        chunk = {'Gain': 2.0, 'ExposureTime': 5000.0}
-        cam.cam_image_handler = SimpleNamespace(get_last_chunks=lambda: dict(chunk))
-        imaging.set_gain_db(2.0)  # pending 'gain' forces the drain loop to run
-
-        recorded = []
-        orig_count_frame = imaging.frame_validity.count_frame
-
-        def recording_count_frame(*args, **kwargs):
-            recorded.append(kwargs)
-            return orig_count_frame(*args, **kwargs)
-
-        imaging.frame_validity.count_frame = recording_count_frame
-        # The drain loop is the contract under test; the final grab is not.
-        # Patch the internal grab: public get_image is no longer on the
-        # capture path (capture_and_wait forwards to _get_image_impl).
-        imaging._get_image_impl = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
-
-        image = imaging.capture_and_wait()
-        assert image is not None, 'drain must settle and return the frame'
-        assert recorded, 'drain loop must call count_frame at least once'
-        assert all(call.get('chunk_data') == chunk for call in recorded), (
-            'capture_and_wait must pass the per-frame chunk metadata to '
-            'count_frame so chunk-match can clear gain/exposure pending; '
-            f'got {recorded}'
-        )
+class TestLatestChunksHelper:
+    """The capture path reads per-frame chunk metadata to REJECT a frame
+    whose chunk disagrees with what was asked for. Settling itself is by
+    frame count on every camera, so a chunk never clears a pending
+    source."""
 
     def test_get_latest_chunks_helper_exists(self):
         """The _get_latest_chunks helper abstracts handler shape (Pylon
@@ -8607,57 +8565,41 @@ class TestManualVideoSpinners:
 
 
 class TestBfIlluminationCapAtStartup:
-    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) must be
-    applied at app startup, not on first settings-panel toggle. The
-    .kv ships ill_slider with max=500; without an init-time
-    update_transmitted() call the cap stays unapplied and BF / PC /
-    DF channels can be driven up to 500 mA from the slider on first
-    use.
+    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) are applied at
+    startup by the same per-layer capability grouping that sizes the gain
+    and exposure sliders, which `_init_ui` runs on the first Clock tick --
+    before `complete_initialization` (scheduled at 0.3 s) applies the
+    default BF layer. The .kv ships ill_slider at max=500 as the
+    pre-connect placeholder; the setter is the one owner.
     """
 
     def _src(self):
         import pathlib
 
-        return pathlib.Path('lumaviewpro.py').read_text()
+        return pathlib.Path('ui/image_settings.py').read_text()
 
-    def test_complete_initialization_calls_update_transmitted(self):
+    def test_the_capability_grouping_sets_the_illumination_ranges(self):
         src = self._src()
-        idx = src.find('def complete_initialization')
-        assert idx >= 0, 'complete_initialization not found in lumaviewpro.py'
-        # Slice through the next def at the matching indent.
-        next_def = src.find('\n        def ', idx + 1)
-        if next_def < 0:
-            # complete_initialization is the last nested def in build();
-            # cap by the trailing Clock.schedule_once call instead.
-            next_def = src.find('Clock.schedule_once(complete_initialization', idx)
-        assert next_def > idx
-        body = src[idx:next_def]
-        assert 'ctx.image_settings.update_transmitted()' in body, (
-            'complete_initialization must call '
-            'ctx.image_settings.update_transmitted() so transmitted '
-            'slider caps are applied at startup, not on first '
-            'settings-panel toggle.'
-        )
-
-    def test_update_transmitted_runs_before_accordion_branch(self):
-        # Startup no longer has a separate protocol branch: it always applies
-        # the default BF layer via accordion_collapse and does not move to
-        # step 1. The cap must still be applied before that settings-apply.
-        src = self._src()
-        idx = src.find('def complete_initialization')
+        idx = src.find('def sync_camera_capability_ranges')
         assert idx >= 0
-        next_def = src.find('Clock.schedule_once(complete_initialization', idx)
-        assert next_def > idx
-        body = src[idx:next_def]
-        ut_pos = body.find('ctx.image_settings.update_transmitted()')
-        accordion_pos = body.find('ctx.image_settings.accordion_collapse()')
-        assert ut_pos > 0
-        assert accordion_pos > 0
-        assert ut_pos < accordion_pos, (
-            'update_transmitted() must run before accordion_collapse() '
-            'fires apply_settings on BF, otherwise BF gets applied at '
-            'the .kv-default 500 mA before the cap.'
-        )
+        body = src[idx : src.find('\n    def ', idx + 1)]
+        assert 'self.set_layer_illumination_ranges()' in body
+
+    def test_init_ui_runs_the_grouping(self):
+        src = self._src()
+        idx = src.find('def _init_ui')
+        assert idx >= 0
+        body = src[idx : src.find('\n    def ', idx + 1)]
+        assert 'self.sync_camera_capability_ranges()' in body
+
+    def test_the_transmitted_cap_is_policy_below_the_gui(self):
+        from types import SimpleNamespace
+
+        from modules.config_helpers import layer_max_illumination_ma_for_ui
+
+        caps = SimpleNamespace(led_max_ma=1000)
+        for layer in ('BF', 'PC', 'DF'):
+            assert layer_max_illumination_ma_for_ui(caps, layer) == 50
 
 
 class TestModSliderScrollWheel:
@@ -9725,11 +9667,10 @@ class TestTimeoutParamNamesUseSecondSuffix:
 
 
 class TestLedMaxMaCanonicalHomeIsCapabilities:
-    """Freeze audit Finding #38 -- `Lumascope.LED_MAX_MA` was a class
-    constant that duplicated `capabilities.led_max_ma` (same value,
-    two SoTs). The class constant is retired; the canonical home is
-    `modules.scope_capabilities.LED_MAX_MA` (module-level) which
-    `capabilities.led_max_ma` mirrors per-instance."""
+    """`Lumascope.LED_MAX_MA` was a class constant that duplicated
+    `capabilities.led_max_ma` (same value, two SoTs). The class constant is
+    retired, and the capability is not a constant at all: it is whatever
+    the connected LED driver publishes through `max_ma()`."""
 
     def test_lumascope_class_does_not_carry_led_max_ma(self):
         from modules.lumascope_api import Lumascope
@@ -9739,10 +9680,8 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
             'callers read scope.capabilities.led_max_ma instead.'
         )
 
-    def test_capabilities_led_max_ma_matches_canonical_constant(self, sim_scope):
-        from modules.scope_capabilities import LED_MAX_MA
-
-        assert sim_scope.capabilities.led_max_ma == LED_MAX_MA
+    def test_capabilities_led_max_ma_is_the_drivers_answer(self, sim_scope):
+        assert sim_scope.capabilities.led_max_ma == sim_scope._led_driver.max_ma()
 
     def test_illumination_validation_reads_capabilities(self, sim_scope):
         """The validation gate inside IlluminationAPI.led_on must read

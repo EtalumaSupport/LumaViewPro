@@ -26,17 +26,22 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 # ---------------------------------------------------------------------------
 
 
-def _live_capabilities():
-    """The capability surface of the LIVE scope, or None if not built yet.
+def _live_scope():
+    """The LIVE scope object, or None if one has not been built yet.
 
-    Reads ``ctx.lumaview.scope`` -- the reference a scope swap rebuilds
-    first (the ``ctx.scope`` registry field is a copy, refreshed after
-    it). Every capability gate must resolve through here so a swap is
-    reflected and the gates can't drift apart.
+    ``ctx.lumaview.scope`` is the reference a scope swap rebuilds first; the
+    ``ctx.scope`` registry field is a copy, refreshed after it. Every gate that
+    resolves off the attached scope goes through here, so a swap is reflected
+    everywhere at once and the gates cannot drift apart -- and so this module
+    reaches for the app context in exactly one place.
     """
     lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
-    scope = getattr(lumaview, 'scope', None)
-    return getattr(scope, 'capabilities', None)
+    return getattr(lumaview, 'scope', None)
+
+
+def _live_capabilities():
+    """The capability surface of the LIVE scope, or None if not built yet."""
+    return getattr(_live_scope(), 'capabilities', None)
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +90,67 @@ def firmware_stim_supported() -> bool:
     """
     caps = _live_capabilities()
     return bool(caps.supports('firmware_stim')) if caps is not None else False
+
+
+def get_layer_illumination_slider_max(layer: str) -> int | None:
+    """The illumination-slider upper bound for ``layer`` from the live scope's
+    LED driver, narrowed to the transmitted-layer policy; None before the
+    scope is built (the .kv placeholder stands until then).
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return None
+    return config_helpers.layer_max_illumination_ma_for_ui(caps, layer)
+
+
+def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
+    """The exposure-slider upper bound for ``layer``: the connected camera's
+    cap, narrowed to the manual transmitted policy.
+
+    Takes the cap rather than reading it off the app context -- the caller
+    already holds the value the settings load resolved through
+    camera_max_exposure_for_ui, and a module reaching up for it is the
+    direction this layer is not allowed to depend in.
+    """
+    return config_helpers.layer_max_exposure_ms_for_ui(camera_max_ms, layer)
+
+
+def _live_imaging():
+    """The imaging surface of the LIVE scope, or None if no scope is built."""
+    return getattr(_live_scope(), 'imaging', None)
+
+
+def get_exposure_text_max() -> float | None:
+    """The typed exposure ceiling: the live camera's own cap, or None when no
+    camera can report one.
+
+    Every narrowing lives on the SLIDER; the box is the physical limit, so a
+    user who needs an exposure the slider's convenience range does not reach
+    can type it -- and a user on a body with a low cap cannot type past what
+    its sensor will honor. No layer branch, unlike illumination, where
+    over-driving an LED is a damage mode and the text bound is policy too.
+
+    Deliberately NOT camera_max_exposure_for_ui: that resolver substitutes the
+    no-camera default when the camera reports nothing, which is right for
+    SIZING a slider -- it needs some range to draw -- and wrong here. On a body
+    whose real cap is well under that default, a camera drop would silently
+    raise the typed ceiling and let the user store an exposure the sensor
+    clamps away. No camera, no ceiling; the caller falls back to the slider.
+    """
+    imaging = _live_imaging()
+    if imaging is None:
+        return None
+    return imaging.max_exposure_ms_cached
+
+
+def get_layer_illumination_text_max(layer: str) -> int | None:
+    """The illumination text-entry upper bound for ``layer``: BF alone may be
+    typed above its slider. None before the scope is built.
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return None
+    return config_helpers.layer_illumination_text_max_for_ui(caps, layer)
 
 
 def camera_autogain_supported() -> bool:

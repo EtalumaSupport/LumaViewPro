@@ -65,13 +65,6 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
         return fallback
 
 
-# Canonical home for the LED current cap (matches firmware CH_MAX).
-# Lumascope previously carried this as a `LED_MAX_MA` class constant
-# which surfaced the same value on two layers with inconsistent SoT;
-# capabilities is the right home.
-LED_MAX_MA: int = 1000
-
-
 def _scopes_json_optics(model: str) -> dict[str, float]:
     """Return the numeric Optics block declared for `model` in scopes.json.
 
@@ -207,8 +200,8 @@ class ScopeCapabilities:
     """Color names available -- from `led.available_colors()`."""
 
     led_max_ma: int
-    """Maximum LED current per channel, in mA. Currently a constant
-    (1000 mA) matching firmware CH_MAX; may become per-driver later."""
+    """Maximum LED current per channel, in mA, as published by the connected
+    LED driver (`led.max_ma()`); 0 when no driver answers."""
 
     # ---- Camera ----
     camera_model: str
@@ -290,7 +283,6 @@ class ScopeCapabilities:
         motion: MotorBoardProtocol,
         led: LEDBoardProtocol,
         camera: object | None,
-        led_max_ma: int = LED_MAX_MA,
         layer_identity: LayerIdentity | None = None,
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
@@ -309,10 +301,6 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
-            led_max_ma: The API's LED current cap. Defaults to the
-                module-level ``LED_MAX_MA`` (1000 mA, matches firmware
-                CH_MAX); callers may override per-board if a future
-                driver advertises a different cap.
         """
         # Motion
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
@@ -351,6 +339,10 @@ class ScopeCapabilities:
             lambda: bool(led.supports_firmware_stim()),
             False,
         )
+        # The cap is the driver's to publish; there is no value to assume
+        # in its place. A driver that does not answer leaves no legal
+        # current above zero.
+        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0)
 
         # Camera
         camera_model = ''

@@ -44,20 +44,47 @@ def _the_bracket() -> ast.Try:
     return tries[0]
 
 
-def test_lock_is_the_first_statement_inside_the_bracket():
+def _index_of(bracket: ast.Try, attr: str) -> int:
+    """Position in the bracket's body of the statement calling attr."""
+    hits = [i for i, stmt in enumerate(bracket.body) if _calls(stmt, attr)]
+    assert len(hits) == 1, f'expected exactly one {attr} call in the bracket; got {hits}'
+    return hits[0]
+
+
+def test_the_lock_is_inside_the_bracket_and_the_camera_snapshot_precedes_it():
+    """Two invariants, both of which the file depends on.
+
+    The lock must be INSIDE the try, so every later exit reaches the
+    resume in the finally. It used to be the try's FIRST statement, and
+    that position encoded the invariant by accident; the run's setup --
+    the objective load, the parameter calculation and the two hardware
+    snapshots -- has since moved inside the bracket too, because above it
+    any of them could raise and latch the in-progress flag for the life
+    of the process.
+
+    The snapshot must PRECEDE the lock: it records a live-view auto-gain
+    arm before the lock consumes it, and the restore in the finally is
+    what puts that arm back. Moving the snapshot after the lock would
+    break the re-arm, which is the ordering the position used to protect
+    and this now states outright.
+    """
     bracket = _the_bracket()
-    first = bracket.body[0]
-    assert isinstance(first, ast.Assign) and _calls(first, '_lock_auto_gain_impl'), (
-        'the auto-gain lock must be the first statement inside the try, so '
-        'every later exit reaches the resume in the finally'
+    lock_at = _index_of(bracket, '_lock_auto_gain_impl')
+    snapshot_at = _index_of(bracket, 'save_camera_state')
+    assert isinstance(bracket.body[lock_at], ast.Assign), (
+        'the lock must be bound to a name so the finally can resume it'
+    )
+    assert snapshot_at < lock_at, (
+        'the pre-AF camera snapshot must be taken BEFORE the auto-gain lock '
+        f'consumes the arm; snapshot at body[{snapshot_at}], lock at body[{lock_at}]'
     )
 
 
 def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
     """The re-arm rides the camera-state restore in the bracket's finally,
     so an abort exit puts a live-view arm back the same way a completion
-    does. The producer's snapshot is always truthy (the save runs above
-    the try and always carries its tag), so the restore branch cannot be
+    does. The snapshot is taken at the top of the try and always carries
+    its tag, so once it has been taken the restore branch cannot be
     skipped on any exit. A preservation guard on the exit path; the
     re-arm itself is proven on the API in test_auto_gain_lock."""
     from modules.lumascope_api.imaging import AutoGainLock, _AutoGainArm

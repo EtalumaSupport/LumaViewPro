@@ -265,11 +265,9 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
 
 class Lumascope:
     # --- Input validation constants ---
-    # `LED_MAX_MA` has been retired here. Canonical home is
-    # `modules.scope_capabilities.LED_MAX_MA` (also surfaced at
-    # `scope.capabilities.led_max_ma`). Callers that need the cap
-    # read from capabilities; the class constant created a parallel
-    # SoT with the same value.
+    # There is no LED current cap on this class: the connected LED driver
+    # publishes its own through `scope.capabilities.led_max_ma`, and a
+    # constant here would be a second copy that drifts.
     # LED channel set comes from self._led_driver.available_channels() -- varies by
     # Canonical home for these is `_constants.py`; alias on the class so
     # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope._MOTOR_POSITION_LIMIT`)

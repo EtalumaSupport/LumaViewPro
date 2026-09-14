@@ -964,16 +964,23 @@ class MotionAPI:
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
 
-        Silently ignores firmware that doesn't implement the command --
-        legacy boards lack the acceleration-limits feature.
+        Firmware that does not implement the AMAX / DMAX query needs no
+        handling here: the driver's own read already answers with a default
+        for it, so a legacy board completes this call rather than failing it.
+        A refusal that does reach this point is therefore a real one, and it
+        belongs to the caller -- swallowing it left a scope configured from a
+        value its firmware had rejected, with nothing said to anyone.
 
         Args:
             val_pct: Acceleration limit as a percent of the firmware max.
+
+        Raises:
+            ValueError: ``val_pct`` is outside the percentage range the
+                driver accepts. A settings-sourced value is bounded before
+                it gets here; an L2 caller passing its own number is not,
+                and gets told.
         """
-        try:
-            self._driver.set_acceleration_limits(val_pct=val_pct)
-        except Exception:
-            pass  # Legacy firmware doesn't support acceleration limits
+        self._driver.set_acceleration_limits(val_pct=val_pct)
 
     # ------------------------------------------------------------------
     # Stateful method bodies.

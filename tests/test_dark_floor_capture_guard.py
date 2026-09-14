@@ -18,7 +18,7 @@ never dark-rejects.
 
 The metric is lit-pixel COUNT against the frame's payload depth -- sparse
 fluorescence (a few bright cells on a black background) must pass, and
-the depth rule must match ``_saturated_fraction`` (12-bit-in-uint16
+the depth rule must match ``saturated_fraction`` (12-bit-in-uint16
 measures against 4095, not 65535).
 """
 

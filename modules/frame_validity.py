@@ -14,8 +14,14 @@ For camera-only sources (LED, gain, exposure): settled = frame count met.
 For motion sources (xy_move, z_move, turret): settled = frame count met AND
 axis has physically stopped moving (via settle callback).
 
+A frame only counts toward a change it could actually show: each pending
+source records which frame the camera had already delivered when its
+register was written, and a frame credits it only if it arrived later.
+Without that, a frame the live preview grabbed before the write but
+counted after it would retire part of the wait it was never subject to.
+
 Usage:
-    fv = FrameValidity()
+    fv = FrameValidity(lambda: camera.frames_delivered)
     fv.set_settle_check(my_axis_check_fn)  # Register motion completion callback
     fv.invalidate('z_move')                # Z axis started moving
     fv.frames_until_valid()                # Returns >0 (motion not complete)
@@ -29,11 +35,35 @@ defocused frame still produces a valid focus score:
     fv.is_valid_for(exclude_sources=('z_move',))
 """
 
+import dataclasses
 import threading
 import time
 from typing import ClassVar
 
 from lib import profile_trace
+
+
+@dataclasses.dataclass
+class _PendingSource:
+    """One unsettled state change: how many more frames it needs, and which
+    frame the camera had already delivered when the write went out.
+
+    That ordinal is what makes the count honest. A frame already in the
+    camera's pipeline when the register was written cannot show the new
+    state, so crediting it would retire the skip count against frames that
+    predate the change -- and the capture then returns a frame from before
+    the write.
+
+    An ordinal rather than a clock reading, because the comparison has to
+    survive the clock moving. Wall time runs backwards across a DST
+    fall-back, an NTP correction or a host resume, and a settle count
+    measured against a timestamp that jumped forward never completes: every
+    later frame looks older than the write, the source never clears, and
+    captures fail out for the whole window. Frame numbers only go up.
+    """
+
+    remaining: int
+    at_seq: int
 
 
 class FrameValidity:
@@ -76,13 +106,23 @@ class FrameValidity:
         'binning': 3,
     }
 
+    # One shape for every trace row this class writes. A row records the
+    # comparison the gate actually made: the frame's arrival ordinal against
+    # the ordinal the write was stamped against, and what the count stands at
+    # afterwards. Both sides are in the row so a reader can see WHY a source
+    # did or did not clear, rather than inferring it from what is missing.
+    _TRACE_FILE = 'frame_validity_trace.csv'
+    _TRACE_HEADER = 'ts_ms,event,source,frame_seq,at_seq,remaining,pending_count'
+
     # Sources that require physical hardware completion in addition to frame count.
     MOTION_SOURCES = frozenset({'xy_move', 'z_move', 'turret'})
 
-    # Sources whose validity can be confirmed deterministically via per-frame
-    # chunk metadata. When chunk_data is passed to count_frame() and the chunk
-    # value matches the requested target within tolerance, the source is
-    # cleared regardless of skip-frames count. LED has no chunk equivalent;
+    # Sources carrying per-frame chunk metadata, used to REJECT a frame at
+    # capture time -- never to accept one. A chunk reports the register value
+    # in force when the camera TAGGED the frame, not the light integrated
+    # into it, so a chunk that AGREES with the target proves nothing about
+    # the pixels; a chunk that DISAGREES proves the frame predates the write.
+    # Only the disagreement direction is sound. LED has no chunk equivalent;
     # motion is firmware-gated via _settle_check_fn.
     CHUNK_VALIDATABLE_SOURCES = frozenset({'gain', 'exposure'})
 
@@ -109,13 +149,24 @@ class FrameValidity:
         'exposure': 2.0,  # microseconds
     }
 
-    def __init__(self):
+    def __init__(self, frames_delivered):
+        """
+        Args:
+            frames_delivered: zero-argument callable returning how many frames
+                the camera has delivered so far. REQUIRED -- without it a write
+                cannot be placed in the frame stream, every frame would credit
+                every pending source, and that is precisely the defect this
+                class exists to prevent. Passing a callable rather than the
+                driver keeps the lookup late: the composition root assigns the
+                camera driver after this object is built.
+        """
         self._lock = threading.Lock()
+        self._frames_delivered = frames_delivered
         self._frame_counter = 0
-        self._pending = {}  # source -> frame_counter threshold for validity
+        self._pending = {}  # source -> _PendingSource
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
-        self._last_counted_frame_ts = None  # identity of the last counted frame
+        self._last_counted_seq = None  # ordinal of the last counted frame
         # Monotone per-source invalidation history. Unlike _pending, entries
         # are never consumed by frames -- count_frame and reset() leave this
         # map untouched -- so a capture can snapshot it before its grab and
@@ -141,7 +192,7 @@ class FrameValidity:
         """
         self._settle_check_fn = fn
 
-    def invalidate(self, source: str):
+    def invalidate(self, source: str) -> None:
         """Record that hardware state changed and frames need to settle.
 
         Args:
@@ -151,118 +202,129 @@ class FrameValidity:
         """
         skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
         with self._lock:
-            self._pending[source] = self._frame_counter + skip
+            # Read INSIDE the lock: two threads invalidating the same source
+            # can otherwise store the earlier ordinal for the later write,
+            # which is this whole class of bug reintroduced by a race.
+            entry = _PendingSource(remaining=skip, at_seq=self._frames_delivered())
+            self._pending[source] = entry
             self._invalidation_counts[source] = self._invalidation_counts.get(source, 0) + 1
-            counter = self._frame_counter
+            # Snapshot for the trace while the lock is still held. Reading any
+            # of this back afterwards lets another thread's invalidate supply
+            # it, and the row then describes a state no write produced.
+            at_seq = entry.at_seq
+            pending_count = len(self._pending)
         if profile_trace.ENABLE_PROFILE_TRACE:
-            profile_trace.trace(
-                'frame_validity_trace.csv',
-                'ts_ms,event,source,frame_counter,target_frame,pending_count',
-                [
-                    int(time.time() * 1000),
-                    'invalidate',
-                    source,
-                    counter,
-                    counter + skip,
-                    len(self._pending),
-                ],
-                recording_id=profile_trace.NO_RECORDING,
-            )
+            self._trace_rows([('invalidate', source, '', at_seq, skip, pending_count)])
 
-    def count_frame(self, chunk_data: dict | None = None, frame_ts=None):
+    def count_frame(self, frame_seq: int) -> None:
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
-        Automatically clears non-motion sources that have settled by frame count.
-        Motion sources are cleared only when both frame count AND settle check pass.
+        A frame credits only the sources whose write it POSTDATES; a source
+        clears once its skip count has been met that way. Motion sources
+        clear only when both that count AND the settle check pass.
 
         Args:
-            chunk_data: Optional per-frame chunk metadata from the camera
-                (e.g. {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}).
-                If provided, chunk-validatable sources (gain, exposure) whose
-                target value matches the chunk value are cleared from pending,
-                short-circuiting the skip-frames count for those sources.
-                LED + motion + turret sources are unaffected (no chunk
-                equivalent or firmware-gated). Backward compat: if None, the
-                existing skip-frames + settle-check path is used unchanged.
-            frame_ts: Optional frame identity (the host-side store timestamp
-                returned alongside the grab). When provided, a frame already
-                counted (same timestamp) is ignored. Multiple consumers poll
-                the same buffered frame concurrently (live preview, histogram,
-                capture drains); without identity dedupe those polls expire
-                the skip counts in wall-clock time with zero new frames, and a
-                capture can then accept a frame exposed under the previous
-                gain/exposure/LED state. None counts unconditionally (callers
-                that guarantee a fresh frame per call, and legacy callers).
+            frame_seq: The frame's arrival ordinal, from the grab that
+                produced it. Required: it is both the frame's identity and
+                the evidence that the frame is newer than a given write.
+                Multiple consumers poll the same buffered frame concurrently
+                (live preview, histogram, capture drains); without identity
+                dedupe those polls retire the skip counts with zero new
+                frames, and a capture can then accept a frame exposed under
+                the previous gain/exposure/LED state.
         """
+        tracing = profile_trace.ENABLE_PROFILE_TRACE
+        rows = []
         with self._lock:
-            if frame_ts is not None:
-                if frame_ts == self._last_counted_frame_ts:
-                    return
-                self._last_counted_frame_ts = frame_ts
-            self._frame_counter += 1
-            settled = [
-                s
-                for s, target in self._pending.items()
-                if self._is_source_settled_unlocked(s, target)
-            ]
-            # Chunks short-circuit skip-frames for chunk-validatable sources:
-            # a source is cleared if either the settle-check path OR a chunk
-            # value matches the requested target.
-            if chunk_data is not None:
-                for source in list(self._pending):
-                    if source in settled:
-                        continue
-                    if self._chunk_match_unlocked(source, chunk_data):
+            if frame_seq == self._last_counted_seq:
+                # Only while something is pending: the dedupe check runs before
+                # the pending loop, so it has no idle bound of its own and a
+                # poller would otherwise fill the file forever. While a source
+                # IS pending this row is the load-bearing one -- a camera whose
+                # ordinal never advances produces nothing but these, and without
+                # them the file is empty and reads as "no frames arrived".
+                if tracing and self._pending:
+                    rows.append(('dedupe', '', frame_seq, '', '', len(self._pending)))
+            else:
+                self._last_counted_seq = frame_seq
+                self._frame_counter += 1
+                settled = []
+                events = []
+                for source, pending in self._pending.items():
+                    # A source still pending at zero is a motion source waiting on
+                    # its axis: the frame count is met, the physical move is not.
+                    # It goes on seeing frames for the length of the move, and what
+                    # it publishes is frames STILL NEEDED -- a count that stops at
+                    # zero rather than running down one per frame into nonsense.
+                    credited = frame_seq > pending.at_seq and pending.remaining > 0
+                    if credited:
+                        pending.remaining -= 1
+                    if self._is_source_settled_unlocked(source, pending):
                         settled.append(source)
-            for s in settled:
-                del self._pending[s]
-            counter = self._frame_counter
-            pending = len(self._pending)
-        if profile_trace.ENABLE_PROFILE_TRACE and settled:
+                        events.append(('settled', source, pending.at_seq, pending.remaining))
+                    else:
+                        events.append(
+                            (
+                                'credit' if credited else 'nocredit',
+                                source,
+                                pending.at_seq,
+                                pending.remaining,
+                            )
+                        )
+                for s in settled:
+                    del self._pending[s]
+                pending_count = len(self._pending)
+                # One row per source, never a joined one: the bench pass
+                # criterion pairs each settled row with its own invalidate row
+                # by source, which a row naming two sources cannot support.
+                if tracing:
+                    rows = [
+                        (event, source, frame_seq, at_seq, remaining, pending_count)
+                        for event, source, at_seq, remaining in events
+                    ]
+        if rows:
+            self._trace_rows(rows)
+
+    def _trace_rows(self, rows) -> None:
+        """Write already-built trace rows. Call with the lock RELEASED.
+
+        Every row this class emits is built through here, so the field count
+        cannot drift between sites: an arity mismatch raises out of the writer
+        rather than being logged, which would surface on whichever thread
+        happened to be counting a frame.
+
+        Args:
+            rows: sequence of
+                ``(event, source, frame_seq, at_seq, remaining, pending_count)``
+                tuples, each already snapshotted under the lock.
+        """
+        ts_ms = int(time.time() * 1000)
+        for row in rows:
             profile_trace.trace(
-                'frame_validity_trace.csv',
-                'ts_ms,event,source,frame_counter,target_frame,pending_count',
-                [int(time.time() * 1000), 'settled', '+'.join(settled), counter, counter, pending],
+                self._TRACE_FILE,
+                self._TRACE_HEADER,
+                [ts_ms, *row],
                 recording_id=profile_trace.NO_RECORDING,
             )
 
-    def _is_source_settled_unlocked(self, source: str, target: int) -> bool:
+    def _is_source_settled_unlocked(self, source: str, pending: '_PendingSource') -> bool:
         """Check if a source has settled. Must be called with _lock held."""
-        if self._frame_counter < target:
+        if pending.remaining > 0:
             return False
         # Motion sources also require physical completion
         if source in self.MOTION_SOURCES and self._settle_check_fn is not None:
             return self._settle_check_fn(source)
         return True
 
-    def _chunk_match_unlocked(self, source: str, chunk_data: dict) -> bool:
-        """Return True if chunk_data's value for source matches the recorded
-        target within tolerance. Must be called with _lock held.
-
-        Returns False if any of: source has no chunk mapping, chunk_data
-        lacks the relevant key, target was never recorded, or value is
-        outside tolerance.
-        """
-        chunk_key = self.CHUNK_KEY_FOR_SOURCE.get(source)
-        if chunk_key is None:
-            return False
-        chunk_value = chunk_data.get(chunk_key)
-        if chunk_value is None:
-            return False
-        target = self._target_values.get(source)
-        if target is None:
-            return False
-        tolerance = self.DEFAULT_CHUNK_TOLERANCE.get(source, 0.0)
-        return abs(float(chunk_value) - target) <= tolerance
-
-    def set_target(self, source: str, value):
+    def set_target(self, source: str, value: float | None) -> None:
         """Record the requested value for a chunk-validatable source.
 
         The API layer (Lumascope.set_gain_db / set_exposure_ms) calls this
-        after invalidate() so that when chunk metadata arrives via
-        count_frame(chunk_data=...), the validity module can match the
-        chunk against the target and clear the source deterministically.
+        after invalidate() so the capture path can compare a returned
+        frame's chunk against what was asked for and REJECT a frame whose
+        chunk disagrees. The target never clears a source: settling is by
+        frame count alone.
 
         Args:
             source: Source name (e.g. 'gain', 'exposure'). Sources outside
@@ -290,11 +352,12 @@ class FrameValidity:
         with self._lock:
             return self._target_values.get(source)
 
-    def chunk_match(self, source: str, chunk_value, tolerance: float | None = None) -> bool:
+    def chunk_match(
+        self, source: str, chunk_value: float | None, tolerance: float | None = None
+    ) -> bool:
         """Public float-tolerant equality between a chunk value and the recorded target.
 
-        Used by tests and diagnostics. The internal count_frame() uses
-        _chunk_match_unlocked() against the full chunk_data dict.
+        Used by the capture path's stale-frame rejection, and by tests.
 
         Args:
             source: Source name.
@@ -315,7 +378,7 @@ class FrameValidity:
     def is_valid(self) -> bool:
         """True if all pending state changes have settled."""
         with self._lock:
-            return all(self._is_source_settled_unlocked(s, t) for s, t in self._pending.items())
+            return all(self._is_source_settled_unlocked(s, p) for s, p in self._pending.items())
 
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.
@@ -325,8 +388,8 @@ class FrameValidity:
         """
         with self._lock:
             return all(
-                self._is_source_settled_unlocked(s, t)
-                for s, t in self._pending.items()
+                self._is_source_settled_unlocked(s, p)
+                for s, p in self._pending.items()
                 if s not in exclude_sources
             )
 
@@ -338,12 +401,11 @@ class FrameValidity:
         """
         with self._lock:
             max_remaining = 0
-            for source, target in self._pending.items():
+            for source, pending in self._pending.items():
                 if source in exclude_sources:
                     continue
-                frame_remaining = target - self._frame_counter
-                if frame_remaining > 0:
-                    max_remaining = max(max_remaining, frame_remaining)
+                if pending.remaining > 0:
+                    max_remaining = max(max_remaining, pending.remaining)
                 elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:  # noqa: SIM102
                     # Frame count met but axis still moving -- keep draining
                     if not self._settle_check_fn(source):
@@ -352,9 +414,15 @@ class FrameValidity:
 
     @property
     def pending_sources(self) -> dict:
-        """Current pending sources and their target frame counts (for debugging)."""
+        """Current pending sources and the frames each still needs (for debugging).
+
+        Zero means the frame count is met, NOT that the source has settled:
+        a motion source holds at zero while its axis is still moving. Read
+        is_valid, frames_until_valid() or unsettled_motion_sources() for
+        settledness.
+        """
         with self._lock:
-            return dict(self._pending)
+            return {s: p.remaining for s, p in self._pending.items()}
 
     @property
     def frame_counter(self) -> int:
@@ -411,7 +479,7 @@ class FrameValidity:
             if isinstance(count, int) and count >= 0:
                 self.SKIP_FRAMES[source] = count
 
-    def reset(self):
+    def reset(self) -> None:
         """Clear all pending invalidations and reset frame counter.
 
         Deliberately leaves invalidation_counts untouched: the counts are
@@ -425,4 +493,4 @@ class FrameValidity:
             self._pending.clear()
             self._frame_counter = 0
             self._target_values.clear()
-            self._last_counted_frame_ts = None
+            self._last_counted_seq = None

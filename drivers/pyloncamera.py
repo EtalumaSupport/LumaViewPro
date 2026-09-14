@@ -6,6 +6,7 @@ import os
 import queue
 import threading
 import time
+from typing import Any
 
 from pypylon import genicam, pylon
 
@@ -70,6 +71,53 @@ def _log_cam(level: str, message: str) -> None:
             prefix for grep-ability (matches the prefix in the main log).
     """
     log_to(logger, _cam_log, level=level, message=message)
+
+
+def describe_device_info(dev_info: Any) -> str:
+    """Render every property the SDK reports for an enumerated device.
+
+    The property list comes from the SDK, not from a set of getters
+    here. A CDeviceInfo carries roughly three dozen properties and
+    which of them are populated depends on the transport, so any
+    hand-picked set both misses the fields that identify what sits
+    UNDER the SDK -- the USB driver kind, its Windows driver key, the
+    port and the transfer mode -- and silently stops growing when a
+    pylon release adds one. Those transport fields are what attributes
+    a stall inside an SDK call to a machine, and a support bundle is
+    the only place they can ever be read from.
+
+    Degradation is per-property so one bad accessor cannot cost the
+    whole description: a property the SDK marks unavailable is simply
+    not applicable to this transport and is skipped, while one whose
+    read raises is named with its reason, so a gap is visible rather
+    than silent.
+
+    Args:
+        dev_info: An enumerated device-info object exposing the SDK's
+            generic property interface (``GetPropertyNames`` returning
+            ``(count, names)``, ``GetPropertyValue`` returning
+            ``(available, value)``).
+
+    Returns:
+        str: Space-separated ``Name=value`` pairs, sorted by name so two
+            bundles from one machine diff cleanly, or a marker naming
+            why no description could be built.
+    """
+    try:
+        _, _names = dev_info.GetPropertyNames()
+    except Exception as e:
+        return f'<device info unreadable: {type(e).__name__}: {e}>'
+
+    _parts = []
+    for _name in sorted(_names):
+        try:
+            _available, _value = dev_info.GetPropertyValue(_name)
+        except Exception as e:
+            _parts.append(f'{_name}=<unreadable: {type(e).__name__}>')
+            continue
+        if _available:
+            _parts.append(f'{_name}={_value!r}')
+    return ' '.join(_parts)
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
@@ -918,20 +966,7 @@ class PylonCamera(Camera):
                     f'{len(_devs)} device(s)',
                 )
                 for _i, _d in enumerate(_devs):
-                    try:
-                        _log_cam(
-                            'info',
-                            f'[CAM Class ]   device[{_i}]: '
-                            f'model={_d.GetModelName()!r} '
-                            f'serial={_d.GetSerialNumber()!r} '
-                            f'tl={_d.GetTLType()!r} '
-                            f'device_class={_d.GetDeviceClass()!r}',
-                        )
-                    except Exception as _e_acc:
-                        _log_cam(
-                            'debug',
-                            f'[CAM Class ]   device[{_i}]: enumeration accessor failed: {_e_acc}',
-                        )
+                    _log_cam('info', f'[CAM Class ]   device[{_i}]: {describe_device_info(_d)}')
             except Exception as _e_enum:
                 _log_cam(
                     'warning', f'[CAM Class ] pylon TlFactory.EnumerateDevices() failed: {_e_enum}'
@@ -2699,11 +2734,13 @@ class PylonCamera(Camera):
                 draining queued frames.
 
         Returns:
-            tuple: ``(success: bool, timestamp: float | None)``.
+            tuple: ``(success: bool, timestamp: datetime | None,
+                seq: int | None)``.
                 ``success=False`` if the camera is inactive, the handler
                 is missing, or no frame arrived within ``timeout_s``.
-                ``timestamp`` is the host-side capture timestamp on
-                success, ``None`` otherwise.
+                ``timestamp`` is the host-side capture time on success
+                and ``seq`` the frame's arrival ordinal; both ``None``
+                otherwise.
         """
         # Per-grab duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
@@ -2714,7 +2751,7 @@ class PylonCamera(Camera):
         try:
             if not self.cam_image_handler:
                 _outcome = 'no_handler'
-                return False, None
+                return False, None, None
 
             try:
                 # Drain all frames captured before this call -- we only want
@@ -2728,16 +2765,16 @@ class PylonCamera(Camera):
                 if dropped > 1:
                     logger.debug(f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
-                result, image, image_ts = self.cam_image_handler._frame_queue.get(
+                result, image, image_ts, image_seq = self.cam_image_handler._frame_queue.get(
                     block=True, timeout=timeout_s
                 )
                 if result is False:
                     _outcome = 'result_false'
-                    return False, None
+                    return False, None, None
 
                 self.array = image
                 _outcome = 'success'
-                return True, image_ts
+                return True, image_ts, image_seq
 
             except queue.Empty:
                 # Expected outcome when no frame arrives within `timeout_s`.
@@ -2748,13 +2785,13 @@ class PylonCamera(Camera):
                     f'[CAM Class ] grab_new_capture timed out after '
                     f'{timeout_s:.1f}s (no frame queued; dropped {dropped} stale)'
                 )
-                return False, None
+                return False, None, None
             except Exception as ex:
                 _outcome = 'exception'
                 _cam_log.exception(
                     f'[CAM Class ] grab_new_capture raised {type(ex).__name__}: {ex}'
                 )
-                return False, None
+                return False, None, None
         finally:
             if _trace_enabled and _t0 is not None:
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0
@@ -3845,23 +3882,28 @@ def _read_validity_chunks(grabResult) -> dict | None:
     return chunks if chunks else None
 
 
-class ImageHandler(pylon.ImageEventHandler):
+class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
     """Pylon camera image handler -- receives frames via SDK callbacks.
 
-    Uses ImageHandlerBase via composition (not inheritance) to avoid
-    metaclass conflict with pylon.ImageEventHandler.
+    Inherits ``ImageHandlerBase`` beside the SDK event handler so the whole
+    base surface is present here. ``Camera`` reads its handler through that
+    surface, and a hand-maintained subset of it went stale every time the
+    base grew. The two bases coexist: the SWIG proxy's metaclass is ``type``
+    and it defines none of the base's names (verified on pypylon 26.4.1).
+    The SDK ``__init__`` does not forward along the MRO, so both bases are
+    initialised explicitly.
     """
 
     def __init__(self, parent_cam: PylonCamera):
-        super().__init__()
-        self._base = ImageHandlerBase()
+        pylon.ImageEventHandler.__init__(self)
+        ImageHandlerBase.__init__(self)
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
         # Stage B worker for the OnImageGrabbed two-stage split. Created
         # here so it shares lifetime with the handler; start() / stop()
         # are driven from PylonCamera.connect / disconnect at the ordering
         # the SDK contract requires.
-        self._worker = _PylonImageGrabWorker(parent_cam, self._base, self._frame_queue)
+        self._worker = _PylonImageGrabWorker(parent_cam, self, self._frame_queue)
 
     def OnImagesSkipped(self, camera, countOfSkippedImages) -> None:
         """Pylon SDK callback fired when the grab strategy drops frames.
@@ -4099,38 +4141,22 @@ class ImageHandler(pylon.ImageEventHandler):
                     break
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
-        self._base.reset()
+        ImageHandlerBase.reset(self)
 
-    def get_last_image(self) -> tuple:
-        """Return ``(success, image_copy, timestamp)`` with validity guard.
+    def _detached(self) -> bool:
+        """True once the device is removed or its handle released.
 
-        Wraps the base ``ImageHandlerBase.get_last_image`` with a
-        parent-camera validity check: if the camera has been marked
-        removed or ``self._parent.active`` has been cleared, returns
-        ``(False, None, None)`` immediately rather than handing back
-        a frame from a no-longer-attached device.
-
-        Returns:
-            tuple: ``(success: bool, image: ndarray | None,
-                timestamp: float | None)``.
+        The base's readers consult this before answering, so a frame or its
+        chunk metadata buffered from a no-longer-attached device is reported
+        as absent rather than handed out as current. A parent that cannot
+        answer the question is treated as detached.
         """
         try:
             if self._parent._device_removed:
-                return False, None, None
-            if self._parent.active is None:
-                return False, None, None
+                return True
+            return self._parent.active is None
         except Exception:
-            return False, None, None
-
-        return self._base.get_last_image()
-
-    def register_frame_callback(self, cb) -> None:
-        """Composition delegate to ``ImageHandlerBase.register_frame_callback``."""
-        self._base.register_frame_callback(cb)
-
-    def unregister_frame_callback(self, cb) -> None:
-        """Composition delegate to ``ImageHandlerBase.unregister_frame_callback``."""
-        self._base.unregister_frame_callback(cb)
+            return True
 
 
 class _PylonImageGrabWorker:
@@ -4363,11 +4389,14 @@ class _PylonImageGrabWorker:
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
         self._base._store_frame(img, ts, chunks=chunks, significant_bits=significant_bits)
+        # Read back the ordinal the store just assigned, so the queued copy
+        # and the buffered one describe the same frame by the same number.
+        seq = self._base.last_img_seq
         try:
             if not self._frame_queue.empty():
                 with contextlib.suppress(queue.Empty):
                     self._frame_queue.get_nowait()
-            self._frame_queue.put_nowait((True, img, ts))
+            self._frame_queue.put_nowait((True, img, ts, seq))
         except queue.Full:
             # latest-wins; older drop is intended (legacy consumer can
             # only hold one frame). Log at debug so the cause stays in

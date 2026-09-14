@@ -14,7 +14,7 @@ Enable two ways:
 Writes CSV files under `./logs/profile/<timestamp>/` by default:
   - serial_trace.csv        (SerialBoard.exchange_command timings)
   - motion_trace.csv        (motion-monitor poll durations + axis state transitions)
-  - frame_validity_trace.csv (invalidate/count/settle events)
+  - frame_validity_trace.csv (invalidate/credit/nocredit/dedupe/settled events)
 
 Columns are documented in the trace-site wrappers (see timer() and trace()
 callers in drivers/serialboard.py, modules/lumascope_api.py,

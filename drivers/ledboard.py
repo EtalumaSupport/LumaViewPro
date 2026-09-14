@@ -11,6 +11,11 @@ from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
 from drivers.registry import led_registry
 
+# The firmware's CH_MAX: the absolute per-channel current limit the
+# EL-0940 LED command accepts. One home in LVP; the simulated board
+# imports it because it emulates this firmware.
+FIRMWARE_LED_CH_MAX_MA = 1000
+
 # Same dedicated serial logger SerialBoard.exchange_command() writes to, so
 # the bespoke STIM capability probe (which scans multiple lines and cannot
 # use exchange_command) still lands its send + reply in serial.log instead
@@ -308,7 +313,10 @@ class LEDBoard(SerialBoard):
     # The API layer (lumascope_api.py) also validates, but the driver
     # must enforce independently in case of direct calls.
     _MAX_CHANNEL = 5
-    _MAX_MA = 1000  # Firmware CH_MAX -- absolute hardware limit
+    _MAX_MA = FIRMWARE_LED_CH_MAX_MA
+
+    def max_ma(self) -> int:
+        return self._MAX_MA
 
     def _validate_and_build_led_cmd(self, channel, mA):
         """Validate channel/mA and return (color, command) string.

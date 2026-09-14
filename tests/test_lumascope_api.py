@@ -1027,9 +1027,7 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is True
         assert caps.has_turret is True
         assert len(caps.led_channels) == 6
-        from modules.scope_capabilities import LED_MAX_MA
-
-        assert caps.led_max_ma == LED_MAX_MA
+        assert caps.led_max_ma == scope._led_driver.max_ma()
 
     def test_ls850t_capabilities_has_turret(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard

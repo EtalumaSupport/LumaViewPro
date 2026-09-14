@@ -1040,10 +1040,18 @@ class SequencedCaptureRunner:
             self._original_led_states = None
             self._saved_camera_state = None
             self._autofocus_snapshot = plan.autofocus_snapshot
-            # No AFE.reset() here -- AFE.run()'s own _reset_state() on
-            # entry handles stale state, and self._af_future is reset at
-            # scan start in protocol_run_loop. An external reset() here
-            # would race with AFE.run() on the AF thread.
+            # The autofocus result belongs to the run that produced it, so
+            # this run drops the previous one's before it can be mistaken
+            # for this run's answer. Placed here, ahead of the failure
+            # window below, so a run that fails at start also reports with
+            # no result rather than with its predecessor's.
+            #
+            # Not a full AFE.reset(): that wipes _params, which AFE.run()
+            # reads on the AF thread. Clearing only the result is safe
+            # because run() writes it and never reads it. self._af_future
+            # is reset separately at scan start in protocol_run_loop.
+            if self._autofocus_runner is not None:
+                self._autofocus_runner.clear_result()
 
             self._scan_iterate_running = False
             self._protocol_iterator = None

@@ -997,6 +997,71 @@ def camera_max_gain_for_ui(imaging) -> float:
     return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
 
 
+# Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
+# are far brighter per mA than the fluorescence channels, so the slider
+# stops well under the board's ceiling; the BF text entry deliberately
+# reaches higher for the rare sample that needs it (Eric, 2026-09-12:
+# "slider at 50, but you can type up to 500 still"). Both are bounded by
+# what the connected board can actually be asked for.
+TRANSMITTED_MAX_ILLUMINATION_MA = 50
+BF_TEXT_MAX_ILLUMINATION_MA = 500
+
+
+def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
+    """The illumination-slider upper bound for one layer: the connected LED
+    driver's cap, narrowed to the transmitted-layer policy for BF / PC / DF.
+    """
+    cap = int(capabilities.led_max_ma)
+    if layer in common_utils.get_transmitted_layers():
+        return min(TRANSMITTED_MAX_ILLUMINATION_MA, cap)
+    return cap
+
+
+# Manual exposure ceilings for the transmitted layers, in ms. Their light is
+# bright enough that the useful manual range sits far under the sensor's
+# maximum, so the slider stops here rather than at the camera's cap.
+#
+# Deliberately NOT DEFAULT_AG_AE_MAX_EXPOSURE_MS: that one bounds what the AUTO
+# loop may drive to and is overridable per install through
+# settings['ag_ae_max_exposure_ms'], so reusing it would let auto-exposure
+# tuning silently resize the manual slider. It is also keyed by channel class,
+# where the manual ceiling differs between BF and the other transmitted layers.
+BF_MAX_MANUAL_EXPOSURE_MS = 50.0
+TRANSMITTED_MAX_MANUAL_EXPOSURE_MS = 200.0
+
+# Fluorescence exposures past a second stop being a usable manual range: the
+# Pylon sensors reach ten seconds, which puts every useful slider position in
+# the first tenth of the track. Luminescence is deliberately absent from this
+# policy -- integrating as long as the sensor allows is that channel's purpose,
+# so its slider goes to the camera's own cap (Eric, 2026-09-12).
+FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS = 1000.0
+
+
+def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
+    """The exposure-slider upper bound for one layer: the camera's own cap,
+    narrowed to the manual policy for its channel class.
+
+    Luminescence takes the cap unnarrowed; every other class has a manual
+    ceiling that is usually far below what the sensor can do.
+    """
+    if layer in common_utils.get_transmitted_layers():
+        ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
+    elif layer in common_utils.get_fluorescence_layers():
+        ceiling = FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
+    else:
+        return camera_max_ms
+    return min(ceiling, camera_max_ms)
+
+
+def layer_illumination_text_max_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
+    """The illumination text-entry upper bound for one layer. BF alone may be
+    typed above its slider; every other layer's text bound is its slider's.
+    """
+    if layer == 'BF':
+        return min(BF_TEXT_MAX_ILLUMINATION_MA, int(capabilities.led_max_ma))
+    return layer_max_illumination_ma_for_ui(capabilities, layer)
+
+
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed).
 

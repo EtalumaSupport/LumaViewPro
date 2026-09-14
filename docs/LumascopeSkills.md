@@ -804,7 +804,6 @@ image = scope.imaging.capture_and_wait(
                                            # 16-bit container and clipped there
     sum_delay_s=0.05,                      # delay between sum frames
     exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
-    earliest_image_ts=None,                # optional wall-clock lower bound on returned frame
 )
 
 # Exposure (milliseconds) + gain (dB)
@@ -1010,6 +1009,21 @@ scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draini
 # directly (see below) -- capture_and_wait handles it internally.
 ```
 
+`capture_and_wait()` also rejects a frame that is essentially all white, and the measurement behind that check is available to callers who need to judge an exposure themselves:
+
+```python
+# Fraction of pixels at or above 99% of full scale, 0.0-1.0.
+# significant_bits is the frame's PAYLOAD depth, not its container width --
+# a 12-bit frame in a uint16 array tops out at 4095, so measuring it
+# against 65535 reports a fully blown frame as 0% saturated.
+image = scope.imaging.capture_and_wait(force_to_8bit=False)
+frac = scope.imaging.saturated_fraction(image, scope.imaging.last_significant_bits)
+if frac > 0.01:
+    print(f"{frac:.1%} of pixels are clipped -- lower the exposure or the illumination")
+```
+
+A whole-frame mean cannot answer this question: an evenly lit field at 70% of full scale and a field that is 70% blown white and 30% black report the same mean. Any caller deciding whether an operating point is usable needs the pixel count.
+
 For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
 
 ```python
@@ -1019,17 +1033,21 @@ fv.is_valid                                # bool property -- next frame valid r
 fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care about Z motion
 fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
-fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.pending_sources                         # dict {source: frames still needed} (snapshot); 0 means
+                                           # the frame count is met, NOT that the source settled --
+                                           # a motion source holds at 0 while its axis still moves
 fv.invalidation_counts                     # dict {source: total invalidate() calls} — monotone
                                            # history frames can never erase; snapshot before a
                                            # grab and compare (!=) after to detect a mid-window
                                            # invalidation even when frames already settled it
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
-fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
-                                           # pass the grab timestamp as frame_ts so the same
-                                           # buffered frame polled twice counts once; chunk_data
-                                           # (ChunkExposureTime/ChunkGain) clears gain/exposure
-                                           # deterministically when it matches the requested target
+fv.count_frame(frame_seq)                  # mark a frame as drained (the API's capture paths do this)
+                                           # frame_seq is the arrival ordinal the driver's grab returns
+                                           # WITH the frame: the same buffered frame polled twice counts
+                                           # once, and a frame grabbed before a hardware write cannot
+                                           # retire that write's wait. Chunk metadata never clears a
+                                           # source; capture_and_wait uses it to reject a frame whose
+                                           # exposure / gain disagree with what was requested
 ```
 
 `set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
