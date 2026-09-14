@@ -381,12 +381,11 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
     fresh one ``delay_s`` out, so a burst of calls collapses to one log line
     carrying the settled value.
 
-    The burst it exists for is NOT per-character typing: the text fields that
-    use it commit on enter and on focus loss, and a single edit fires both, so
-    an undebounced log would record the same value twice. A field that also
-    commits per keystroke (the protocol period and duration now do, so the
-    settings store tracks what is on screen) sends a longer burst through the
-    same collapse, which is why the debounce is the right shape either way.
+    Today no caller sends a burst: a text field commits on focus loss, which
+    Enter also triggers, so one entry is one call. The deferral still does a
+    job: a handler that corrects the entry writes the correction back and
+    declares it, and the deferred emit is where an unmatched declaration is
+    consumed, so it cannot linger and swallow a later deliberate retype.
 
     Lives here rather than beside the other gui_interactions entries because
     the debounce needs the Kivy Clock and modules/ carries no GUI imports.
@@ -408,9 +407,8 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
 
     def _emit(_dt):
         _text_input_debounce_timers.pop(name, None)
-        # A declaration nobody echoed (a click-away commit fires the handler
-        # once) must not outlive this line, or it would swallow a later real
-        # entry of the same value.
+        # A declaration nobody echoed must not outlive this line, or it would
+        # swallow a later real entry of the same value.
         gui_logger.consume_write_back(name, value)
         gui_logger.text_input(name, value)
 

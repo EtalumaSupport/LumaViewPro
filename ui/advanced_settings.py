@@ -183,9 +183,8 @@ class AdvancedSettings(Popup):
             # A refused entry is still a user action, and until now it left no
             # trace: the handler reverted the box and returned. Both halves are
             # recorded -- what was typed, and what the box was put back to --
-            # and the revert is declared, because one Enter runs this handler
-            # twice (the box binds both commit events) and the second pass
-            # would otherwise report the reverted value as the typed one.
+            # and the revert is declared, so a record carrying the reverted
+            # value is recognised as the app's write, not as something typed.
             text_input_debounced('VIDEO_MAX_FPS', widget.text)
             text_input_debounced('VIDEO_MAX_FPS_APPLIED', restored)
             widget.text = restored
@@ -216,7 +215,7 @@ class AdvancedSettings(Popup):
             restored = str(get_manual_video_max_duration(settings))
             # The twin of the FPS limit above, and the same reasoning: the
             # attempt and the reverted value are both recorded, and the revert
-            # is declared so the second commit pass cannot report it as typed.
+            # is declared so it cannot be reported as typed.
             text_input_debounced('VIDEO_MAX_DURATION_S', widget.text)
             text_input_debounced('VIDEO_MAX_DURATION_S_APPLIED', restored)
             widget.text = restored
@@ -520,7 +519,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
-                        on_text_validate: root.acceleration_pct_text()
                         on_focus: if not self.focus: root.acceleration_pct_text()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
@@ -628,7 +626,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '0'
-                        on_text_validate: root.update_video_max_fps()
                         on_focus: if not self.focus: root.update_video_max_fps()
 
                 BoxLayout:
@@ -653,7 +650,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_text_validate: root.update_video_max_duration()
                         on_focus: if not self.focus: root.update_video_max_duration()
 
                 BoxLayout:

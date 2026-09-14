@@ -27,8 +27,8 @@ def note_write_back(name: str, value: object) -> None:
     - a spinner whose options or text are set during panel setup, which
       dispatches once per assignment;
     - a text box whose handler corrects a typed value and writes the correction
-      back, since one Enter runs that handler twice and the second pass reads
-      what the first wrote.
+      back into the box, so a record carrying the corrected value is the app's
+      write and not the user's entry.
 
     The writer declares the value; the next record for that name carrying
     exactly it is recognised as the app's own and dropped. Exactly one is

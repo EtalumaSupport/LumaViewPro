@@ -1,4 +1,4 @@
 4.0.0-beta36
-2026-09-13 23:27
-gui-logging-ratchet
-43c7ce69
+2026-09-14 15:03
+fix/text-input-double-commit
+e69002ec
