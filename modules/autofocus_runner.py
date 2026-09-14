@@ -398,124 +398,144 @@ class AutofocusRunner:
             raise
 
         finally:
-            # Save AF characterization data on EVERY exit path (success,
-            # abort, exception, degenerate-curve). Queued before the
-            # restore chain so the partial-pass data isn't lost if any
-            # restore step raises. _save_autofocus_data early-returns
-            # when both data lists are empty (true no-data abort).
-            if self._save_results_to_file:
-                # Promote any unpromoted in-pass samples so a mid-pass
-                # abort still leaves diagnostic data on disk.
-                if self._af_data_pass:
-                    self._af_data_full.extend(self._af_data_pass)
-                    self._af_data_pass = []
-                try:
-                    self._file_io_executor.protocol_put(IOTask(action=self._save_autofocus_data))
-                except Exception as ex:
-                    logger.warning(f'[AF] Failed to queue autofocus data save: {ex}')
-
-            # Restore LED + camera + Z precision regardless of exit path
-            # so the invariant "Z precision ON + pre-AF camera + LED off
-            # outside of AF" holds for abort, exception, and success.
-            # On non-success exits, also restore Z to the pre-AF position
-            # so the user / protocol sees the state they started from.
-            # _af_in_progress clears LAST so any caller polling
-            # AFE.in_progress() does not race ahead before restoration
-            # finishes.
+            # The restore chain is best-effort; the release below is not.
+            # Three of these restores reach hardware that can vanish mid-run,
+            # and a raise from any of them used to skip the release entirely:
+            # the in-progress flag stayed set, reset() refuses on that same
+            # flag, and every later run raised "Autofocus already in progress"
+            # until the app restarted -- on a run that had SUCCEEDED. Nesting
+            # the release in its own finally makes it unreachable-past, so a
+            # restore added here later cannot reintroduce the latch.
             try:
-                self._scope.motion.set_precision_mode('Z', True)
-            except Exception:
-                logger.debug('[AF] precision restore in finally failed', exc_info=True)
-            # A run that chose a focus leaves the stage standing there; one
-            # that chose none -- degenerate curve, abort, exception, refused
-            # lease -- puts the stage back where the run found it. The result
-            # IS that question, so the restore asks it rather than a separate
-            # flag, and reads the scan centre: the same pre-AF Z, written once
-            # before the sweep and never mutated, so there is no absent value
-            # to guard against.
-            if self._best_focus_position is None and self._params:
-                pre_af_z = self._params['center']
+                # Save AF characterization data on EVERY exit path (success,
+                # abort, exception, degenerate-curve). Queued before the
+                # restore chain so the partial-pass data isn't lost if any
+                # restore step raises. _save_autofocus_data early-returns
+                # when both data lists are empty (true no-data abort).
+                if self._save_results_to_file:
+                    # Promote any unpromoted in-pass samples so a mid-pass
+                    # abort still leaves diagnostic data on disk.
+                    if self._af_data_pass:
+                        self._af_data_full.extend(self._af_data_pass)
+                        self._af_data_pass = []
+                    try:
+                        self._file_io_executor.protocol_put(
+                            IOTask(action=self._save_autofocus_data)
+                        )
+                    except Exception as ex:
+                        logger.warning(f'[AF] Failed to queue autofocus data save: {ex}')
+
+                # Restore LED + camera + Z precision regardless of exit path
+                # so the invariant "Z precision ON + pre-AF camera + LED off
+                # outside of AF" holds for abort, exception, and success.
+                # On non-success exits, also restore Z to the pre-AF position
+                # so the user / protocol sees the state they started from.
+                # _af_in_progress clears LAST so any caller polling
+                # AFE.in_progress() does not race ahead before restoration
+                # finishes.
                 try:
-                    # The non-dispatching body: AF runs while the executors
-                    # are held by the run, so the public dispatcher would
-                    # refuse this restore.
-                    self._scope.motion._move_absolute_impl('Z', pre_af_z)
-                    _af_log.info(
-                        f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
-                    )
+                    self._scope.motion.set_precision_mode('Z', True)
                 except Exception:
-                    logger.warning(
-                        '[AF] pre-AF Z restore in finally failed; the stage '
-                        'may be left at the last AF search position',
-                        exc_info=True,
+                    logger.debug('[AF] precision restore in finally failed', exc_info=True)
+                # A run that chose a focus leaves the stage standing there; one
+                # that chose none -- degenerate curve, abort, exception, refused
+                # lease -- puts the stage back where the run found it. The result
+                # IS that question, so the restore asks it rather than a separate
+                # flag, and reads the scan centre: the same pre-AF Z, written once
+                # before the sweep and never mutated, so there is no absent value
+                # to guard against.
+                if self._best_focus_position is None and self._params:
+                    pre_af_z = self._params['center']
+                    try:
+                        # The non-dispatching body: AF runs while the executors
+                        # are held by the run, so the public dispatcher would
+                        # refuse this restore.
+                        self._scope.motion._move_absolute_impl('Z', pre_af_z)
+                        _af_log.info(
+                            f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
+                        )
+                    except Exception:
+                        logger.warning(
+                            '[AF] pre-AF Z restore in finally failed; the stage '
+                            'may be left at the last AF search position',
+                            exc_info=True,
+                        )
+                        notifications.warning(
+                            'Autofocus',
+                            'Z Position Not Restored',
+                            'Could not restore Z position after autofocus stopped. '
+                            'Move Z manually if needed.',
+                        )
+                # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
+                # hold the AF channel for the following capture, or restore the
+                # pre-AF snapshot. Hold only on success -- on abort or error the
+                # capture never runs, so inheriting would leave the LED lit with no
+                # owner to turn it off (overnight sample damage); a non-success
+                # exit always restores. The authority's diff is idempotent (a
+                # channel already at its target is left untouched, so no off->on
+                # blink) and offs whatever is lit but not in the target.
+                keep_for_capture = self._keep_led_on and completed_successfully
+                illumination = self._scope.illumination
+                if self._led_lease is not None:
+                    af_channel = (
+                        illumination.color2ch(self._led_color)
+                        if self._led_color is not None
+                        else None
                     )
-                    notifications.warning(
-                        'Autofocus',
-                        'Z Position Not Restored',
-                        'Could not restore Z position after autofocus stopped. '
-                        'Move Z manually if needed.',
+                    snapshot_lit = (
+                        snapshot_lit_pairs(
+                            self._saved_led_state.get('states', {}), illumination.state_color2ch
+                        )
+                        if self._saved_led_state
+                        else frozenset()
                     )
-            # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
-            # hold the AF channel for the following capture, or restore the
-            # pre-AF snapshot. Hold only on success -- on abort or error the
-            # capture never runs, so inheriting would leave the LED lit with no
-            # owner to turn it off (overnight sample damage); a non-success
-            # exit always restores. The authority's diff is idempotent (a
-            # channel already at its target is left untouched, so no off->on
-            # blink) and offs whatever is lit but not in the target.
-            keep_for_capture = self._keep_led_on and completed_successfully
-            illumination = self._scope.illumination
-            if self._led_lease is not None:
-                af_channel = (
-                    illumination.color2ch(self._led_color) if self._led_color is not None else None
-                )
-                snapshot_lit = (
-                    snapshot_lit_pairs(
-                        self._saved_led_state.get('states', {}), illumination.state_color2ch
+                    self._led_lease.apply(
+                        LedTransition.AF_TO_CAPTURE,
+                        LedTransitionCtx(
+                            channel=af_channel,
+                            illumination_ma=self._led_illumination,
+                            keep_led_on=keep_for_capture,
+                            snapshot_lit=snapshot_lit,
+                        ),
                     )
-                    if self._saved_led_state
-                    else frozenset()
-                )
-                self._led_lease.apply(
-                    LedTransition.AF_TO_CAPTURE,
-                    LedTransitionCtx(
-                        channel=af_channel,
-                        illumination_ma=self._led_illumination,
-                        keep_led_on=keep_for_capture,
-                        snapshot_lit=snapshot_lit,
-                    ),
-                )
-            # No lease means the acquire was refused and the run aborted
-            # before AF lit anything: there is no AF LED state to restore,
-            # and writing here would fight the live holder's lease.
-            if self._saved_camera_state:
-                restore = self._camera_state_to_restore()
+                # No lease means the acquire was refused and the run aborted
+                # before AF lit anything: there is no AF LED state to restore,
+                # and writing here would fight the live holder's lease.
+                if self._saved_camera_state:
+                    restore = self._camera_state_to_restore()
+                    _af_log.info(
+                        f'[AF DIAG] Post-AF camera: keeping sweep targets '
+                        f'gain={self._camera_gain} exp={self._camera_exposure} '
+                        f'source={self._sweep_targets_source}; '
+                        f'restoring {_describe_restore(restore)} from pre-AF snapshot'
+                    )
+                    # The restore also puts a live-view auto-gain arm back: the
+                    # snapshot above recorded it before the lock consumed it, so
+                    # every exit -- abort, raise, completion -- re-arms the view.
+                    self._scope.imaging.restore_camera_state(restore)
                 _af_log.info(
-                    f'[AF DIAG] Post-AF camera: keeping sweep targets '
-                    f'gain={self._camera_gain} exp={self._camera_exposure} '
-                    f'source={self._sweep_targets_source}; '
-                    f'restoring {_describe_restore(restore)} from pre-AF snapshot'
+                    f'[AF DIAG] Clearing _af_in_progress -- '
+                    f'camera now at gain={self._scope.imaging.get_gain_db()} '
+                    f'exp={self._scope.imaging.get_exposure_ms()}'
                 )
-                # The restore also puts a live-view auto-gain arm back: the
-                # snapshot above recorded it before the lock consumed it, so
-                # every exit -- abort, raise, completion -- re-arms the view.
-                self._scope.imaging.restore_camera_state(restore)
-            _af_log.info(
-                f'[AF DIAG] Clearing _af_in_progress -- '
-                f'camera now at gain={self._scope.imaging.get_gain_db()} '
-                f'exp={self._scope.imaging.get_exposure_ms()}'
-            )
-            self._af_in_progress.clear()
-            # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
-            # finishes, matching _af_in_progress lifecycle.
-            self._scope.imaging.is_focusing = False
-            # Release the LED lease last. leave_on: the lease does not drive
-            # the LEDs yet -- the restore chain above already set the
-            # end-state -- so releasing must not turn anything off here.
-            if self._led_lease is not None:
-                self._led_lease.release(leave_on=True)
-                self._led_lease = None
-            self._abort_event = None
+            finally:
+                # Order matters: the two flags clear before the lease is
+                # released. _af_in_progress IS the lease liveness probe, so
+                # clearing it while the AF_TO_CAPTURE transition above is
+                # still pending would publish this run as dead, let a
+                # contender reclaim, and silently no-op AF's own LED restore
+                # -- leaving the sample lit in AF illumination.
+                self._af_in_progress.clear()
+                # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
+                # finishes, matching _af_in_progress lifecycle.
+                self._scope.imaging.is_focusing = False
+                # Release the LED lease last. leave_on: the lease does not drive
+                # the LEDs yet -- the restore chain above already set the
+                # end-state -- so releasing must not turn anything off here.
+                if self._led_lease is not None:
+                    self._led_lease.release(leave_on=True)
+                    self._led_lease = None
+                self._abort_event = None
 
     def _apply_sweep_camera_targets(self, lock) -> str:
         """Choose what the sweep scans at and write it if the lock has not.

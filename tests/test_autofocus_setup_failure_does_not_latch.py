@@ -257,31 +257,17 @@ def test_every_setup_statement_sits_inside_the_bracket():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='KNOWN OPEN: the unwind chain itself is unguarded -- see the class docstring',
-)
 def test_a_failure_during_the_unwind_does_not_latch_the_runner():
-    """The same defect as the setup window, on the other side of the try,
-    and NOT closed here.
+    """D12: the same defect as the setup window, on the other side of the try.
 
-    Moving the setup inside the bracket makes the finally the thing that
-    guarantees the claim is released. But the finally's own restore chain
-    is only partly guarded: the precision restore and the Z restore each
-    sit in a try/except, while the LED transition, the camera restore and
-    the diagnostic log line -- which reads gain and exposure off the
-    camera inside its f-string -- do not. Any of them raising skips
-    `_af_in_progress.clear()` at the end of the block, which is the exact
-    session-killing symptom the setup move just closed: every later
-    autofocus raises 'Autofocus already in progress' until the app
-    restarts.
+    Moving the setup inside the bracket made the finally the thing that
+    guarantees the claim is released -- and the finally's own restore
+    chain was only partly guarded. A camera that vanished during the
+    restore skipped `_af_in_progress.clear()` and produced the identical
+    session-killing symptom, on a run that otherwise SUCCEEDED.
 
-    This is reachable by a camera or USB failure during the restore, on a
-    run that otherwise SUCCEEDED, and it predates this change -- verified
-    against the pre-change tip, where all three seams behave identically.
-
-    Marked strict so closing it turns this test red rather than letting
-    it be closed silently.
+    The release now sits in its own nested finally, so no restore
+    statement -- including one added later -- can be reached past.
     """
     runner, scope = af_runner_and_scope()
     scope.imaging.restore_camera_state.side_effect = SetupError('camera went away mid-restore')
@@ -291,4 +277,114 @@ def test_a_failure_during_the_unwind_does_not_latch_the_runner():
 
     assert runner._af_in_progress.is_set() is False, (
         'a raise in the unwind must not latch the runner for the session'
+    )
+
+
+# The two unwind statements that can raise from PRODUCTION hardware. The
+# diagnostic log line between them reads gain and exposure off the camera
+# inside its f-string, which looks like a third -- but those getters
+# swallow every driver exception and answer from the last-known-good
+# cache, so they cannot raise in production. It is covered structurally
+# below instead, not by fault injection.
+UNWIND_SEAMS = [
+    ('LED transition', 'led_apply'),
+    ('camera restore', 'camera_restore'),
+]
+
+
+def _break_unwind(scope, seam):
+    if seam == 'led_apply':
+        scope.illumination.acquire_led_lease.return_value.apply.side_effect = SetupError('usb')
+    elif seam == 'camera_restore':
+        scope.imaging.restore_camera_state.side_effect = SetupError('usb')
+    else:
+        raise AssertionError(f'unknown seam {seam}')
+
+
+@pytest.mark.parametrize('label,seam', UNWIND_SEAMS, ids=[s[0] for s in UNWIND_SEAMS])
+class TestEveryUnwindFailureStillReleasesTheClaim:
+    """D13: three things latched, not one, and all three must clear.
+
+    The in-progress flag is the one that refuses the next run outright.
+    The public `is_focusing` mirror, left True, suppresses every live
+    camera apply the UI makes. And the LED lease, never released, makes
+    illumination authority permanently unclaimable -- because its
+    liveness probe is the very flag that stayed set.
+    """
+
+    def test_the_run_succeeded_and_the_runner_is_left_free(self, label, seam, monkeypatch):
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        _break_unwind(scope, seam)
+
+        with pytest.raises(SetupError):
+            drive_af(runner)
+
+        assert runner._af_in_progress.is_set() is False, (
+            f'a raise from the {label} must not latch the in-progress flag'
+        )
+        assert scope.imaging.is_focusing is False, (
+            f'a raise from the {label} must not leave is_focusing standing True, '
+            'which suppresses every live camera apply the UI makes'
+        )
+        assert runner._led_lease is None, (
+            f'a raise from the {label} must still release the LED lease; an '
+            'un-released lease makes illumination authority unclaimable'
+        )
+
+    def test_a_later_run_can_still_start(self, label, seam, monkeypatch):
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        _break_unwind(scope, seam)
+
+        with pytest.raises(SetupError):
+            drive_af(runner)
+
+        scope.illumination.acquire_led_lease.return_value.apply.side_effect = None
+        scope.imaging.restore_camera_state.side_effect = None
+
+        assert drive_af(runner) == AF_CENTER_Z, (
+            f'autofocus must still be usable after a raise from the {label}'
+        )
+
+
+def test_the_release_is_structurally_unreachable_past():
+    """D14: the guarantee is the shape, not the three seams tested above.
+
+    Guarding the statements that can raise today would leave the next
+    restore statement to be written wrong again. The release lives in its
+    own finally, so nothing placed in the restore chain can skip it.
+    """
+    import ast
+
+    from tests import ast_seams
+
+    run = ast_seams.find_def('modules/autofocus_runner.py', 'run', class_name='AutofocusRunner')
+    assert run is not None
+    outer = [n for n in run.body if isinstance(n, ast.Try) and n.finalbody]
+    assert len(outer) == 1, 'run() must have exactly one top-level try/finally bracket'
+
+    inner = [n for n in outer[0].finalbody if isinstance(n, ast.Try) and n.finalbody]
+    assert len(inner) == 1, (
+        "the bracket's finally must nest a try/finally, so the release cannot "
+        'be skipped by a raise in the restore chain'
+    )
+
+    released = [
+        n.func.attr
+        for stmt in inner[0].finalbody
+        for n in ast.walk(stmt)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    ]
+    assert 'clear' in released, 'the in-progress flag must clear in the inner finally'
+    assert 'release' in released, 'the LED lease must be released in the inner finally'
+
+    restore_attrs = [
+        n.func.attr
+        for stmt in inner[0].body
+        for n in ast.walk(stmt)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    ]
+    assert 'restore_camera_state' in restore_attrs, (
+        'the restore chain belongs in the inner try, not beside the release'
     )
