@@ -477,27 +477,41 @@ class AutofocusRunner:
                 keep_for_capture = self._keep_led_on and completed_successfully
                 illumination = self._scope.illumination
                 if self._led_lease is not None:
-                    af_channel = (
-                        illumination.color2ch(self._led_color)
-                        if self._led_color is not None
-                        else None
-                    )
-                    snapshot_lit = (
-                        snapshot_lit_pairs(
-                            self._saved_led_state.get('states', {}), illumination.state_color2ch
+                    # Best-effort, like the precision and Z restores above: a
+                    # cleanup failure must not become the run's answer. The
+                    # sweep's result is already decided by the time this runs,
+                    # and the capture that follows reads that result, not this
+                    # transition. Failing here leaves the LED wherever the
+                    # sweep left it; the run-end diff in protocol cleanup is
+                    # unconditional and darkens whatever is still lit.
+                    try:
+                        af_channel = (
+                            illumination.color2ch(self._led_color)
+                            if self._led_color is not None
+                            else None
                         )
-                        if self._saved_led_state
-                        else frozenset()
-                    )
-                    self._led_lease.apply(
-                        LedTransition.AF_TO_CAPTURE,
-                        LedTransitionCtx(
-                            channel=af_channel,
-                            illumination_ma=self._led_illumination,
-                            keep_led_on=keep_for_capture,
-                            snapshot_lit=snapshot_lit,
-                        ),
-                    )
+                        snapshot_lit = (
+                            snapshot_lit_pairs(
+                                self._saved_led_state.get('states', {}),
+                                illumination.state_color2ch,
+                            )
+                            if self._saved_led_state
+                            else frozenset()
+                        )
+                        self._led_lease.apply(
+                            LedTransition.AF_TO_CAPTURE,
+                            LedTransitionCtx(
+                                channel=af_channel,
+                                illumination_ma=self._led_illumination,
+                                keep_led_on=keep_for_capture,
+                                snapshot_lit=snapshot_lit,
+                            ),
+                        )
+                    except Exception:
+                        logger.exception(
+                            '[AF] AF-end LED transition failed; the channel is left '
+                            'as the sweep set it until the next transition claims it'
+                        )
                 # No lease means the acquire was refused and the run aborted
                 # before AF lit anything: there is no AF LED state to restore,
                 # and writing here would fight the live holder's lease.
@@ -512,7 +526,20 @@ class AutofocusRunner:
                     # The restore also puts a live-view auto-gain arm back: the
                     # snapshot above recorded it before the lock consumed it, so
                     # every exit -- abort, raise, completion -- re-arms the view.
-                    self._scope.imaging.restore_camera_state(restore)
+                    # Guarded for the same reason as the LED step, and reached
+                    # even when that one failed -- this is the ONLY thing that
+                    # re-arms the view, so an earlier cleanup failure must not
+                    # cost the user their live-view auto gain. The restore can
+                    # still fail PART WAY through on its own, which is the
+                    # imaging API's contract and not this runner's to change.
+                    try:
+                        self._scope.imaging.restore_camera_state(restore)
+                    except Exception:
+                        logger.exception(
+                            '[AF] post-AF camera restore failed; the camera may be '
+                            'left at the sweep targets and a live-view auto-gain '
+                            'arm may not have been put back'
+                        )
                 _af_log.info(
                     f'[AF DIAG] Clearing _af_in_progress -- '
                     f'camera now at gain={self._scope.imaging.get_gain_db()} '
