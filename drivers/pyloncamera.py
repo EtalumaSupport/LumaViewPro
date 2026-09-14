@@ -3882,23 +3882,28 @@ def _read_validity_chunks(grabResult) -> dict | None:
     return chunks if chunks else None
 
 
-class ImageHandler(pylon.ImageEventHandler):
+class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
     """Pylon camera image handler -- receives frames via SDK callbacks.
 
-    Uses ImageHandlerBase via composition (not inheritance) to avoid
-    metaclass conflict with pylon.ImageEventHandler.
+    Inherits ``ImageHandlerBase`` beside the SDK event handler so the whole
+    base surface is present here. ``Camera`` reads its handler through that
+    surface, and a hand-maintained subset of it went stale every time the
+    base grew. The two bases coexist: the SWIG proxy's metaclass is ``type``
+    and it defines none of the base's names (verified on pypylon 26.4.1).
+    The SDK ``__init__`` does not forward along the MRO, so both bases are
+    initialised explicitly.
     """
 
     def __init__(self, parent_cam: PylonCamera):
-        super().__init__()
-        self._base = ImageHandlerBase()
+        pylon.ImageEventHandler.__init__(self)
+        ImageHandlerBase.__init__(self)
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
         # Stage B worker for the OnImageGrabbed two-stage split. Created
         # here so it shares lifetime with the handler; start() / stop()
         # are driven from PylonCamera.connect / disconnect at the ordering
         # the SDK contract requires.
-        self._worker = _PylonImageGrabWorker(parent_cam, self._base, self._frame_queue)
+        self._worker = _PylonImageGrabWorker(parent_cam, self, self._frame_queue)
 
     def OnImagesSkipped(self, camera, countOfSkippedImages) -> None:
         """Pylon SDK callback fired when the grab strategy drops frames.
@@ -4136,41 +4141,22 @@ class ImageHandler(pylon.ImageEventHandler):
                     break
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
-        self._base.reset()
+        ImageHandlerBase.reset(self)
 
-    def get_last_image(self) -> tuple:
-        """The base handler's ``get_last_image``, refusing a detached device.
+    def _detached(self) -> bool:
+        """True once the device is removed or its handle released.
 
-        If the camera has been marked removed or ``self._parent.active``
-        has been cleared, answers ``ImageHandlerBase.NO_FRAME`` rather
-        than handing back a frame from a no-longer-attached device. The
-        no-frame answer is the base's own, not a local copy: every reader
-        unpacks this tuple positionally, and a copy here went short each
-        time the base tuple grew.
-
-        Returns:
-            tuple: ``(success: bool, image: ndarray | None,
-                timestamp: datetime | None, significant_bits: int | None,
-                seq: int | None)`` -- the ``ImageHandlerBase.get_last_image``
-                shape.
+        The base's readers consult this before answering, so a frame or its
+        chunk metadata buffered from a no-longer-attached device is reported
+        as absent rather than handed out as current. A parent that cannot
+        answer the question is treated as detached.
         """
         try:
             if self._parent._device_removed:
-                return self._base.NO_FRAME
-            if self._parent.active is None:
-                return self._base.NO_FRAME
+                return True
+            return self._parent.active is None
         except Exception:
-            return self._base.NO_FRAME
-
-        return self._base.get_last_image()
-
-    def register_frame_callback(self, cb) -> None:
-        """Composition delegate to ``ImageHandlerBase.register_frame_callback``."""
-        self._base.register_frame_callback(cb)
-
-    def unregister_frame_callback(self, cb) -> None:
-        """Composition delegate to ``ImageHandlerBase.unregister_frame_callback``."""
-        self._base.unregister_frame_callback(cb)
+            return True
 
 
 class _PylonImageGrabWorker:

@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The Pylon handler's no-frame answer is the base handler's no-frame answer.
 
-``pyloncamera.ImageHandler`` composes ``ImageHandlerBase`` and wraps its
-``get_last_image`` with a detached-device guard. The guard used to build its
-own no-frame tuple, so each time the base tuple grew (the per-frame depth
+``pyloncamera.ImageHandler`` inherits ``ImageHandlerBase`` and answers its
+detached-device predicate, which the base's readers consult. The Pylon guard
+once wrapped ``get_last_image`` and built its own no-frame tuple, so each time the base tuple grew (the per-frame depth
 stamp, then the arrival ordinal) the guard's copy stayed short. Every reader
 unpacks the tuple positionally; ``grab`` and ``grab_latest`` catch the
 resulting ValueError and log a traceback, but ``last_stamped_significant_bits``
@@ -34,7 +34,7 @@ def detached_camera():
     from drivers.camera import Camera
 
     handler, parent = bare_image_handler()
-    handler._base._store_frame(
+    handler._store_frame(
         np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, chunks=None, significant_bits=12
     )
     parent.cam_image_handler = handler
