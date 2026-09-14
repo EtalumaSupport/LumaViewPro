@@ -32,10 +32,8 @@ class ImageHandlerBase:
     MAX_CONSECUTIVE_FAILURES = 128
 
     # The no-frame answer of get_last_image(), in the delivered-frame shape.
-    # Owned here because the Pylon handler composes this class and answers
-    # no-frame from its own detached-device guard: a second copy of the tuple
-    # went short each time this one grew, and every reader unpacks it
-    # positionally.
+    # One owner: every reader unpacks this tuple positionally, and a second
+    # copy of it went short each time this one grew.
     NO_FRAME = (False, None, None, None, None)
 
     def __init__(self):
@@ -91,6 +89,16 @@ class ImageHandlerBase:
         with self._frame_lock:
             return self._frames_delivered
 
+    def _detached(self) -> bool:
+        """True when the buffered frame's device is no longer attached.
+
+        Every reader of the buffer consults this before it answers, so a frame
+        stored from a device that has since been removed is reported as absent
+        rather than as current. A driver whose handler can outlive its device
+        overrides this; the base handler is never detached.
+        """
+        return False
+
     def get_last_image(self) -> tuple:
         """Return (success, image, timestamp, significant_bits, seq). Thread-safe.
 
@@ -110,6 +118,8 @@ class ImageHandlerBase:
         genuinely new frame, and a summed capture additionally requires each
         frame's arrival ordinal to exceed the one before it.
         """
+        if self._detached():
+            return self.NO_FRAME
         with self._frame_lock:
             if not self.last_result:
                 return self.NO_FRAME
@@ -135,6 +145,8 @@ class ImageHandlerBase:
         populates chunks; the IDS driver stores frames without them, so
         IDS consumers always see None and fall back to live read-back.
         """
+        if self._detached():
+            return None
         with self._frame_lock:
             if not self.last_result:
                 return None
@@ -696,13 +708,9 @@ class Camera(ABC):
         failure from turning into a wrong depth.
 
         Read through the handler's get_last_image() method, not the raw
-        last_img_significant_bits attribute: the Pylon handler composes
-        ImageHandlerBase (to avoid a metaclass conflict with the SDK event
-        handler) and exposes only the method surface, so reaching the
-        attribute directly raises AttributeError on a Pylon camera. The
-        tuple is read atomically under the handler's frame lock, so the
-        stamp cannot describe a different frame than the one returned
-        beside it.
+        last_img_significant_bits attribute: the tuple is read atomically
+        under the handler's frame lock, so the stamp cannot describe a
+        different frame than the one returned beside it.
         """
         handler = self.cam_image_handler
         if handler is not None:

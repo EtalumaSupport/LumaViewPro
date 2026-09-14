@@ -84,7 +84,7 @@ class TestPylon(unittest.TestCase):
         result, _ts = self.camera.grab()
         self.assertTrue(result, 'grab failed -- chunks check requires successful frame')
 
-        chunks = self.camera.cam_image_handler._base.get_last_chunks()
+        chunks = self.camera.cam_image_handler.get_last_chunks()
         print('\n=== last_chunks after first grab ===')
         print(f'  chunks: {chunks}')
         print('=====================================\n')
@@ -133,7 +133,7 @@ class TestPylon(unittest.TestCase):
                 ok, _ts, _seq = self.camera.grab_new_capture(timeout_s=2.0)
                 if not ok:
                     continue
-                chunks = self.camera.cam_image_handler._base.get_last_chunks()
+                chunks = self.camera.cam_image_handler.get_last_chunks()
                 if chunks and 'Gain' in chunks:
                     obs.append(chunks['Gain'])
                     frame_ids.append(chunks.get('FrameID'))
@@ -162,7 +162,7 @@ class TestPylon(unittest.TestCase):
                 )
                 if not ok:
                     continue
-                chunks = self.camera.cam_image_handler._base.get_last_chunks()
+                chunks = self.camera.cam_image_handler.get_last_chunks()
                 if chunks and 'ExposureTime' in chunks:
                     obs_us.append(chunks['ExposureTime'])
                     frame_ids.append(chunks.get('FrameID'))

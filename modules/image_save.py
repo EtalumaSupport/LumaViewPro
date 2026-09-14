@@ -343,11 +343,8 @@ def generate_image_metadata(
     # simulator and legacy). Both sources report what the hardware is
     # ACTUALLY set to, never the requested value -- so even if a settings
     # write silently failed, the recorded metadata stays truthful.
-    try:
-        handler = getattr(scope._camera_driver, 'cam_image_handler', None)
-        chunks = handler.get_last_chunks() if handler is not None else None
-    except Exception:
-        chunks = None
+    handler = getattr(scope._camera_driver, 'cam_image_handler', None)
+    chunks = handler.get_last_chunks() if handler is not None else None
     chunks = chunks or {}
 
     _chunk_exp_us = chunks.get('ExposureTime')
