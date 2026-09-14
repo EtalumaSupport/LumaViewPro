@@ -333,7 +333,15 @@ class MicroscopeSettings(BoxLayout):
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # was applied by the Session's bring-up
+            # The twin of the labware restore below: writing the spinner
+            # dispatches its text event, and the explicit call emits again, so
+            # cold start recorded two binning selections nobody made. Declared
+            # twice because only one declaration is pending per name -- whichever
+            # emission happens consumes one, and the second replaces any the
+            # first left unconsumed.
+            gui_logger.note_write_back('BINNING', binning_size_str)
             self.ids['binning_spinner'].text = binning_size_str
+            gui_logger.note_write_back('BINNING', binning_size_str)
             self.select_binning_size()
 
             # The settings-to-scope bring-up ran in the Session before this
@@ -382,7 +390,14 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+            # Restoring the stored labware dispatches the spinner's event, and
+            # the explicit call below emits again -- neither is a user pick.
+            # Declared twice because only one declaration is pending per name:
+            # whichever of the two emissions happens consumes one, and the
+            # second declaration replaces any the first left unconsumed.
+            gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+            gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
             protocol_settings.select_labware()
             # Apply the persisted step-location view at startup; the toggle
             # that edits this now lives in Advanced Settings.
@@ -429,19 +444,22 @@ class MicroscopeSettings(BoxLayout):
                 # Size the sliders to the camera caps BEFORE the values land
                 # (the Kivy slider clamps the displayed value to its max). The
                 # over-cap STORED value is reconciled + persisted by the single
-                # clamp_layer_settings_to_caps pass after the loop, not a
-                # duplicate inline clamp here. The layer is still initializing
-                # from its construction, so a clamp here fires no handler.
+                # clamp_layer_settings_to_caps pass below, not a duplicate
+                # inline clamp here.
                 layer_obj.ids['gain_slider'].max = max_gain
                 layer_obj.ids['exp_slider'].max = max_exposure
 
-                layer_obj.sync_widgets_from_settings()
-
             # Reconcile any layer whose stored gain/exposure exceeds the new
             # camera's cap down to it -- the single clamp owner, shared with the
-            # reconnect resync, instead of the per-layer inline clamp this loop
-            # used to carry.
+            # reconnect resync. Ordering: this runs BEFORE the widgets are
+            # filled, so no widget ever renders a value the camera cannot
+            # honor. Its explicit apply is a no-op here (the layers are still
+            # initializing from construction); the startup push to the camera
+            # is the open layer's, from complete_initialization.
             ctx.image_settings.clamp_layer_settings_to_caps()
+
+            for layer in common_utils.get_layers():
+                ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
 
         except json.JSONDecodeError as e:
             # Real "incompatible JSON" -- file content can't be parsed.
@@ -807,9 +825,12 @@ class MicroscopeSettings(BoxLayout):
                 'Binning not supported',
                 f'This camera does not support {new_binning_size_str} binning.',
             )
-            self.ids['binning_spinner'].text = binning.binning_size_int_to_str(
-                imaging.get_binning_size()
-            )
+            # Restoring the spinner dispatches its text event, which would read
+            # as the user choosing the value the camera reported -- the opposite
+            # of what happened, since their pick was refused.
+            restored = binning.binning_size_int_to_str(imaging.get_binning_size())
+            gui_logger.note_write_back('BINNING', restored)
+            self.ids['binning_spinner'].text = restored
             return
 
         # Capture the native ROI BEFORE overwriting the binning setting.

@@ -10,6 +10,11 @@ from kivy.uix.scrollview import ScrollView
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.config_ui_getters import (
+    camera_autogain_supported,
+    get_layer_exposure_slider_max,
+    get_layer_illumination_slider_max,
+)
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -440,29 +445,31 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
     def set_layer_exposure_ranges(self):
-        ctx = _app_ctx.ctx
+        """Size each layer's exposure slider from the connected camera's cap,
+        through the getter that also applies the transmitted-layer policy.
+
+        The one owner of exp_slider.max. The policy numbers live beside the
+        illumination policy below the GUI rather than as literals here, so the
+        bound a non-GUI caller is held to and the bound the slider shows come
+        from the same place.
+        """
+        camera_max_ms = _app_ctx.ctx.max_exposure
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids[
                 'exp_slider'
             ].min = 1.0  # 1ms floor -- sub-ms never realistic for fluorescence
-            layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
-
-            if layer == 'BF':
-                # M25: Cap at 50ms but don't exceed camera capability.
-                layer_obj.ids['exp_slider'].max = min(50, ctx.max_exposure)
-            else:
-                # M25: Cap at 200ms but don't exceed camera capability.
-                layer_obj.ids['exp_slider'].max = min(200, ctx.max_exposure)
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].min = 1.0  # 1ms floor
-            layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].max = get_layer_exposure_slider_max(camera_max_ms, layer)
             layer_obj.ids['exp_slider'].step = 1.0  # Integer steps only
 
     def set_layer_gain_ranges(self):
@@ -479,6 +486,18 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['gain_slider'].max = ctx.max_gain
+
+    def set_layer_illumination_ranges(self):
+        """Size each layer's illumination slider from the connected LED
+        driver's cap, through the getter that also applies the transmitted-
+        layer policy. The one owner of ill_slider.max; the .kv value is the
+        placeholder until the scope is built.
+        """
+        for layer in common_utils.get_layers():
+            bound = get_layer_illumination_slider_max(layer)
+            if bound is None:
+                continue
+            self.layer_lookup(layer=layer).ids['ill_slider'].max = bound
 
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
@@ -498,8 +517,6 @@ class ImageSettings(BoxLayout):
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
-        from modules.config_ui_getters import camera_autogain_supported
-
         supported = camera_autogain_supported()
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -513,10 +530,30 @@ class ImageSettings(BoxLayout):
         drift to a subset (reconnect previously refreshed only exposure ranges).
         Callers that change the camera (reconnect) must refresh ctx.max_gain /
         ctx.max_exposure first -- these setters read those caps.
+
+        The setters run with every layer marked initializing. Narrowing a
+        slider's max makes Kivy clamp its value, which fires on_value into the
+        layer's handler; by the time this runs, load_settings has already
+        cleared the flag, so without this the app's own bound-application would
+        be recorded as a user drag and would overwrite the stored value with
+        the bound. Every other programmatic widget write in LayerControl takes
+        the same flag for the same reason.
+
+        clamp_layer_settings_to_caps stays OUTSIDE the flag: its store write is
+        the deliberate reconciliation of a value the hardware cannot honor, not
+        a display correction.
         """
-        self.set_layer_exposure_ranges()
-        self.set_layer_gain_ranges()
-        self.set_layer_autogain_support()
+        layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_layers()]
+        for layer_obj in layer_objs:
+            layer_obj._initializing = True
+        try:
+            self.set_layer_exposure_ranges()
+            self.set_layer_gain_ranges()
+            self.set_layer_illumination_ranges()
+            self.set_layer_autogain_support()
+        finally:
+            for layer_obj in layer_objs:
+                layer_obj._initializing = False
         self.clamp_layer_settings_to_caps()
 
     def clamp_layer_settings_to_caps(self):
@@ -528,17 +565,32 @@ class ImageSettings(BoxLayout):
         value -- and its slider -- down to the cap for every layer, the same
         reconciliation load_settings performs, so connect and reconnect agree.
         An over-cap value cannot be honored by the hardware regardless.
+
+        Runs BEFORE anything renders the store, on every path that reaches it:
+        a value the camera cannot honor is wrong in the store, so rendering it
+        first would pin the slider against the cap and present the pending
+        reconciliation as a legitimate divergence between the two widgets.
+
+        The re-render and the apply are both explicit. They used to arrive as
+        side effects of writing the slider -- the layer's handler re-committed
+        the value (crediting the user with a drag it never made) and its
+        debounced trigger was what actually told the camera, which on the
+        reconnect path was the only apply there was.
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
         for layer in common_utils.get_layers():
-            layer_obj = self.layer_lookup(layer=layer)
+            reconciled = False
             if settings[layer]['gain_db'] > ctx.max_gain:
                 settings[layer]['gain_db'] = ctx.max_gain
-                layer_obj.ids['gain_slider'].value = ctx.max_gain
+                reconciled = True
             if settings[layer]['exposure_ms'] > ctx.max_exposure:
                 settings[layer]['exposure_ms'] = ctx.max_exposure
-                layer_obj.ids['exp_slider'].value = ctx.max_exposure
+                reconciled = True
+            if reconciled:
+                layer_obj = self.layer_lookup(layer=layer)
+                layer_obj.render_layer_values_from_settings()
+                layer_obj.apply_settings()
 
     def open_or_default_layer(self):
         """The layer whose accordion is expanded, or 'BF' when none is open.
@@ -623,9 +675,7 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['false_color_label'].text = ''
             layer_obj.ids['false_color'].color = (0.0,) * 4
 
-            # Adjust 'Illumination' range
             layer_obj.ids['ill_slider'].step = 1
-            layer_obj.ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
         """Called by Kivy on every accordion item collapse/expand.

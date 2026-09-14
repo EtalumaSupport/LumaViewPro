@@ -36,6 +36,15 @@ logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
 # Axis order the firmware reports and the driver answers in.
 _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
 
+# The acceleration limit a caller may ask for, as a percentage of the
+# firmware's own maximum. Public because callers that build a value BEFORE a
+# board is connected -- a settings load, a headless session -- have to bound it
+# against the same numbers the driver rejects on, and a second copy of a pair
+# like this drifts silently: the widget that used to hold it is how an
+# out-of-range value reached the driver in the first place.
+ACCELERATION_PCT_MIN = 1
+ACCELERATION_PCT_MAX = 100
+
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
@@ -586,9 +595,10 @@ class MotorBoard(SerialBoard):
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return
 
-        if (val_pct < 1) or (val_pct > 100):
+        if (val_pct < ACCELERATION_PCT_MIN) or (val_pct > ACCELERATION_PCT_MAX):
             raise ValueError(
-                f'Acceleration limit of {val_pct}% is out of bounds. Must be between 1 and 100.'
+                f'Acceleration limit of {val_pct}% is out of bounds. '
+                f'Must be between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}.'
             )
 
         limit = self.acceleration_limit(axis=axis, parameter=parameter)

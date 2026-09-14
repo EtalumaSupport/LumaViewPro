@@ -466,7 +466,7 @@ _UI_MODULES_IMPORT_PIN = {
     'ui/notification_popup.py': 4,
     'ui/post_processing.py': 15,
     'ui/protocol_settings.py': 17,
-    'ui/scope_display.py': 12,
+    'ui/scope_display.py': 11,
     'ui/shader.py': 3,
     'ui/stage.py': 5,
     'ui/step_navigation.py': 6,

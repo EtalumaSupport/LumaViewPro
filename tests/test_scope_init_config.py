@@ -18,6 +18,7 @@ import pytest
 from modules.lumascope_api import Lumascope
 from modules.notification_center import NotificationCenter, Severity
 from modules.scope_init_config import ScopeInitConfig
+from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN, MotorBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 
@@ -159,6 +160,61 @@ class TestFromSettings:
             layer_identity=_NO_LED_IDENTITY,
         )
         assert config.expects_led is False
+
+
+class TestAccelerationBound:
+    """The stored acceleration percentage is bounded where settings become
+    hardware commands, not where a GUI happens to draw a slider.
+
+    A settings dict arrives here from a file a user can hand-edit and from a
+    caller that hands one straight to a session, and neither path passes a
+    slider. Before it was bounded at this read, an out-of-range stored value
+    reached the motor driver and only a swallowed exception kept bring-up
+    alive.
+    """
+
+    @pytest.mark.parametrize(
+        'stored, expected',
+        [
+            (ACCELERATION_PCT_MAX + 400, ACCELERATION_PCT_MAX),
+            (0, ACCELERATION_PCT_MIN),
+            (-3, ACCELERATION_PCT_MIN),
+            (50, 50),
+            # A hand-edited file can carry the number as a string. Coercing
+            # before clamping is what keeps this from raising TypeError out of
+            # bring-up once the driver's rejection is no longer swallowed.
+            ('50', 50),
+            ('', ACCELERATION_PCT_MAX),
+            (None, ACCELERATION_PCT_MAX),
+        ],
+    )
+    def test_stored_value_is_bounded_to_what_the_driver_accepts(self, stored, expected):
+        settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
+        config = ScopeInitConfig.from_settings(settings, labware=None)
+        assert config.acceleration_pct == expected
+
+    def test_an_absent_motion_section_still_yields_a_legal_value(self):
+        settings = {key: value for key, value in _BASE_SETTINGS.items() if key != 'motion'}
+        config = ScopeInitConfig.from_settings(settings, labware=None)
+        assert ACCELERATION_PCT_MIN <= config.acceleration_pct <= ACCELERATION_PCT_MAX
+
+    def test_the_bound_is_the_drivers_own_rather_than_a_second_copy(self):
+        """The clamp here and the driver's rejection read the same constants.
+
+        Asserted as a pairing rather than against the numbers: a future edit
+        that hand-copies 1 and 100 into either side would still satisfy a
+        literal assertion, and a silently drifting duplicate of this pair is
+        how the value got out of range to begin with.
+        """
+        settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 10**6}}
+        config = ScopeInitConfig.from_settings(settings, labware=None)
+        assert config.acceleration_pct == ACCELERATION_PCT_MAX
+
+        board = MotorBoard.__new__(MotorBoard)
+        with pytest.raises(ValueError):
+            MotorBoard.set_acceleration_limit(
+                board, axis='X', parameter='acceleration', val_pct=ACCELERATION_PCT_MAX + 1
+            )
 
 
 # ---------- _notify_partial_hardware filter ----------

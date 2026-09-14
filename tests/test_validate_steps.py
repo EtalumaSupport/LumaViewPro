@@ -25,7 +25,11 @@ _INVALID_OBJECTIVE = '100x Oil Imm Fake'
 # ---------------------------------------------------------------------------
 
 
-def _make_protocol(steps_data: list[dict], labware_id: str = '96 well microplate') -> Protocol:
+def _make_protocol(
+    steps_data: list[dict],
+    labware_id: str = '96 well microplate',
+    led_max_ma: int | None = None,
+) -> Protocol:
     """Create a Protocol with given steps.
 
     Bypasses Protocol.__init__ because it requires a full valid config dict
@@ -34,6 +38,7 @@ def _make_protocol(steps_data: list[dict], labware_id: str = '96 well microplate
     skips the constructor's file-loading step.
     """
     p = Protocol.__new__(Protocol)
+    p._led_max_ma = led_max_ma
     # Build the steps DataFrame
     dtypes = np.dtype(
         [
@@ -172,9 +177,9 @@ class TestValidateIllumination:
         assert any('Illumination must be 0' in e for e in errors)
 
     def test_over_max_illumination(self):
-        p = _make_protocol([_valid_step(Illumination=1001)])
+        p = _make_protocol([_valid_step(Illumination=1001)], led_max_ma=1000)
         errors = p.validate_steps()
-        assert any('Illumination must be 0' in e for e in errors)
+        assert any('Illumination must be 0-1000' in e for e in errors)
 
     def test_zero_illumination_valid(self):
         p = _make_protocol([_valid_step(Illumination=0)])

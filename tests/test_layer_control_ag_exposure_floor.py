@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -45,6 +46,7 @@ import pytest
 
 import modules.common_utils as real_common_utils
 import modules.config_helpers as config_helpers
+from ui.layer_control import _LAYER_VALUE_WIDGETS
 from modules.lumascope_api.imaging import (
     AutoGainConvergence,
     AutoGainLock,
@@ -132,7 +134,7 @@ def _compile_cb():
         is_valid_gain_db=real_common_utils.is_valid_gain_db,
         is_valid_exposure_ms=real_common_utils.is_valid_exposure_ms,
     )
-    app_ctx_stub = SimpleNamespace(ctx=SimpleNamespace(settings={}))
+    app_ctx_stub = SimpleNamespace(ctx=SimpleNamespace(settings={}, settings_lock=threading.Lock()))
     # The floor itself is read through the real config getter inside the
     # callback, so the values under test are production's, not a copy.
     ns = {
@@ -141,12 +143,18 @@ def _compile_cb():
         'common_utils': common_utils_stub,
         '_app_ctx': app_ctx_stub,
         'AutoGainConvergence': AutoGainConvergence,
+        '_LAYER_VALUE_WIDGETS': _LAYER_VALUE_WIDGETS,
     }
+    # The callback hands the stored values to the render path rather than
+    # writing widgets itself, so that path is compiled from the same source
+    # into the same namespace.
+    for name in ('_show_value_on_widgets', 'render_layer_values_from_settings'):
+        exec(compile(_extract_method_source('LayerControl', name), f'<{name}>', 'exec'), ns)
     exec(compile(fn_src, '<layer_control::update_auto_gain_cb>', 'exec'), ns)
     return ns['update_auto_gain_cb'], app_ctx_stub
 
 
-def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
+def _make_fake_layer(cb, layer: str, slider_min: float, slider_max: float = 1000.0):
     """Fake `self` for LayerControl.update_auto_gain_cb.
 
     Reflects the post-AG-off state: toggle is 'normal' (state=False), so
@@ -154,6 +162,8 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     """
     fake = SimpleNamespace()
     fake.layer = layer
+    # The render path suppresses the layer's handlers around its writes.
+    fake._initializing = False
 
     fake.ids = {}
     fake.ids['auto_gain'] = MagicMock()
@@ -170,6 +180,12 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
     fake.ids['exp_text'] = MagicMock()
     fake.ids['exp_text'].text = '0'
     fake.apply_settings = MagicMock()
+    # The callback hands its values to the render path instead of writing the
+    # widgets itself. cb.__globals__ IS the namespace it was compiled into, so
+    # the stand gets the very functions the callback will call.
+    ns = cb.__globals__
+    for name in ('_show_value_on_widgets', 'render_layer_values_from_settings'):
+        setattr(fake, name, ns[name].__get__(fake))
     return fake
 
 
@@ -210,7 +226,7 @@ class TestExposureFloorBehavior:
         app_ctx_stub.ctx.settings = {
             'BF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
-        fake = _make_fake_layer('BF', slider_min=0.01)  # .kv default for transmitted
+        fake = _make_fake_layer(cb, 'BF', slider_min=0.01)  # .kv default for transmitted
 
         # AG-off callback: init=False, then the lock result (gain, exp).
         cb(fake, result=(False, _lock(fake.layer, 0.0, raw_exp_ms)))
@@ -241,7 +257,7 @@ class TestExposureFloorBehavior:
         app_ctx_stub.ctx.settings = {
             'Blue': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
-        fake = _make_fake_layer('Blue', slider_min=1.0)  # set_layer_exposure_ranges value
+        fake = _make_fake_layer(cb, 'Blue', slider_min=1.0)  # set_layer_exposure_ranges value
 
         cb(fake, result=(False, _lock(fake.layer, 0.0, raw_exp_ms)))
 
@@ -259,7 +275,7 @@ class TestExposureFloorBehavior:
         app_ctx_stub.ctx.settings = {
             'PC': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
-        fake = _make_fake_layer('PC', slider_min=0.01)
+        fake = _make_fake_layer(cb, 'PC', slider_min=0.01)
         cb(fake, result=(False, _lock(fake.layer, 0.0, 0.050)))
         assert app_ctx_stub.ctx.settings['PC']['exposure_ms'] == 0.1
 
@@ -270,7 +286,7 @@ class TestExposureFloorBehavior:
         app_ctx_stub.ctx.settings = {
             'DF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
-        fake = _make_fake_layer('DF', slider_min=0.01)
+        fake = _make_fake_layer(cb, 'DF', slider_min=0.01)
         cb(fake, result=(False, _lock(fake.layer, 0.0, 0.050)))
         assert app_ctx_stub.ctx.settings['DF']['exposure_ms'] == 0.1
 
@@ -281,7 +297,7 @@ class TestExposureFloorBehavior:
         app_ctx_stub.ctx.settings = {
             'Lumi': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
         }
-        fake = _make_fake_layer('Lumi', slider_min=1.0)
+        fake = _make_fake_layer(cb, 'Lumi', slider_min=1.0)
         cb(fake, result=(False, _lock(fake.layer, 0.0, 0.5)))
         assert app_ctx_stub.ctx.settings['Lumi']['exposure_ms'] == 1.0
 
@@ -291,7 +307,7 @@ class TestExposureFloorBehavior:
         exposure -- the previous value is the best truth available."""
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
-        fake = _make_fake_layer('BF', slider_min=0.01)
+        fake = _make_fake_layer(cb, 'BF', slider_min=0.01)
         cb(fake, result=(False, _lock(fake.layer, 3.0, 0.0)))
         assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 42.0
         # The valid gain reading in the same callback still lands.
@@ -303,7 +319,7 @@ class TestExposureFloorBehavior:
         floors and lands."""
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
-        fake = _make_fake_layer('BF', slider_min=0.01)
+        fake = _make_fake_layer(cb, 'BF', slider_min=0.01)
         cb(fake, result=(False, _lock(fake.layer, -1.0, 5.0)))
         assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 7.0
         assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 5.0

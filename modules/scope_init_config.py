@@ -4,7 +4,41 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.image_mode as image_mode
+from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
 from modules.exceptions import ConfigError
+from lvp_logger import logger
+
+
+def _bounded_acceleration_pct(raw: object) -> int:
+    """The stored acceleration percentage, forced into what the driver accepts.
+
+    A settings dict is not a trusted input. It can be hand-edited on disk, and
+    it can be handed to a session directly instead of being read from a file,
+    so neither the slider that used to be the only thing holding this in range
+    nor any load-time repair is on every path that gets here. Bounding it at
+    this read -- the one place stored settings become hardware commands -- is
+    what makes the limit hold for a caller that never draws a GUI.
+
+    A non-numeric value is repaired rather than raised on, because this runs
+    during bring-up: refusing to start is a worse answer than starting at the
+    acceleration a fresh install already uses.
+    """
+    try:
+        val_pct = int(float(raw))
+    except (TypeError, ValueError):
+        logger.warning(
+            f'[Settings ] acceleration_max_pct {raw!r} is not a number; '
+            f'using {ACCELERATION_PCT_MAX}'
+        )
+        return ACCELERATION_PCT_MAX
+
+    bounded = max(ACCELERATION_PCT_MIN, min(ACCELERATION_PCT_MAX, val_pct))
+    if bounded != val_pct:
+        logger.warning(
+            f'[Settings ] acceleration_max_pct {val_pct} is outside '
+            f'[{ACCELERATION_PCT_MIN}, {ACCELERATION_PCT_MAX}]; using {bounded}'
+        )
+    return bounded
 
 
 @dataclass
@@ -98,7 +132,9 @@ class ScopeInitConfig:
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],
-            acceleration_pct=settings.get('motion', {}).get('acceleration_max_pct', 100),
+            acceleration_pct=_bounded_acceleration_pct(
+                settings.get('motion', {}).get('acceleration_max_pct', ACCELERATION_PCT_MAX)
+            ),
             stage_offset=settings.get('stage_offset', {'x': 0, 'y': 0}),
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
             capture_depth=capture_depth,
