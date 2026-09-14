@@ -241,13 +241,17 @@ class StitchControls(BoxLayout):
 
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
-            if result.get('reason') == 'unsupported_source_format':
-                final_text = result['message']
-            else:
-                final_text = (
-                    'Stitching could not be completed for one or more tile groups.\n'
-                    'No console error is shown here. Open Support > Logs and search for "Stitcher:".'
-                )
+            # Show what the post-processor decided. It writes a message for
+            # every refusal it can issue -- a folder holding only derived
+            # outputs, output names that would collide, an unreadable source
+            # format -- and picking which of those the user is allowed to read
+            # is how a deliberate, explainable refusal reached them as
+            # "could not be completed". The log pointer is the fallback for a
+            # failure carrying no message, not the default.
+            final_text = result.get('message') or (
+                'Stitching could not be completed for one or more tile groups.\n'
+                'No console error is shown here. Open Support > Logs and search for "Stitcher:".'
+            )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
@@ -336,23 +340,29 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             # Same single-surface contract as the no-result branch above.
             Clock.schedule_once(lambda dt: popup.dismiss(), 0)
-            if result.get('reason') in ('error', 'collision'):
-                # The projection failed or its output names collide (not a
-                # bad-folder case); the message carries the real remedy, so
-                # don't send the user off to pick a different folder.
+            message = result.get('message') or (
+                'Z-Projection could not be completed. Check lumaviewpro.log for details.'
+            )
+            if result.get('reason') == 'no_data':
+                # The one genuine bad-folder case: nothing in the folder to
+                # project. Naming this by the reason that means it, rather than
+                # by everything it is not, keeps the folder advice off refusals
+                # it does not fit -- an unreadable source format or a folder of
+                # derived outputs are not answered by picking another folder,
+                # and a reason added later would inherit that advice by default.
                 notifications.warning(
                     'Z-Projection',
-                    'Z-Projection failed',
-                    result['message'],
+                    'No Z-Stack data found',
+                    f'{message}. Pick a folder that contains a Z-stack '
+                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                    f'whose protocol included Z-stack steps.',
                 )
             else:
                 notifications.warning(
                     'Z-Projection',
-                    'No Z-Stack data found',
-                    f'{result["message"]}. Pick a folder that contains a Z-stack '
-                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                    f'whose protocol included Z-stack steps.',
+                    'Z-Projection failed',
+                    message,
                 )
             return
 

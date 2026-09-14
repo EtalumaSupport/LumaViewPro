@@ -740,7 +740,6 @@ def save_live_image(
     tail_id_mode: str | None = 'increment',
     force_to_8bit: bool = True,
     output_format: str = 'TIFF',
-    earliest_image_ts: datetime.datetime | None = None,
     timeout_s: float = 5.0,
     all_ones_check: bool = False,
     sum_count: int = 1,
@@ -767,7 +766,6 @@ def save_live_image(
         tail_id_mode: "increment" for auto-numbered files, or None.
         force_to_8bit: Convert 12-bit images to 8-bit.
         output_format: "TIFF" or "OME-TIFF".
-        earliest_image_ts: Reject frames before this timestamp.
         timeout_s: Max seconds to wait for a valid frame.
         all_ones_check: Reject saturated frames.
         sum_count: Number of frames to sum.
@@ -790,7 +788,6 @@ def save_live_image(
     try:
         array = scope.imaging._capture_and_wait_impl(
             force_to_8bit=force_to_8bit,
-            earliest_image_ts=earliest_image_ts,
             timeout_s=timeout_s,
             all_ones_check=all_ones_check,
             sum_count=sum_count,

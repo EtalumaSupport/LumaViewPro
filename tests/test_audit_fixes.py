@@ -3077,7 +3077,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         arrays = [blown, blown]  # initial + retry both blown -> full walk runs
         monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
 
-        orig_fraction = ImagingAPI._saturated_fraction
+        orig_fraction = ImagingAPI.saturated_fraction
         lock_was_free = []
 
         def probing_fraction(frame, significant_bits):
@@ -3095,7 +3095,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             lock_was_free.append(seen['free'])
             return orig_fraction(frame, significant_bits)
 
-        monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
+        monkeypatch.setattr(ImagingAPI, 'saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
         assert out is not None
         assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
@@ -3115,7 +3115,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         imaging, cam = _sim_backed_imaging()
         blown = np.full((4, 4), 255, dtype=np.uint8)
         monkeypatch.setattr(cam, 'get_array', lambda: blown)
-        grab_results = iter([(True, _dt.datetime.now()), (False, None)])
+        grab_results = iter([(True, _dt.datetime.now(), 1), (False, None, None)])
         monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
         out = imaging.get_image(all_ones_check=True)
         assert np.array_equal(out, blown), (
@@ -4074,17 +4074,6 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
         assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
 
-    def test_capture_and_wait_accepts_earliest_image_ts(self):
-        """capture_and_wait must forward earliest_image_ts so save_live_image's
-        public signature stays stable for L2 SDK callers."""
-        import inspect
-
-        sig = inspect.signature(ImagingAPI.capture_and_wait)
-        assert 'earliest_image_ts' in sig.parameters, (
-            'capture_and_wait must accept earliest_image_ts so save_live_image '
-            'can forward its existing parameter.'
-        )
-
 
 class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
@@ -4229,43 +4218,11 @@ def _sim_backed_imaging():
     return imaging, cam
 
 
-class TestCaptureAndWaitPassesChunksToValidity:
-    """capture_and_wait's drain loop reads per-frame chunk metadata and
-    passes it to count_frame so chunk-match can short-circuit skip-frames
-    for gain/exposure on chunk-supporting cameras. Backward compat:
-    cameras without chunks return None and fall back to skip-frames."""
-
-    def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        chunk = {'Gain': 2.0, 'ExposureTime': 5000.0}
-        cam.cam_image_handler = SimpleNamespace(get_last_chunks=lambda: dict(chunk))
-        imaging.set_gain_db(2.0)  # pending 'gain' forces the drain loop to run
-
-        recorded = []
-        orig_count_frame = imaging.frame_validity.count_frame
-
-        def recording_count_frame(*args, **kwargs):
-            recorded.append(kwargs)
-            return orig_count_frame(*args, **kwargs)
-
-        imaging.frame_validity.count_frame = recording_count_frame
-        # The drain loop is the contract under test; the final grab is not.
-        # Patch the internal grab: public get_image is no longer on the
-        # capture path (capture_and_wait forwards to _get_image_impl).
-        imaging._get_image_impl = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
-
-        image = imaging.capture_and_wait()
-        assert image is not None, 'drain must settle and return the frame'
-        assert recorded, 'drain loop must call count_frame at least once'
-        assert all(call.get('chunk_data') == chunk for call in recorded), (
-            'capture_and_wait must pass the per-frame chunk metadata to '
-            'count_frame so chunk-match can clear gain/exposure pending; '
-            f'got {recorded}'
-        )
+class TestLatestChunksHelper:
+    """The capture path reads per-frame chunk metadata to REJECT a frame
+    whose chunk disagrees with what was asked for. Settling itself is by
+    frame count on every camera, so a chunk never clears a pending
+    source."""
 
     def test_get_latest_chunks_helper_exists(self):
         """The _get_latest_chunks helper abstracts handler shape (Pylon

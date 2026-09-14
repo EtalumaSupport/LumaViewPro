@@ -801,10 +801,16 @@ def test_zprojection_callback_routes_collision_to_failure_message():
                     method = child
     assert method is not None, 'ZProjectionControls.zprojection_callback not found'
     src = ast.unparse(method)
-    assert "('error', 'collision')" in src, (
-        "a reason='collision' result must take the failed-with-message branch "
-        '(its message carries the real remedy), not the pick-a-different-folder path'
+    # Folder advice is attached to the ONE reason that means a bad folder.
+    # It used to be attached to everything that was not an error or a
+    # collision, so an unreadable source format was answered with "pick a
+    # folder that contains a Z-stack run" -- advice that does not fit the
+    # refusal -- and any reason added later inherited it by default.
+    assert "result.get('reason') == 'no_data'" in src, (
+        'the pick-a-different-folder advice must be gated on the no_data reason, '
+        'not applied to every refusal that is not an error or a collision'
     )
+    assert 'Pick a folder that contains a Z-stack' in src, 'the bad-folder case keeps its advice'
 
 
 # ---------------------------------------------------------------------------

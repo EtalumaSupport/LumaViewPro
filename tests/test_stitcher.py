@@ -517,7 +517,17 @@ class TestSimplePositionStitcher:
         assert 'geometry-only fallback' in branch_source
         assert 'popup.text' in branch_source
 
-    def test_stitcher_popup_surfaces_only_the_structured_unsupported_format_message(self):
+    def test_stitcher_popup_surfaces_every_refusal_message(self):
+        """The popup shows whatever the post-processor said, for any refusal.
+
+        It used to show the message for one reason out of the several the
+        post-processor can return and replace the rest with an invitation to
+        read the log -- so a deliberate, self-explaining refusal (a folder
+        holding only derived outputs) reached the user as "could not be
+        completed". Choosing which failures may be read is the defect; the log
+        pointer survives only as the fallback for a failure carrying no
+        message at all.
+        """
         source = (
             pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'post_processing.py'
         ).read_text()
@@ -528,9 +538,22 @@ class TestSimplePositionStitcher:
             if isinstance(node, ast.FunctionDef) and node.name == 'stitcher_callback'
         )
         callback_source = ast.unparse(callback)
-        assert "result.get('reason') == 'unsupported_source_format'" in callback_source
-        assert "result['message']" in callback_source
-        assert 'Support > Logs' in callback_source
+
+        assert "result.get('message')" in callback_source, (
+            'the popup must read the message the post-processor returned'
+        )
+        assert 'Support > Logs' in callback_source, (
+            'the log pointer stays as the no-message fallback'
+        )
+        # No equality test against a reason: that is the shape that decided
+        # which refusals were allowed to explain themselves, and a reason added
+        # later must surface without anyone editing this callback.
+        for node in ast.walk(callback):
+            if isinstance(node, ast.Compare) and any(isinstance(op, ast.Eq) for op in node.ops):
+                rendered = ast.unparse(node)
+                assert 'reason' not in rendered, (
+                    f'stitcher_callback gates on a reason value again: {rendered}'
+                )
 
     def test_stitch_ui_explains_modes_and_time_estimation(self):
         root = pathlib.Path(__file__).resolve().parent.parent
