@@ -232,24 +232,34 @@ class AutofocusRunner:
         # camera-state restore).
         self._scope.imaging.is_focusing = True
 
-        self._objective = self._objective_loader.get_objective_info(objective_id=objective_id)
-
-        self._calculate_params()
-        self._af_start_time = time.monotonic()
-        self._af_pass_num = 0
-        _af_log.info(
-            f'--- AF START objective={objective_id} '
-            f'center={self._params["center"]:.1f} '
-            f'range={self._params["range"]:.1f} '
-            f'step={self._params["resolution"]:.1f} '
-            f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---'
-        )
-        self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
-        self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
         last_gc_time = time.monotonic()
         completed_successfully = False
         auto_gain_lock = None
         try:
+            # Setup runs INSIDE the bracket, not above it. The objective
+            # load, the parameter calculation and the two hardware snapshots
+            # can all raise; above the try, any of them latched
+            # _af_in_progress forever -- reset() refuses on that same flag,
+            # so every later run raised 'Autofocus already in progress' and
+            # is_focusing answered True until the app restarted. One bad
+            # objective config killed autofocus for the session.
+            self._objective = self._objective_loader.get_objective_info(objective_id=objective_id)
+
+            self._calculate_params()
+            self._af_start_time = time.monotonic()
+            self._af_pass_num = 0
+            _af_log.info(
+                f'--- AF START objective={objective_id} '
+                f'center={self._params["center"]:.1f} '
+                f'range={self._params["range"]:.1f} '
+                f'step={self._params["resolution"]:.1f} '
+                f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---'
+            )
+            # The camera snapshot must precede the auto-gain lock below: it
+            # records a live-view arm BEFORE the lock consumes it, and the
+            # restore in the finally is what puts that arm back.
+            self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
+            self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep
             # capture would lock and re-arm on its own -- paying the
@@ -423,7 +433,7 @@ class AutofocusRunner:
             # flag, and reads the scan centre: the same pre-AF Z, written once
             # before the sweep and never mutated, so there is no absent value
             # to guard against.
-            if self._best_focus_position is None:
+            if self._best_focus_position is None and self._params:
                 pre_af_z = self._params['center']
                 try:
                     # The non-dispatching body: AF runs while the executors
