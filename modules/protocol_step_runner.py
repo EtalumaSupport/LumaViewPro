@@ -574,7 +574,9 @@ class ProtocolStepRunner:
     # Motion
     # ------------------------------------------------------------------
 
-    def default_move(self, px=None, py=None, z=None):
+    def default_move(
+        self, px: float | None = None, py: float | None = None, z: float | None = None
+    ) -> None:
         """Move to plate coordinates, converting to stage coordinates.
 
         Each axis move is submitted through ``io_executor.protocol_put``
@@ -589,6 +591,12 @@ class ProtocolStepRunner:
         labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())
 
         if (px is not None) and (py is not None):
+            # Converted HERE, against the labware the PROTOCOL stores, not
+            # the one the session has selected -- a run must image the plate
+            # it was written for even if the operator has since picked a
+            # different one. The motion API's plate frame resolves labware
+            # from the session, so this path cannot use it without silently
+            # retargeting the run.
             sx, sy = p._coordinate_transformer.plate_to_stage(
                 labware=labware,
                 stage_offset=p._stage_offset,
