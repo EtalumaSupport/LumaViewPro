@@ -1,4 +1,3 @@
 4.0.0-beta36
-2026-09-15 08:34
-fix/attended-run-flag
-c5e66b49
+2026-09-15 13:32
+integration/beta-candidates-2026-09-15
