@@ -453,11 +453,15 @@ runner.run_single_scan(
 )
 runner.wait_for_completion()
 
-# Or abort at any time:
-runner.abort()
+# Or abort at any time. `requester` is who is asking: it must match the
+# run's own run_trigger_source, because tearing a run down is an authority
+# decision and the engine refuses anyone but the owner.
+runner.abort(requester='api_scan')
 ```
 
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, or hardware not connected. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+
+A refusal with reason `not_run_owner` means the live run belongs to a different trigger and this caller may not tear it down; `holder_trigger` names the owner. The run is untouched -- stop it through whatever started it, or wait. `ProtocolRunner.reset(requester=...)` and `abort(requester=...)` both raise it, and both require the argument: a teardown that does not say who is asking cannot be authorised.
 
 A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
 

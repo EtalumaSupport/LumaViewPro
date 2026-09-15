@@ -1396,7 +1396,7 @@ class TestCancellationMidRun:
 
         # Let it run briefly then cancel
         time.sleep(1.0)
-        executor.reset()
+        executor.reset(requester='test')
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after reset()'
@@ -1434,7 +1434,7 @@ class TestCancellationMidRun:
 
         # Cancel almost immediately
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(requester='test')
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after early reset()'
@@ -1444,7 +1444,7 @@ class TestResetWhenNotRunning:
     """reset() when no protocol is active should be a no-op."""
 
     def test_reset_no_crash(self, executor, scope, tmp_path):
-        executor.reset()  # Should not raise
+        executor.reset(requester='test')  # Should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -1850,8 +1850,8 @@ class TestCleanupConcurrency:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Protocol already completed and cleaned up -- reset again should be harmless
-        executor.reset()
-        executor.reset()
+        executor.reset(requester='test')
+        executor.reset(requester='test')
 
 
 # ---------------------------------------------------------------------------
@@ -2079,7 +2079,7 @@ class TestCameraStateRestoration:
         )
         executor.start(plan)
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(requester='test')
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
@@ -2138,7 +2138,7 @@ class TestCleanupCorrectness:
         )
         executor.start(plan)
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(requester='test')
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:

@@ -1778,12 +1778,10 @@ class ProtocolSettings(FloatLayout):
                 run_refused_func()
                 return
 
-            if self.ids['run_autofocus_btn'].state == 'normal' or (
-                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
-            ):
-                self._cleanup_at_end_of_protocol(autofocus_scan=True)
-                return
-
+            # Read the rival BEFORE the stop branch, never after: a toggle
+            # sitting at 'normal' is not proof the user is stopping their
+            # OWN run, and when that branch ran first a click during
+            # someone else's scan tore it down instead of being refused.
             if sequenced_capture_runner.run_in_progress() and (
                 run_trigger_source != trigger_source
             ):
@@ -1791,6 +1789,15 @@ class ProtocolSettings(FloatLayout):
                 logger.warning(
                     f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
                 )
+                return
+
+            # The ownership term is load-bearing: a run callback resets
+            # this button to 'normal' mid-run and Kivy flips a toggle at
+            # touch-down, so the user's own Stop can arrive reading 'down'.
+            if self.ids['run_autofocus_btn'].state == 'normal' or (
+                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+            ):
+                self._cleanup_at_end_of_protocol(autofocus_scan=True, requester=trigger_source)
                 return
 
             if not self._is_protocol_valid():
@@ -2001,13 +2008,21 @@ class ProtocolSettings(FloatLayout):
         # Abort BEFORE validity: the abort click must never be refused by
         # a validation failure (a mid-run unwritable save folder would
         # otherwise block the user's own Stop).
-        if self.ids['run_scan_btn'].state == 'normal':
+        # The ownership term is not redundant with the toggle read: this
+        # button resets itself to 'normal' between scans of a multi-scan
+        # run (the scan_iterate_post callback), and Kivy flips a toggle at
+        # touch-down, so the user's own Stop can arrive reading 'down'.
+        # Keyed on state alone it fell through and came back "already
+        # running" -- a Stop button refusing to stop.
+        if self.ids['run_scan_btn'].state == 'normal' or (
+            sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+        ):
             gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             # Hardware teardown finishes on the protocol thread; the scan
             # run-complete callback resets this label when it ends.
             self.ids['run_scan_btn'].text = 'Stopping...'
-            self._cleanup_at_end_of_protocol(autofocus_scan=False)
+            self._cleanup_at_end_of_protocol(autofocus_scan=False, requester=trigger_source)
             return
 
         if not self._is_protocol_valid():
@@ -2220,12 +2235,17 @@ class ProtocolSettings(FloatLayout):
             # Abort BEFORE validity: the abort click must never be refused
             # by a validation failure (a mid-run unwritable save folder
             # would otherwise block the user's own Stop).
-            if self.ids['run_protocol_btn'].state == 'normal':
+            # Same ownership term as the scan starter above, for the same
+            # reason: a mid-run button reset plus Kivy's touch-down flip
+            # lets the user's own Stop arrive reading 'down'.
+            if self.ids['run_protocol_btn'].state == 'normal' or (
+                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+            ):
                 gui_logger.protocol_action('ABORT_PROTOCOL')
                 # Hardware teardown finishes on the protocol thread; the
                 # protocol run-complete callback resets this label.
                 self.ids['run_protocol_btn'].text = 'Stopping...'
-                self._cleanup_at_end_of_protocol(autofocus_scan=False)
+                self._cleanup_at_end_of_protocol(autofocus_scan=False, requester=trigger_source)
                 return
 
             if not self._is_protocol_valid():
@@ -2438,7 +2458,16 @@ class ProtocolSettings(FloatLayout):
                 interval=sequenced_capture_runner.protocol_interval(),
             )
 
-    def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
+    def _cleanup_at_end_of_protocol(
+        self, autofocus_scan: bool, requester: str | None = None, force: bool = False
+    ):
+        """Unwind the run this starter owns, or -- with ``force`` -- whoever's.
+
+        ``force`` is app close, which owns no run and would otherwise be
+        refused by the engine's owner check. It stays a flag on the one
+        teardown path rather than a second path, so there is still exactly
+        one place the UI unwinds a run.
+        """
         ctx = _app_ctx.ctx
         deferred_to_cleanup = False
 
@@ -2451,11 +2480,20 @@ class ProtocolSettings(FloatLayout):
             # already finished; reset() is a light no-op) keeps the
             # synchronous restore below.
             deferred_to_cleanup = sequenced_capture_runner.run_in_progress()
-            sequenced_capture_runner.reset()
+            if force:
+                sequenced_capture_runner.force_reset(reason='app shutdown')
+            else:
+                sequenced_capture_runner.reset(requester=requester)
             live_histo_reverse()
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()
 
+        except exceptions.ProtocolRunRefusedError:
+            # The engine refused this teardown and has already logged and
+            # notified exactly once. Nothing was torn down, so there is no
+            # cleanup to finish -- and calling it an error here would put a
+            # second, wrong line in the bundle.
+            return
         except Exception as e:
             logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
         finally:
@@ -2481,4 +2519,4 @@ class ProtocolSettings(FloatLayout):
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
-        self._cleanup_at_end_of_protocol(autofocus_scan=False)
+        self._cleanup_at_end_of_protocol(autofocus_scan=False, force=True)

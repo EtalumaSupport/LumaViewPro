@@ -554,6 +554,9 @@ RUNNER_REFUSAL_COVERAGE = {
     # all -- a composite the merge could not produce is refused where the
     # channel count is known.
     'composite_needs_two_channels': ('tests/test_composite_run_config.py::TestTwoChannelFloor'),
+    # Raised at reset(), not prepare(): it refuses a TEARDOWN rather than a
+    # start, so there is no plan to drive and it cannot ride the loop.
+    'not_run_owner': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
 }
 
 # Every module that raises a run refusal. The census below reads all of

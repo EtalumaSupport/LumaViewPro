@@ -214,7 +214,10 @@ def test_a_second_click_on_a_live_composite_stops_it(app_ctx, runner):
     assert app_ctx.worker_pool.put.called, 'the stop must be dispatched'
     task = app_ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH
-    assert task.action == runner.reset
+    # The stop names its requester, so the engine can tell this starter's
+    # own run from a rival's; the action is that binding, not the bare method.
+    assert task.action.func == runner.reset
+    assert task.action.keywords == {'requester': 'composite'}
     runner.start_composite.assert_not_called()
 
 

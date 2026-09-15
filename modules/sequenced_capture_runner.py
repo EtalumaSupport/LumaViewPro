@@ -79,6 +79,22 @@ step_dict = {
 """
 
 
+# Run kinds whose user is waiting in front of the scope, keyed by the
+# RunPlan.run_trigger_source the entry point supplies.
+#
+# The Autofocus button is the only one today: it takes seconds and saves
+# nothing, so its failures belong on screen. Every other kind this runner
+# drives is a batch that runs for minutes and writes files, where a modal
+# would stall the run in front of an empty chair and transient faults
+# would pile up.
+#
+# Deliberately NOT a classification of all nine trigger sources. Several
+# of them are already described elsewhere in the tree in terms that
+# disagree with each other, and settling that is its own change with its
+# own evidence. This set answers one question: raise popups, or log them.
+_ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
+
+
 @dataclasses.dataclass(frozen=True)
 class RunPlan:
     """Everything a sequenced run needs, validated and computed up front.
@@ -482,8 +498,14 @@ class SequencedCaptureRunner:
 
         return True
 
-    def reset(self):
-        """Signal an in-flight run to unwind. Non-blocking for the caller.
+    def reset(self, requester: str) -> None:
+        """Unwind the run this caller owns. Non-blocking for the caller.
+
+        ``requester`` is the caller's run_trigger_source, required rather
+        than defaulted: a default would let a new call site tear a run
+        down without ever saying who it was, which is the hole a stale UI
+        toggle used to destroy a scan it never started. A caller that
+        does not own the live run is refused and the run keeps going.
 
         Hardware cleanup (queued LED-off, camera restore, multi-second
         return-to-position moves) runs on the protocol thread via the run
@@ -492,10 +514,66 @@ class SequencedCaptureRunner:
         the full duration of the queued futures (seconds typical, minutes
         with wedged hardware). Callers that must wait for the teardown to
         finish (app shutdown) use wait_for_run_idle().
-        """
-        if not self._run_in_progress_event.is_set():
-            return
 
+        Raises:
+            ProtocolRunRefusedError: reason 'not_run_owner' -- a
+                different trigger owns the live run. Logged and notified
+                once before it is raised, like every other refusal.
+        """
+        with self._run_lock:
+            # No live run means no owner to be wrong about: a stop with
+            # nothing to stop is a no-op, never a refusal.
+            if not self._run_in_progress_event.is_set():
+                return
+
+            holder = self._run_trigger_source
+            if requester != holder:
+                self._refuse(
+                    reason='not_run_owner',
+                    title='Run In Progress',
+                    message=(
+                        f'A {holder} run is using the microscope. Stop it from the '
+                        'control that started it, or let it finish.'
+                    ),
+                    holder='protocol',
+                    holder_trigger=holder,
+                )
+
+            needs_inline_cleanup = self._signal_abort_locked()
+
+        if needs_inline_cleanup:
+            self._cleanup(run_status='aborted')
+
+    def force_reset(self, reason: str) -> None:
+        """Unwind the live run whoever owns it -- app shutdown only.
+
+        Exists so the shutdown path does not have to impersonate the
+        run's owner to get past reset()'s guard. A named method rather
+        than a privileged requester string: a string meaning "skip the
+        check" is guessable by callers that should not have it, and
+        invisible to a grep for the override's users.
+        """
+        with self._run_lock:
+            if not self._run_in_progress_event.is_set():
+                return
+
+            logger.warning(
+                f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
+                f'{self._run_trigger_source} run without an owner check'
+            )
+            needs_inline_cleanup = self._signal_abort_locked()
+
+        if needs_inline_cleanup:
+            self._cleanup(run_status='aborted')
+
+    def _signal_abort_locked(self) -> bool:
+        """Signal the run loop to unwind. The caller holds _run_lock.
+
+        Returns True when no live run loop will run the cleanup, so the
+        caller must run it inline -- and OUTSIDE the lock, because
+        _cleanup reaches run_cleanup(run_lock=...) which takes the same
+        lock again. Holding it across that call self-deadlocks.
+        """
         # Signal abort before any cleanup runs hardware. Without this, an
         # abort tears down LEDs / camera / position while the protocol
         # thread is still mid-step.
@@ -504,17 +582,17 @@ class SequencedCaptureRunner:
         if self.protocol_thread.is_running:
             # The run loop notices the abort within one tick and its
             # finally-block calls _cleanup() on the protocol thread.
-            return
+            return False
 
         # No live run loop to unwind (dispatch failed, or the thread died
         # before its cleanup). Last-resort inline cleanup so run state is
         # not orphaned; _cleanup is idempotent if the loop raced us here.
         logger.warning(
-            f'[{self.LOGGER_NAME}] reset(): run flagged in-progress but the '
-            'protocol thread is not running -- running cleanup inline on the '
-            'calling thread as a fallback'
+            f'[{self.LOGGER_NAME}] run flagged in-progress but the protocol '
+            'thread is not running -- running cleanup inline on the calling '
+            'thread as a fallback'
         )
-        self._cleanup(run_status='aborted')
+        return True
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the run (including its cleanup) has fully unwound.
@@ -1086,12 +1164,18 @@ class SequencedCaptureRunner:
             self._run_in_progress_event.set()
 
         try:
-            # The unattended scan starts here: suppress non-fatal popups
-            # (no one is watching a running protocol); fatal faults still
-            # surface. Cleared on every cleanup path in _cleanup_inner.
+            # Declare whether anyone is watching, so non-fatal popups are
+            # suppressed for a batch nobody is in front of and delivered for
+            # an operation the user is waiting on. Cleared on every cleanup
+            # path in _cleanup_inner.
+            #
+            # Passing an unconditional True here is what silenced the
+            # Autofocus button's own failure popup: the button runs through
+            # this runner, so the run suppressed the very message it existed
+            # to produce, ~0.5s before cleanup lowered the flag again.
             from modules.notification_center import notifications
 
-            notifications.set_protocol_running(True)
+            notifications.set_unattended_run(plan.run_trigger_source not in _ATTENDED_RUN_TRIGGERS)
 
             # Resolved once here, before anything touches the disk, so a
             # scope with no registered source path fails the run at start
@@ -1220,9 +1304,9 @@ class SequencedCaptureRunner:
         # follow-ups (last-save-folder shortcuts) to a dead location.
         self._run_dir = None
         self._cleanup(run_status='failed_at_start')
-        # Notify AFTER cleanup: start() enabled the protocol-running popup
+        # Notify AFTER cleanup: on an unattended run start() enabled the popup
         # suppression, which drops this non-fatal error until cleanup's
-        # set_protocol_running(False) restores popups.
+        # set_unattended_run(False) restores popups.
         from modules.notification_center import notifications
 
         notifications.error(
@@ -1517,9 +1601,11 @@ class SequencedCaptureRunner:
 
         led_end_state_applied = False
         try:
-            # Restore popups: the unattended-protocol suppression ends here, on
-            # every cleanup path (normal end and abort).
-            notifications.set_protocol_running(False)
+            # Restore popups: the unattended-run suppression ends here, on
+            # every cleanup path (normal end and abort). Unconditional -- an
+            # attended run never raised it, and lowering it twice is harmless,
+            # where missing one lowering mutes popups for the whole session.
+            notifications.set_unattended_run(False)
 
             if not self._run_in_progress_event.is_set():
                 # run-in-progress was already cleared, so run_cleanup (which

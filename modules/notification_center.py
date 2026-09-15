@@ -96,13 +96,17 @@ class NotificationCenter:
         # flood during close that fires when queued IO tasks fail en
         # masse after the motor/camera disconnects. Issue #622.
         self._shutting_down = False
-        # Protocol-running suppression. While a protocol runs unattended,
-        # non-fatal notifications still LOG but raise no popup -- no one is
-        # watching, a modal could stall the run, and transient faults would
-        # pile up. Fatal notifications (lost connection, a run-aborting fault)
-        # still reach listeners. Set by the protocol runner; cleared on every
-        # cleanup path.
-        self._protocol_running = False
+        # Unattended-run suppression. While a run nobody is watching is in
+        # flight, non-fatal notifications still LOG but raise no popup -- a
+        # modal could stall the run, and transient faults would pile up in
+        # front of an empty chair. Fatal notifications (lost connection, a
+        # run-aborting fault) still reach listeners.
+        #
+        # ATTENDEDNESS, not "a run is in flight": the capture runner drives
+        # short interactive operations too, and one of those suppressing its
+        # own failure popup is exactly the bug this name now prevents. The
+        # runner decides which kind it is and says so; this flag only obeys.
+        self._unattended_run = False
 
     def set_shutting_down(self, value: bool = True) -> None:
         """Toggle suppression of listener dispatch. Call from on_stop
@@ -112,13 +116,17 @@ class NotificationCenter:
         with self._lock:
             self._shutting_down = bool(value)
 
-    def set_protocol_running(self, value: bool = True) -> None:
-        """Toggle suppression of NON-FATAL listener dispatch while a protocol
-        runs unattended. Fatal notifications still reach listeners; logs always
+    def set_unattended_run(self, value: bool = True) -> None:
+        """Toggle suppression of NON-FATAL listener dispatch for a run nobody
+        is watching. Fatal notifications still reach listeners; logs always
         capture everything. Pair with the run's start + every cleanup path so
-        the flag cannot stick on and mute popups after the run ends."""
+        the flag cannot stick on and mute popups after the run ends.
+
+        The caller passes attendedness, not "am I busy": an interactive
+        operation that routes through the same runner must pass False, or it
+        silences its own failure popup."""
         with self._lock:
-            self._protocol_running = bool(value)
+            self._unattended_run = bool(value)
 
     # ------------------------------------------------------------------
     # Producer API (any thread)
@@ -137,7 +145,7 @@ class NotificationCenter:
         """Post a notification.  Thread-safe.  Always logs.
 
         ``fatal`` notifications reach listeners even while a protocol
-        suppresses non-fatal popups (set via ``set_protocol_running``).
+        suppresses non-fatal popups (set via ``set_unattended_run``).
 
         ``operation_key`` marks this as one of a sequence about a single piece
         of work, so a UI listener can replace the earlier message rather than
@@ -181,9 +189,9 @@ class NotificationCenter:
         with self._lock:
             if self._shutting_down:
                 suppressed_reason = 'shutdown'  # logged above; suppressed during close
-            elif self._protocol_running and not fatal:
-                # logged above; non-fatal popups suppressed mid-protocol
-                suppressed_reason = 'protocol_running'
+            elif self._unattended_run and not fatal:
+                # logged above; non-fatal popups suppressed on an unattended run
+                suppressed_reason = 'unattended_run'
             else:
                 last = self._dedup.get(key, 0.0)
                 if (now - last) < self._dedup_window_s:
@@ -192,6 +200,17 @@ class NotificationCenter:
                     self._dedup[key] = now
                     listeners = list(self._listeners)
         if suppressed_reason is not None:
+            # The forensic write above happens BEFORE this decision, so on its
+            # own it says "posted", never "seen". Without this line a support
+            # bundle cannot answer whether the user was ever shown a failure --
+            # the popup is the only carrier, so a suppressed one would leave no
+            # record anywhere that it happened. Unconditional, not behind the
+            # profile-trace flag, because the question is asked of customer
+            # logs captured long after the fact.
+            logger.info(
+                f'[{category}] {gui_logger.one_line(title)}: '
+                f'not shown to the user (suppressed: {suppressed_reason})'
+            )
             # Emitted outside the lock: the tracer takes its own module-wide
             # lock, and nesting the two would order a pair of locks for the
             # sake of a diagnostic. What the user never saw IS the
