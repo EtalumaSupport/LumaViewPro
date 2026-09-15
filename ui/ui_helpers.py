@@ -197,7 +197,16 @@ def move_absolute(
     protocol: bool = False,
     vertical_control: bool = False,
     restore_z: bool = True,
+    frame: str = 'stage',
 ):
+    """Move an axis, keeping the gesture lock and the lane split in one place.
+
+    ``frame='plate'`` hands the API the number a user typed, in plate mm,
+    instead of converting first. The conversion and its bound then happen
+    inside the submitted task, which is what keeps a refusal on the worker
+    thread: raised in a Kivy handler's own frame it would reach the crash
+    guard rather than a notification.
+    """
     ctx = _app_ctx.ctx
 
     if not protocol and _user_motion_locked(axis):
@@ -238,6 +247,7 @@ def move_absolute(
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
                 cb_kwargs={'axis': axis},
+                frame=frame,
             )
         else:
             fut = ctx.io_executor.protocol_put(
@@ -248,6 +258,7 @@ def move_absolute(
                         'position': position,
                         'wait_until_complete': wait_until_complete,
                         'overshoot_enabled': overshoot_enabled,
+                        'frame': frame,
                     },
                 ),
                 return_future=True,

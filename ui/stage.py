@@ -172,22 +172,18 @@ class Stage(Widget):
             plate_x = mouse_x * scale_x
             plate_y = dim_max['y'] - mouse_y * scale_y
 
-            # Convert from plate position to stage position
             ctx = _app_ctx.ctx
-            settings = ctx.settings
-            coordinate_transformer = ctx.coordinate_transformer
-            _, labware = get_selected_labware()
-            stage_x, stage_y = coordinate_transformer.plate_to_stage(
-                labware=labware, stage_offset=settings['stage_offset'], px=plate_x, py=plate_y
-            )
 
             if touch.button == 'left':
                 gui_logger.button(
                     'STAGE_CLICK',
-                    f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
+                    f'left plate=({plate_x:.2f},{plate_y:.2f})',
                 )
-                move_absolute('X', stage_x)
-                move_absolute('Y', stage_y)
+                # The click is already a plate coordinate; the API converts
+                # it. Recording the stage equivalent here would mean keeping
+                # a frame conversion in the widget to feed the log line.
+                move_absolute('X', plate_x, frame='plate')
+                move_absolute('Y', plate_y, frame='plate')
 
             elif touch.button == 'right':
                 try:

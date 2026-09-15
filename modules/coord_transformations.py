@@ -10,11 +10,7 @@ All transforms use the labware dimensions and stage_offset (um) for
 the current plate mounting position.
 """
 
-import logging
-
 import modules.labware as lw
-
-logger = logging.getLogger('LVP.coord_transformations')
 
 
 class NoLabwareSelectedError(ValueError):
@@ -77,7 +73,7 @@ class CoordinateTransformer:
         stage_offset: dict[str, float],
         px: float,
         py: float,
-    ):
+    ) -> tuple[float, float]:
         """Convert plate coordinates (mm) to stage coordinates (um).
 
         Args:
@@ -89,8 +85,16 @@ class CoordinateTransformer:
             (sx, sy): Stage position in um.
 
         Raises:
-            ValueError: If plate coordinates are out of labware bounds.
             NoLabwareSelectedError: If labware is None.
+
+        This is a pure transform and does NOT bound its input: callers
+        that ENUMERATE candidate positions -- protocol validation, tile
+        generation -- convert in order to test the result and report
+        every out-of-range entry at once, which a raise here would cut
+        short at the first one. Callers that COMMAND a move pass the
+        plate coordinate to the motion API instead, which owns the bound
+        and refuses in this frame. A warning logged here served neither:
+        the enumerators do their own checking, and no user reads it.
         """
         labware = _require_labware(labware)
         if not isinstance(px, (int, float)) or not isinstance(py, (int, float)):
@@ -99,16 +103,6 @@ class CoordinateTransformer:
             )
 
         dim_max = labware.get_dimensions()
-
-        if px < 0 or py < 0:
-            logger.warning(
-                f'Plate coordinates negative: ({px:.2f}, {py:.2f})mm -- may be out of bounds'
-            )
-        if px > dim_max['x'] or py > dim_max['y']:
-            logger.warning(
-                f'Plate coordinates ({px:.2f}, {py:.2f})mm exceed labware dimensions '
-                f'({dim_max["x"]:.1f}, {dim_max["y"]:.1f})mm'
-            )
 
         sx = (dim_max['x'] - stage_offset['x'] / 1000 - px) * 1000  # mm -> um
         sy = (dim_max['y'] - stage_offset['y'] / 1000 - py) * 1000
