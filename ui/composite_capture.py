@@ -5,6 +5,7 @@ CompositeCapture -- shared image capture capabilities extracted from lumaviewpro
 Provides live_capture() and composite_capture() methods inherited by MainDisplay.
 """
 
+import functools
 import datetime
 import logging
 import pathlib
@@ -303,7 +304,12 @@ class CompositeCapture(FloatLayout):
         if composite_btn.state == 'normal' or (
             runner.is_running() and runner.run_trigger_source() == 'composite'
         ):
-            ctx.worker_pool.put(IOTask(action=runner.reset, priority=PRIORITY_HIGH))
+            ctx.worker_pool.put(
+                IOTask(
+                    action=functools.partial(runner.reset, requester='composite'),
+                    priority=PRIORITY_HIGH,
+                )
+            )
             return
 
         # Every gate below puts the toggle back before returning. Left

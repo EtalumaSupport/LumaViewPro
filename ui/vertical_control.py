@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import functools
 import logging
 import pathlib
 
@@ -317,7 +318,7 @@ class VerticalControl(BoxLayout):
         # next AFE.run().
         ctx.worker_pool.put(
             IOTask(
-                action=ctx.sequenced_capture_runner.reset,
+                action=functools.partial(ctx.sequenced_capture_runner.reset, requester='autofocus'),
                 callback=self._reset_run_autofocus_button,
                 priority=PRIORITY_HIGH,
             )
@@ -402,22 +403,30 @@ class VerticalControl(BoxLayout):
             runner = ctx.sequenced_capture_runner
             run_trigger_source = runner.run_trigger_source()
 
-            # Abort click: the toggle is back to 'normal', or re-clicked
-            # while this button's own run is live.
-            if self.ids['autofocus_id'].state == 'normal' or (
-                runner.run_in_progress() and run_trigger_source == trigger_source
-            ):
-                self._cleanup_at_end_of_autofocus()
-                return
-
             # A rival run owns the scope; undo cosmetics ONLY -- the
-            # lockout is that run's to keep.
-            if runner.run_in_progress():
+            # lockout is that run's to keep. Read BEFORE the stop branch
+            # below, never after: a toggle sitting at 'normal' is not
+            # proof the user is stopping their OWN run, and when that
+            # branch ran first a click during someone else's scan tore it
+            # down instead of being refused. Scoped to a FOREIGN trigger,
+            # because this button must still abort the run it started.
+            if runner.run_in_progress() and run_trigger_source != trigger_source:
                 self._reset_run_autofocus_button_cosmetics()
                 logger.warning(
                     'Cannot start autofocus: run already in progress '
                     f'(trigger={run_trigger_source})'
                 )
+                return
+
+            # Stop click: the toggle is back to 'normal', or re-clicked
+            # while this button's own run is live. The ownership term is
+            # load-bearing -- a run callback can reset this button to
+            # 'normal' mid-run, and Kivy flips a toggle at touch-down, so
+            # the user's own Stop can arrive reading 'down'.
+            if self.ids['autofocus_id'].state == 'normal' or (
+                runner.run_in_progress() and run_trigger_source == trigger_source
+            ):
+                self._cleanup_at_end_of_autofocus()
                 return
 
             # The post-run file drain deliberately holds the lockout

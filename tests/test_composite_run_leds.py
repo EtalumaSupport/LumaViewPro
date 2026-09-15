@@ -172,7 +172,7 @@ def aborted_composite(tmp_path):
             if aborted_at:
                 return
             aborted_at.append(step)
-            runner.abort()
+            runner.abort(requester='composite')
             fired.set()
 
         outcome = runner.start_composite(

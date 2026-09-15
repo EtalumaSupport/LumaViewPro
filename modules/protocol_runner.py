@@ -499,15 +499,18 @@ class ProtocolRunner:
         """Forward to the engine's start() -- the commitment point."""
         return self._executor.start(plan)
 
-    def reset(self) -> None:
+    def reset(self, requester: str) -> None:
         """Unwind the current run without tearing the runner down.
 
         Distinct from abort(): reset() leaves the completion event and
         protocol thread alone (abort-and-continue); abort() also aborts
         the scan loop and resolves waiters (abort-and-teardown for this
         run's callers).
+
+        ``requester`` is the caller's run_trigger_source; the engine
+        refuses a teardown from anyone but the run's owner.
         """
-        self._executor.reset()
+        self._executor.reset(requester=requester)
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the engine's cleanup fully lands (claim released),
@@ -528,10 +531,19 @@ class ProtocolRunner:
         """
         self.session.set_scope(scope)
 
-    def abort(self):
-        """Abort the current run."""
+    def abort(self, requester: str) -> None:
+        """Abort the current run.
+
+        ``requester`` is the caller's run_trigger_source. The owner check
+        lives in the engine, so an abort from a caller that does not own
+        the run raises out of reset() below -- ahead of every side effect
+        here, because a refused abort must leave the protocol thread
+        running and its waiters waiting. Ordering is the guard: the
+        thread signal and the completion event are both unconditional
+        once reset() has returned.
+        """
+        self._executor.reset(requester=requester)
         self._protocol_thread.abort()
-        self._executor.reset()
         self._completion_event.set()
 
     def wait_for_completion(self, timeout: float | None = None) -> bool:

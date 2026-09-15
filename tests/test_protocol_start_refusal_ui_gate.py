@@ -212,3 +212,71 @@ def test_no_retired_runner_run_call_sites_remain():
         'Call sites of the retired SequencedCaptureRunner.run() remain; '
         'migrate them to prepare()/start():\n' + '\n'.join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Teardown authority
+# ---------------------------------------------------------------------------
+
+
+def _runner_reset_calls():
+    """Every `<something>runner.reset(...)` call under ui/, derived.
+
+    Derived rather than listed: the starter tuple above is hand-maintained
+    and had already drifted -- it names four starters while the autofocus
+    and composite buttons tear runs down too. A list that has to be updated
+    by hand is the thing this test exists to prevent, so it must not depend
+    on one.
+    """
+
+    def _reset_attribute(node):
+        """The `<x>.reset` this call references, direct or via a partial.
+
+        functools.partial(runner.reset, requester=...) carries the argument
+        on the binding rather than the call, so the partial's own keywords
+        are the ones that answer whether the caller identified itself.
+        """
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == 'partial'
+            and node.args
+            and isinstance(node.args[0], ast.Attribute)
+            and node.args[0].attr == 'reset'
+        ):
+            return node.args[0]
+        if isinstance(func, ast.Attribute) and func.attr == 'reset':
+            return func
+        return None
+
+    for source_file in sorted((REPO / 'ui').glob('*.py')):
+        tree = ast.parse(source_file.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            target = _reset_attribute(node)
+            if target is None or 'runner' not in ast.unparse(target.value).lower():
+                continue
+            yield source_file.name, ast.unparse(node), node.keywords
+
+
+def test_every_ui_run_teardown_names_its_requester():
+    """A UI teardown says who is asking, so the engine can refuse a rival.
+
+    The defect this locks: a stale autofocus toggle reached reset() during
+    someone else's scan and destroyed it, because nothing in the call said
+    whose run it was. The engine now refuses a non-owner -- but only if the
+    caller passes the argument, so no ui/ call site may omit it.
+    """
+    calls = list(_runner_reset_calls())
+    assert calls, 'derivation found no teardown calls -- the AST shapes drifted'
+
+    unauthenticated = [
+        (where, src)
+        for where, src, keywords in calls
+        if not any(kw.arg == 'requester' for kw in keywords)
+    ]
+    assert not unauthenticated, (
+        'run teardown without a requester -- the engine cannot tell an owner '
+        f'from a rival: {unauthenticated}'
+    )

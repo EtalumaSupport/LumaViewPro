@@ -136,7 +136,7 @@ class ZStack(FloatLayout):
         # while the old one is still tearing down (the start guard
         # refuses it, but the label would lie about readiness).
         deferred_to_cleanup = runner.run_in_progress()
-        runner.reset()
+        runner.reset(requester='zstack')
         if deferred_to_cleanup:
             self.ids['zstack_aqr_btn'].text = 'Stopping...'
             return
@@ -171,7 +171,15 @@ class ZStack(FloatLayout):
                 )
                 return
 
-            if self.ids['zstack_aqr_btn'].state == 'normal':
+            # The ownership term is not redundant with the toggle read: a
+            # run callback can reset this button to 'normal' mid-run, and
+            # Kivy flips a toggle at touch-down, so the user's own Stop can
+            # arrive reading 'down'. Keyed on state alone, that click fell
+            # through to the start path and came back "already running".
+            if self.ids['zstack_aqr_btn'].state == 'normal' or (
+                ctx.sequenced_capture_runner.run_in_progress()
+                and run_trigger_source == trigger_source
+            ):
                 self._cleanup_at_end_of_acquire()
                 return
 

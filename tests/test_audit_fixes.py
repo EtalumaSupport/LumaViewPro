@@ -9194,10 +9194,14 @@ class TestSCEResetSignalsAbort:
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(requester='test')
 
         runner.protocol_thread.abort.assert_called_once()
 
@@ -9209,10 +9213,14 @@ class TestSCEResetSignalsAbort:
         The run loop's finally-block owns cleanup on the protocol thread."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(requester='test')
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -9223,10 +9231,14 @@ class TestSCEResetSignalsAbort:
         up so run state is not orphaned."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(requester='test')
 
         runner._cleanup.assert_called_once()
 
@@ -9237,13 +9249,17 @@ class TestSCEResetSignalsAbort:
         construction)."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
         runner._cleanup = MagicMock(side_effect=lambda **kwargs: order.append('cleanup'))
 
-        runner.reset()
+        runner.reset(requester='test')
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
 
@@ -9254,6 +9270,10 @@ class TestSCEResetSignalsAbort:
     def test_wait_for_run_idle_times_out_while_run_unwinds(self):
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
@@ -9261,6 +9281,10 @@ class TestSCEResetSignalsAbort:
 
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Setting the flag alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         threading.Timer(0.1, runner._run_in_progress_event.clear).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
@@ -9269,7 +9293,7 @@ class TestSCEResetSignalsAbort:
         # Run not in progress -- reset() should be a no-op.
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(requester='test')
 
         runner.protocol_thread.abort.assert_not_called()
         runner._cleanup.assert_not_called()

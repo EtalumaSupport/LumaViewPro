@@ -498,8 +498,14 @@ class SequencedCaptureRunner:
 
         return True
 
-    def reset(self):
-        """Signal an in-flight run to unwind. Non-blocking for the caller.
+    def reset(self, requester: str) -> None:
+        """Unwind the run this caller owns. Non-blocking for the caller.
+
+        ``requester`` is the caller's run_trigger_source, required rather
+        than defaulted: a default would let a new call site tear a run
+        down without ever saying who it was, which is the hole a stale UI
+        toggle used to destroy a scan it never started. A caller that
+        does not own the live run is refused and the run keeps going.
 
         Hardware cleanup (queued LED-off, camera restore, multi-second
         return-to-position moves) runs on the protocol thread via the run
@@ -508,10 +514,66 @@ class SequencedCaptureRunner:
         the full duration of the queued futures (seconds typical, minutes
         with wedged hardware). Callers that must wait for the teardown to
         finish (app shutdown) use wait_for_run_idle().
-        """
-        if not self._run_in_progress_event.is_set():
-            return
 
+        Raises:
+            ProtocolRunRefusedError: reason 'not_run_owner' -- a
+                different trigger owns the live run. Logged and notified
+                once before it is raised, like every other refusal.
+        """
+        with self._run_lock:
+            # No live run means no owner to be wrong about: a stop with
+            # nothing to stop is a no-op, never a refusal.
+            if not self._run_in_progress_event.is_set():
+                return
+
+            holder = self._run_trigger_source
+            if requester != holder:
+                self._refuse(
+                    reason='not_run_owner',
+                    title='Run In Progress',
+                    message=(
+                        f'A {holder} run is using the microscope. Stop it from the '
+                        'control that started it, or let it finish.'
+                    ),
+                    holder='protocol',
+                    holder_trigger=holder,
+                )
+
+            needs_inline_cleanup = self._signal_abort_locked()
+
+        if needs_inline_cleanup:
+            self._cleanup(run_status='aborted')
+
+    def force_reset(self, reason: str) -> None:
+        """Unwind the live run whoever owns it -- app shutdown only.
+
+        Exists so the shutdown path does not have to impersonate the
+        run's owner to get past reset()'s guard. A named method rather
+        than a privileged requester string: a string meaning "skip the
+        check" is guessable by callers that should not have it, and
+        invisible to a grep for the override's users.
+        """
+        with self._run_lock:
+            if not self._run_in_progress_event.is_set():
+                return
+
+            logger.warning(
+                f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
+                f'{self._run_trigger_source} run without an owner check'
+            )
+            needs_inline_cleanup = self._signal_abort_locked()
+
+        if needs_inline_cleanup:
+            self._cleanup(run_status='aborted')
+
+    def _signal_abort_locked(self) -> bool:
+        """Signal the run loop to unwind. The caller holds _run_lock.
+
+        Returns True when no live run loop will run the cleanup, so the
+        caller must run it inline -- and OUTSIDE the lock, because
+        _cleanup reaches run_cleanup(run_lock=...) which takes the same
+        lock again. Holding it across that call self-deadlocks.
+        """
         # Signal abort before any cleanup runs hardware. Without this, an
         # abort tears down LEDs / camera / position while the protocol
         # thread is still mid-step.
@@ -520,17 +582,17 @@ class SequencedCaptureRunner:
         if self.protocol_thread.is_running:
             # The run loop notices the abort within one tick and its
             # finally-block calls _cleanup() on the protocol thread.
-            return
+            return False
 
         # No live run loop to unwind (dispatch failed, or the thread died
         # before its cleanup). Last-resort inline cleanup so run state is
         # not orphaned; _cleanup is idempotent if the loop raced us here.
         logger.warning(
-            f'[{self.LOGGER_NAME}] reset(): run flagged in-progress but the '
-            'protocol thread is not running -- running cleanup inline on the '
-            'calling thread as a fallback'
+            f'[{self.LOGGER_NAME}] run flagged in-progress but the protocol '
+            'thread is not running -- running cleanup inline on the calling '
+            'thread as a fallback'
         )
-        self._cleanup(run_status='aborted')
+        return True
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the run (including its cleanup) has fully unwound.
