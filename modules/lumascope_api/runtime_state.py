@@ -189,10 +189,48 @@ class RuntimeState:
         """
         return self._coordinate_transformer.stage_to_plate(
             labware=self.get_labware(),
-            stage_offset=self.get_stage_offset(),
+            stage_offset=self._require_stage_offset(),
             sx=sx,
             sy=sy,
         )
+
+    def _require_stage_offset(self) -> dict:
+        """The stage offset, or a refusal naming why a transform cannot run.
+
+        The offset is written once, when the scope initializes. A
+        transform attempted before that point would otherwise divide
+        None and surface as a TypeError, which tells a user nothing they
+        can act on and a REST caller nothing it can branch on.
+        """
+        from modules.exceptions import ConfigError
+
+        stage_offset = self.get_stage_offset()
+        if stage_offset is None:
+            raise ConfigError(
+                'stage offset is not set -- coordinate transforms require an '
+                'initialized scope; connect the microscope first'
+            )
+        return stage_offset
+
+    def plate_to_stage_axis(self, axis: str, plate_mm: float) -> float:
+        """Convert one axis of a plate coordinate (mm) to a stage target (um).
+
+        The completing half of ``stage_to_plate``. Per-axis because the
+        callers that need it are commanding a single axis, and because
+        each stage coordinate depends only on its own plate coordinate --
+        so the unused argument below is inert, not a placeholder standing
+        in for a value the caller should have supplied.
+        """
+        if axis not in ('X', 'Y'):
+            raise ValueError(f'Plate coordinates are defined for X and Y, got {axis!r}')
+
+        sx, sy = self._coordinate_transformer.plate_to_stage(
+            labware=self.get_labware(),
+            stage_offset=self._require_stage_offset(),
+            px=plate_mm if axis == 'X' else 0,
+            py=plate_mm if axis == 'Y' else 0,
+        )
+        return sx if axis == 'X' else sy
 
     def get_well_label(self) -> str:
         """Get the well label for the current stage XY position.

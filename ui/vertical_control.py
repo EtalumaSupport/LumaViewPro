@@ -77,22 +77,33 @@ class VerticalControl(BoxLayout):
         else:
             Clock.schedule_once(lambda dt: self.update_text_only(), 0)
 
+    def _write_z_text(self, pos):
+        """Write a Z read-back into its box, unless the user is typing in it.
+
+        The box commits on focus loss (`on_focus: if not self.focus:
+        root.set_position(self.text)`), so a value written underneath a
+        part-typed entry is not merely displayed -- it is committed as a Z
+        move when the user clicks away. Every read-back write goes through
+        here so the guard cannot be present at three sites and missing at
+        the fourth.
+        """
+        box = self.ids['z_position_id']
+        if box.focus:
+            return
+        new_text = format(max(0, pos), '.2f')
+        # Cache text to prevent redundant ScrollView updates
+        if box.text != new_text:
+            box.text = new_text
+
     def update_autofocus_gui(self, pos=None):
         if pos is None:
             return
 
         self.ids['obj_position'].value = max(0, pos)
-        # Cache text to prevent redundant ScrollView updates
-        new_text = format(max(0, pos), '.2f')
-        if self.ids['z_position_id'].text != new_text:
-            self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def update_text_only(self):
-        # Cache text to prevent redundant ScrollView updates
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, self.ids['obj_position'].value), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(self.ids['obj_position'].value)
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
         """IOTask callback -- runs on worker thread. Must schedule widget access."""
@@ -121,17 +132,11 @@ class VerticalControl(BoxLayout):
         position during motion then snaps to target -- confusing.
         """
         self.ids['obj_position'].value = max(0, pos)
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, pos), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def _update_z_text(self, pos):
         """Update Z text only -- must be called on main thread."""
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, pos), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
         """Shared Z-axis jog handler.

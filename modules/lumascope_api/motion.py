@@ -31,13 +31,18 @@ import contextlib
 import logging as _logging
 import threading
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 from collections.abc import Iterator
 
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    PositionOutOfRangeError,
+)
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
@@ -405,13 +410,14 @@ class MotionAPI:
 
     def move_absolute_async(
         self,
-        axis,
-        position,
+        axis: str,
+        position: float,
         *,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        callback: Callable | None = None,
+        cb_kwargs: dict | None = None,
+        frame: str = 'stage',
     ) -> None:
         """Submit the absolute move to the io_executor; return immediately.
 
@@ -423,6 +429,8 @@ class MotionAPI:
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
+            frame: ``'stage'`` (um, the default) or ``'plate'`` (mm as the
+                user types them). See ``_move_absolute_impl``.
         """
         self._submit_motion(
             self._move_absolute_impl,
@@ -432,6 +440,7 @@ class MotionAPI:
                 'position': position,
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
+                'frame': frame,
             },
             callback=callback,
             cb_kwargs=cb_kwargs,
@@ -1446,6 +1455,60 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
+    def _plate_target_to_stage(self, axis: str, plate_mm: float, ignore_limits: bool) -> float:
+        """Check a plate-frame target against what this stage can reach, then convert.
+
+        A plate coordinate is the number a user types into the position
+        boxes, in mm from the plate's top-left. Converting it before
+        checking it is what produced refusals quoting a negative stage
+        micron value for a positive typed number: the transform inverts
+        the axis, so a coordinate past the plate becomes a target below
+        zero, and the travel check then reported THAT number.
+
+        The bound checked here is the reachable band -- the set of plate
+        coordinates whose converted target lies within travel -- rather
+        than the labware extent, which is wider. An extent check would
+        pass a coordinate the stage still cannot serve and hand the user
+        a second refusal in the other frame for the same mistake.
+
+        The band is the inverse image of the travel interval under a
+        transform that is affine and strictly decreasing in the plate
+        coordinate, so refusing here rejects exactly what the travel
+        check downstream would reject. That equivalence is what lets the
+        protocol paths adopt this frame without changing which moves they
+        refuse -- only the sentence the refusal carries.
+
+        Honours ``ignore_limits`` for the same reason the travel check
+        does: it is one bound expressed in two units, and a hatch that
+        stopped working when the caller changed frames would be a trap.
+        """
+        if axis not in ('X', 'Y'):
+            raise ValueError(f"frame='plate' applies to the X and Y axes, got {axis!r}")
+
+        key = axis.lower()
+        stage_position = self._scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
+
+        limits = self.get_axis_limits(axis)
+        if limits is not None and not ignore_limits:
+            dimension = self._scope.runtime_state.get_labware().get_dimensions()[key]
+            offset_mm = self._scope.runtime_state.get_stage_offset()[key] / 1000
+            # Inverting sx = (dimension - offset - px) * 1000: the map
+            # decreases in px, so the travel MAXIMUM yields the plate
+            # minimum and vice versa.
+            band_low = round(dimension - offset_mm - limits['max'] / 1000, 2)
+            band_high = round(dimension - offset_mm - limits['min'] / 1000, 2)
+            if not (band_low <= plate_mm <= band_high):
+                raise PositionOutOfRangeError(
+                    axis,
+                    plate_mm,
+                    band_low,
+                    band_high,
+                    bound='reachable range',
+                    quantity='plate position',
+                )
+
+        return stage_position
+
     def _move_absolute_impl(
         self,
         axis: str,
@@ -1454,6 +1517,7 @@ class MotionAPI:
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         force: bool = False,
+        frame: str = 'stage',
     ) -> None:
         """Move an axis to an absolute position.
 
@@ -1467,7 +1531,10 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid or position is not numeric / out of bounds.
+            ValueError: If axis is invalid or position is not numeric.
+            PositionOutOfRangeError: The target is outside the axis's
+                configured travel and ``ignore_limits`` is False. A
+                ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
         """
@@ -1475,17 +1542,47 @@ class MotionAPI:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         if not isinstance(position, (int, float)):
             raise ValueError(f'Position must be numeric, got {type(position).__name__}')
-        if abs(position) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Position {position} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
-            )
-
         # Silently no-op for axes that aren't present on this hardware.
         # _arrival_events is sized to detect_present_axes() at init,
         # so this is the canonical "is this axis trackable" check.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
+
+        if frame == 'plate':
+            position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
+        elif frame != 'stage':
+            raise ValueError(f"frame must be 'stage' or 'plate', got {frame!r}")
+
+        # Refuse a target beyond the axis's travel rather than letting the
+        # driver clamp it. A clamped move reports success at a position
+        # nobody asked for, so a protocol step saved beyond this scope's
+        # travel images the wrong place and the log cannot tell that from a
+        # step that went where it was told. Axes with no configured travel
+        # return None here -- the turret, whose position is a slot rather
+        # than a distance -- and are not range-checked.
+        if not ignore_limits:
+            limits = self.get_axis_limits(axis)
+            if limits is not None and not (limits['min'] <= position <= limits['max']):
+                raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
+
+        # The coarse sanity ceiling, checked AFTER travel so that travel gets
+        # to answer first. For any axis that publishes travel, travel lies
+        # inside this bound, so reaching here means the axis has none -- the
+        # turret, whose position is a slot. Ordering it the other way gave a
+        # user two different answers for one mistake: a typed value a little
+        # past travel named the travel range, and a larger one named a 1 m
+        # ceiling that means nothing to them. Not gated on ignore_limits: that
+        # hatch is for driving outside TRAVEL deliberately, not for handing the
+        # motor an arbitrary number.
+        if abs(position) > MOTOR_POSITION_LIMIT:
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+            )
 
         self._pre_drive(axis, force=force)
 
@@ -1576,8 +1673,14 @@ class MotionAPI:
         if not isinstance(distance, (int, float)):
             raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
         if abs(distance) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Distance {distance} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            # Same refusal as the absolute path, reachable the same way.
+            raise PositionOutOfRangeError(
+                axis,
+                distance,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+                quantity='distance',
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1718,6 +1821,7 @@ class MotionAPI:
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
+        frame: str = 'stage',
     ) -> None:
         """Move an axis to an absolute position (um for X/Y/Z; turret slot 1-4 for T).
 
@@ -1734,6 +1838,7 @@ class MotionAPI:
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
                 'ignore_limits': ignore_limits,
+                'frame': frame,
             },
             timeout_s=self._MOTION_WAIT_BASE_S
             + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),

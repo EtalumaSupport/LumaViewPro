@@ -486,7 +486,6 @@
 				halign: 'center'
             	input_filter: 'float'
 		        text: ''
-                on_text_validate: root.set_position(self.text)
 				on_focus: if not self.focus: root.set_position(self.text)
 
 			BoxLayout:
@@ -664,7 +663,6 @@
 
 			TextInput:
 				id: zstack_stepsize_id
-				on_text_validate: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
@@ -674,12 +672,10 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
 				id: zstack_range_id
-				on_text_validate: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
@@ -689,7 +685,6 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
@@ -797,7 +792,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_xposition(self.text)
 				on_focus: if not self.focus: root.set_xposition(self.text)
 			
 			# Set X Bookmark
@@ -885,7 +879,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_yposition(self.text)
 				on_focus: if not self.focus: root.set_yposition(self.text)
 
 			# Set Y Bookmark
@@ -1026,7 +1019,6 @@
 					input_filter: 'float'
 					text: format(5, '.3g')
 					on_text: root.commit_period()
-					on_text_validate: root.update_period()
 					on_focus: if not self.focus: root.update_period()
 				Label:
 					text: 'minutes'
@@ -1057,7 +1049,6 @@
 					input_filter: 'float'
 					text: format(48, '.3g')
 					on_text: root.commit_duration()
-					on_text_validate: root.update_duration()
 					on_focus: if not self.focus: root.update_duration()
 				Label:
 					text: 'hours'
@@ -1186,7 +1177,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Filename prefix'
-					on_text_validate: root.update_capture_root(self.text)
 					on_focus: if not self.focus: root.update_capture_root(self.text)
 				
 
@@ -1214,7 +1204,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
-					on_text_validate: root.step_name_validation(self.text)
 					on_focus: if not self.focus: root.step_name_validation(self.text)
 
 			BoxLayout:
@@ -1251,7 +1240,6 @@
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_text_validate: root.handle_step_ui_input_change()
 					on_focus: if not self.focus: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
@@ -1654,7 +1642,6 @@
 			
         TextInput:
             id: video_gen_fps_id
-            on_text_validate: root.log_video_gen_fps()
             on_focus: if not self.focus: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
@@ -2211,7 +2198,6 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
 					on_focus: if not self.focus: root.frame_size()
 					font_size: '12sp'
 				Label:
@@ -2229,7 +2215,6 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
 					on_focus: if not self.focus: root.frame_size()
 					font_size: '12sp'
 			
@@ -2741,7 +2726,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.ill_text()
 					on_focus: if not self.focus: root.ill_text()
 
 			# Stimulation
@@ -2852,7 +2836,6 @@
 					halign: 'right'
 					input_filter: 'int'
 					text: str(int(stim_ill_slider.value))
-					on_text_validate: root.stim_ill_text()
 					on_focus: if not self.focus: root.stim_ill_text()
 
 			BoxLayout:
@@ -2899,7 +2882,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_freq_slider.value, '.4g')
-					on_text_validate: root.stim_freq_text()
 					on_focus: if not self.focus: root.stim_freq_text()
 
 			BoxLayout:
@@ -2946,7 +2928,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_width_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_width_text()
 					on_focus: if not self.focus: root.stim_pulse_width_text()
 
 			
@@ -2994,7 +2975,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_count_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_count_text()
 					on_focus: if not self.focus: root.stim_pulse_count_text()
 
 			# Camera
@@ -3090,7 +3070,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.gain_text()
 					on_focus: if not self.focus: root.gain_text()
 
 			# Exposure
@@ -3143,7 +3122,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					# text: format(10 ** exp_slider.value, '.3g')
-					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()
 				
 			# Exposure Summing
@@ -3190,7 +3168,6 @@
 					halign: 'right'
 					input_filter: "int"
 					text: "{:d}".format(int(sum_slider.value))
-					on_text_validate: root.sum_text()
 					on_focus: if not self.focus: root.sum_text()
 
 			BoxLayout:
@@ -3373,7 +3350,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(video_duration_slider.value, '.4g')
-					on_text_validate: root.video_duration_text()
 					on_focus: if not self.focus: root.video_duration_text()
 
 			# Acquire Settings
@@ -3504,7 +3480,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(composite_threshold_slider.value, '.3g')
-					on_text_validate: root.composite_threshold_text()
 					on_focus: if not self.focus: root.composite_threshold_text()
 				
 			FloatLayout:
@@ -3672,7 +3647,6 @@
 
 			TextInput:
 				id: graph_title_input
-				on_text_validate: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
@@ -3704,7 +3678,6 @@
 
 			TextInput:
 				id: x_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
@@ -3766,7 +3739,6 @@
 
 			TextInput:
 				id: y_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
@@ -3915,7 +3887,6 @@
 
 			TextInput:
 				id: text_cell_count_pixels_per_um_id
-				on_text_validate: root.log_pixels_per_um()
 				on_focus: if not self.focus: root.log_pixels_per_um()
 				valign: 'center'
 				text: "1.0"

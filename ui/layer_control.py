@@ -250,9 +250,9 @@ class LayerControl(BoxLayout):
 
         # text_input (not slider): this is a typed commit, and the twin slider
         # emits SLIDER for the same setting, so sharing the verb would make a
-        # drag and a keystroke indistinguishable in the bundle. Debounced
-        # because the kv binds both on_text_validate and on_focus, so one Enter
-        # runs this handler twice; the debounce collapses the pair to one line.
+        # drag and a keystroke indistinguishable in the bundle. Deferred so
+        # the emit runs after the write-back declaration below, which the
+        # deferred emit consumes -- see text_input_debounced.
         text_input_debounced(record_name, typed_text)
 
         # Only when clipping actually moved the value. The comparison is on the

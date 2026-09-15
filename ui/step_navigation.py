@@ -28,17 +28,14 @@ def go_to_step(
     include_move: bool = True,
     called_from_protocol: bool = True,
 ):
-    from modules.config_ui_getters import get_selected_labware
-
     # Deferred import: ui/ui_helpers.move_absolute wraps the
     # API call with UI update callbacks. step_navigation still reaches
-    # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
+    # upward here, which the display-only direction has yet to undo.
     from ui.ui_helpers import move_absolute
     from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
-    coordinate_transformer = ctx.coordinate_transformer
 
     num_steps = protocol.num_steps()
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -62,12 +59,11 @@ def go_to_step(
     _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
     _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
-    # Convert plate coordinates to stage coordinates
     if include_move:
-        _, labware = get_selected_labware()
-        sx, sy = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=step['X'], py=step['Y']
-        )
+        # A step stores plate mm; the API converts and bounds it. Both
+        # lanes below pass the stored number through unchanged.
+        plate_x = step['X']
+        plate_y = step['Y']
 
         turret_pos = None
         if ctx.scope.capabilities.has_turret:
@@ -96,8 +92,8 @@ def go_to_step(
                         ),
                         0,
                     )
-                move_absolute(axis='X', position=sx, protocol=False)
-                move_absolute(axis='Y', position=sy, protocol=False)
+                move_absolute(axis='X', position=plate_x, protocol=False, frame='plate')
+                move_absolute(axis='Y', position=plate_y, protocol=False, frame='plate')
                 move_absolute(axis='Z', position=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
@@ -111,8 +107,8 @@ def go_to_step(
                         ),
                         0,
                     )
-                move_absolute('X', sx, protocol=True)
-                move_absolute('Y', sy, protocol=True)
+                move_absolute('X', plate_x, protocol=True, frame='plate')
+                move_absolute('Y', plate_y, protocol=True, frame='plate')
                 move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')

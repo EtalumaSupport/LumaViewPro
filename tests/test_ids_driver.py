@@ -327,7 +327,11 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        assert cam.exposure_t(0.01) is True
+        # The clamped microseconds are RETURNED, not a bare success flag: the
+        # caller stamps them as its frame-validity chunk target, and a target
+        # taken from the 10us request would miss every frame the camera then
+        # reports at 31.2us.
+        assert cam.exposure_t(0.01) == pytest.approx(31.245791)
         node = cam.remote_nodemap.nodes['ExposureTime']
         assert node.value == pytest.approx(31.245791)
         assert cam._last_exposure_ms == pytest.approx(31.245791 / 1000)
@@ -340,7 +344,8 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        assert cam.exposure_t(10.0) is True  # 10ms = 10000us, well above the floor
+        # 10ms = 10000us, well above the floor: applied value == request.
+        assert cam.exposure_t(10.0) == pytest.approx(10000.0)
         node = cam.remote_nodemap.nodes['ExposureTime']
         assert node.value == pytest.approx(10000.0)
 

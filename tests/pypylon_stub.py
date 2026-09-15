@@ -146,6 +146,16 @@ _GENICAM_MEMBERS = {
     'AccessException': AccessException,
     'LogicalErrorException': LogicalErrorException,
     'IsReadable': IsReadable,
+    # Increment modes, with the values the real SDK reports (checked
+    # against pypylon 26.04.1). These MUST be modelled rather than left
+    # to the MagicMock fallback: the fallback hands out a NEW mock per
+    # attribute access, so production code comparing a node's reported
+    # mode against genicam.fixedIncrement compares two different mocks,
+    # never matches, and silently takes its "no usable increment" path
+    # under test while behaving correctly against real hardware.
+    'fixedIncrement': 1,
+    'listIncrement': 2,
+    'noIncrement': 0,
 }
 
 pylon = _stub_module('pypylon.pylon', _PYLON_MEMBERS)

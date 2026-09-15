@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import math
 import logging
 import pathlib
 import threading
@@ -760,10 +761,10 @@ class MotorBoard(SerialBoard):
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('Z')
-        ustep = int((usteps_per_mm * um) / 1000)
+        ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
     def zhome(self) -> bool:
@@ -810,10 +811,10 @@ class MotorBoard(SerialBoard):
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('X')
-        ustep = int((usteps_per_mm * um) / 1000)
+        ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
     def home(self) -> bool:

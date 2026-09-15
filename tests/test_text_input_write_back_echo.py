@@ -1,19 +1,18 @@
-"""Pressing Enter must not let a corrected value masquerade as the typed one.
+"""A corrected value the app writes back must not masquerade as the typed one.
 
-The kv binds both ``on_text_validate`` and ``on_focus``, so a single Enter runs
-a text handler TWICE. If the first pass corrected what the user typed and wrote
-the correction back into the box, the second pass reads the corrected text --
-and because the debounced logger is keyed by record name and cancels any
-pending line for that name, the second pass REPLACES the typed record.
-
-The bundle then reads:
+A text handler that clips what the user typed writes the correction back into
+the box and declares it. If a record carrying that corrected value then reaches
+the debounced logger -- which is keyed by record name and cancels any pending
+line for that name -- it would REPLACE the typed record, and the bundle would
+read:
 
     TEXT_INPUT GAIN_BF 24
     TEXT_INPUT GAIN_BF_APPLIED 24
 
 asserting the user typed the value it simultaneously reports as a correction,
-while the 99 they actually typed is gone. A click-away commit fires the handler
-once and was never affected.
+while the 99 they actually typed is gone. The declaration marks that record as
+the app's own; it is consumed by the deferred emit if nothing echoes it, so it
+cannot swallow a later deliberate retype.
 
 These tests drive the emitter directly with a fake Clock, so they exercise the
 real suppression logic rather than asserting on source text.
@@ -68,14 +67,14 @@ def _fire(scheduled):
     scheduled.clear()
 
 
-def test_enter_keeps_the_typed_value_not_the_correction(clock, emitted):
-    """The exact Enter sequence: log, correct, declare, then the echo arrives."""
-    # first pass -- reads 99, records it, clips to 24, writes 24 into the box
+def test_an_echoed_correction_keeps_the_typed_value(clock, emitted):
+    """Log, correct, declare, then a record carrying the correction arrives."""
+    # the handler reads 99, records it, clips to 24, writes 24 into the box
     ui_helpers.text_input_debounced('GAIN_BF', '99')
     ui_helpers.text_input_debounced('GAIN_BF_APPLIED', 24)
     ui_helpers.gui_logger.note_write_back('GAIN_BF', 24)
 
-    # second pass -- same Enter, now reading the box the first pass rewrote
+    # the echo -- a record for the value the app just wrote
     ui_helpers.text_input_debounced('GAIN_BF', '24')
 
     _fire(clock)
@@ -112,7 +111,7 @@ def test_a_different_value_is_never_suppressed(clock, emitted):
 
 
 def test_an_unconsumed_write_back_does_not_outlive_its_line(clock, emitted):
-    """A click-away commit fires the handler once, so the echo never arrives.
+    """One entry is one handler call, so the echo never arrives.
 
     The declaration must not survive to swallow a later real entry of the same
     value -- which is what would happen if it were only cleared on being matched.
@@ -130,11 +129,11 @@ def test_an_unconsumed_write_back_does_not_outlive_its_line(clock, emitted):
 
 
 def test_per_keystroke_fields_still_collapse_to_the_settled_value(clock, emitted):
-    """The debounce's original job is untouched: last value wins in a burst.
+    """The collapse is still the function's shape: last value wins in a burst.
 
-    PROTOCOL_PERIOD is bound to on_text and logs on every keystroke, so typing
-    123 must record 123 -- not 1. This is why the fix could not simply keep the
-    first value seen in a window.
+    No caller sends a per-keystroke burst today, but a field that logged on
+    every keystroke would rely on typing 123 recording 123 -- not 1. This is
+    why the suppression could not simply keep the first value seen in a window.
     """
     for partial in ('1', '12', '123'):
         ui_helpers.text_input_debounced('PROTOCOL_PERIOD', partial)

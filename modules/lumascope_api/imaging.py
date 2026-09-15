@@ -599,6 +599,7 @@ class ImagingAPI:
         targets: tuple[tuple[str, float | None], ...] = (),
         force_clear: tuple[str, ...] = (),
         cache_update: dict[str, object] | None = None,
+        target_from_result: tuple[str, ...] = (),
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
         consequence. Every camera setter routes its hardware write through here
@@ -631,6 +632,17 @@ class ImagingAPI:
                 target, never record one for a possibly-rejected value.
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
+            target_from_result: Sources whose chunk target is taken from the
+                driver's own return value instead of from ``targets``. A driver
+                may clamp, snap or quantize the request before the hardware
+                sees it; the frame then carries chunk data describing what was
+                APPLIED, so a target recorded from the request can never match
+                and every subsequent frame is rejected. Declaring the target
+                here -- rather than computing it at the call site -- is what
+                keeps a transforming setter from silently reintroducing that
+                mismatch. A driver returning a non-numeric result (applied, but
+                unable to report a value) falls back to the ``targets`` entry
+                for that source.
 
         Returns:
             The driver write's result, so the caller can do its own rejection
@@ -646,6 +658,16 @@ class ImagingAPI:
             for source in invalidates:
                 self.frame_validity.invalidate(source)
             for source, value in targets:
+                if (
+                    source in target_from_result
+                    and isinstance(result, (int, float))
+                    and not isinstance(result, bool)
+                ):
+                    # bool is an int subclass, so a driver reporting a bare
+                    # True would otherwise stamp a 1.0 target and reject
+                    # every frame -- the failure this parameter exists to
+                    # prevent, reintroduced by the check meant to prevent it.
+                    value = float(result)
                 self.frame_validity.set_target(source, value)
             if cache_update:
                 self._commit_camera_writes(cache_update)
@@ -785,6 +807,7 @@ class ImagingAPI:
             _write_exposure,
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
+            target_from_result=('exposure',),
             cache_update={'exposure_ms': float(exposure_ms)},
         )
         if ok is False:

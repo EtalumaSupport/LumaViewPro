@@ -24,6 +24,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.exceptions import PositionOutOfRangeError
+
 
 # ---------------------------------------------------------------------------
 # Helpers for building mock modules (used by fixtures, not at module level)
@@ -278,13 +280,21 @@ class TestMoveAbsolutePositionValidation:
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
-        with pytest.raises(ValueError, match='exceeds safety limit'):
+        # Asserts the REFUSAL, not its sentence: an axis that publishes
+        # travel now answers with its travel range whatever the magnitude,
+        # so wording-coupled assertions here go stale every time the
+        # message improves.
+        with pytest.raises(PositionOutOfRangeError):
             sim_scope.motion.move_absolute(axis='Z', position=Lumascope._MOTOR_POSITION_LIMIT + 1)
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
-        with pytest.raises(ValueError, match='exceeds safety limit'):
+        # Asserts the REFUSAL, not its sentence: an axis that publishes
+        # travel now answers with its travel range whatever the magnitude,
+        # so wording-coupled assertions here go stale every time the
+        # message improves.
+        with pytest.raises(PositionOutOfRangeError):
             sim_scope.motion.move_absolute(
                 axis='Z', position=-(Lumascope._MOTOR_POSITION_LIMIT + 1)
             )
