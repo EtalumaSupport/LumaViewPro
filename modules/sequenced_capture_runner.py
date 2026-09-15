@@ -79,6 +79,22 @@ step_dict = {
 """
 
 
+# Run kinds whose user is waiting in front of the scope, keyed by the
+# RunPlan.run_trigger_source the entry point supplies.
+#
+# The Autofocus button is the only one today: it takes seconds and saves
+# nothing, so its failures belong on screen. Every other kind this runner
+# drives is a batch that runs for minutes and writes files, where a modal
+# would stall the run in front of an empty chair and transient faults
+# would pile up.
+#
+# Deliberately NOT a classification of all nine trigger sources. Several
+# of them are already described elsewhere in the tree in terms that
+# disagree with each other, and settling that is its own change with its
+# own evidence. This set answers one question: raise popups, or log them.
+_ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
+
+
 @dataclasses.dataclass(frozen=True)
 class RunPlan:
     """Everything a sequenced run needs, validated and computed up front.
@@ -1086,12 +1102,18 @@ class SequencedCaptureRunner:
             self._run_in_progress_event.set()
 
         try:
-            # The unattended scan starts here: suppress non-fatal popups
-            # (no one is watching a running protocol); fatal faults still
-            # surface. Cleared on every cleanup path in _cleanup_inner.
+            # Declare whether anyone is watching, so non-fatal popups are
+            # suppressed for a batch nobody is in front of and delivered for
+            # an operation the user is waiting on. Cleared on every cleanup
+            # path in _cleanup_inner.
+            #
+            # Passing an unconditional True here is what silenced the
+            # Autofocus button's own failure popup: the button runs through
+            # this runner, so the run suppressed the very message it existed
+            # to produce, ~0.5s before cleanup lowered the flag again.
             from modules.notification_center import notifications
 
-            notifications.set_protocol_running(True)
+            notifications.set_unattended_run(plan.run_trigger_source not in _ATTENDED_RUN_TRIGGERS)
 
             # Resolved once here, before anything touches the disk, so a
             # scope with no registered source path fails the run at start
@@ -1220,9 +1242,9 @@ class SequencedCaptureRunner:
         # follow-ups (last-save-folder shortcuts) to a dead location.
         self._run_dir = None
         self._cleanup(run_status='failed_at_start')
-        # Notify AFTER cleanup: start() enabled the protocol-running popup
+        # Notify AFTER cleanup: on an unattended run start() enabled the popup
         # suppression, which drops this non-fatal error until cleanup's
-        # set_protocol_running(False) restores popups.
+        # set_unattended_run(False) restores popups.
         from modules.notification_center import notifications
 
         notifications.error(
@@ -1517,9 +1539,11 @@ class SequencedCaptureRunner:
 
         led_end_state_applied = False
         try:
-            # Restore popups: the unattended-protocol suppression ends here, on
-            # every cleanup path (normal end and abort).
-            notifications.set_protocol_running(False)
+            # Restore popups: the unattended-run suppression ends here, on
+            # every cleanup path (normal end and abort). Unconditional -- an
+            # attended run never raised it, and lowering it twice is harmless,
+            # where missing one lowering mutes popups for the whole session.
+            notifications.set_unattended_run(False)
 
             if not self._run_in_progress_event.is_set():
                 # run-in-progress was already cleared, so run_cleanup (which
