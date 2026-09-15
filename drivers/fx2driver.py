@@ -2044,8 +2044,15 @@ class FX2Camera(Camera):
 
     # -- Exposure ----------------------------------------------------------
 
-    def exposure_t(self, exposure_ms):
-        """Set exposure time in milliseconds.
+    def exposure_t(self, exposure_ms: float) -> float:
+        """Set exposure time in milliseconds, returning the microseconds
+        actually in effect.
+
+        The request is quantized onto the sensor's row-time grid below, so
+        the applied value routinely differs from what was asked for -- by up
+        to a full row. The caller records a chunk-match target from this
+        return; a request-derived target would not describe any exposure this
+        sensor can produce.
 
         Formula from MT9P031 datasheet DS_F p31:
             tEXP = SW x tROW - SO x 2 x tPIXCLK
@@ -2081,6 +2088,7 @@ class FX2Camera(Camera):
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
             )
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        return self.get_exposure_t() * 1000.0
 
     def get_exposure_t(self):
         return max(0.0, self._exposure_rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS)

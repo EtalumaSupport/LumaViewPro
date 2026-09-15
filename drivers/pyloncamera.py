@@ -3192,7 +3192,7 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
 
-    def exposure_t(self, exposure_ms) -> None:
+    def exposure_t(self, exposure_ms: float) -> float | bool | None:
         """Set the camera's exposure time in milliseconds.
 
         Pylon's ``ExposureTime`` node uses microseconds; this method
@@ -3200,8 +3200,19 @@ class PylonCamera(Camera):
         ``self.max_exposure`` are rejected with a warning. Sub-minimum
         values are clamped to ``ExposureTime.Min``.
 
+        Because the clamp means the applied value can differ from the
+        request, the microseconds actually in effect are RETURNED -- the
+        caller stamps them as the frame-validity chunk target, and a
+        request-derived target would never match the chunk the camera
+        reports.
+
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Returns:
+            float | bool | None: See ``Camera.exposure_t``. Microseconds
+                in effect on both the write and short-circuit paths;
+                ``False`` where the write was refused or failed.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3209,7 +3220,7 @@ class PylonCamera(Camera):
                     f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None'
                 )
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return
+            return False
 
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
@@ -3220,7 +3231,7 @@ class PylonCamera(Camera):
             _cam_log.warning(
                 f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
-            return
+            return False
 
         # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
@@ -3235,7 +3246,7 @@ class PylonCamera(Camera):
                             f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Exposure already at {exposure_ms}ms')
-                    return
+                    return us_value
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] ExposureTime short-circuit read failed; '
@@ -3245,6 +3256,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
             _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            return us_value
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -3252,8 +3264,10 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
+            return False
 
     def get_exposure_t(self) -> float:
         """Read the camera's currently-active exposure time in ms.

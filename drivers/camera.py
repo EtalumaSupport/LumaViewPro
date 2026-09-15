@@ -703,11 +703,30 @@ class Camera(ABC):
         return stamped if stamped is not None else self.significant_bits
 
     @abstractmethod
-    def exposure_t(self, exposure_ms: float) -> None:
-        """Set exposure time.
+    def exposure_t(self, exposure_ms: float) -> float | bool | None:
+        """Set exposure time and report the value actually in effect.
+
+        A driver may not be able to honor the request exactly: the node
+        has a minimum it clamps up to, an increment it snaps to, or a
+        row-time grid it quantizes onto. The caller records a chunk-match
+        target from the return, so a driver that reports the request
+        instead of what it applied makes every subsequent frame fail the
+        match and be rejected forever.
 
         Args:
-            exposure_ms: Exposure time in milliseconds.
+            exposure_ms: Requested exposure time in milliseconds.
+
+        Returns:
+            float: Microseconds now in effect -- what the hardware will
+                stamp into frame chunk data. Returned on the no-write
+                path too (a short-circuited write still leaves that
+                value in effect).
+            False: The write was refused and the hardware did NOT move.
+                The caller must not record a target for a value the
+                camera never took.
+            None: Applied, but the effective value is unknown -- drivers
+                that cannot report one. The caller falls back to the
+                request.
         """
         pass
 

@@ -537,18 +537,21 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, exposure_ms: float) -> None:
-        """Set exposure time in milliseconds.
+    def exposure_t(self, exposure_ms: float) -> float | bool:
+        """Set exposure time in milliseconds, returning the microseconds
+        actually in effect.
 
-        Silently clamps when ``exposure_ms`` exceeds ``max_exposure``
-        (logs a warning); silently no-ops when the simulator is not
-        active.
+        Refuses (``False``) rather than silently no-opping when the
+        simulator is inactive or the request exceeds ``max_exposure``: the
+        hardware value does not move on either path, so a caller that treated
+        those as applied would record a chunk-match target the simulator never
+        stamps.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
         """
         if not self.active:
-            return
+            return False
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
                 _cam_log.warning(
@@ -557,7 +560,7 @@ class SimulatedCamera(Camera):
             logger.warning(
                 f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
-            return
+            return False
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
             if _cam_log is not None:
@@ -565,6 +568,7 @@ class SimulatedCamera(Camera):
                     f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
                 )
             logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
+            return self._exposure_us
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.
