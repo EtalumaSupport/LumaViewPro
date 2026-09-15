@@ -212,14 +212,14 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.set_unattended_run(True)
         nc.warning('Autofocus', 'AF failed', 'curve degenerate')
         nc.error('Camera', 'Frame dropped', 'transient')
         assert received == []
 
     def test_nonfatal_still_logs_during_protocol(self, caplog):
         nc = NotificationCenter()
-        nc.set_protocol_running(True)
+        nc.set_unattended_run(True)
         with caplog.at_level('ERROR'):
             nc.error('Camera', 'Frame dropped', 'transient')
         # Message landed in the log even though the popup was suppressed.
@@ -229,7 +229,7 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.set_unattended_run(True)
         nc.error('Motor', 'Connection Lost', 'serial timeout', fatal=True)
         assert len(received) == 1
         assert received[0].title == 'Connection Lost'
@@ -238,7 +238,7 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.set_unattended_run(True)
         nc.critical('FileIO', 'Disk Full', 'cannot write capture')
         assert len(received) == 1
 
@@ -246,10 +246,10 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.set_unattended_run(True)
         nc.warning('X', 'Y', 'z')
         assert received == []
-        nc.set_protocol_running(False)
+        nc.set_unattended_run(False)
         nc.warning('X', 'Y', 'z')
         assert len(received) == 1
 
