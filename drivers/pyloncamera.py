@@ -2,6 +2,7 @@
 
 import contextlib
 import datetime
+import math
 import os
 import queue
 import threading
@@ -70,6 +71,53 @@ def _log_cam(level: str, message: str) -> None:
             prefix for grep-ability (matches the prefix in the main log).
     """
     log_to(logger, _cam_log, level=level, message=message)
+
+
+def _accepted_range(node, name: str) -> tuple[float, float]:
+    """Return a node's (min, max) narrowed to values it will actually accept.
+
+    A GenICam float node reports its range in continuous units but accepts
+    only steps of its own increment, and the reported maximum can carry a
+    float tail past the last real step -- a 48 dB gain node reports
+    48.00000004350822. Published raw, that tail becomes the slider cap and
+    is persisted to the settings store, so a user who types the advertised
+    maximum has it written back as a long decimal, and the camera rejects
+    the very value it advertised.
+
+    The maximum is snapped DOWN to the last accepted step. It is never
+    snapped up: a bound must be a value the camera takes, and rounding to
+    nearest can land past the ceiling.
+
+    A node whose increment is not a single fixed step is published exactly
+    as reported. `listIncrement` means the legal values are an arbitrary
+    list and `noIncrement` means the range really is continuous; in both
+    cases there is no step to snap to, and inventing one would narrow a
+    range the camera did not narrow. `GetInc()` is only meaningful under
+    `fixedIncrement`, and an `IInteger` node has no `HasInc` at all, so
+    the increment MODE is the thing to ask.
+    """
+    low, high = node.GetMin(), node.GetMax()
+    try:
+        if node.GetIncMode() != genicam.fixedIncrement:
+            return low, high
+        increment = node.GetInc()
+    except Exception as e:
+        logger.debug(f'[CAM Class ] {name}: no usable increment ({e}); range as reported')
+        return low, high
+
+    if not increment or increment <= 0 or high < low:
+        return low, high
+
+    steps = math.floor((high - low) / increment)
+    decimals = max(0, -math.floor(math.log10(increment)))
+    snapped = round(low + steps * increment, decimals)
+
+    if snapped != high:
+        logger.info(
+            f'[CAM Class ] {name}: max {high} is not on the {increment} step grid; '
+            f'publishing {snapped}'
+        )
+    return low, snapped
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
@@ -243,8 +291,9 @@ class PylonCamera(Camera):
             try:
                 gain_node = nm.GetNode('Gain')
                 if gain_node is not None:
-                    self.profile.gain.total_min_db = gain_node.GetMin()
-                    self.profile.gain.total_max_db = gain_node.GetMax()
+                    low, high = _accepted_range(gain_node, 'Gain')
+                    self.profile.gain.total_min_db = low
+                    self.profile.gain.total_max_db = high
                     logger.info(
                         f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
                         f'{self.profile.gain.total_max_db:.1f} dB'
@@ -256,8 +305,9 @@ class PylonCamera(Camera):
             try:
                 exp_node = nm.GetNode('ExposureTime')
                 if exp_node is not None:
-                    self.profile.exposure_min_us = exp_node.GetMin()
-                    self.profile.exposure_max_us = exp_node.GetMax()
+                    low, high = _accepted_range(exp_node, 'ExposureTime')
+                    self.profile.exposure_min_us = low
+                    self.profile.exposure_max_us = high
                     logger.info(
                         f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
                         f'{self.profile.exposure_max_us:.0f} us'
