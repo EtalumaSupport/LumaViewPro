@@ -174,6 +174,32 @@ class HardwareCommandRefusedError(Exception):
         self.member = member
 
 
+class PositionOutOfRangeError(ValueError):
+    """An absolute move was commanded beyond the axis's travel.
+
+    The driver's own response to an out-of-travel target is to clamp it
+    to the nearest limit and drive there, which reports success at a
+    position nobody asked for: a protocol step saved beyond this scope's
+    travel images the wrong place, and nothing in the log distinguishes
+    that from a step that went where it was told. Refusing by name makes
+    the substitution impossible rather than silent.
+
+    Subclasses ValueError because an out-of-travel target is the same
+    kind of bad argument as a non-numeric one, and callers already
+    written to catch ValueError from this call keep working.
+
+    The message reaches the user verbatim, so it names the axis, the
+    request, and the range that refused it.
+    """
+
+    def __init__(self, axis: str, position: float, low: float, high: float):
+        super().__init__(f'{axis} position {position} is outside the travel range {low} to {high}.')
+        self.axis = axis
+        self.position = position
+        self.low = low
+        self.high = high
+
+
 class AxisStateUnknownError(Exception):
     """A move was commanded on an axis whose position is not known.
 

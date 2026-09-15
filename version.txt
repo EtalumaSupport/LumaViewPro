@@ -1,4 +1,4 @@
 4.0.0-beta36
 2026-09-14 17:14
 fix/text-input-double-commit
-ec3652ba
+481513c7

@@ -1268,14 +1268,33 @@ class SequentialIOExecutor:
                 # that directly. Untyped exceptions get a generic message
                 # so the popup doesn't leak raw Python class names; the
                 # full trace is already in the log via _run_task above.
-                from modules.exceptions import CaptureError, ProtocolError, ConfigError
+                from modules.exceptions import (
+                    AxisStateUnknownError,
+                    CaptureError,
+                    ConfigError,
+                    PositionOutOfRangeError,
+                    ProtocolError,
+                )
 
                 try:
                     from drivers.exceptions import HardwareError
 
-                    typed = (CaptureError, ProtocolError, ConfigError, HardwareError)
+                    typed = (
+                        CaptureError,
+                        ProtocolError,
+                        ConfigError,
+                        HardwareError,
+                        PositionOutOfRangeError,
+                        AxisStateUnknownError,
+                    )
                 except ImportError:
-                    typed = (CaptureError, ProtocolError, ConfigError)
+                    typed = (
+                        CaptureError,
+                        ProtocolError,
+                        ConfigError,
+                        PositionOutOfRangeError,
+                        AxisStateUnknownError,
+                    )
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:

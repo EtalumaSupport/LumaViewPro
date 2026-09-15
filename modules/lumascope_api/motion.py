@@ -37,7 +37,11 @@ from collections.abc import Iterator
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    PositionOutOfRangeError,
+)
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
@@ -1467,7 +1471,10 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid or position is not numeric / out of bounds.
+            ValueError: If axis is invalid or position is not numeric.
+            PositionOutOfRangeError: The target is outside the axis's
+                configured travel and ``ignore_limits`` is False. A
+                ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
         """
@@ -1486,6 +1493,18 @@ class MotionAPI:
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
+
+        # Refuse a target beyond the axis's travel rather than letting the
+        # driver clamp it. A clamped move reports success at a position
+        # nobody asked for, so a protocol step saved beyond this scope's
+        # travel images the wrong place and the log cannot tell that from a
+        # step that went where it was told. Axes with no configured travel
+        # return None here -- the turret, whose position is a slot rather
+        # than a distance -- and are not range-checked.
+        if not ignore_limits:
+            limits = self.get_axis_limits(axis)
+            if limits is not None and not (limits['min'] <= position <= limits['max']):
+                raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
 
         self._pre_drive(axis, force=force)
 
