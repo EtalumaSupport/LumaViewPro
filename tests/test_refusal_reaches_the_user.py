@@ -30,10 +30,14 @@ class _ReachedPreDriveError(Exception):
     """The gate let the move through."""
 
 
+# T publishes no travel: its position is a slot, not a distance.
+LIMITS = {'X': {'min': 0.0, 'max': 80000.0}, 'Y': {'min': 0.0, 'max': 80000.0}, 'T': None}
+
+
 @pytest.fixture
 def api():
     motion = MotionAPI.__new__(MotionAPI)
-    motion.get_axis_limits = lambda axis: {'min': 0.0, 'max': 80000.0}
+    motion.get_axis_limits = lambda axis: LIMITS.get(axis)
     motion._arrival_events = dict.fromkeys(('X', 'Y', 'Z', 'T'))
 
     def _reached(axis, force=False):
@@ -43,34 +47,53 @@ def api():
     return motion
 
 
-def test_an_absurd_position_is_refused_by_name_not_as_a_bare_valueerror(api):
-    """A bare ValueError is not in the executor's user-facing set, so its
-    message never reaches the user."""
+@pytest.mark.parametrize('position', [90000.0, 13246567.0, MOTOR_POSITION_LIMIT + 1, 1e30])
+def test_one_mistake_gets_one_answer_whatever_its_magnitude(api, position):
+    """An axis that publishes travel always answers with TRAVEL.
+
+    Eric, 2026-09-15: *"why are there two limits? Why does a user care? If
+    you are outside the travel limits (80/120mm) it should say you are out
+    of the travel limit."* Before this, a value a little past travel named
+    the travel range and a larger one named a 1 m ceiling, so one kind of
+    mistake produced two unrelated answers depending on how wrong it was.
+    Travel lies inside the ceiling for any axis that has travel, so the
+    ceiling can only ever fire on a value that is ALSO outside travel --
+    it had nothing of its own to say and was stealing the better message.
+    """
     with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('X', MOTOR_POSITION_LIMIT + 1)
+        api._move_absolute_impl('Y', position)
+
+    assert caught.value.bound == 'travel range'
+    assert 'safety limit' not in str(caught.value)
+
+
+def test_the_ceiling_still_speaks_for_an_axis_with_no_travel(api):
+    """The turret publishes no limits, so nothing else can refuse it.
+
+    This is the ceiling's only remaining job, and it is a guard against a
+    nonsense argument rather than something a user reaches by typing.
+    """
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        api._move_absolute_impl('T', MOTOR_POSITION_LIMIT + 1)
 
     assert caught.value.bound == 'safety limit'
 
 
-def test_the_safety_refusal_says_which_limit_refused(api):
-    """Naming the travel range here would point the user at the wrong
-    number: the entry never got as far as the axis."""
+def test_an_in_range_move_on_a_limitless_axis_is_allowed(api):
+    """The ceiling must not start refusing ordinary turret slots."""
+    with pytest.raises(_ReachedPreDriveError):
+        api._move_absolute_impl('T', 3)
+
+
+def test_ignore_limits_bypasses_travel_but_not_the_ceiling(api):
+    """The hatch exists to drive outside TRAVEL deliberately. It is not a
+    licence to hand the motor an arbitrary number."""
+    with pytest.raises(_ReachedPreDriveError):
+        api._move_absolute_impl('Y', 90000.0, ignore_limits=True)
+
     with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('X', 13246567.0)
-
-    text = str(caught.value)
-    assert 'safety limit' in text
-    assert '13246567.0' in text
-    assert 'travel range' not in text
-
-
-def test_the_travel_refusal_still_says_travel_range(api):
-    """The two bounds must stay distinguishable in the user's words."""
-    with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('Y', 90000.0)
-
-    assert 'travel range' in str(caught.value)
-    assert 'safety limit' not in str(caught.value)
+        api._move_absolute_impl('Y', MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
+    assert caught.value.bound == 'safety limit'
 
 
 def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(api):

@@ -1482,19 +1482,6 @@ class MotionAPI:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         if not isinstance(position, (int, float)):
             raise ValueError(f'Position must be numeric, got {type(position).__name__}')
-        if abs(position) > MOTOR_POSITION_LIMIT:
-            # Named rather than a bare ValueError: this refusal is reachable
-            # by typing a nonsense magnitude into a position box, and a bare
-            # ValueError is not in the executor's user-facing set, so its
-            # message was replaced by a generic "operation failed".
-            raise PositionOutOfRangeError(
-                axis,
-                position,
-                -MOTOR_POSITION_LIMIT,
-                MOTOR_POSITION_LIMIT,
-                bound='safety limit',
-            )
-
         # Silently no-op for axes that aren't present on this hardware.
         # _arrival_events is sized to detect_present_axes() at init,
         # so this is the canonical "is this axis trackable" check.
@@ -1513,6 +1500,24 @@ class MotionAPI:
             limits = self.get_axis_limits(axis)
             if limits is not None and not (limits['min'] <= position <= limits['max']):
                 raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
+
+        # The coarse sanity ceiling, checked AFTER travel so that travel gets
+        # to answer first. For any axis that publishes travel, travel lies
+        # inside this bound, so reaching here means the axis has none -- the
+        # turret, whose position is a slot. Ordering it the other way gave a
+        # user two different answers for one mistake: a typed value a little
+        # past travel named the travel range, and a larger one named a 1 m
+        # ceiling that means nothing to them. Not gated on ignore_limits: that
+        # hatch is for driving outside TRAVEL deliberately, not for handing the
+        # motor an arbitrary number.
+        if abs(position) > MOTOR_POSITION_LIMIT:
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+            )
 
         self._pre_drive(axis, force=force)
 
