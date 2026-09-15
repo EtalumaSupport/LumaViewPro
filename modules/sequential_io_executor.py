@@ -1295,13 +1295,13 @@ class SequentialIOExecutor:
                         PositionOutOfRangeError,
                         AxisStateUnknownError,
                     )
+                action_name = getattr(task.action, '__name__', str(task.action))
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:
-                    # Name the failed action; blame a protocol only when the
-                    # task came off the protocol queue -- a manual live
-                    # action's failure is not a protocol skip.
-                    action_name = getattr(task.action, '__name__', str(task.action))
+                    # Blame a protocol only when the task came off the
+                    # protocol queue -- a manual live action's failure is
+                    # not a protocol skip.
                     if task.protocol:
                         body = (
                             f"The '{action_name}' step operation failed, so the "
@@ -1313,7 +1313,15 @@ class SequentialIOExecutor:
                             f"The '{action_name}' background operation failed. "
                             'Check the main log for details.'
                         )
-                notifications.error('Task', f'{self.name} task failed', body)
+                # The title names the failed ACTION, not this executor.
+                # Notifications dedup on (category, title) for ten seconds,
+                # so a title naming the executor made one dedup key for
+                # everything it runs: a refused stage move and an unrelated
+                # camera failure seconds apart were treated as the same
+                # event and the second never reached the user. The action
+                # name separates distinct failures while still collapsing a
+                # genuine repeat of one.
+                notifications.error('Task', f'{action_name} task failed', body)
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit -- emit per-IOTask timing row when opt-in tracing

@@ -1483,8 +1483,16 @@ class MotionAPI:
         if not isinstance(position, (int, float)):
             raise ValueError(f'Position must be numeric, got {type(position).__name__}')
         if abs(position) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Position {position} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            # Named rather than a bare ValueError: this refusal is reachable
+            # by typing a nonsense magnitude into a position box, and a bare
+            # ValueError is not in the executor's user-facing set, so its
+            # message was replaced by a generic "operation failed".
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1595,8 +1603,14 @@ class MotionAPI:
         if not isinstance(distance, (int, float)):
             raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
         if abs(distance) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Distance {distance} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            # Same refusal as the absolute path, reachable the same way.
+            raise PositionOutOfRangeError(
+                axis,
+                distance,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+                quantity='distance',
             )
 
         # Silently no-op for axes that aren't present on this hardware.
