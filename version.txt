@@ -1,4 +1,4 @@
 4.0.0-beta36
-2026-09-15 17:45
-integration/beta-candidates-2026-09-15-rebuild
-c33a9757
+2026-09-15 22:16
+fix/popup-title-identity
+231efdd4
