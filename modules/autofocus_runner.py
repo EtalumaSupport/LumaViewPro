@@ -13,6 +13,7 @@ import pandas as pd
 
 from lvp_logger import logger
 
+import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
@@ -1045,18 +1046,10 @@ class AutofocusRunner:
         two AF runs in the same wall-clock second do not collide.
         """
         parent_dir = pathlib.Path(parent_dir)
+        # The parent is created here and not by the allocator below: the
+        # allocator REFUSES a missing parent on purpose, because a missing
+        # capture location usually means an unplugged drive. An autofocus
+        # results folder is ours to make under a location the caller chose.
         parent_dir.mkdir(parents=True, exist_ok=True)
         base = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        candidates = [base] + [f'{base}_{i:03d}' for i in range(1, 1000)]
-        for candidate in candidates:
-            run_dir = parent_dir / candidate
-            try:
-                run_dir.mkdir(exist_ok=False)
-                return run_dir
-            except FileExistsError:
-                continue
-        raise RuntimeError(
-            f'Could not allocate an autofocus results folder under '
-            f'{parent_dir} (1000 same-second collisions). Try running '
-            f'again; if the problem persists, free disk space or restart.'
-        )
+        return path_utils.allocate_directory(parent_dir / base)

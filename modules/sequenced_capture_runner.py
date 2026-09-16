@@ -28,6 +28,7 @@ from modules.activity_claim import ActivityClaim
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
+import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.run_outcome import MergeOutcome, RunMergeOutcome
 
@@ -442,41 +443,24 @@ class SequencedCaptureRunner:
         return self._run_dir
 
     def _create_run_dir(self):
-        # Directory name uses second-resolution timestamps. Runs started
-        # within the same wall-clock second collide; retry with _001,
-        # _002, ... up to 999 so user-visible "directory exists" errors
-        # only fire on the impossibly-rare case of a thousand collisions.
+        # Naming is this runner's; reserving the name is not. The
+        # same-second collision retry lives in path_utils with the reason
+        # it cannot be a check-then-create, and one copy of it means a
+        # capture-location failure is diagnosed in one place.
         now = datetime.datetime.now()
         base_time_string = now.strftime('%Y%m%d_%H%M%S')
-        candidates = [base_time_string] + [f'{base_time_string}_{i:03d}' for i in range(1, 1000)]
-        for candidate in candidates:
-            self._run_dir = self._parent_dir / candidate
-            try:
-                self._run_dir.mkdir(exist_ok=False)
-                return {
-                    'status': True,
-                    'data': None,
-                    'error': None,
-                }
-            except FileExistsError:
-                continue
-            except FileNotFoundError:
-                err_str = f'Unable to save data to {self._run_dir!s}. Please select an accessible capture location.'
-                return {
-                    'status': False,
-                    'data': None,
-                    'error': err_str,
-                }
-
-        err_str = (
-            f'Unable to save data to {self._run_dir!s}: '
-            f'exhausted 1000 collision suffixes within the same second. '
-            f'Please wait a moment and retry.'
-        )
+        try:
+            self._run_dir = path_utils.allocate_directory(self._parent_dir / base_time_string)
+        except path_utils.CaptureLocationError as exc:
+            return {
+                'status': False,
+                'data': None,
+                'error': str(exc),
+            }
         return {
-            'status': False,
+            'status': True,
             'data': None,
-            'error': err_str,
+            'error': None,
         }
 
     def _initialize_run_dir(self):
