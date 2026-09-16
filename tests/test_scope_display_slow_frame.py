@@ -81,6 +81,11 @@ class _Stand:
 
     _check_slow_frame = ScopeDisplay._check_slow_frame
     _spike_median = ScopeDisplay._spike_median
+    # The threshold floors at one exposure -- a frame cannot arrive sooner
+    # than it takes to expose. These cases exercise the median baseline, so
+    # the stand reports no exposure and leaves that floor out of the way;
+    # the exposure floor has its own coverage.
+    _exposure_floor_ms = ScopeDisplay._exposure_floor_ms
 
     def __init__(self):
         self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
