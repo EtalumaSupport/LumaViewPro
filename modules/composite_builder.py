@@ -7,9 +7,16 @@ into a single 3-channel RGB composite image. Used by both the live composite
 capture path and the post-capture composite generation path.
 """
 
+import math
+
 import numpy as np
 
 import modules.image_utils as image_utils
+
+# Largest value an 8-bit pixel can take. The composite's blend operates on the
+# 8-bit output scale (the inputs are downconverted below before any threshold
+# is consulted), so this is the scale a brightness percentage maps onto.
+_MAX_8BIT_VALUE = 255
 
 # Canonical RGB color mapping -- single source of truth for channel-to-RGB index.
 # Index 0 = Red, 1 = Green, 2 = Blue (standard RGB ordering).
@@ -20,6 +27,33 @@ CHANNEL_RGB_INDEX = {
     'Blue': 2,
     'Lumi': 2,  # Luminescence renders in the blue channel
 }
+
+
+def brightness_cutoff_from_percent(pct: float) -> int:
+    """The 8-bit pixel value a channel must reach to blend, from a percentage.
+
+    Lives here because this module owns the 8-bit output scale the cutoff is
+    expressed in; a caller computing its own mapping would be a second copy of
+    that ownership, free to drift from the comparison it feeds.
+
+    The result is an integer and is compared with ``>=``. A fractional cutoff
+    compared with ``>`` cannot express the top of the scale -- 100 percent of
+    255 is 255, which no 8-bit pixel exceeds, so the whole channel silently
+    dropped out of the composite at the highest setting the UI offers.
+
+    The floor of 1 is what keeps 0 percent meaning "any pixel carrying signal"
+    rather than "every pixel, including true black": a cutoff of 0 with ``>=``
+    would admit black and erase the transmitted base frame-wide.
+
+    Args:
+        pct: Brightness threshold as a percentage of full scale, 0 to 100.
+            The caller is responsible for the range; see the refusal in
+            ``CompositeGeneration._create_composite_image``.
+
+    Returns:
+        int: Minimum 8-bit pixel value that blends, in 1..255.
+    """
+    return max(1, math.ceil(pct * _MAX_8BIT_VALUE / 100))
 
 
 def build_composite(
@@ -98,8 +132,11 @@ def build_composite(
             if channel_index is None:
                 continue
 
-            threshold = brightness_thresholds.get(channel_name, 0)
-            above_threshold = img_gray > threshold
+            # Inclusive, against the integer cutoff brightness_cutoff_from_percent
+            # produces: the cutoff is the lowest value that blends, so the top of
+            # the scale stays expressible. An exclusive test cannot admit 255.
+            threshold = brightness_thresholds.get(channel_name, 1)
+            above_threshold = img_gray >= threshold
 
             # Pixels above threshold that haven't been modified yet:
             # clear all RGB channels, then set the target channel

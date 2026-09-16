@@ -27,7 +27,7 @@ from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
 from modules.video_builder import VideoBuilder
-import modules.common_utils as common_utils
+import modules.config_helpers as config_helpers
 from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
@@ -401,11 +401,14 @@ class CompositeGenControls(BoxLayout):
         # user configuration.
         with ctx.settings_lock:
             output_format = ctx.settings['image_output_format']['sequenced']
-            brightness_thresholds_percent = {
-                layer: ctx.settings[layer]['composite_brightness_threshold']
-                for layer in common_utils.get_layers()
-                if 'composite_brightness_threshold' in ctx.settings.get(layer, {})
-            }
+            # Read through the same helper the protocol path uses, so a manual
+            # composite and a run-driven one cannot disagree about what the
+            # user configured. Called inside this lock, not holding one of its
+            # own: the protocol path calls it unlocked, and settings_lock is
+            # not reentrant.
+            brightness_thresholds_percent = config_helpers.get_composite_blend_thresholds(
+                ctx.settings
+            )
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future

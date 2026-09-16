@@ -295,7 +295,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        from modules.composite_builder import build_composite
+        from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 
         _session, runner, tmp_path = composite_session
 
@@ -314,10 +314,12 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         transmitted = frames['BF']
         fluorescence = {name: arr for name, arr in frames.items() if name != 'BF'}
 
-        # The worker read its threshold as an absolute value on the OUTPUT
+        # The worker reads its threshold as an absolute cutoff on the OUTPUT
         # 8-bit scale, and the settings carry a percentage, so the conversion
-        # is part of what is being compared.
-        thresholds = dict.fromkeys(fluorescence, 25 / 100 * 255)
+        # is part of what is being compared. Taken from the production mapping
+        # rather than recomputed here: a copy of the formula would keep this
+        # comparison green through a change to the real one.
+        thresholds = dict.fromkeys(fluorescence, brightness_cutoff_from_percent(25))
 
         expected = build_composite(
             channel_images=fluorescence,

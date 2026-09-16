@@ -1,11 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import math
 import pathlib
 
 import pandas as pd
 
 import modules.common_utils as common_utils
-from modules.composite_builder import build_composite
+from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
@@ -14,6 +15,21 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from lvp_logger import logger
+
+
+def _is_valid_threshold_percent(value: object) -> bool:
+    """Whether a stored brightness threshold is usable as a percentage.
+
+    bool is rejected deliberately: it is an int subclass, so True would pass a
+    plain range test and quietly mean 1 percent. NaN is rejected because every
+    comparison against it is False -- a NaN cutoff admits no pixel and drops
+    the layer, which is the silent outcome this check exists to prevent.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if math.isnan(value):
+        return False
+    return 0 <= value <= 100
 
 
 class CompositeGeneration(ProtocolPostProcessor):
@@ -233,6 +249,28 @@ class CompositeGeneration(ProtocolPostProcessor):
                     f'fluorescence layer so the merge cannot silently pick its own'
                 )
 
+            # A percentage outside 0-100 is a corrupt value, not a preference to
+            # be honoured approximately: clamping it would silently produce an
+            # image nobody asked for, and the raw captures survive on disk, so
+            # refusing costs a composite that can be regenerated. Refused here
+            # rather than at the conversion below for the reason the missing
+            # check gives -- inside the try it would read as a failed image
+            # group instead of a bad argument. The type check is part of the
+            # same question: a string reaches the arithmetic otherwise.
+            out_of_range = sorted(
+                (layer, brightness_thresholds_percent[layer])
+                for layer in df['Color']
+                if layer != BF_channel
+                and layer in common_utils.get_image_layers()
+                and not _is_valid_threshold_percent(brightness_thresholds_percent[layer])
+            )
+            if out_of_range:
+                named = '; '.join(f'{layer} = {value!r}' for layer, value in out_of_range)
+                raise ConfigError(
+                    f'composite generation needs a brightness threshold between '
+                    f'0 and 100 percent, and got {named}'
+                )
+
         error = None
         status = True
 
@@ -285,10 +323,14 @@ class CompositeGeneration(ProtocolPostProcessor):
 
                 channel_images[layer] = img_gray
 
-                # Compute brightness threshold on the composite's 8-bit output
-                # scale (build_composite downconverts the channels to 8-bit).
+                # The mapping onto the composite's 8-bit output scale belongs to
+                # the builder, which owns that scale and the comparison the
+                # cutoff feeds; computing it here would be a second copy free
+                # to drift from either.
                 if BF_present:
-                    brightness_thresholds[layer] = brightness_thresholds_percent[layer] / 100 * 255
+                    brightness_thresholds[layer] = brightness_cutoff_from_percent(
+                        brightness_thresholds_percent[layer]
+                    )
 
             if not channel_images and transmitted_image is None:
                 status = False
