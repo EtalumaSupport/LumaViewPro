@@ -347,8 +347,9 @@ class IOTask:
         except Exception as e:
             # Reports the raise, not an escape: this returns the exception to
             # the worker, which reports it to the user. The separate task
-            # epilogue owns the "task failed" wording, so this line must not
-            # duplicate it.
+            # epilogue owns the user-facing wording, so this line must not
+            # duplicate it. This is the record that names the SYMBOL -- the
+            # user-facing one deliberately does not.
             action_name = getattr(self.action, '__name__', str(self.action))
             logger.error(
                 f'[IOTask    ] {action_name} raised {type(e).__name__}: {e}', exc_info=True
@@ -1299,29 +1300,32 @@ class SequentialIOExecutor:
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:
-                    # Blame a protocol only when the task came off the
-                    # protocol queue -- a manual live action's failure is
-                    # not a protocol skip.
-                    if task.protocol:
-                        body = (
-                            f"The '{action_name}' step operation failed, so the "
-                            'protocol may have skipped a step. Check the main '
-                            'log for details.'
-                        )
-                    else:
-                        body = (
-                            f"The '{action_name}' background operation failed. "
-                            'Check the main log for details.'
-                        )
-                # The title names the failed ACTION, not this executor.
-                # Notifications dedup on (category, title) for ten seconds,
-                # so a title naming the executor made one dedup key for
-                # everything it runs: a refused stage move and an unrelated
-                # camera failure seconds apart were treated as the same
-                # event and the second never reached the user. The action
-                # name separates distinct failures while still collapsing a
-                # genuine repeat of one.
-                notifications.error('Task', f'{action_name} task failed', body)
+                    # Says only what the queue proves. Calling it a "step"
+                    # and warning that one may have been skipped described
+                    # end-of-scan maintenance, camera restore and data saves
+                    # as steps, and fired 81 times in a run where nothing was
+                    # skipped and every frame wrote. Which queue a task came
+                    # off is not evidence about steps, so it no longer
+                    # changes what the body claims -- only the title, which
+                    # says where the failure happened and nothing more.
+                    body = 'The operation did not complete. Check the main log for details.'
+                # What the user reads has to be prose. The action is a
+                # Python symbol, and for a partial or a lambda str() yields
+                # a repr carrying a heap address. A refusal that brought its
+                # own title already said this better than a generic line.
+                title = getattr(exception, 'title', None) or (
+                    'Protocol operation failed' if task.protocol else 'Background operation failed'
+                )
+                # Identity rides in the CATEGORY. Dedup keys on
+                # (category, title) and no popup renders the category, so
+                # distinct actions keep distinct keys -- a refused stage
+                # move and an unrelated camera failure seconds apart must
+                # not collapse into one event -- while a genuine repeat of
+                # one action still dedups. Carrying that identity in the
+                # TITLE instead is what put Python identifiers, and for a
+                # partial a heap address, in front of the user; an address
+                # also made the key unmatchable, silently disabling dedup.
+                notifications.error(f'Task:{action_name}', title, body)
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit -- emit per-IOTask timing row when opt-in tracing

@@ -151,19 +151,67 @@ def test_a_genuine_repeat_of_one_failure_still_dedups():
     assert len(seen) == 1
 
 
-def test_the_executor_titles_its_notification_with_the_action():
-    """The title has to identify the failure, because it is half the
-    dedup key. Naming the executor gave every one of its failures the
-    same identity."""
-    import inspect
+def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
+    """Each failure must carry its own dedup identity, and none of it may
+    be a Python symbol.
 
-    from modules import sequential_io_executor
+    Two properties, one mechanism. The identity has to differ per action --
+    naming the executor gave everything it runs one key, so an unrelated
+    second failure never reached the user. And none of it may be spelled
+    from the callable: a symbol is not English, and for a partial or lambda
+    it is a repr carrying a heap address, which can never match itself and
+    so silently disables the dedup it was supposed to serve.
 
-    src = inspect.getsource(sequential_io_executor)
+    Driven through the real executor rather than read out of the source,
+    because an assertion on the source text goes stale the moment the
+    wording changes and says nothing about what the user is shown.
+    """
+    import re
 
-    assert "f'{action_name} task failed'" in src, (
-        'the notification title must name the failed ACTION, not the executor'
+    import modules.sequential_io_executor as sio
+    from modules.notification_center import NotificationCenter, Severity
+    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+
+    def _grind_beans():
+        raise ValueError('burr jammed')
+
+    def _pull_shot():
+        raise ValueError('portafilter empty')
+
+    centre = NotificationCenter(dedup_window_s=10.0)
+    seen = []
+    centre.add_listener(seen.append, min_severity=Severity.ERROR)
+
+    original = sio.notifications
+    try:
+        sio.notifications = centre
+        for action in (_grind_beans, _pull_shot, _grind_beans):
+            executor = SequentialIOExecutor(name='TEST')
+            task = IOTask(action)
+            task.set_name(executor.executor_name)
+            executor.queue.put(task)
+            executor.queue.get()
+            result, exception = task.run()
+            executor._on_task_done(task, result, exception)
+    finally:
+        sio.notifications = original
+
+    # Two distinct actions reach the user; the repeat of the first dedups.
+    assert len(seen) == 2, (
+        f'distinct failures must keep distinct dedup identities, and a repeat '
+        f'of one must collapse: {[(n.category, n.title) for n in seen]}'
     )
-    assert "f'{self.name} task failed'" not in src, (
-        'a title naming the executor makes one dedup key for everything it runs'
+    assert seen[0].category != seen[1].category, (
+        'one dedup identity for everything the executor runs is the bug this '
+        'guards: an unrelated second failure never reaches the user'
     )
+
+    # Nothing the USER reads may be spelled from the callable.
+    for n in seen:
+        assert '_grind_beans' not in n.title and '_pull_shot' not in n.title, (
+            f'the popup title is a Python symbol: {n.title!r}'
+        )
+        assert not re.search(r'0x[0-9a-f]{6,}', f'{n.title} {n.message}'), (
+            f'a heap address reached the user, and makes the dedup key unmatchable: {n.title!r}'
+        )
+        assert n.title[:1].isupper(), f'the popup title is not prose: {n.title!r}'

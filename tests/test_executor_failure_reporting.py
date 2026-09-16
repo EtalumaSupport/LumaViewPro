@@ -93,10 +93,26 @@ def test_failure_produces_one_task_failed_record_not_two(caplog):
         raise ValueError('portafilter empty')
 
     records = _run_failing_task(pull_shot, caplog)
-    task_failed = [r for r in records if 'task failed' in r.lower()]
-    assert len(task_failed) == 1, (
-        "The raise record must not duplicate the notification record's "
-        f"'task failed' wording, or counting failures double-counts: {records!r}"
+
+    # The property is that the two records do not say the same thing -- the
+    # raise record names the symbol and the exception type for a developer,
+    # the notification record carries what the user was shown. Asserting a
+    # count of one fixed phrase only worked while both happened to use it;
+    # comparing the two directly survives either being reworded.
+    raise_records = [r for r in records if 'raised' in r]
+    notification_records = [r for r in records if r not in raise_records]
+    assert len(raise_records) == 1, f'exactly one raise record expected: {records!r}'
+    assert len(notification_records) == 1, f'exactly one user-facing record expected: {records!r}'
+    assert 'pull_shot' in raise_records[0], (
+        f'the raise record must still name the symbol for a developer: {records!r}'
+    )
+    # The notification logs as '[category] title: message'. The category is
+    # the dedup identity and is deliberately the symbol -- it is never shown
+    # to anyone. What follows it is what the user read, and that is the half
+    # that must not be spelled from the callable.
+    user_facing = notification_records[0].split('] ', 1)[1]
+    assert 'pull_shot' not in user_facing, (
+        f'the user-facing wording is a Python symbol: {user_facing!r}'
     )
 
 
