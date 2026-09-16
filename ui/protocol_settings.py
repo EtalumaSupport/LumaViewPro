@@ -55,6 +55,8 @@ from ui.ui_helpers import (
     set_recording_title,
     set_title_event_text,
     set_writing_title,
+    show_autofocus_busy_popup,
+    show_run_refused_popup,
     sync_layer_widgets_from_settings,
     text_input_debounced,
 )
@@ -1789,6 +1791,7 @@ class ProtocolSettings(FloatLayout):
                 logger.warning(
                     f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
                 )
+                show_run_refused_popup('start an autofocus scan', run_trigger_source)
                 return
 
             # The ownership term is load-bearing: a run callback resets
@@ -1993,16 +1996,22 @@ class ProtocolSettings(FloatLayout):
             run_refused_func()
             return
 
+        # Read the holder BEFORE the autofocus gate, not after: a protocol's
+        # own autofocus steps drive the same thread, so a refusal here has to
+        # name the run that owns the sweep rather than just the sweep.
+        run_trigger_source = sequenced_capture_runner.run_trigger_source()
+
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
             run_refused_func()
             logger.warning('Cannot start scan. Autofocus still in progress.')
+            show_autofocus_busy_popup('start a scan', run_trigger_source)
             return
 
-        run_trigger_source = sequenced_capture_runner.run_trigger_source()
         if sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source):
             run_refused_func()
             logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
+            show_run_refused_popup('start a scan', run_trigger_source)
             return
 
         # Abort BEFORE validity: the abort click must never be refused by
@@ -2221,6 +2230,7 @@ class ProtocolSettings(FloatLayout):
             if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
                 run_refused_func()
                 logger.warning('Cannot start protocol run. Autofocus still in progress.')
+                show_autofocus_busy_popup('start a protocol run', run_trigger_source)
                 return
 
             if sequenced_capture_runner.run_in_progress() and (
@@ -2230,6 +2240,7 @@ class ProtocolSettings(FloatLayout):
                 logger.warning(
                     f'Cannot start protocol run. Run already in progress from {run_trigger_source}'
                 )
+                show_run_refused_popup('start a protocol run', run_trigger_source)
                 return
 
             # Abort BEFORE validity: the abort click must never be refused

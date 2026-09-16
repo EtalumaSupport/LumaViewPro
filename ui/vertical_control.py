@@ -33,6 +33,7 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     run_with_refusal_boundary,
+    show_run_refused_popup,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -434,6 +435,7 @@ class VerticalControl(BoxLayout):
                     'Cannot start autofocus: run already in progress '
                     f'(trigger={run_trigger_source})'
                 )
+                show_run_refused_popup('start an autofocus', run_trigger_source)
                 return
 
             # Stop click: the toggle is back to 'normal', or re-clicked

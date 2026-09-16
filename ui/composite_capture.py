@@ -321,8 +321,21 @@ class CompositeCapture(FloatLayout):
         # pair, and that click is swallowed as an abort of a run that was
         # never started.
         if CompositeCapture._capturing.is_set():
-            logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
+            # Names "a capture", not "a composite": a composite's own second
+            # click is taken by the stop branch above, so the only way to
+            # arrive here is a live capture still holding the guard. Saying
+            # "composite" reported the wrong subsystem to the user.
+            logger.warning('[LVP Main  ] A capture is already running, ignoring composite press')
             composite_btn.state = 'normal'
+            from ui.notification_popup import show_notification_popup
+
+            show_notification_popup(
+                title='Capture In Progress',
+                message=(
+                    'A capture is still running.\n\n'
+                    'Wait for it to finish before starting a composite.'
+                ),
+            )
             return
 
         from modules.notification_center import notifications
@@ -383,9 +396,13 @@ class CompositeCapture(FloatLayout):
                 # folder can only ever name THIS run's directory.
                 set_last_save_folder(dir=runner.run_dir())
 
-            # A refusal has already been logged and shown to the user by the
-            # engine's funnel; there is nothing left to report, only the
-            # cosmetics to undo, and the finally does that.
+            # A refusal is always LOGGED by the engine's funnel, and the
+            # finally below undoes the cosmetics. It is not necessarily
+            # SHOWN: the centre drops non-fatal notifications for the whole
+            # of a run nobody is watching, and a rival run owning the scope
+            # is the only way this starter is refused, since it carries no
+            # rival gate of its own. So that refusal currently reaches the
+            # user nowhere: a known hole, recorded rather than closed.
             run_with_refusal_boundary(_start, on_refused=lambda: None)
         except Exception as e:
             logger.error(f'[LVP Main  ] composite_capture failed: {e}', exc_info=True)

@@ -37,18 +37,72 @@ def run_with_refusal_boundary(
     """The single UI boundary for the runner's typed run refusal.
 
     A refused run is a designed outcome, not a failure to propagate: the
-    runner's refusal funnel has already logged it and notified the user
-    exactly once, and no running-state was committed (commit_ui_state
-    runs only after a successful prepare). What remains is per-starter:
-    undo the pre-gate button cosmetics via on_refused. Every UI starter
-    (scan, protocol, autofocus scan, z-stack) routes its prepare/start
-    sequence through this one handler so refusal handling cannot drift
-    between them.
+    runner's refusal funnel has already logged it, and no running-state
+    was committed (commit_ui_state runs only after a successful
+    prepare). What remains is per-starter: undo the pre-gate button
+    cosmetics via on_refused. Every UI starter (scan, protocol,
+    autofocus scan, z-stack) routes its prepare/start sequence through
+    this one handler so refusal handling cannot drift between them.
+
+    The funnel also POSTS a user notification, but posting is not
+    delivery: the notification centre drops every non-fatal
+    notification for the whole of a run nobody is watching, which is
+    every run kind but a standalone autofocus. A starter that assumes
+    the engine reached the user is therefore wrong during exactly the
+    runs a rival refusal happens in; one that must be sure raises its
+    own popup.
     """
     try:
         start_fn()
     except ProtocolRunRefusedError:
         on_refused()
+
+
+def show_run_refused_popup(blocked_action: str, holder: str | None) -> None:
+    """Tell the user WHICH run refused their click, not only that it failed.
+
+    A refused starter resets its button cosmetics, which is visible but
+    mute: it says the click did not take, never what is holding the
+    scope, so a user who is told nothing presses again -- and a second
+    press is how a stale toggle used to tear down a live scan. The
+    file-drain and protocol-validity gates in these same ladders already
+    raise a popup, so without this the explanation a user got depended
+    on which gate happened to fire first.
+
+    The direct popup is deliberate rather than the notification centre:
+    the centre drops non-fatal notifications for the whole of a run
+    nobody is watching, and a refusal answers a button press, so someone
+    is present by construction. An empty holder is reachable, because
+    the windows around the activity claim are not zero, so it degrades
+    to naming no kind rather than interpolating a blank.
+    """
+    from ui.notification_popup import show_notification_popup
+
+    owner = f'A {holder} run' if holder else 'Another run'
+    show_notification_popup(
+        title='Run In Progress',
+        message=f'{owner} is using the microscope.\n\nStop it before you {blocked_action}.',
+    )
+
+
+def show_autofocus_busy_popup(blocked_action: str, holder: str | None) -> None:
+    """Refuse for an autofocus sweep, naming the run that OWNS the sweep.
+
+    The gate behind this reads the autofocus thread, and a protocol's
+    own autofocus steps drive that same thread -- so naming only the
+    autofocus would report a sweep when a full protocol is the thing the
+    user actually has to stop.
+    """
+    from ui.notification_popup import show_notification_popup
+
+    owner = f'the {holder} run' if holder else 'another run'
+    show_notification_popup(
+        title='Autofocus In Progress',
+        message=(
+            f'An autofocus sweep from {owner} is using the microscope.\n\n'
+            f'Wait for it to finish before you {blocked_action}.'
+        ),
+    )
 
 
 # ============================================================================

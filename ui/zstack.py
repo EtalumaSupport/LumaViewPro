@@ -34,6 +34,7 @@ from ui.ui_helpers import (
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
+    show_run_refused_popup,
     sync_layer_widgets_from_settings,
 )
 from modules.zstack_config import ZStackConfig
@@ -169,6 +170,7 @@ class ZStack(FloatLayout):
                 logger.warning(
                     f'Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}'
                 )
+                show_run_refused_popup('start a Z-Stack acquire', run_trigger_source)
                 return
 
             # The ownership term is not redundant with the toggle read: a
