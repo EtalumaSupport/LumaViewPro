@@ -725,11 +725,26 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
-    def _set_gain_db_impl(self, gain_db: float) -> None:
+    def _set_gain_db_impl(self, gain_db: float) -> bool | None:
         """Set the camera gain.
+
+        Deliberately does NOT raise on a rejection, unlike the public
+        ``set_gain_db`` that wraps it. This body is the composition primitive
+        the auto-gain lock, the exposure ceiling and the layer apply build on,
+        and it is what a protocol step and an autofocus sweep bind directly.
+        An exception from here reaches the protocol scan loop, which classifies
+        anything raised with the boards still connected as transient and
+        abandons the remainder of the scan -- so one refused gain on an early
+        step would discard every step after it. The refusal is reported and the
+        caller continues at the gain the camera actually holds.
 
         Args:
             gain_db: Gain value in dB.
+
+        Returns:
+            bool | None: ``False`` on a confirmed driver rejection. ``None``
+                when no camera is active, or when the driver has no
+                confirmation signal -- neither of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -758,7 +773,10 @@ class ImagingAPI:
             # signal return None). Frames keep streaming at the OLD gain,
             # and IDS has no chunk backstop to catch the mismatch
             # downstream -- surface it instead of recording the requested
-            # value as truth in the cache.
+            # value as truth in the cache. Logged as well as notified: the
+            # popup is suppressed for the whole of an unattended run, which
+            # is exactly when a per-step rejection matters most.
+            logger.error(f'[SCOPE API ] gain_db: driver rejected {float(gain_db)!r}')
             notifications.error(
                 'Camera',
                 'Camera Setting Not Applied',
@@ -769,12 +787,23 @@ class ImagingAPI:
         elif changed:
             _api_log.info(f'set_gain_db {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
+        return ok
 
-    def _set_exposure_ms_impl(self, exposure_ms: float) -> None:
+    def _set_exposure_ms_impl(self, exposure_ms: float) -> bool | None:
         """Set the camera exposure time.
+
+        Non-raising for the same reason as ``_set_gain_db_impl``: this body is
+        bound directly by the protocol step and the autofocus sweep, where an
+        exception reaches the scan loop's transient classifier and costs the
+        rest of the scan.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Returns:
+            bool | None: ``False`` on a confirmed driver rejection. ``None``
+                when no camera is active, or when the driver has no
+                confirmation signal -- neither of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -822,7 +851,10 @@ class ImagingAPI:
             # signal return None). Frames keep streaming at the OLD
             # exposure, and IDS has no chunk backstop to catch the
             # mismatch downstream -- surface it instead of recording the
-            # requested value as truth in the cache.
+            # requested value as truth in the cache. Logged as well as
+            # notified: the popup is suppressed for the whole of an
+            # unattended run, which is when a per-step rejection matters most.
+            logger.error(f'[SCOPE API ] exposure_ms: driver rejected {float(exposure_ms)!r}')
             notifications.error(
                 'Camera',
                 'Camera Setting Not Applied',
@@ -833,6 +865,7 @@ class ImagingAPI:
         elif changed:
             _api_log.info(f'set_exposure {exposure_ms}ms')
             self._fire_camera_listeners('exposure', float(exposure_ms))
+        return ok
 
     # --- Public dispatch ---
     # These three are what an external caller reaches: an SDK script, a REST
@@ -923,28 +956,56 @@ class ImagingAPI:
         """Set the camera gain, and wait for it.
 
         See ``_set_gain_db_impl`` for the value contract and the rejection
-        notification; this adds only the dispatch described on
-        ``_dispatch_camera``.
+        notification; this adds the dispatch described on ``_dispatch_camera``
+        and the raise below.
+
+        The raise is here rather than in the impl because this is the L2
+        surface -- an SDK, headless or REST caller -- and it has no in-run
+        callers to strand. Success is observed by returning; a refusal cannot
+        be mistaken for one by a caller that forgets to check a return code.
+
+        Raises:
+            CameraSettingRejected: A live driver confirmed it refused the
+                gain. Already logged and notified when it arrives. Not
+                raised for a camera-absent no-op or for a driver with no
+                confirmation signal -- neither is a refusal.
         """
-        return self._dispatch_camera(
+        applied = self._dispatch_camera(
             self._set_gain_db_impl,
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if applied is False:
+            raise CameraSettingRejected('gain_db', gain_db)
+        # Passed through, not swallowed: every dispatcher in this class returns
+        # what its impl returned, and a test pins that contract across all of
+        # them. The raise is added to that, not substituted for it.
+        return applied
 
     def set_exposure_ms(self, exposure_ms: float) -> None:
         """Set the camera exposure time, and wait for it.
 
         See ``_set_exposure_ms_impl`` for the value contract and the
-        unit-confusion warning it carries.
+        unit-confusion warning it carries. The raise is placed here, on the
+        L2 surface, for the reason given on ``set_gain_db``.
+
+        Raises:
+            CameraSettingRejected: A live driver confirmed it refused the
+                exposure. Already logged and notified when it arrives. Not
+                raised for a camera-absent no-op or for a driver with no
+                confirmation signal -- neither is a refusal.
         """
-        return self._dispatch_camera(
+        applied = self._dispatch_camera(
             self._set_exposure_ms_impl,
             'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if applied is False:
+            raise CameraSettingRejected('exposure_ms', exposure_ms)
+        # See set_gain_db: the dispatcher's pass-through contract holds.
+        return applied
 
     def set_auto_gain(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
