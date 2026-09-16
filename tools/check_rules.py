@@ -62,6 +62,9 @@ Firmware-only (doc_status family):
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
     daily_log_ordering -- shard entries are newest-first; an entry dated
                 newer than the one above it is BLOCKED (insert at top)
+    handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
+                outside Branch tips / Next / Rulings / What not to touch,
+                and a new one has all four (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1063,6 +1066,74 @@ def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation
     ]
 
 
+_HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
+_HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
+# Mirrors the H2 lines of the handover block in the handover-close skill's
+# references/templates.md; a rename lands in both or every next close WARNs.
+_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings', 'What not to touch')
+
+
+def _is_handover(path: str) -> bool:
+    """A live session handover (docs/SESSION_HANDOVER_*.md). Archived
+    copies under docs/completed/ are frozen history and never checked.
+    """
+    return _HANDOVER_RE.search(path.replace('\\', '/')) is not None
+
+
+def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a handover gains a heading outside its closed shape, or a
+    new handover arrives without one of the four.
+
+    The handover's length lives in sections the writer adds beside the
+    template's ("the three facts a builder will rediscover", "what was
+    established"), not in the template's own sections, so the shape is
+    closed: the plan paragraph under the H1, then exactly Branch tips /
+    Next / Rulings / What not to touch, and nothing deeper. Diff-aware:
+    only an ADDED heading line fires, so an old handover left as written
+    stays silent; a missing section is reported only when every line of
+    the file is added (a new handover), for the same reason. WARN, not
+    BLOCK, so the close commit lands and the writer fixes it in the same
+    session.
+    """
+    if not _is_handover(path) or not added:
+        return []
+    lines = content.splitlines()
+    violations: list[Violation] = []
+    shape = ' / '.join(_HANDOVER_SECTIONS)
+    for ln in sorted(added):
+        if ln - 1 >= len(lines):
+            continue
+        m = _HEADING_RE.match(lines[ln - 1])
+        if m and m.group(1) not in _HANDOVER_SECTIONS:
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'handover_shape',
+                    f'handover section `{m.group(1)}` is outside the closed shape '
+                    f'({shape}); a fact goes to its doc with a pointer in Next, '
+                    'a lesson to the DAILY_LOG Calibration line',
+                    severity='warn',
+                )
+            )
+    if added >= set(range(1, len(lines) + 1)):
+        present = {m.group(1) for m in map(_HEADING_RE.match, lines) if m}
+        for name in _HANDOVER_SECTIONS:
+            if name not in present:
+                violations.append(
+                    Violation(
+                        path,
+                        1,
+                        0,
+                        'handover_shape',
+                        f'new handover has no `## {name}` section; the closed shape is {shape}',
+                        severity='warn',
+                    )
+                )
+    return violations
+
+
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
 
@@ -1241,6 +1312,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations.extend(_check_rule_45(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))
+    violations.extend(_check_handover_shape(content, path, added))
     return violations
 
 
@@ -1254,7 +1326,7 @@ def _staged_files(suffix: str) -> list[str]:
 
 def _staged_doc_files() -> list[str]:
     docs = _staged_files('.md')
-    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p)]
+    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p) or _is_handover(p)]
 
 
 def _read_staged_content(path: str) -> str:
