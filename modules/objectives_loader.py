@@ -120,11 +120,20 @@ class ObjectiveLoader:
         self,
         objective_id: str | None = None,
         short_name: str | None = None,
-    ) -> dict:
+    ) -> dict | None:
 
-        if ((objective_id is None) and (short_name is None)) or (
-            (objective_id is not None) and (short_name is not None)
-        ):
+        if (objective_id is None) and (short_name is None):
+            # A stored `objective_id` of null arrives here indistinguishable
+            # from "the caller passed no identifier": None is both this
+            # parameter's not-supplied sentinel and a legal value on disk. The
+            # settings shape gate passes null through deliberately, so this has
+            # to be the settings failure it actually is -- the launch path
+            # answers that by republishing the shipped template, and an untyped
+            # raise escapes that recovery and takes app start down with it.
+            # Every other unusable id here already answers with this type.
+            raise ConfigError('no objective identifier supplied')
+
+        if (objective_id is not None) and (short_name is not None):
             raise Exception('Must supply objective ID or short name, but not both')
 
         if short_name is not None:
