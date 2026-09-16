@@ -399,12 +399,15 @@ session.scope.imaging.set_gain_db(8.0)                 # dB; blocks until applie
 session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks until applied
 image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
-# The dark-floor expectation is DERIVED from commanded LED state: with a
-# channel lit (strictly positive current), a frame with no lit pixel is
-# rejected (retried, then None) instead of returned as data; with nothing
-# commanded -- or a channel at 0 mA -- a dark frame is by-design and
-# accepted. accept_dark=True overrides a lit rejection for callers whose
-# dark frames are legitimate (custom focus sweeps, benchmark probes).
+# A dark frame is never refused. With a channel lit (strictly positive
+# current), a frame with no lit pixel is retried until timeout_s in case a
+# lit one is coming, then RETURNED with 'dark_saved': True on
+# last_capture_info. Read that key to tell a dark capture from a lit one;
+# do not re-measure pixels. With nothing commanded -- or a channel at
+# 0 mA -- a dark frame is by design and is not measured at all.
+# accept_dark=True skips the measurement for callers whose dark frames
+# are expected (custom focus sweeps, benchmark probes), so no dark_saved
+# fact is filed.
 # timeout_s is the retry budget for the content checks (dark floor,
 # saturation, chunk verify); leave it 0.0 to judge the first grab only.
 # The executor wait is bounded internally.
@@ -809,16 +812,19 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # channel counts as lit only at strictly positive current, so a channel
 # commanded at 0 mA is dark by design, as are luminescence captures and
 # any capture with nothing commanded. With a channel lit, a frame with
-# essentially no lit pixel is rejected (retrying until timeout_s, then
-# None) so a stale pre-LED or starved black frame is never returned as
-# data. accept_dark=True (keyword-only, default False) overrides a lit
-# rejection for the callers whose dark frames are legitimate: custom
-# focus sweeps (an out-of-focus fluorescence plane can carry no signal)
-# and benchmark probes.
+# essentially no lit pixel is retried until timeout_s -- which heals a
+# stale pre-LED frame when a lit one is on its way -- and then RETURNED,
+# carrying 'dark_saved': True on last_capture_info. It is never refused:
+# pixel content cannot distinguish an LED that failed from a genuinely
+# dark sample, so darkness is reported, not acted on. accept_dark=True
+# (keyword-only, default False) skips the measurement entirely for the
+# callers whose dark frames are expected: custom focus sweeps (an
+# out-of-focus fluorescence plane can carry no signal) and benchmark
+# probes; those captures file no dark_saved fact.
 image = scope.imaging.capture_and_wait()
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
-    accept_dark=False,                     # True admits a dark frame while lit
+    accept_dark=False,                     # True skips the darkness measurement
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # SUM 4 frames (not an average); a
                                            # summed capture is promoted to a

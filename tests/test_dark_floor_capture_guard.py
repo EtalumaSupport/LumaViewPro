@@ -1,20 +1,26 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issues #671 (defect B) and #721: dark-floor frame
-rejection, symmetric with the saturation guard.
+"""What the capture path does with a dark frame: measures it, records it,
+and DELIVERS it.
 
-Bug shape: frame acceptance in the capture path judged content on one
-tail only -- a near-saturated frame was rejected, but a near-black frame
-(stale pre-LED integration, or an external camera consumer starving the
-feed) was accepted and silently saved. The dark floor closes the gap.
+A dark frame is never refused. Pixel content cannot distinguish an LED
+that failed to light from a genuinely dark sample or a deliberately dim
+transmitted setting, so darkness decides nothing about the hardware --
+capture readiness is owned by tracked illumination state
+(``modules/frame_validity.py``), never inferred from pixels. Refusing a
+dark frame destroyed real observations; the operator can see a dark
+image perfectly well.
 
-The expectation is DERIVED, not declared: capture_and_wait reads the
-illumination API's own commanded-lit state (a channel counts as lit only
-at strictly positive current), so a lit capture that delivers a black
-frame is retried until timeout then rejected loudly (None + warning),
-while a nothing-commanded capture accepts its dark frame as by-design.
-``accept_dark=True`` is the one caller-intent override (autofocus sweeps,
-benchmark probes). Public ``get_image`` is the ungated primitive and
-never dark-rejects.
+What survives is the measurement. A capture whose illumination is
+commanded lit (a channel counts as lit only at strictly positive
+current) retries until its budget expires -- which still heals the
+stale pre-LED frame that issue #671 defect B reported -- and then
+returns the frame it has, with a warning and a ``dark_saved`` fact on
+``last_capture_info`` so a writer, an L2 caller or REST can tell a dark
+capture from a lit one without re-measuring pixels. A nothing-commanded
+capture is dark by design and is not measured at all.
+``accept_dark=True`` skips the measurement for callers that expect dark
+frames (autofocus sweeps, benchmark probes). Public ``get_image`` is the
+ungated primitive.
 
 The metric is lit-pixel COUNT against the frame's payload depth -- sparse
 fluorescence (a few bright cells on a black background) must pass, and
@@ -54,7 +60,7 @@ _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signa
 _LIT = np.full((8, 8), 120, dtype=np.uint8)
 
 
-class TestDarkFloorRejection:
+class TestDarkFrameDelivery:
     def test_stale_dark_frame_healed_by_retry(self, dark_scope, monkeypatch):
         """The #671-B symptom: the first frame integrated before the LED
         lit; the very next frame is good. Retry must heal the capture."""
@@ -65,22 +71,31 @@ class TestDarkFloorRejection:
         assert out is not None, 'retry must heal a transient dark frame'
         assert out.max() >= 120, 'the LIT retry frame must be returned, not the dark one'
 
-    def test_persistent_dark_frames_rejected_loudly(self, dark_scope, monkeypatch):
-        """The #721 symptom under the derived contract: a channel is
-        commanded lit at real current, the camera keeps delivering black
-        frames. The capture must fail as None with a warning naming the
-        dark rejection -- never a silently saved black file. Illumination
-        is REAL here: the derivation reads commanded state end to end."""
+    def test_persistent_dark_frames_are_saved_and_recorded(self, dark_scope, monkeypatch):
+        """A channel commanded lit at real current, the camera delivering
+        black frames throughout: the frame is DELIVERED, not refused.
+
+        Destroying it would destroy a real observation -- a dim
+        transmitted setting or a genuinely dark sample looks exactly like
+        this, and the operator can see the dark image for themselves. The
+        darkness is not silent: it is warned in the log and carried on
+        last_capture_info so a writer, an L2 caller or REST can tell a
+        dark frame from a lit one without re-measuring pixels."""
         dark_scope.illumination.led_on('BF', 100)
         monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
         with patch.object(imaging_module, 'logger') as mock_logger:
             out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
 
-        assert out is None, 'a persistently dark frame under a lit channel must be rejected'
+        assert out is not None, 'a dark frame under a lit channel must still be delivered'
+        assert out.max() == _DARK.max(), 'the dark frame itself must come back untouched'
         warned = ' '.join(str(c).lower() for c in mock_logger.warning.call_args_list)
-        assert 'dark' in warned and 'rejected' in warned, (
-            f'rejection must be named in a warning; saw: {warned!r}'
+        assert 'dark' in warned, f'the darkness must be named in a warning; saw: {warned!r}'
+        assert 'rejected' not in warned, (
+            f'the capture was not rejected; the warning must not say so: {warned!r}'
+        )
+        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
+            'a dark frame must be recorded as dark_saved, or no caller can tell'
         )
 
     def test_sparse_fluorescence_accepted(self, dark_scope, monkeypatch):
@@ -116,31 +131,43 @@ class TestDarkFloorRejection:
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None, 'a 0 mA channel must derive as dark by design'
 
-    def test_accept_dark_overrides_a_lit_rejection(self, dark_scope, monkeypatch):
-        """The one caller-intent override: an autofocus sweep runs with
-        LEDs ON yet must accept a dark frame (an out-of-focus fluorescence
-        plane can carry no signal). Same state without the override must
-        reject -- proving the override, not a broken derivation, is what
-        accepted the frame."""
+    def test_accept_dark_suppresses_the_darkness_measurement(self, dark_scope, monkeypatch):
+        """``accept_dark`` no longer overrides a rejection -- there is no
+        rejection to override. What it still does is skip the measurement
+        entirely, so an autofocus sweep (which expects dark planes by
+        construction) neither pays for the scan nor files a dark_saved
+        fact on every frame of the sweep.
+
+        Both calls return the frame; only the recorded fact differs, and
+        that difference is the whole remaining meaning of the argument."""
         dark_scope.illumination.led_on('Blue', 100)
         monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
-        rejected = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
-        assert rejected is None, 'without the override a lit-black frame must reject'
+        measured = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
+        assert measured is not None, 'a dark frame is delivered with or without the override'
+        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
+            'without the override the darkness must be measured and recorded'
+        )
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5, accept_dark=True)
-        assert out is not None, 'accept_dark must admit the dark frame while lit'
+        assert out is not None, 'accept_dark must still admit the dark frame'
+        assert dark_scope.imaging.last_capture_info.get('dark_saved') is None, (
+            'accept_dark skips the measurement, so no dark_saved fact is filed'
+        )
 
-    def test_lit_peer_rejects_dark_luminescence_capture(self, dark_scope, monkeypatch):
-        """A luminescence capture taken while a peer channel is lit is
-        rejected when the frame is black: the lit peer contaminates the
-        capture, so the loud failure is the correct outcome (a deliberate
-        product decision, not an accident of the derivation)."""
+    def test_lit_peer_records_a_dark_luminescence_capture(self, dark_scope, monkeypatch):
+        """A luminescence capture taken while a peer channel is lit still
+        arrives. The lit peer is why the darkness is worth recording --
+        something was commanded to emit and the frame carries no signal --
+        but that is a fact about the frame, not grounds to destroy it."""
         dark_scope.illumination.led_on('Red', 150)
         monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
-        assert out is None, 'a lit peer must make a black frame a loud failure'
+        assert out is not None, 'a black frame under a lit peer is delivered, not refused'
+        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
+            'a lit peer makes the darkness worth recording on the capture'
+        )
 
     def test_public_get_image_never_dark_rejects(self, dark_scope, monkeypatch):
         """Public get_image is the ungated primitive: liveness probes and

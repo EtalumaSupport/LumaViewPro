@@ -108,8 +108,6 @@ def capture_failure_cause(info: dict | None) -> str:
         return 'capture deadline expired -- invalidation outran the budget'
     if info.get('drain_failed'):
         return 'frame drain failed -- camera delivered no frame'
-    if info.get('dark_rejected'):
-        return 'no lit frame arrived -- every frame was dark with illumination commanded on'
     if info.get('chunk_rejected'):
         return (
             f'frame chunk never matched the {info["chunk_rejected"]} '
@@ -302,7 +300,7 @@ class ImagingAPI:
         # so the failure names darkness rather than falling through to the
         # cause ladder's camera-inactive default. Cleared at the start of every
         # capture -- a stale True would misattribute the NEXT failure.
-        self._dark_rejected = False
+        self._dark_saved = False
 
         # The commanded continuous auto-gain arm, or None. Only the API
         # commands the auto mode and no driver reads it back, so this is
@@ -2632,7 +2630,7 @@ class ImagingAPI:
             expected_lit = bool(live_lit_pairs(self._scope.illumination))
 
             with self._state_lock:
-                self._dark_rejected = False
+                self._dark_saved = False
             image = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
@@ -2679,9 +2677,13 @@ class ImagingAPI:
             stale = self._chunk_target_mismatch()
             if stale is not None:
                 extra['chunk_rejected'] = stale
-            with self._state_lock:
-                if self._dark_rejected:
-                    extra['dark_rejected'] = True
+        # Recorded whether or not a frame came back, and OUTSIDE the None
+        # branch: a dark frame is delivered, not refused, so this fact rides
+        # a SUCCESSFUL capture. It is the only way a caller that did not
+        # measure the pixels itself can tell a dark frame from a lit one.
+        with self._state_lock:
+            if self._dark_saved:
+                extra['dark_saved'] = True
         _record_capture_info(
             chunk_exposure_us=chunks.get('ExposureTime'),
             chunk_gain_db=chunks.get('Gain'),
@@ -2974,10 +2976,15 @@ class ImagingAPI:
                         # The caller declared illumination ON, yet no pixel
                         # clears the floor: the frame integrated before the
                         # LED lit, or the camera is delivering black frames.
-                        # Retry (the next frame usually integrates under the
-                        # lit LED), then reject loudly -- a black file must
-                        # become either a good file or a named failure, never
-                        # a silent save.
+                        # Retry first -- the next frame usually integrates
+                        # under the lit LED. When the budget runs out the
+                        # frame is SAVED anyway: a dark frame is an
+                        # observation the operator can see on screen, not a
+                        # failure, and destroying it loses real data (a dim
+                        # transmitted setting, a genuinely dark sample).
+                        # Darkness says nothing about the LED -- only tracked
+                        # illumination state does -- so it decides nothing
+                        # here beyond what gets logged and recorded.
                         if datetime.datetime.now() > stop_time:
                             logger.warning(
                                 f'[SCOPE API ] get_image: frame is dark -- '
@@ -2985,25 +2992,30 @@ class ImagingAPI:
                                 f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
                                 f'(minimum {self._DARK_MIN_LIT_FRACTION}) with '
                                 f'illumination expected ON; no lit frame within '
-                                f'{timeout_s:.1f}s. Capture rejected.'
+                                f'{timeout_s:.1f}s. Saving the dark frame.'
                             )
-                            # Name the cause for the writer. Without this the
-                            # failure falls through the cause ladder to its
-                            # default and a dark frame is reported to the user
-                            # as 'camera inactive or not grabbing' -- which
-                            # sent an operator hunting a reconnect fault while
-                            # the camera was demonstrably alive.
+                            # Carried out as a FACT about the frame, never a
+                            # failure cause: the writer records it on the run
+                            # row and an L2/REST caller reads it off
+                            # last_capture_info, so a dark frame stays
+                            # distinguishable from a lit one without anyone
+                            # re-measuring pixels downstream.
                             with self._state_lock:
-                                self._dark_rejected = True
-                            return None
-                        logger.debug(
-                            '[SCOPE API ] get_image: rejecting dark frame; waiting for a lit frame'
-                        )
-                        if not force_new_capture:
-                            # Buffered grabs return the same frame until a new
-                            # one arrives; pace the retry instead of spinning.
-                            time.sleep(0.05)
-                        continue
+                                self._dark_saved = True
+                            # No break/continue: the dark frame is this
+                            # capture, so it falls through the remaining
+                            # gates (chunk targets, sum accumulation) on
+                            # exactly the path a lit frame takes.
+                        else:
+                            logger.debug(
+                                '[SCOPE API ] get_image: dark frame; waiting for a lit frame'
+                            )
+                            if not force_new_capture:
+                                # Buffered grabs return the same frame until a
+                                # new one arrives; pace the retry instead of
+                                # spinning.
+                                time.sleep(0.05)
+                            continue
 
                 if verify_chunk_targets:
                     # The frame must prove its own settings: its chunk

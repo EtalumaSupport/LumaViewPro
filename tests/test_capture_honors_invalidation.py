@@ -135,9 +135,17 @@ class TestMidWindowInvalidationHonored:
 
     def test_clean_window_failure_still_propagates(self, live_scope, monkeypatch):
         """A genuine rejection with NO mid-window change must stay a loud
-        None -- the recovery path must not retry failures it cannot cure."""
+        None -- the recovery path must not retry failures it cannot cure.
+
+        The stimulus is a camera that delivers no frame at all. A black
+        frame used to serve here, but darkness is no longer a rejection:
+        a dark frame is delivered and saved, so it cannot stand in for a
+        capture that produced nothing.
+        """
         live_scope.illumination.led_on('BF', 100)
-        monkeypatch.setattr(live_scope._camera_driver, 'get_array', lambda: _DARK)
+        monkeypatch.setattr(
+            live_scope._camera_driver, 'grab_new_capture', lambda timeout_s: (False, None, 0)
+        )
 
         out = live_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
 

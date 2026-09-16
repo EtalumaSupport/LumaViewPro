@@ -28,21 +28,23 @@ import pytest
 sys.modules.setdefault('modules.settings_init', MagicMock())
 
 
-def test_a_dark_rejection_names_darkness_not_a_dead_camera():
-    """The rung that was missing."""
+def test_darkness_is_not_a_failure_cause_at_all():
+    """Darkness never reaches the failure ladder.
+
+    A dark frame is delivered, so it is not a capture failure and has no
+    rung here. A rung for it would be unreachable, and an unreachable
+    rung invites the next reader to route a real failure through it.
+    """
     from modules.lumascope_api.imaging import capture_failure_cause
 
-    cause = capture_failure_cause({'dark_rejected': True})
-
-    assert cause != 'camera inactive or not grabbing', (
-        'a dark frame reported as a dead camera is what sent an operator '
-        'hunting a reconnect fault that did not exist'
-    )
-    assert 'dark' in cause.lower(), f'the cause must name darkness; got {cause!r}'
+    for info in ({}, {'dark_saved': True}):
+        assert 'dark' not in capture_failure_cause(info).lower(), (
+            'a dark frame is saved, not failed, so no failure cause may name darkness'
+        )
 
 
 def test_every_rung_still_outranks_the_default():
-    """The ladder's other causes keep their own answers."""
+    """The ladder's real causes keep their own answers."""
     from modules.lumascope_api.imaging import capture_failure_cause
 
     default = capture_failure_cause({})
@@ -51,7 +53,6 @@ def test_every_rung_still_outranks_the_default():
         {'deadline_expired': True},
         {'drain_failed': True},
         {'chunk_rejected': 'exposure'},
-        {'dark_rejected': True},
     ):
         assert capture_failure_cause(info) != default, (
             f'{info} must name its own cause rather than fall through'
@@ -59,27 +60,33 @@ def test_every_rung_still_outranks_the_default():
 
 
 def test_the_dark_flag_is_cleared_per_capture():
-    """A stale flag would misattribute the NEXT failure.
+    """A stale flag would misattribute the NEXT capture.
 
-    The guard sets the flag deep in the grab loop and the caller reads it after;
-    without a reset at the top of each capture, one dark capture would make
-    every later failure claim darkness.
+    The measurement sets the flag deep in the grab loop and the caller reads
+    it after; without a reset at the top of each capture, one dark capture
+    would mark every later frame dark.
     """
     import inspect
 
     from modules.lumascope_api.imaging import ImagingAPI
 
     src = inspect.getsource(ImagingAPI._capture_and_wait_impl)
-    assert 'self._dark_rejected = False' in src, (
+    assert 'self._dark_saved = False' in src, (
         'capture_and_wait must clear the dark flag before each capture'
     )
 
 
-def test_the_guard_itself_is_untouched():
-    """The rejection stays -- #671 / #721 are the record of why.
+def test_a_dark_frame_is_saved_and_never_refused():
+    """The replacement tripwire.
 
-    This fix names the cause; it does not relax the guard. A future change that
-    turns the rejection into a silent save re-opens both issues.
+    Its predecessor asserted the opposite -- that the dark-floor block
+    still contained a ``return None`` -- on the reasoning that a silently
+    saved black frame re-opened issues #671 and #721. That reasoning was
+    retired deliberately: the stale pre-LED frame #671-B reported is
+    owned by tracked illumination state and the retry, not by inspecting
+    pixels, and refusing the frame destroyed real dark observations
+    instead. The block must now carry no refusal at all, and must file
+    the fact that lets callers tell a dark capture from a lit one.
     """
     import inspect
 
@@ -87,9 +94,13 @@ def test_the_guard_itself_is_untouched():
 
     src = inspect.getsource(ImagingAPI._get_image_impl)
     block = src.split('if dark_floor_check:', 1)[1].split('if verify_chunk_targets:', 1)[0]
-    assert 'return None' in block, (
-        'the dark-floor guard must still reject -- a near-black frame that is '
-        'silently saved is issues #671 and #721'
+    assert 'return None' not in block, (
+        'a dark frame must be delivered; a refusal here destroys a real '
+        'observation the operator can see on screen'
+    )
+    assert 'self._dark_saved = True' in block, (
+        'the darkness must still be recorded, or no caller can tell a dark '
+        'capture from a lit one without re-measuring pixels'
     )
 
 

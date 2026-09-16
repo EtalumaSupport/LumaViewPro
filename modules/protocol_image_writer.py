@@ -537,6 +537,14 @@ class ProtocolImageWriter:
                 parts.append(f'drained={info["drained"]}')
             if info.get('auto_gain') is not None:
                 parts.append(f'auto_gain={info["auto_gain"]}')
+            if info.get('dark_saved'):
+                # The frame was delivered and saved with no pixel above the
+                # dark floor while illumination was commanded on. Stated on
+                # the row because the file itself looks like any other black
+                # image: without this, a run whose light path failed is
+                # indistinguishable in a support bundle from one imaging a
+                # genuinely dark sample.
+                parts.append('dark_saved=True')
             return ' '.join(parts)
         except Exception as ex:
             # Evidence is best-effort; never let it break the capture path.
@@ -843,7 +851,15 @@ class ProtocolImageWriter:
                         _proto_outcome = 'capture_failed'
                         return False
 
-                    self._consecutive_capture_failures = 0  # Reset on success
+                    # A frame arrived, so this is not a failure -- but a frame
+                    # the API marked dark is not proof the light path works
+                    # either, so it must not clear a run of real strikes. It
+                    # counts as neither: the streak is left exactly as it was
+                    # and the darkness is recorded on the row below, so a run
+                    # whose illumination is genuinely broken cannot end with a
+                    # clean manifest built from black frames.
+                    if not (self._scope.imaging.last_capture_info or {}).get('dark_saved'):
+                        self._consecutive_capture_failures = 0
 
                     # Depth travels with the frame so the evidence line's
                     # saturation threshold, the hold-display downconvert, AND
