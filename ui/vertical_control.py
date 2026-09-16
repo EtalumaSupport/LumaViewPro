@@ -325,6 +325,13 @@ class VerticalControl(BoxLayout):
             IOTask(
                 action=functools.partial(ctx.sequenced_capture_runner.reset, requester='autofocus'),
                 callback=self._reset_run_autofocus_button,
+                # reset() refuses a teardown this button does not own, and
+                # that refusal has already logged once and notified once.
+                # Without this the executor's generic failure popup fires a
+                # SECOND notification for the same event -- and titles it
+                # from the action, which for a partial is its repr, heap
+                # address and all.
+                silent_on_failure=True,
                 priority=PRIORITY_HIGH,
             )
         )

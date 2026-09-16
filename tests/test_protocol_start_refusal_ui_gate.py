@@ -280,3 +280,52 @@ def test_every_ui_run_teardown_names_its_requester():
         'run teardown without a requester -- the engine cannot tell an owner '
         f'from a rival: {unauthenticated}'
     )
+
+
+def _teardown_iotasks():
+    """Every IOTask under ui/ whose action is a bound `<runner>.reset`.
+
+    Derived for the same reason as the list above: a hand-kept roster of
+    "the tasks that can be refused" is one more mirror to forget.
+    """
+    for source_file in sorted((REPO / 'ui').glob('*.py')):
+        tree = ast.parse(source_file.read_text())
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == 'IOTask'
+            ):
+                continue
+            action = next((kw.value for kw in node.keywords if kw.arg == 'action'), None)
+            if action is None or 'reset' not in ast.unparse(action):
+                continue
+            yield source_file.name, ast.unparse(action), node.keywords
+
+
+def test_a_refusable_teardown_task_does_not_double_notify():
+    """A refused teardown notifies once, not twice.
+
+    reset() refuses a caller that does not own the run, and that refusal
+    has already logged once and notified once before it raises. The
+    executor's generic failure popup would be a SECOND notification for
+    one event -- and it titles that popup from the action, which for a
+    functools.partial is the partial's repr, heap address included. The
+    executor exposes silent_on_failure for exactly this: the caller that
+    notifies for itself opts out of the generic one.
+    """
+    tasks = list(_teardown_iotasks())
+    assert tasks, 'derivation found no teardown IOTasks -- the AST shapes drifted'
+
+    loud = [
+        (where, action)
+        for where, action, keywords in tasks
+        if not any(
+            kw.arg == 'silent_on_failure' and getattr(kw.value, 'value', False) is True
+            for kw in keywords
+        )
+    ]
+    assert not loud, (
+        'a teardown IOTask that can be refused must set silent_on_failure -- '
+        f'otherwise one refusal raises two notifications: {loud}'
+    )

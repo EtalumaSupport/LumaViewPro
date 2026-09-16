@@ -307,6 +307,10 @@ class CompositeCapture(FloatLayout):
             ctx.worker_pool.put(
                 IOTask(
                     action=functools.partial(runner.reset, requester='composite'),
+                    # The engine's refusal notifies once on its own; the
+                    # executor's generic failure popup would be a second
+                    # notification titled with this partial's repr.
+                    silent_on_failure=True,
                     priority=PRIORITY_HIGH,
                 )
             )
