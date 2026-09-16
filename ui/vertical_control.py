@@ -299,9 +299,15 @@ class VerticalControl(BoxLayout):
         # too, so it must never touch the shared lockout state -- the
         # standalone release is generation-owned and lives with the
         # standalone exits.
-        ctx = _app_ctx.ctx
-        if ctx.autofocus_thread is not None:
-            ctx.autofocus_thread.abort()
+        #
+        # Cosmetics only, deliberately. This runs as the completion
+        # callback of the teardown task, and a completion callback fires
+        # whatever the outcome -- including a teardown the engine
+        # REFUSED. An abort here therefore killed the autofocus of a run
+        # the caller had just been told it did not own. Unwinding the
+        # autofocus belongs to the engine's cleanup, which does it for
+        # the run's owner and waits for the sweep to finish before
+        # restoring the LEDs.
         self._reset_run_autofocus_button_cosmetics()
 
     def _set_run_autofocus_button(self, **kwargs):

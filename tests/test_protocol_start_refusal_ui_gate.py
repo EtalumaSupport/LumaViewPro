@@ -40,6 +40,8 @@ import ast
 import pathlib
 import re
 
+from tests.ast_seams import parse_module
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -328,4 +330,39 @@ def test_a_refusable_teardown_task_does_not_double_notify():
     assert not loud, (
         'a teardown IOTask that can be refused must set silent_on_failure -- '
         f'otherwise one refusal raises two notifications: {loud}'
+    )
+
+
+def test_the_button_reset_funnel_never_aborts_autofocus():
+    """A button-reset function resets the button. Nothing else.
+
+    _reset_run_autofocus_button runs as the completion callback of the
+    teardown task, and a completion callback fires whatever the outcome --
+    including a teardown the engine REFUSED. An abort in there therefore
+    killed the autofocus of a run the caller had just been told it did not
+    own. Scoped to this funnel on purpose: the completion handler's own
+    defensive abort is a different path (it runs when a run ENDS, never on
+    a refusal) and has its own ordering test.
+    """
+    tree = parse_module('ui/vertical_control.py')
+    funnel = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == '_reset_run_autofocus_button'
+        ),
+        None,
+    )
+    assert funnel is not None, 'ui/vertical_control.py: _reset_run_autofocus_button is gone'
+
+    aborts = [
+        ast.unparse(node)
+        for node in ast.walk(funnel)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == 'abort'
+    ]
+    assert not aborts, (
+        'the button-reset funnel must not abort hardware -- it fires on a '
+        f'refused teardown too: {aborts}'
     )

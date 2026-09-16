@@ -188,8 +188,10 @@ class AutofocusThread:
     def aborted(self) -> threading.Event:
         """Read-only reference to the abort event. AFE consults this
         directly each iteration; exposed so callers can compose their
-        own abort propagation (e.g. protocol_thread.abort() chains
-        autofocus_thread.abort())."""
+        own abort propagation. Note that protocol_thread.abort() does
+        NOT chain to here -- it sets its own event only, and the
+        autofocus is unwound by the run cleanup that the aborted scan
+        loop falls into."""
         return self._aborted
 
     # ---- loop ----
