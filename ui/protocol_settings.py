@@ -600,8 +600,20 @@ class ProtocolSettings(FloatLayout):
             logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
             zstack_params = get_zstack_params()
 
+            # A zero-extent stack used to log and return with nothing shown,
+            # so the button looked like it had worked and silently applied
+            # nothing. Both rejections now reach the user through the one
+            # delivery below; only the wording differs.
+            error_msg = ''
             if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
                 error_msg = 'Z-Stacking parameters are not valid. Please ensure range and step size are positive values.'
+            elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
+                error_msg = (
+                    f'Z-Stacking not applied: range ({zstack_params["range"]}) and '
+                    f'step size ({zstack_params["step_size"]}) must both be greater than zero.'
+                )
+
+            if error_msg:
                 logger.warning(error_msg)
                 from ui.notification_popup import show_notification_popup
 
@@ -611,9 +623,6 @@ class ProtocolSettings(FloatLayout):
                     ),
                     0,
                 )
-                return
-            elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
-                logger.warning('Z-stacking parameters are zero. No changes applied.')
                 return
 
             axes_config = ctx.lumaview.scope.motion.get_axes_config()
