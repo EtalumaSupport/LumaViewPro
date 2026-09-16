@@ -1977,8 +1977,14 @@ class Protocol:
         Raises ProtocolFormatError on format issues
         """
 
+        # A bound on how much memory one file may ask for, not a judgement
+        # about the file. The whole file is read into memory here, several
+        # times over, so a large enough protocol exhausts the process before
+        # any of it is parsed. Step COUNT is deliberately not bounded: the
+        # count is known only after the parse has already spent that memory,
+        # so a ceiling on it protects nothing, and one sized below what this
+        # app's own writer produces made saved protocols unreadable.
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-        MAX_STEP_COUNT = 10_000
 
         config = {}
 
@@ -1987,7 +1993,7 @@ class Protocol:
         if file_size > MAX_FILE_SIZE:
             raise ValueError(
                 f'Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024 * 1024)} MB '
-                f'({file_size:,} bytes). File may be corrupt.'
+                f'({file_size:,} bytes) and cannot be loaded without exhausting memory.'
             )
 
         # Filter out blank lines
@@ -2441,12 +2447,6 @@ class Protocol:
         config['custom_step_count'] = (
             int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
         )
-
-        if len(protocol_df) > MAX_STEP_COUNT:
-            raise ValueError(
-                f'Protocol contains {len(protocol_df):,} steps, exceeding the maximum of '
-                f'{MAX_STEP_COUNT:,}. File may be corrupt.'
-            )
 
         # Warn -- do not reject -- when steps would render the same capture
         # filename (#636's harm class). The file must stay loadable so the
