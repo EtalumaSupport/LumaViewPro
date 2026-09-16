@@ -13245,13 +13245,25 @@ class TestStepWriteEstimateSingleOwner:
         )
 
     def test_both_call_sites_use_the_shared_estimator(self):
+        import inspect
         import pathlib
+
+        from modules.protocol import Protocol
 
         root = pathlib.Path(__file__).resolve().parent.parent / 'modules'
         run_loop = (root / 'protocol_run_loop.py').read_text()
         writer = (root / 'protocol_image_writer.py').read_text()
-        assert 'estimate_step_write_mb' in run_loop, 'pre-scan check must use the shared estimator'
+        # The single owner moved up a level: the pre-scan guard asks the
+        # protocol for its whole-protocol total instead of summing per-step
+        # itself, so a second consumer cannot grow a second summation. The
+        # per-write check still calls the per-step estimator directly.
+        assert 'estimate_write_mb' in run_loop, (
+            'pre-scan check must use the whole-protocol estimator'
+        )
         assert 'estimate_step_write_mb' in writer, 'per-write check must use the shared estimator'
+        assert 'estimate_step_write_mb' in inspect.getsource(Protocol.estimate_write_mb), (
+            'the whole-protocol estimate must be built from the per-step estimator, not re-derived'
+        )
         # The flat per-video constant must no longer drive the pre-scan loop.
         assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
             'flat per-video constant should be gone from the run loop'

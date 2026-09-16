@@ -2,6 +2,7 @@
 
 import csv
 import ast
+import dataclasses
 import json
 import datetime
 import io
@@ -55,6 +56,20 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
 
 class ProtocolFormatError(Exception):
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class ProtocolSizeAdvisory:
+    """A protocol big enough that the user should be told before running it.
+
+    Carries the numbers alongside the sentence so a caller that wants to
+    render something other than the sentence -- REST, a log line -- does not
+    have to parse it back out.
+    """
+
+    num_steps: int
+    projected_mb: float
+    message: str
 
 
 class Protocol:
@@ -888,6 +903,95 @@ class Protocol:
 
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
+
+    def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+        """Estimate the disk this whole protocol will write, in MB.
+
+        One owner for "how big is this protocol", so the pre-run free-space
+        guard and anything that wants to tell the user up front cannot drift
+        apart. Lives on Protocol because the estimate has to know the steps
+        frame schema, and Protocol is what guarantees that schema at any row
+        count.
+
+        Stateless by design -- no cached total. A cache here has to be
+        invalidated by every mutator, and the in-place ones (modify_step
+        flipping Acquire, delete_step dropping rows) do not go through the
+        one place that would clear it; a stale total silently under-reserves
+        disk for a run. Recomputing costs single-digit milliseconds on a
+        protocol large enough to care about.
+
+        Returns the estimate only, NOT floored at the run's minimum free-disk
+        figure. That floor is the disk guard's refusal policy, not a property
+        of the protocol -- folding it in would project gigabytes for a
+        three-step protocol.
+
+        Total by construction, like the per-step estimator it sums: it must
+        not raise on any protocol, because the run loop calls it inside a
+        broad except where a raise would silently disable the disk guard.
+
+        Args:
+            video_as_frames: Run-level flag -- video saved as individual
+                frames rather than a compressed MP4.
+            global_max_fps: The run's snapshot of the global video FPS cap
+                (0 = uncapped), so a video step is never sized at a rate the
+                recording will not run at.
+
+        Returns:
+            Estimated megabytes the whole protocol will write.
+        """
+        steps = self.steps()
+        n_steps = len(steps)
+        if n_steps == 0:
+            return 0.0
+
+        # Every non-video step costs the same constant, so they are counted
+        # with one mask and multiplied; only video rows have to be visited.
+        # The mask matches the per-step estimator's own `!= 'video'` test --
+        # NaN, missing and 'image' all compare False.
+        video_mask = (steps['Acquire'] == 'video').to_numpy()
+        n_video = int(video_mask.sum())
+        image_mb = common_utils.estimate_step_write_mb(
+            None, video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        total = float((n_steps - n_video) * image_mb)
+        # Positional, matching step()'s own .iloc, so this total and a
+        # per-step sum over the same protocol agree exactly.
+        for pos in np.flatnonzero(video_mask):
+            total += common_utils.estimate_step_write_mb(
+                steps.iloc[pos],
+                video_as_frames=video_as_frames,
+                global_max_fps=global_max_fps,
+            )
+        return total
+
+    def size_advisory(
+        self, *, video_as_frames: bool = False, global_max_fps: float
+    ) -> ProtocolSizeAdvisory | None:
+        """Describe this protocol if it is large enough to warn about, else None.
+
+        The threshold and the sentence live here rather than in the GUI: a
+        REST caller asking how big a protocol is should get the same answer,
+        and the GUI's job is to render what comes back.
+
+        Advisory only. Nothing here refuses anything -- a legitimate large
+        protocol runs untouched, and the run-start disk guard is unchanged.
+        """
+        num_steps = self.num_steps()
+        if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
+            return None
+
+        projected_mb = self.estimate_write_mb(
+            video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        return ProtocolSizeAdvisory(
+            num_steps=num_steps,
+            projected_mb=projected_mb,
+            message=(
+                f'{num_steps:,} steps, about '
+                f'{common_utils.format_disk_size_mb(projected_mb)} of images. '
+                f'Check free disk before running.'
+            ),
+        )
 
     def modify_autofocus(self, step_idx: int, enabled: bool):
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled

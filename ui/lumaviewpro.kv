@@ -1120,6 +1120,28 @@
 					disabled: app.run_lockout
 					on_release: self.choose('saveas_protocol')
 
+			# Protocol size advisory -- shown when the session reports a protocol
+			# large enough to be worth mentioning before it is run. Advisory only:
+			# nothing here refuses or blocks, and the row collapses to zero height
+			# with nothing to say. The height follows the wrapped texture so a long
+			# sentence is not clipped in a narrow panel.
+			BoxLayout:
+				id: protocol_size_advisory_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: protocol_size_advisory_label.texture_size[1] + dp(6) if root.protocol_size_advisory_active else 0
+				opacity: 1 if root.protocol_size_advisory_active else 0
+				Label:
+					id: protocol_size_advisory_label
+					text: ''
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
+					halign: 'left'
+					valign: 'middle'
+					size_hint_y: None
+					text_size: self.width, None
+					height: self.texture_size[1]
+
 			# Stage Display
 			FloatLayout:
 				padding: '5dp'

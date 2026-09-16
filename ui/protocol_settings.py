@@ -137,6 +137,10 @@ def require_file_writes_idle(operation: str) -> bool:
 
 class ProtocolSettings(FloatLayout):
     done = BooleanProperty(False)
+    # Drives the advisory label's height and opacity in the kv. Display state
+    # only -- whether a protocol IS large is the session's answer, not this
+    # flag's.
+    protocol_size_advisory_active = BooleanProperty(False)
 
     def __init__(self, **kwargs):
 
@@ -201,6 +205,7 @@ class ProtocolSettings(FloatLayout):
 
         self.generate_step_name_input()
         self._update_step_focus_readout(num_steps=num_steps)
+        self._update_protocol_size_advisory()
 
     def _update_step_focus_readout(self, num_steps: int):
         """Show the selected step's Z in the step editor."""
@@ -215,6 +220,30 @@ class ProtocolSettings(FloatLayout):
             label.text = f'{float(step["Z"]):.0f} um'
         except Exception:
             label.text = ''
+
+    def _update_protocol_size_advisory(self):
+        """Show the session's size advisory for this protocol, if it has one.
+
+        Renders only. Whether a protocol is large enough to warn about, what
+        the sentence says and which settings the estimate needs are all the
+        session's answer -- this asks and displays what comes back.
+        """
+        label = self.ids.get('protocol_size_advisory_label')
+        if label is None:
+            return
+
+        ctx = _app_ctx.ctx
+        # A run cannot change the protocol: the editing surface is locked for
+        # its duration and the run mutates its own copy, not this one. Without
+        # this the estimate would recompute at the step-navigation refresh rate
+        # for the whole length of every run. The label keeps its last text,
+        # which stays correct.
+        if ctx.session.run_lockout:
+            return
+
+        advisory = ctx.session.protocol_size_advisory(self._protocol)
+        self.protocol_size_advisory_active = advisory is not None
+        label.text = advisory.message if advisory is not None else ''
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx

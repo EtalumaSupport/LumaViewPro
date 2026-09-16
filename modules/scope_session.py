@@ -40,6 +40,7 @@ from modules.scheduler import Scheduler, ThreadingTimerScheduler
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
+    from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
 
@@ -793,6 +794,29 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self.settings)
+
+    def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
+        """Ask a protocol whether it is large enough to warn the user about.
+
+        This is not part of the L2 API surface -- it exists because the two
+        settings the estimate needs (whether video is saved as frames, and the
+        global FPS cap) are resolved at the session tier rather than in the
+        GUI, not to serve a REST caller; there is no REST or headless caller
+        today, and this has exactly one caller.
+
+        Resolved the way the run path resolves them, so the advisory and the
+        run it is advising about cannot be sized differently.
+        """
+        import modules.config_helpers as config_helpers
+        from modules.protocol_state_machine import SequencedCaptureRunMode
+
+        run_settings = config_helpers.get_sequenced_run_settings(
+            self.settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
+        )
+        return protocol.size_advisory(
+            video_as_frames=run_settings['video_as_frames'],
+            global_max_fps=run_settings['video_max_fps'],
+        )
 
     def get_settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.

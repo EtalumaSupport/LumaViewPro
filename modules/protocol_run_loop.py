@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok, estimate_step_write_mb
+from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 
@@ -235,13 +235,9 @@ class ProtocolRunLoop:
                             num_steps = p._protocol.num_steps()
                             run_required_mb = max(
                                 MIN_REQUIRED_DISK_MB,
-                                sum(
-                                    estimate_step_write_mb(
-                                        p._protocol.step(idx=i),
-                                        video_as_frames=p._video_as_frames,
-                                        global_max_fps=p._video_max_fps,
-                                    )
-                                    for i in range(num_steps)
+                                p._protocol.estimate_write_mb(
+                                    video_as_frames=p._video_as_frames,
+                                    global_max_fps=p._video_max_fps,
                                 ),
                             )
                         ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)

@@ -1632,6 +1632,29 @@ MIN_PER_WRITE_DISK_MB = 500
 # speed. Shared by both recording controllers.
 DISK_FLOOR_CHECK_INTERVAL_S = 2.0
 
+# Step count above which a protocol is large enough to tell the user about
+# before they run it. Advisory only -- it never refuses anything, and a
+# legitimate large protocol proceeds untouched. Distinct from the disk
+# floors above: those decide whether a run may start, this decides whether
+# the user is told how big the thing they just built is.
+PROTOCOL_SIZE_ADVISORY_STEPS = 10_000
+
+
+def format_disk_size_mb(mb: float) -> str:
+    """Render a megabyte figure for a human, in binary units.
+
+    Binary throughout, matching what MB already means here -- check_disk_space_ok
+    reads free space as ``disk.free / (1024**2)``, so a decimal rendering would
+    print a number the disk checks disagree with. GB up to 1024 GB, TB above,
+    one decimal place.
+    """
+    if mb < 1024:
+        return f'{mb:.1f} MB'
+    gb = mb / 1024
+    if gb < 1024:
+        return f'{gb:.1f} GB'
+    return f'{gb / 1024:.1f} TB'
+
 
 def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
