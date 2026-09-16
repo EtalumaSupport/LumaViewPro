@@ -613,7 +613,17 @@ class ScopeDisplay(Image):
         if len(window) < FRAME_SPIKE_MIN_SAMPLES:
             return
         median_ms = self._spike_median(cycle_start)
-        threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms)
+        # A frame cannot arrive sooner than it takes to expose. At a 1000 ms
+        # exposure the camera delivers ~1 fps and every interval is ~1000 ms --
+        # correct behaviour, which this warning reported 25 times in one bench
+        # run because it compared against a rolling median that predated the
+        # exposure change. The exposure is a floor on the threshold, not an
+        # input to the median: the median is still the baseline for detecting a
+        # genuine stall, this only stops the physically-required interval from
+        # being called one.
+        threshold_ms = max(
+            FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms, self._exposure_floor_ms()
+        )
         if interval_ms <= threshold_ms:
             return
         if (cycle_start - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
@@ -627,6 +637,23 @@ class ScopeDisplay(Image):
             f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
             f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}'
         )
+
+    def _exposure_floor_ms(self) -> float:
+        """The current exposure in ms, as a floor on the slow-frame threshold.
+
+        Reads the API's cache rather than a widget: the exposure the CAMERA is
+        running is what bounds frame delivery, and the slider can legitimately
+        differ from it. Returns 0.0 whenever the value cannot be read -- no
+        camera, shutdown teardown -- so an unreadable exposure leaves the
+        median-based threshold exactly as it was.
+        """
+        ctx = _app_ctx.ctx
+        if ctx is None or ctx.scope is None:
+            return 0.0
+        try:
+            return float(ctx.scope.imaging.exposure_ms_cached)
+        except Exception:
+            return 0.0
 
     def _spike_median(self, now):
         """Median of the recent OK-frame-interval window, cached.

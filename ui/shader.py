@@ -192,11 +192,18 @@ void main (void) {
                     self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
-            # Let side panels handle touches that land on them
+            # A touch on a side panel is not ours: decline it and let the
+            # normal walk deliver it. Dispatching into the panel from here
+            # delivered it a SECOND time -- the tree reaches those panels
+            # before it reaches this widget, so the panel had already had
+            # the touch, and every handler beneath it ran twice for one
+            # click. On the stage map that meant two identical absolute
+            # moves, the second issued while the first was still settling,
+            # so any position read in that window was taken in flight.
             for w in ZOOM_BLOCKERS:
                 lx, ly = w.to_widget(x, y)
                 if w.collide_point(lx, ly):
-                    return w.on_touch_down(touch)
+                    return
             super().on_touch_down(touch)
 
     def _flush_scroll_z(self, dt):

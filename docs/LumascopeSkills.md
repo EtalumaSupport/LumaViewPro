@@ -219,6 +219,22 @@ scope.runtime_state.get_well_label()                   # 'A1' for the current st
 # (the bound form of CoordinateTransformer.stage_to_plate; raises
 # NoLabwareSelectedError when no labware is registered)
 px, py = scope.runtime_state.stage_to_plate(sx=60000, sy=40000)
+
+# Plate mm → stage µm, one axis. The completing half of stage_to_plate.
+# Raises ConfigError when the scope has not been initialized, so the
+# stage offset a transform needs is not yet known.
+sx = scope.runtime_state.plate_to_stage_axis(axis='X', plate_mm=50.0)
+```
+
+To MOVE to a plate coordinate, pass it to the motion API in that frame
+rather than converting first -- the API checks it against what the stage
+can actually reach and refuses in plate mm, naming the coordinate you
+asked for:
+
+```python
+scope.motion.move_absolute('Y', 180.0, frame='plate')
+# PositionOutOfRangeError: Y plate position 180.0 is outside the
+# reachable range 1.48 to 81.48.
 ```
 
 ---

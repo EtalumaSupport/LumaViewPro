@@ -197,7 +197,16 @@ def move_absolute(
     protocol: bool = False,
     vertical_control: bool = False,
     restore_z: bool = True,
+    frame: str = 'stage',
 ):
+    """Move an axis, keeping the gesture lock and the lane split in one place.
+
+    ``frame='plate'`` hands the API the number a user typed, in plate mm,
+    instead of converting first. The conversion and its bound then happen
+    inside the submitted task, which is what keeps a refusal on the worker
+    thread: raised in a Kivy handler's own frame it would reach the crash
+    guard rather than a notification.
+    """
     ctx = _app_ctx.ctx
 
     if not protocol and _user_motion_locked(axis):
@@ -238,6 +247,7 @@ def move_absolute(
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
                 cb_kwargs={'axis': axis},
+                frame=frame,
             )
         else:
             fut = ctx.io_executor.protocol_put(
@@ -248,6 +258,7 @@ def move_absolute(
                         'position': position,
                         'wait_until_complete': wait_until_complete,
                         'overshoot_enabled': overshoot_enabled,
+                        'frame': frame,
                     },
                 ),
                 return_future=True,
@@ -381,12 +392,11 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
     fresh one ``delay_s`` out, so a burst of calls collapses to one log line
     carrying the settled value.
 
-    The burst it exists for is NOT per-character typing: the text fields that
-    use it commit on enter and on focus loss, and a single edit fires both, so
-    an undebounced log would record the same value twice. A field that also
-    commits per keystroke (the protocol period and duration now do, so the
-    settings store tracks what is on screen) sends a longer burst through the
-    same collapse, which is why the debounce is the right shape either way.
+    Today no caller sends a burst: a text field commits on focus loss, which
+    Enter also triggers, so one entry is one call. The deferral still does a
+    job: a handler that corrects the entry writes the correction back and
+    declares it, and the deferred emit is where an unmatched declaration is
+    consumed, so it cannot linger and swallow a later deliberate retype.
 
     Lives here rather than beside the other gui_interactions entries because
     the debounce needs the Kivy Clock and modules/ carries no GUI imports.
@@ -408,9 +418,8 @@ def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_
 
     def _emit(_dt):
         _text_input_debounce_timers.pop(name, None)
-        # A declaration nobody echoed (a click-away commit fires the handler
-        # once) must not outlive this line, or it would swallow a later real
-        # entry of the same value.
+        # A declaration nobody echoed must not outlive this line, or it would
+        # swallow a later real entry of the same value.
         gui_logger.consume_write_back(name, value)
         gui_logger.text_input(name, value)
 

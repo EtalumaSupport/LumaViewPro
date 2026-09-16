@@ -108,6 +108,8 @@ def capture_failure_cause(info: dict | None) -> str:
         return 'capture deadline expired -- invalidation outran the budget'
     if info.get('drain_failed'):
         return 'frame drain failed -- camera delivered no frame'
+    if info.get('dark_rejected'):
+        return 'no lit frame arrived -- every frame was dark with illumination commanded on'
     if info.get('chunk_rejected'):
         return (
             f'frame chunk never matched the {info["chunk_rejected"]} '
@@ -296,6 +298,11 @@ class ImagingAPI:
         # drained frame count, chunk-verified exposure / gain). Read via
         # last_capture_info by callers that log per-capture provenance.
         self._last_capture_info = None
+        # Set by the dark-floor guard when it rejects, read by capture_and_wait
+        # so the failure names darkness rather than falling through to the
+        # cause ladder's camera-inactive default. Cleared at the start of every
+        # capture -- a stale True would misattribute the NEXT failure.
+        self._dark_rejected = False
 
         # The commanded continuous auto-gain arm, or None. Only the API
         # commands the auto mode and no driver reads it back, so this is
@@ -599,6 +606,7 @@ class ImagingAPI:
         targets: tuple[tuple[str, float | None], ...] = (),
         force_clear: tuple[str, ...] = (),
         cache_update: dict[str, object] | None = None,
+        target_from_result: tuple[str, ...] = (),
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
         consequence. Every camera setter routes its hardware write through here
@@ -631,6 +639,17 @@ class ImagingAPI:
                 target, never record one for a possibly-rejected value.
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
+            target_from_result: Sources whose chunk target is taken from the
+                driver's own return value instead of from ``targets``. A driver
+                may clamp, snap or quantize the request before the hardware
+                sees it; the frame then carries chunk data describing what was
+                APPLIED, so a target recorded from the request can never match
+                and every subsequent frame is rejected. Declaring the target
+                here -- rather than computing it at the call site -- is what
+                keeps a transforming setter from silently reintroducing that
+                mismatch. A driver returning a non-numeric result (applied, but
+                unable to report a value) falls back to the ``targets`` entry
+                for that source.
 
         Returns:
             The driver write's result, so the caller can do its own rejection
@@ -646,6 +665,16 @@ class ImagingAPI:
             for source in invalidates:
                 self.frame_validity.invalidate(source)
             for source, value in targets:
+                if (
+                    source in target_from_result
+                    and isinstance(result, (int, float))
+                    and not isinstance(result, bool)
+                ):
+                    # bool is an int subclass, so a driver reporting a bare
+                    # True would otherwise stamp a 1.0 target and reject
+                    # every frame -- the failure this parameter exists to
+                    # prevent, reintroduced by the check meant to prevent it.
+                    value = float(result)
                 self.frame_validity.set_target(source, value)
             if cache_update:
                 self._commit_camera_writes(cache_update)
@@ -785,6 +814,7 @@ class ImagingAPI:
             _write_exposure,
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
+            target_from_result=('exposure',),
             cache_update={'exposure_ms': float(exposure_ms)},
         )
         if ok is False:
@@ -2540,6 +2570,8 @@ class ImagingAPI:
             # the window is exactly what makes the old derivation stale.
             expected_lit = bool(live_lit_pairs(self._scope.illumination))
 
+            with self._state_lock:
+                self._dark_rejected = False
             image = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
@@ -2586,6 +2618,9 @@ class ImagingAPI:
             stale = self._chunk_target_mismatch()
             if stale is not None:
                 extra['chunk_rejected'] = stale
+            with self._state_lock:
+                if self._dark_rejected:
+                    extra['dark_rejected'] = True
         _record_capture_info(
             chunk_exposure_us=chunks.get('ExposureTime'),
             chunk_gain_db=chunks.get('Gain'),
@@ -2891,6 +2926,14 @@ class ImagingAPI:
                                 f'illumination expected ON; no lit frame within '
                                 f'{timeout_s:.1f}s. Capture rejected.'
                             )
+                            # Name the cause for the writer. Without this the
+                            # failure falls through the cause ladder to its
+                            # default and a dark frame is reported to the user
+                            # as 'camera inactive or not grabbing' -- which
+                            # sent an operator hunting a reconnect fault while
+                            # the camera was demonstrably alive.
+                            with self._state_lock:
+                                self._dark_rejected = True
                             return None
                         logger.debug(
                             '[SCOPE API ] get_image: rejecting dark frame; waiting for a lit frame'

@@ -40,8 +40,8 @@ class _CoalescingApplier:
     queue from stacking up slow Pylon set_frame_size calls (issue #624).
     On large frames each stop_grabbing/start_grabbing cycle blocks the
     CAMERA_WORKER for ~11s; naive queueing of rapid user edits
-    (tabbing between width and height fields) produced multi-minute
-    backlogs that made the UI feel frozen.
+    (committing width, then height, while the first apply still runs)
+    produced multi-minute backlogs that made the UI feel frozen.
 
     Pattern:
       - submit(value) stashes value in a single pending slot and
@@ -54,10 +54,10 @@ class _CoalescingApplier:
         rather than spawning a new one.
 
     Exact repeats of the last successfully applied value are absorbed.
-    One user edit fires the bound handler up to four times (each text
-    field binds both on_text_validate and on_focus loss, and the
-    handler reads BOTH fields every call, so all four calls compute
-    the identical value). On a slow camera the in-flight gate folds
+    The handler reads BOTH fields every call, so committing width and
+    then height computes the same pair twice when only one of them
+    changed, and a retype of the displayed size is a repeat as well.
+    On a slow camera the in-flight gate folds
     them; on a fast camera (FX2 applies in milliseconds) the gate
     closes between events and every repeat became a real hardware
     apply. A failed apply does not update the last-applied record, so
@@ -1123,9 +1123,9 @@ class MicroscopeSettings(BoxLayout):
 
         # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
-        # quick succession when the user tabs between width and height
-        # text fields (on_focus loss + on_text_validate both bound to
-        # the same handler), and Pylon's stop_grabbing/start_grabbing
+        # quick succession when the user commits width and then height
+        # (each box commits on focus loss and the handler reads both),
+        # and Pylon's stop_grabbing/start_grabbing
         # cycle takes ~11s on large frames, so naive queueing creates
         # minute-scale UI freezes.
         if self._frame_size_applier.submit((width, height)):

@@ -428,10 +428,9 @@ class ProtocolSettings(FloatLayout):
         # Sanitize and store capture root on protocol to avoid invalid path chars
         sanitized = Protocol.sanitize_step_name(text)
         # What the user typed, then what sanitizing made of it. Recording only
-        # the sanitized string asserts the user typed something they did not,
-        # and the box binds both commit events, so the second pass reads the
-        # sanitized text back -- declared below so it is not taken for a typed
-        # value.
+        # the sanitized string asserts the user typed something they did not.
+        # The sanitized value is written back into the box and declared below,
+        # so a record carrying it is recognised as the app's own, not typed.
         text_input_debounced('CAPTURE_ROOT', text)
         if sanitized != text:
             text_input_debounced('CAPTURE_ROOT_APPLIED', sanitized)

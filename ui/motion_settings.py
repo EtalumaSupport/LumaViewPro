@@ -410,18 +410,18 @@ class XYStageControl(BoxLayout):
                 return
             settings = ctx.settings
             coordinate_transformer = ctx.coordinate_transformer
-            stage_x, stage_y = coordinate_transformer.stage_to_plate(
+            plate_x, plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
             )
 
             if not self.ids['x_pos_id'].focus:
                 # Cache text to prevent redundant ScrollView updates
-                new_x_text = format(max(0, stage_x), '.2f')
+                new_x_text = format(plate_x, '.2f')
                 if self.ids['x_pos_id'].text != new_x_text:
                     self.ids['x_pos_id'].text = new_x_text  # Update x position text box
 
             if not self.ids['y_pos_id'].focus:
-                new_y_text = format(max(0, stage_y), '.2f')
+                new_y_text = format(plate_y, '.2f')
                 if self.ids['y_pos_id'].text != new_y_text:
                     self.ids['y_pos_id'].text = new_y_text  # Update y position text box
 
@@ -492,19 +492,10 @@ class XYStageControl(BoxLayout):
             return
         gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
-        # x_pos is the the plate position in mm
-        # Find the coordinates for the stage
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        stage_x, _ = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
-        )
-
-        logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
-
-        # Move to x-position
-        move_absolute('X', stage_x)
+        # The typed number goes to the API in the frame it was typed in;
+        # the API owns both the conversion and the bound, so a refusal can
+        # name the number the user entered instead of its stage equivalent.
+        move_absolute('X', x_pos, frame='plate')
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
@@ -519,17 +510,7 @@ class XYStageControl(BoxLayout):
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
-        # y_pos is the the plate position in mm
-        # Find the coordinates for the stage
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        _, stage_y = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
-        )
-
-        # Move to y-position
-        move_absolute('Y', stage_y)
+        move_absolute('Y', y_pos, frame='plate')
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -580,17 +561,11 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
 
         settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate x-position in mm
         x_pos = settings['bookmark']['x']
 
-        # Move to x-position
-        _, labware = get_selected_labware()
-        stage_x, _ = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
-        )
-        move_absolute('X', stage_x)
+        move_absolute('X', x_pos, frame='plate')
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
@@ -598,17 +573,11 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
 
         settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate y-position in mm
         y_pos = settings['bookmark']['y']
 
-        # Move to y-position
-        _, labware = get_selected_labware()
-        _, stage_y = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
-        )
-        move_absolute('Y', stage_y)  # set current y position in um
+        move_absolute('Y', y_pos, frame='plate')
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')

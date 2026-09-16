@@ -28,37 +28,37 @@ _KV = 'ui/lumaviewpro.kv'
 # id -> (expected binding events, owning module, owning class, handler method)
 _WIRED = {
     'zstack_stepsize_id': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/zstack.py',
         'ZStack',
         'log_step_field',
     ),
     'zstack_range_id': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/zstack.py',
         'ZStack',
         'log_step_field',
     ),
     'graph_title_input': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/post_processing.py',
         'GraphingControls',
         'log_text_commit',
     ),
     'x_axis_label_input': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/post_processing.py',
         'GraphingControls',
         'log_text_commit',
     ),
     'y_axis_label_input': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/post_processing.py',
         'GraphingControls',
         'log_text_commit',
     ),
     'video_gen_fps_id': (
-        ('on_text_validate', 'on_focus'),
+        ('on_focus',),
         'ui/post_processing.py',
         'VideoCreationControls',
         'log_video_gen_fps',

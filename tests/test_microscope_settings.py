@@ -186,12 +186,13 @@ class TestCoalescingApplier:
         fn.assert_not_called()
 
     def test_duplicate_of_applied_value_absorbed(self):
-        """One user edit fires the bound handler up to FOUR times with
-        the identical (width, height) pair (on_text_validate + on_focus
-        loss per field, and the handler reads both fields every call).
-        On a fast camera (FX2, millisecond applies) the in-flight gate
-        closes between events, so each repeat became a real hardware
-        apply. Exact repeats of the applied value must be absorbed."""
+        """The handler reads both fields every call, so committing width
+        and then height sends the identical (width, height) pair twice
+        when only one changed, and a retype of the displayed size is a
+        repeat as well. On a fast camera (FX2, millisecond applies) the
+        in-flight gate closes between events, so each repeat became a
+        real hardware apply. Exact repeats of the applied value must be
+        absorbed."""
         applier = self._make()
         # Bare True: acceptance without a value -> the request itself is
         # recorded (a MagicMock return is truthy-but-not-True and would be

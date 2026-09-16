@@ -174,6 +174,51 @@ class HardwareCommandRefusedError(Exception):
         self.member = member
 
 
+class PositionOutOfRangeError(ValueError):
+    """An absolute move was commanded beyond the axis's travel.
+
+    The driver's own response to an out-of-travel target is to clamp it
+    to the nearest limit and drive there, which reports success at a
+    position nobody asked for: a protocol step saved beyond this scope's
+    travel images the wrong place, and nothing in the log distinguishes
+    that from a step that went where it was told. Refusing by name makes
+    the substitution impossible rather than silent.
+
+    Subclasses ValueError because an out-of-travel target is the same
+    kind of bad argument as a non-numeric one, and callers already
+    written to catch ValueError from this call keep working.
+
+    The message reaches the user verbatim, so it names the axis, the
+    request, and the range that refused it.
+
+    ``bound`` names WHICH limit refused, because two of them can: the
+    axis's own travel, and the coarse safety ceiling that rejects a
+    nonsense magnitude before any axis is consulted. Telling someone
+    their entry is "outside the travel range 0.0 to 80000.0" when it was
+    really refused as absurd points them at the wrong number. ``quantity``
+    likewise distinguishes a position from a relative distance. One
+    optional argument each rather than a second exception class: the
+    refusal is the same event, and only the sentence differs.
+    """
+
+    def __init__(
+        self,
+        axis: str,
+        position: float,
+        low: float,
+        high: float,
+        bound: str = 'travel range',
+        quantity: str = 'position',
+    ):
+        super().__init__(f'{axis} {quantity} {position} is outside the {bound} {low} to {high}.')
+        self.axis = axis
+        self.position = position
+        self.low = low
+        self.high = high
+        self.bound = bound
+        self.quantity = quantity
+
+
 class AxisStateUnknownError(Exception):
     """A move was commanded on an axis whose position is not known.
 

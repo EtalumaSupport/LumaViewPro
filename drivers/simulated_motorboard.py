@@ -14,6 +14,7 @@ Failure injection (for testing error recovery):
   fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
 """
 
+import math
 import logging
 import pathlib
 import threading
@@ -623,9 +624,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('Z') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('Z') * um / 1000 + 0.5)
 
     def xy_ustep2um(self, ustep: int) -> float:
         """Convert XY microsteps to micrometers.
@@ -645,9 +646,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('X') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('X') * um / 1000 + 0.5)
 
     def t_ustep2deg(self, ustep: int) -> float:
         """Convert turret microsteps to degrees.
