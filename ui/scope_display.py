@@ -196,7 +196,6 @@ class ScopeDisplay(Image):
         self._perf_log_last_time = 0.0
         self._perf_grab_times = []
         self._perf_process_times = []
-        self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
 
         # Bullseye frame rate cap (15 FPS -- CPU-intensive LUT rendering)
@@ -210,8 +209,6 @@ class ScopeDisplay(Image):
         )
 
         # Counters (were module-level globals in lumaviewpro.py)
-        self._debug_counter = 0
-        self._display_update_counter = 0
 
         # Display loop state owned by ScopeDisplayThread. Widget keeps:
         self._last_frame_ts = None  # camera timestamp of last displayed frame (dup check)
@@ -231,7 +228,6 @@ class ScopeDisplay(Image):
         # Green dot = frame is valid, red dot = settling after hardware change
         self._validity_group = InstructionGroup()
         self.canvas.after.add(self._validity_group)
-        self._validity_dot_visible = False
 
         self.bind(
             size=self._on_size_changed, pos=self._on_size_changed, texture=self._on_size_changed
@@ -764,20 +760,6 @@ class ScopeDisplay(Image):
         self.camera_disconnected_display_set = False
         return
 
-    def _increment_display_counter(self, dt=None):
-        """Increment display update counter on main thread."""
-        self._display_update_counter += 1
-
-    def _reset_display_counter(self, dt=None):
-        """Reset display update counter on main thread."""
-        self._display_update_counter = 0
-
-    def _increment_debug_counter(self, dt=None):
-        """Increment debug counter on main thread."""
-        self._debug_counter += 1
-        if self._debug_counter == 30:
-            self._debug_counter = 0
-
     def _render_one_frame(
         self,
         *,
@@ -823,12 +805,6 @@ class ScopeDisplay(Image):
         # Frame-interval recording (was on _pull_next_frame; now per-iteration here).
         cycle_start = dispatch_time or time.monotonic()
         self._record_frame_interval(cycle_start, intentional_wait_ms)
-
-        t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
-
-        # Snapshot counter value before scheduling increment on main thread
-        display_counter = self._display_update_counter + 1
-        Clock.schedule_once(self._increment_display_counter, 0)
 
         if not ctx.scope.camera_connected:
             if not self.camera_disconnected_display_set:
@@ -880,10 +856,6 @@ class ScopeDisplay(Image):
         self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
-        # Record queue wait for perf logging (settings.debug_mode only).
-        if self._debug_perf_enabled(ctx):
-            self._perf_blit_schedule_times.append(t_queue_wait)
-
         # Capture FPS tracking + camera data rate
         # Use raw camera frame size (before 12->8 bit conversion) so the
         # displayed data rate reflects actual camera throughput, not the
@@ -905,9 +877,6 @@ class ScopeDisplay(Image):
             self._camera_mbps = 0.3 * new_mbps + 0.7 * self._camera_mbps
             self._capture_fps_count = 0
             self._capture_fps_last_time = now
-
-        if display_counter % 10 == 0:
-            Clock.schedule_once(self._reset_display_counter, 0)
 
         t_eng_stats = 0
         # Display-path compute for THIS frame; set by whichever render branch runs
@@ -1018,11 +987,6 @@ class ScopeDisplay(Image):
                         avg_proc = sum(self._perf_process_times) / n * 1000
                         max_grab = max(self._perf_grab_times) * 1000
                         max_proc = max(self._perf_process_times) * 1000
-                        avg_queue = (
-                            sum(self._perf_blit_schedule_times)
-                            / max(1, len(self._perf_blit_schedule_times))
-                            * 1000
-                        )
                         kivy_fps = Clock.get_fps()
                         kivy_rfps = Clock.get_rfps()
                         display_fps = self._display_fps_value
@@ -1038,13 +1002,12 @@ class ScopeDisplay(Image):
                         logger.debug(
                             f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
-                            f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
+                            f'grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
                             f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
                             f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats * 1000:.1f}ms'
                         )
                     self._perf_grab_times.clear()
                     self._perf_process_times.clear()
-                    self._perf_blit_schedule_times.clear()
                     self._perf_blit_delays.clear()
 
         # Attribute this displayed frame's stutter (if any) before returning. Only
