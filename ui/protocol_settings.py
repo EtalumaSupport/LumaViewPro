@@ -1315,7 +1315,9 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             from ui.notification_popup import show_notification_popup
 
-            active_layer, active_layer_config = get_active_layer_config()
+            active_layer, active_layer_config = get_active_layer_config(
+                common_utils.get_opened_layer(ctx.image_settings)
+            )
 
             if (
                 'stim_config' in active_layer_config

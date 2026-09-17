@@ -191,9 +191,13 @@ class ZStack(FloatLayout):
 
             labware_id, _ = get_selected_labware()
             objective_id, _ = ctx.session.get_current_objective_info()
-            zstack_positions_valid, _ = get_zstack_positions()
+            zstack_positions_valid, _ = get_zstack_positions(
+                ctx.scope.motion.get_current_position('Z')
+            )
             zstack_params = get_zstack_params()
-            active_layer, active_layer_config = get_active_layer_config()
+            active_layer, active_layer_config = get_active_layer_config(
+                common_utils.get_opened_layer(ctx.image_settings)
+            )
             active_layer_config['acquire'] = 'image'
             # Z-stack manages Z positions explicitly -- AF would override them
             active_layer_config['autofocus'] = False

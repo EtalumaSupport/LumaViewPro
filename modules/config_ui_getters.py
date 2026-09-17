@@ -220,17 +220,21 @@ def get_zstack_params() -> dict:
     return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
-def get_zstack_positions() -> tuple[bool, dict]:
-    config = get_zstack_params()
+def get_zstack_positions(current_z: float) -> tuple[bool, dict]:
+    """The z-stack step positions around a given Z.
 
-    ctx = _app_ctx.ctx
-    current_pos = ctx.scope.motion.get_current_position('Z')
+    Takes the Z rather than reading it off the app context's scope: a
+    caller that is not the running app has its own scope, and a module
+    reaching for the global one answers about an instrument that may not
+    be the caller's.
+    """
+    config = get_zstack_params()
 
     zstack_config = ZStackConfig(
         range=config['range'],
         step_size=config['step_size'],
         current_z_reference=config['z_reference'],
-        current_z_value=current_pos,
+        current_z_value=current_z,
     )
 
     if zstack_config.number_of_steps() <= 0:
@@ -250,15 +254,24 @@ def get_layer_configs(
     return config_helpers.get_layer_configs(_app_ctx.ctx.settings, specific_layers)
 
 
-def get_active_layer_config() -> tuple[str, dict]:
-    c_layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
+    """The capture config for one named layer.
 
-    if c_layer is None:
+    Takes the layer rather than reading which accordion drawer is open:
+    an open drawer is a fact about the running GUI and means nothing to a
+    caller that has none, so the GUI names its layer and every other
+    caller names its own.
+
+    The refusal stays here rather than moving into the three GUI callers:
+    "nothing is selected" is one answer to one question, and answering it
+    per-caller is how three of them come to disagree.
+    """
+    if layer is None:
         raise Exception('No layer currently selected')
 
-    layer_configs = get_layer_configs(specific_layers=[c_layer])
+    layer_configs = get_layer_configs(specific_layers=[layer])
 
-    return c_layer, layer_configs[c_layer]
+    return layer, layer_configs[layer]
 
 
 def get_stim_configs() -> dict:

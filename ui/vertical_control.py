@@ -479,7 +479,9 @@ class VerticalControl(BoxLayout):
             # standalone button and a protocol AF step share one engine.
             labware_id, _ = get_selected_labware()
             objective_id, _ = ctx.session.get_current_objective_info()
-            active_layer, active_layer_config = get_active_layer_config()
+            active_layer, active_layer_config = get_active_layer_config(
+                common_utils.get_opened_layer(ctx.image_settings)
+            )
             active_layer_config['acquire'] = 'image'
             active_layer_config['autofocus'] = True
 
