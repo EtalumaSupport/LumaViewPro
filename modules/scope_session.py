@@ -796,6 +796,32 @@ class ScopeSession:
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
+    def get_sequenced_capture_config(
+        self,
+        *,
+        tiling: str = '1x1',
+        use_zstacking: bool = False,
+    ) -> dict:
+        """The sequenced capture config for this session's settings.
+
+        The entry point a caller with no GUI uses to assemble the config a
+        run takes. Tiling and z-stacking are arguments rather than stored
+        settings: neither survives a restart, so there is nothing for a
+        session to read them from and a caller states what it wants.
+
+        The GUI builds the same config through the same builder, supplying
+        these two from its widgets.
+        """
+        import modules.config_helpers as config_helpers
+
+        return config_helpers.get_sequenced_capture_config_from_settings(
+            self.settings,
+            objective_helper=self.objective_helper,
+            wellplate_loader=self.wellplate_loader,
+            tiling=tiling,
+            use_zstacking=use_zstacking,
+        )
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
