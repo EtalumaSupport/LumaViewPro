@@ -24,6 +24,7 @@ from modules.config_helpers import (
 )
 from modules.exceptions import ConfigError
 from modules.objectives_loader import ObjectiveLoader
+from modules.labware_loader import WellPlateLoader
 from modules.zstack_config import ZStackConfig
 from tests.settings_fixtures import complete_settings
 
@@ -31,6 +32,13 @@ from tests.settings_fixtures import complete_settings
 def _objective_helper_for(settings: dict):
     """The real loader -- the objective id comes from the shipped template."""
     return ObjectiveLoader()
+
+
+def _wellplate_loader():
+    """The real loader -- labware resolves through the same fallback the GUI
+    lane uses, so a missing or unloadable plate cannot reach the config as a
+    bare empty string."""
+    return WellPlateLoader()
 
 
 class TestGetBinningFromSettings:
@@ -304,6 +312,7 @@ class TestHeadlessTilingOverlap:
         config = get_sequenced_capture_config_from_settings(
             settings,
             objective_helper=_objective_helper_for(settings),
+            wellplate_loader=_wellplate_loader(),
         )
         assert config['tiling_overlap_percent'] == 25.0
 

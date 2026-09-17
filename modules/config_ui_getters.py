@@ -315,33 +315,24 @@ def get_image_capture_config_from_ui() -> ImageCaptureConfig:
 
 
 def get_sequenced_capture_config_from_ui() -> dict:
-    objective_id, _ = _app_ctx.ctx.session.get_current_objective_info()
-    time_params = get_protocol_time_params()
-    labware_id, _ = get_selected_labware()
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    tiling = protocol_settings.ids['tiling_size_spinner'].text
-    tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
-    use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
-    frame_dimensions = config_helpers.get_frame_dimensions_from_settings(_app_ctx.ctx.settings)
-    zstack_params = get_zstack_params()
+    """The sequenced capture config for the running GUI.
 
-    layer_configs = get_layer_configs()
+    A GUI adapter, not a second builder: it gathers the two choices that
+    live only in the running widgets and hands them to the one builder in
+    config_helpers. The pair used to be assembled here by hand alongside a
+    settings-reading twin, and the two drifted -- the twin could not express
+    tiling or z-stacking at all, so whichever lane a caller took decided
+    what it got.
+    """
+    ctx = _app_ctx.ctx
+    protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
 
-    return config_helpers.build_sequenced_capture_config(
-        {
-            'labware_id': labware_id,
-            'objective_id': objective_id,
-            'zstack_params': zstack_params,
-            'use_zstacking': use_zstacking,
-            'tiling': tiling,
-            'tiling_overlap_percent': tiling_overlap_percent,
-            'layer_configs': layer_configs,
-            'period': time_params['period'],
-            'duration': time_params['duration'],
-            'frame_dimensions': frame_dimensions,
-            'binning_size': get_binning_from_ui(),
-            'stim_config': get_stim_configs(),
-        }
+    return config_helpers.get_sequenced_capture_config_from_settings(
+        ctx.settings,
+        objective_helper=ctx.objective_helper,
+        wellplate_loader=ctx.wellplate_loader,
+        tiling=protocol_settings.ids['tiling_size_spinner'].text,
+        use_zstacking=protocol_settings.ids['acquire_zstack_id'].active,
     )
 
 

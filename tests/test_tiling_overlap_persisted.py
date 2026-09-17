@@ -98,13 +98,33 @@ def test_modal_overlap_handler_is_idempotent():
     )
 
 
-def test_scan_config_uses_overlap_accessor():
-    """The scan-config builder reads overlap through the single accessor."""
-    source = _function_source(CONFIG_UI_GETTERS_SRC, 'get_sequenced_capture_config_from_ui')
-    assert 'get_tiling_overlap_percent()' in source, (
-        'get_sequenced_capture_config_from_ui must read overlap via '
-        'ProtocolSettings.get_tiling_overlap_percent, not the spinner widget'
+def test_scan_config_carries_the_persisted_overlap():
+    """The overlap reaching a scan config is the persisted setting.
+
+    Pins the VALUE rather than the call shape. This used to assert that the
+    UI builder called ProtocolSettings.get_tiling_overlap_percent by name,
+    which stopped being true when the builder became a thin adapter over the
+    single settings-side builder -- while the contract it existed to protect,
+    that overlap comes from the persisted key and never from the spinner,
+    held throughout. A source-shape assertion cannot tell those two apart.
+    """
+    settings = json.loads((REPO / 'data' / 'settings.json').read_text())
+    settings['tiling_overlap_percent'] = 25.0
+
+    from modules.config_helpers import get_sequenced_capture_config_from_settings
+    from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
+
+    config = get_sequenced_capture_config_from_settings(
+        settings,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
-    assert 'tiling_overlap_spinner' not in source, (
-        'overlap must no longer be read off the spinner widget at scan time'
-    )
+
+    assert config['tiling_overlap_percent'] == 25.0
+
+    for name in ('get_sequenced_capture_config_from_ui',):
+        source = _function_source(CONFIG_UI_GETTERS_SRC, name)
+        assert 'tiling_overlap_spinner' not in source, (
+            'overlap must never be read off the spinner widget at scan time'
+        )

@@ -1504,23 +1504,41 @@ def get_composite_capture_config_from_settings(
 def get_sequenced_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,
-    wellplate_loader: WellPlateLoader | None = None,
+    wellplate_loader: WellPlateLoader,
+    *,
+    tiling: str = '1x1',
+    use_zstacking: bool = False,
 ) -> dict:
-    """Build sequenced capture config from settings dict (no UI needed).
+    """Build a sequenced capture config from settings (no UI needed).
 
-    This is the headless equivalent of config_getters.get_sequenced_capture_config_from_ui().
+    The single builder for this config; the GUI reaches it through
+    config_ui_getters.get_sequenced_capture_config_from_ui(), which
+    supplies the two authoring choices below from its widgets.
+
+    tiling and use_zstacking are ARGUMENTS, not settings reads. They are
+    authoring inputs with no settings home: tiling's store is the
+    protocol itself (its steps carry a Tile column, which is where a
+    saved tiling is recovered from), and neither survives a restart by
+    design. They used to be read as settings['protocol'] keys that
+    nothing writes, so this builder answered '1x1' and False for every
+    caller regardless of what the user had chosen.
+
+    wellplate_loader is required: labware goes through the accessor that
+    falls back to the shipped default and warns, so this lane and the
+    GUI's resolve a missing or unloadable plate the same way instead of
+    handing a bare '' to the protocol.
     """
     objective_id, _ = get_current_objective_info(settings, objective_helper)
     time_params = get_protocol_time_params_from_settings(settings)
-    protocol = settings.get('protocol', {})
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 
     return build_sequenced_capture_config(
         {
-            'labware_id': protocol.get('labware', ''),
+            'labware_id': labware_id,
             'objective_id': objective_id,
             'zstack_params': get_zstack_params_from_settings(settings),
-            'use_zstacking': protocol.get('use_zstacking', False),
-            'tiling': protocol.get('tiling', '1x1'),
+            'use_zstacking': use_zstacking,
+            'tiling': tiling,
             # Overlap is stored top-level, not under protocol. Reading it from
             # under protocol found nothing and silently gave every headless
             # run 0% overlap regardless of what the user had configured.
