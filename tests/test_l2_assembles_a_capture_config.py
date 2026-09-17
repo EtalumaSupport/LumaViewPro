@@ -66,3 +66,31 @@ def test_assembling_it_never_touches_the_app_context(session, monkeypatch):
     config = session.get_sequenced_capture_config(tiling='2x2')
 
     assert config['tiling'] == '2x2'
+
+
+def test_a_missing_data_file_is_refused_by_name(tmp_path, monkeypatch):
+    """A corrupt labware.json or objectives.json leaves its helper None.
+
+    The session's own factory treats that as survivable -- one feature
+    disabled, not the whole composition -- so this entry point can really
+    be called in that state. Handed on, the labware lane told the user it
+    had substituted the default plate and then raised AttributeError two
+    lines later: a false account of what happened, followed by a crash.
+    """
+    import pytest as _pytest
+
+    from modules.exceptions import ConfigError
+
+    session = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    try:
+        for helper, data_file in (
+            ('wellplate_loader', 'labware.json'),
+            ('objective_helper', 'objectives.json'),
+        ):
+            monkeypatch.setattr(session, helper, None)
+            with _pytest.raises(ConfigError, match=data_file):
+                session.get_sequenced_capture_config()
+            monkeypatch.undo()
+    finally:
+        session.shutdown()
+        session.scope.disconnect()

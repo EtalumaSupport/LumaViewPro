@@ -814,6 +814,22 @@ class ScopeSession:
         """
         import modules.config_helpers as config_helpers
 
+        # A corrupt data file leaves its helper None rather than failing the
+        # whole composition, so both are absent states this can actually be
+        # called in. Refused by name here: handed on, the labware lane warns
+        # the user it substituted the default plate and then raises
+        # AttributeError two lines later -- a false account of what happened,
+        # followed by a crash.
+        for helper, data_file in (
+            (self.wellplate_loader, 'labware.json'),
+            (self.objective_helper, 'objectives.json'),
+        ):
+            if helper is None:
+                raise ConfigError(
+                    f'cannot assemble a capture config: {data_file} did not load '
+                    f'under {self.source_path!r} (see the earlier error)'
+                )
+
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.settings,
             objective_helper=self.objective_helper,
