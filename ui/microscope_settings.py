@@ -328,8 +328,16 @@ class MicroscopeSettings(BoxLayout):
             binning_size_str = settings['binning']['size']
             binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
-            self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
-            self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
+            # settings['frame'] holds the DISPLAYED (post-binning) size, and the
+            # box shows that size unscaled -- the unbinned ROI is carried
+            # separately as frame['native_width'/'native_height']. Both the other
+            # writers of these boxes agree: the delivered-size callback writes the
+            # same number to the store and the box, and the binning handler writes
+            # native_to_displayed(native, binning). Multiplying by the binning
+            # factor here contradicted all of that and would show a 2x2 user twice
+            # the size the camera delivers.
+            self.ids['frame_width_id'].text = str(settings['frame']['width'])
+            self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # was applied by the Session's bring-up
