@@ -804,12 +804,23 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     )
 
 
-def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_path, monkeypatch):
-    """A run started while a LIVE owner holds the LED lease must fail itself
-    (run_complete fires exactly once with status 'failed_at_start', the user is
-    notified) instead of stealing the lease: the holder keeps illumination
-    authority and its applies still drive the LEDs."""
+def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_path, monkeypatch):
+    """A run started while a LIVE owner holds the LED lease is REFUSED.
+
+    It used to fail itself instead -- the lease was acquired after the run
+    had committed, so a held lease produced a run that fired run_complete
+    with 'failed_at_start' and left a directory behind. The acquire now
+    happens inside start()'s gate-and-commit lock, so the caller gets the
+    ordinary refusal contract: nothing committed, no terminal callback.
+
+    Either way the point this test has always made still holds: the
+    holder keeps illumination authority and its applies still drive the
+    LEDs. A run that stole the lease would leave the holder scanning
+    dark.
+    """
     import modules.notification_center as notification_center
+
+    from modules.exceptions import ProtocolRunRefusedError
 
     notified = []
     monkeypatch.setattr(
@@ -853,16 +864,19 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
         leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
-    runner.start(plan)
+    with pytest.raises(ProtocolRunRefusedError) as excinfo:
+        runner.start(plan)
 
-    assert done.wait(timeout=30), 'the refused run must still terminate'
-    assert len(completions) == 1, (
-        f'run_complete must fire exactly once for the refused run; got {completions}'
+    assert excinfo.value.reason == 'illumination_held', (
+        f'a live holder must refuse the run, not fail it; got {excinfo.value.reason!r}'
     )
-    assert completions[0].get('status') == 'failed_at_start', (
-        f'the lease refusal must fail the run at start; got {completions[0]}'
+    assert excinfo.value.holder == 'autofocus', (
+        f'the refusal must name the holder; got {excinfo.value.holder!r}'
     )
-    assert notified, 'the failed start must notify the user'
+    assert not done.is_set() and completions == [], (
+        f'a refused run must fire no terminal callback; got {completions}'
+    )
+    assert notified, 'the refusal must notify the user'
     assert not runner.run_in_progress()
 
     # The live holder was not disturbed: its lease is held and still drives LEDs.
