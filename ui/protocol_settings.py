@@ -23,7 +23,6 @@ from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
-    get_current_frame_dimensions,
     get_image_capture_config_from_ui,
     get_layer_configs,
     get_protocol_time_params,
@@ -578,7 +577,7 @@ class ProtocolSettings(FloatLayout):
 
             tile_status = self._protocol.apply_tiling(
                 tiling=self.ids['tiling_size_spinner'].text,
-                frame_dimensions=get_current_frame_dimensions(),
+                frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
                 binning_size=get_binning_from_ui(),
                 curr_step_idx=self.curr_step,
                 axes_config=axes_config,

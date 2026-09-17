@@ -22,7 +22,6 @@ from modules.config_helpers import (
 from modules.config_ui_getters import (
     firmware_stim_supported,
     get_binning_from_ui,
-    get_current_frame_dimensions,
 )
 from modules.path_utils import resolve_data_file
 from modules.memory_profiler import MemoryLeakProfiler
@@ -1050,6 +1049,25 @@ class MicroscopeSettings(BoxLayout):
         except Exception as e:
             logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
 
+    def _typed_frame_dimensions(self) -> dict:
+        """The size currently TYPED into the frame fields.
+
+        Only the handler applying the edit wants this. Every other
+        consumer wants the size the camera delivered, which lives in
+        settings['frame'] -- the fields are an editor, and until the
+        apply lands they can hold a size no camera is at.
+
+        Raises:
+            ValueError: the fields do not hold a pair of integers.
+        """
+        try:
+            return {
+                'width': int(self.ids['frame_width_id'].text),
+                'height': int(self.ids['frame_height_id'].text),
+            }
+        except Exception as e:
+            raise ValueError('Invalid value for frame width/height') from e
+
     def frame_size(self):
         """Apply a user edit of the frame width/height fields.
 
@@ -1067,7 +1085,7 @@ class MicroscopeSettings(BoxLayout):
 
         imaging = lumaview.scope.imaging
         try:
-            typed = get_current_frame_dimensions()
+            typed = self._typed_frame_dimensions()
         except ValueError:
             frame = ctx.settings['frame']
             typed = {'width': frame['width'], 'height': frame['height']}

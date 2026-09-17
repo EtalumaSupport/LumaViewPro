@@ -14,7 +14,6 @@ from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
-    get_current_frame_dimensions,
     get_image_capture_config_from_ui,
     get_selected_labware,
 )
@@ -502,7 +501,7 @@ class VerticalControl(BoxLayout):
                     'layer_configs': {active_layer: active_layer_config},
                     'period': None,
                     'duration': None,
-                    'frame_dimensions': get_current_frame_dimensions(),
+                    'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
                     'binning_size': get_binning_from_ui(),
                     # A standalone autofocus never pulses stimulation;
                     # an empty config keeps the built step stim-free.

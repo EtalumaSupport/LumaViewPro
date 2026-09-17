@@ -274,18 +274,6 @@ def get_enabled_stim_configs() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_current_frame_dimensions() -> dict:
-    microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    try:
-        frame_width = int(microscope_settings.ids['frame_width_id'].text)
-        frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except Exception as e:
-        raise ValueError('Invalid value for frame width/height') from e
-
-    frame = {'width': frame_width, 'height': frame_height}
-    return frame
-
-
 def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
     """The currently-selected labware, read from SETTINGS.
 
@@ -334,7 +322,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
     tiling = protocol_settings.ids['tiling_size_spinner'].text
     tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
-    frame_dimensions = get_current_frame_dimensions()
+    frame_dimensions = config_helpers.get_frame_dimensions_from_settings(_app_ctx.ctx.settings)
     zstack_params = get_zstack_params()
 
     layer_configs = get_layer_configs()
