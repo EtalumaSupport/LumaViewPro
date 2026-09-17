@@ -22,8 +22,24 @@ from unittest.mock import MagicMock
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
-def _patch_ctx(monkeypatch, *, settings: dict):
-    """An app context for the GUI config lane."""
+def _frame_fields(typed: str):
+    """The microscope settings PANEL, holding a typed-but-unapplied size.
+
+    Named for what it is -- a Kivy panel, not a scope. The config lane is
+    supposed to ignore it entirely; it is here so that a regression which
+    starts reading the fields again produces a wrong frame size rather
+    than a missing fixture key.
+    """
+    panel = MagicMock()
+    panel.ids = {
+        'frame_width_id': MagicMock(text=typed),
+        'frame_height_id': MagicMock(text=typed),
+    }
+    return panel
+
+
+def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
+    """An app context whose frame fields hold an unapplied typed value."""
     ctx = MagicMock()
     ctx.settings = settings
     ctx.engineering_mode = False
@@ -34,7 +50,10 @@ def _patch_ctx(monkeypatch, *, settings: dict):
         'acquire_zstack_id': MagicMock(active=False),
     }
     protocol_settings.get_tiling_overlap_percent.return_value = 0.0
-    ctx.motion_settings.ids = {'protocol_settings_id': protocol_settings}
+    ctx.motion_settings.ids = {
+        'microscope_settings_id': _frame_fields(typed),
+        'protocol_settings_id': protocol_settings,
+    }
     ctx.session.get_current_objective_info.return_value = ('4x', {'focal_length': 45.0})
 
     import modules.app_context as app_context
@@ -53,7 +72,7 @@ def _settings():
 
 def test_config_carries_delivered_frame_not_typed_text(monkeypatch):
     """1024 typed and never applied; the camera is at 1900."""
-    _patch_ctx(monkeypatch, settings=_settings())
+    _patch_ctx(monkeypatch, typed='1024', settings=_settings())
 
     from modules.config_ui_getters import get_sequenced_capture_config_from_ui
 
@@ -99,3 +118,23 @@ def test_the_apply_handler_reads_the_typed_fields_off_its_own_tree():
         node.id for node in ast.walk(reader) if isinstance(node, ast.Name) and node.id == '_app_ctx'
     ]
     assert not reached, 'the typed-field read must not reach for the app context'
+
+    own_tree = [
+        node
+        for node in ast.walk(reader)
+        if isinstance(node, ast.Attribute)
+        and node.attr == 'ids'
+        and isinstance(node.value, ast.Name)
+        and node.value.id == 'self'
+    ]
+    assert own_tree, "the typed-field read must come off the widget's own self.ids"
+
+    applier = find_def('ui/microscope_settings.py', 'frame_size', 'MicroscopeSettings')
+    calls = [
+        node.func.attr
+        for node in ast.walk(applier)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert '_typed_frame_dimensions' in calls, (
+        'frame_size applies a typed edit, so it must read the typed fields'
+    )

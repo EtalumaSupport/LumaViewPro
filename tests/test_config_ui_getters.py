@@ -455,3 +455,83 @@ def test_protocol_time_clamped_detects_subsecond_per_unit():
     # 0 is the single-scan marker, not a clamp.
     assert config_helpers.protocol_time_clamped(0, 'minutes') is False
     assert config_helpers.protocol_time_clamped(0, 'hours') is False
+
+
+class TestGettersThatTakeTheirInputs:
+    """The two getters that used to reach the app context for a GUI fact.
+
+    get_zstack_positions read the global scope's Z and get_active_layer_config
+    read which accordion drawer was open, so neither could answer for a caller
+    that is not the running app -- and the scope one could answer about an
+    instrument that is not the caller's.
+
+    These build on the shipped template rather than a hand-made dict: layers
+    are top-level keys and the z-stack reference is a display label, and a
+    hand-made shape that gets either wrong tests a config that cannot occur.
+    """
+
+    @staticmethod
+    def _ctx(monkeypatch, **overrides):
+        import json
+        import pathlib as _pathlib
+
+        repo = _pathlib.Path(__file__).resolve().parent.parent
+        settings = json.loads((repo / 'data' / 'settings.json').read_text())
+        settings.update(overrides)
+
+        ctx = MagicMock()
+        ctx.settings = settings
+
+        import modules.app_context as app_context
+
+        monkeypatch.setattr(app_context, 'ctx', ctx)
+        return ctx
+
+    def test_the_layer_is_the_one_named(self, monkeypatch):
+        self._ctx(monkeypatch)
+
+        from modules.config_ui_getters import get_active_layer_config
+
+        layer, config = get_active_layer_config('Blue')
+
+        assert layer == 'Blue'
+        assert 'exposure_ms' in config
+
+    def test_no_layer_selected_is_refused(self, monkeypatch):
+        """The GUI passes whatever the open drawer was, including nothing.
+
+        The refusal lives in the getter rather than in each caller, so the
+        three GUI starters cannot come to disagree about it.
+        """
+        self._ctx(monkeypatch)
+
+        from modules.config_ui_getters import get_active_layer_config
+
+        with pytest.raises(Exception, match='No layer currently selected'):
+            get_active_layer_config(None)
+
+    def test_the_stack_is_built_around_the_z_it_is_given(self, monkeypatch):
+        """The passed Z is used, and no scope is consulted for one.
+
+        A scope that raises on any access stands in for a caller whose
+        instrument is not the module-global one.
+        """
+
+        class NoScopeHere:
+            def __getattr__(self, name):
+                raise AssertionError(f'the z-stack reached for the scope ({name})')
+
+        ctx = self._ctx(
+            monkeypatch,
+            zstack={'step_size': 10.0, 'range': 20.0, 'position': 'Current Position at Center'},
+        )
+        ctx.scope = NoScopeHere()
+
+        from modules.config_ui_getters import get_zstack_positions
+
+        valid, positions = get_zstack_positions(1000.0)
+
+        assert valid is True
+        assert positions
+        assert min(positions.values()) >= 1000.0 - 20.0
+        assert max(positions.values()) <= 1000.0 + 20.0
