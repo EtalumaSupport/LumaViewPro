@@ -1205,7 +1205,13 @@ class TestSimulatorFirmwareVersion:
 
 
 class TestLEDNoneHandling:
-    """Verify LED methods handle None from exchange_command without crashing."""
+    """Verify LED methods treat an unusable reply as a failed command.
+
+    Unusable means None (port closed, write timeout, silent-board reject) OR
+    the empty string, which is what a readline() timeout yields: a board whose
+    firmware is wedged accepts the write and never answers, and the LED is not
+    energized. Both must reach last_command_error.
+    """
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -1271,6 +1277,43 @@ class TestLEDNoneHandling:
         # Should return without sending any commands
         board.wait_until_on()
         board.driver.write.assert_not_called()
+
+    @pytest.mark.parametrize(
+        'op,call',
+        [
+            ('leds_enable', lambda b: b.leds_enable()),
+            ('leds_disable', lambda b: b.leds_disable()),
+            ('led_on', lambda b: b.led_on(channel=3, mA=5)),
+            ('led_off', lambda b: b.led_off(channel=3)),
+            ('leds_off', lambda b: b.leds_off()),
+        ],
+    )
+    def test_empty_reply_is_not_an_ack(self, op, call):
+        """A wedged board answers every command with an empty line, not silence.
+
+        readline() returns b'' on timeout, so exchange_command hands back ''
+        rather than None. Treating that as success cleared the error field and
+        left the API reporting a channel lit while the hardware was dark -- the
+        18-minute wedge in the SNlogs-2026-05-14-134147 bundle.
+        """
+        board = self._make_board()
+        board.driver.readline.return_value = b''
+        board.last_command_error = None
+
+        call(board)
+
+        assert board.last_command_error is not None, f'{op}: empty reply recorded as success'
+        assert board.last_command_error['op'].startswith(op)
+
+    def test_real_reply_still_acks(self):
+        """The ordinary path is untouched: a firmware reply confirms."""
+        board = self._make_board()
+        board.driver.readline.return_value = b'LED 3 set to 5 mA.\r\n'
+        board.last_command_error = {'op': 'stale', 'reason': 'stale'}
+
+        board.led_on(channel=3, mA=5)
+
+        assert board.last_command_error is None
 
 
 # ==========================================================================
