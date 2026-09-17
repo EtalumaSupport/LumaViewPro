@@ -541,6 +541,22 @@ session.get_stim_configs()               # stim settings per layer
 session.get_enabled_stim_configs()       # only the enabled ones
 ```
 
+Assembling the configuration a sequenced run takes:
+
+```python
+# Everything the run needs, from this session's settings -- no GUI involved.
+config = session.get_sequenced_capture_config()
+
+# Tiling and z-stacking are ARGUMENTS, not stored settings. Neither survives
+# a restart, so there is nothing for the session to read them from: state
+# what you want.
+config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
+```
+
+The GUI builds the same configuration through the same builder, supplying
+those two from its own controls, so a scripted run and a run started from the
+screen are assembled identically.
+
 ### Reconnect
 
 ```python

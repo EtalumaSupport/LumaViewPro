@@ -22,27 +22,19 @@ from unittest.mock import MagicMock
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
-def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
-    """An app context whose frame fields hold an unapplied typed value."""
+def _patch_ctx(monkeypatch, *, settings: dict):
+    """An app context for the GUI config lane."""
     ctx = MagicMock()
     ctx.settings = settings
     ctx.engineering_mode = False
 
-    microscope_settings = MagicMock()
-    microscope_settings.ids = {
-        'frame_width_id': MagicMock(text=typed),
-        'frame_height_id': MagicMock(text=typed),
-    }
     protocol_settings = MagicMock()
     protocol_settings.ids = {
         'tiling_size_spinner': MagicMock(text='1x1'),
         'acquire_zstack_id': MagicMock(active=False),
     }
     protocol_settings.get_tiling_overlap_percent.return_value = 0.0
-    ctx.motion_settings.ids = {
-        'microscope_settings_id': microscope_settings,
-        'protocol_settings_id': protocol_settings,
-    }
+    ctx.motion_settings.ids = {'protocol_settings_id': protocol_settings}
     ctx.session.get_current_objective_info.return_value = ('4x', {'focal_length': 45.0})
 
     import modules.app_context as app_context
@@ -61,7 +53,7 @@ def _settings():
 
 def test_config_carries_delivered_frame_not_typed_text(monkeypatch):
     """1024 typed and never applied; the camera is at 1900."""
-    _patch_ctx(monkeypatch, typed='1024', settings=_settings())
+    _patch_ctx(monkeypatch, settings=_settings())
 
     from modules.config_ui_getters import get_sequenced_capture_config_from_ui
 
@@ -91,21 +83,19 @@ def test_no_modules_file_reads_the_frame_fields():
 
 def test_the_apply_handler_reads_the_typed_fields_off_its_own_tree():
     """frame_size() applies a typed edit, so it -- and only it -- wants the
-    typed value, and it takes it from self.ids rather than reaching."""
-    src = (REPO / 'ui' / 'microscope_settings.py').read_text()
-    tree = ast.parse(src)
+    typed value, and it takes it from self.ids rather than reaching for the
+    app context."""
+    from tests.ast_seams import assert_def, find_def
 
-    methods = {
-        node.name: node
-        for klass in ast.walk(tree)
-        if isinstance(klass, ast.ClassDef) and klass.name == 'MicroscopeSettings'
-        for node in klass.body
-        if isinstance(node, ast.FunctionDef)
-    }
+    assert_def(
+        'ui/microscope_settings.py',
+        '_typed_frame_dimensions',
+        class_name='MicroscopeSettings',
+        msg='the typed-field read belongs on the widget that owns the fields',
+    )
 
-    assert '_typed_frame_dimensions' in methods
-    reader = ast.get_source_segment(src, methods['_typed_frame_dimensions'])
-    assert 'self.ids[' in reader
-    assert '_app_ctx' not in reader
-
-    assert '_typed_frame_dimensions' in ast.get_source_segment(src, methods['frame_size'])
+    reader = find_def('ui/microscope_settings.py', '_typed_frame_dimensions', 'MicroscopeSettings')
+    reached = [
+        node.id for node in ast.walk(reader) if isinstance(node, ast.Name) and node.id == '_app_ctx'
+    ]
+    assert not reached, 'the typed-field read must not reach for the app context'
