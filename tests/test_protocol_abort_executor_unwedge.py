@@ -22,6 +22,9 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
+from modules.run_outcome import RunEnding
+
+
 def test_end_protocol_mode_restores_normal_queue_service():
     """Stuck-in-protocol-mode refuses normal file ops; the safety net exits
     protocol-mode so normal-queue service resumes and tasks run again."""
@@ -118,11 +121,13 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
         # Same reason as the two above: the skip path settles the run's
         # merge outcome before releasing, and this test is about executor
         # teardown, not the outcome.
-        _settle_merge_outcome=lambda run_status: None,
+        _settle_merge_outcome=lambda status: None,
     )
-    # run_status feeds the end-reason plumbing on the full cleanup path;
+    # The ending feeds the end-reason plumbing on the full cleanup path;
     # the skip path under test never reads it.
-    SequencedCaptureRunner._cleanup_inner(stub, run_status='aborted')
+    SequencedCaptureRunner._cleanup_inner(
+        stub, RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+    )
 
     assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
     assert file_io.protocol_finish.is_set(), 'file executor not signalled out of protocol-mode'

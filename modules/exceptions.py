@@ -106,6 +106,30 @@ class ProtocolRunRefusedError(ProtocolError):
         self.holder_trigger = holder_trigger
 
 
+class RunStartError(ProtocolError):
+    """A sequenced run failed after it was committed but before it ran.
+
+    The counterpart of ProtocolRunRefusedError on the other side of the
+    commit line: a refusal means nothing started and nothing needs
+    unwinding, while this means the run was committed, the terminal
+    callback will fire and cleanup will run. Carries the same three
+    fields so both sides deliver one shape to a caller, a REST handler
+    and the popup.
+
+    Attributes:
+        reason: Machine-readable cause.
+        title: Short heading for the user.
+        message: The sentence a user reads -- never a raw exception
+            string; those belong in the log.
+    """
+
+    def __init__(self, reason: str, title: str, message: str):
+        super().__init__(f'{reason}: {message}')
+        self.reason = reason
+        self.title = title
+        self.message = message
+
+
 class RecordingRefusedError(CaptureError):
     """A video recording start was refused before any state was committed.
 

@@ -25,6 +25,7 @@ import pytest
 
 import modules.sequenced_capture_runner as scr
 from modules.lumascope_api import Lumascope
+from modules.run_outcome import RunEnding
 
 LAYER = 'Blue'
 ILLUMINATION_MA = 10.0
@@ -64,8 +65,10 @@ def _make_runner_stub(scope, *, lease):
     return stub
 
 
-def _run_cleanup_inner(stub, run_status='failed'):
-    scr.SequencedCaptureRunner._cleanup_inner(stub, run_status)
+def _run_cleanup_inner(stub, ending=None):
+    if ending is None:
+        ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
+    scr.SequencedCaptureRunner._cleanup_inner(stub, ending)
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):

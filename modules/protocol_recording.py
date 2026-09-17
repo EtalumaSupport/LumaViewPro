@@ -119,7 +119,8 @@ class ProtocolVideoStep:
             the UI scheduler.
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
-        abort_run_fatal: PIW's fatal-abort funnel, for disk faults.
+        abort_run_fatal: PIW's fatal-abort funnel, for disk faults;
+            called with the cause, then domain, title and message.
         abort_run_on_writer_death: Arms the run abort after the engine
             has already surfaced writer-lane death at critical severity
             (no second popup).
@@ -146,7 +147,7 @@ class ProtocolVideoStep:
         callbacks: dict,
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
-        abort_run_fatal: Callable[[str, str, str], None],
+        abort_run_fatal: Callable[[str, str, str, str], None],
         abort_run_on_writer_death: Callable[[], None],
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
@@ -246,6 +247,7 @@ class ProtocolVideoStep:
             ok, free_mb = True, 0.0
         if not ok:
             self._abort_run_fatal(
+                'disk_space_critical',
                 'FileIO',
                 'Disk Space Critical',
                 f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
@@ -558,6 +560,7 @@ class ProtocolVideoStep:
             )
             self._engine.stop('disk_floor')
             self._abort_run_fatal(
+                'disk_space_critical',
                 'FileIO',
                 'Disk Space Critical',
                 f'Free disk fell to {free_mb:.0f} MB during a video step. '

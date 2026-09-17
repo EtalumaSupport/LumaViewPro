@@ -168,7 +168,6 @@ class ProtocolStepRunner:
                     f'({p.MOTION_TIMEOUT_SECONDS}s).'
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
-                from modules.notification_center import notifications
 
                 # The timed-out move is still in flight. Halt the motor before
                 # erroring out so it stops driving toward the unreachable target
@@ -176,14 +175,15 @@ class ProtocolStepRunner:
                 # field firmware without a STOP command.
                 p._scope.motion.stop_motion()
 
-                notifications.error(
-                    'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
-                )
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
                 except ValueError:
                     pass
+                # Last, and outside the state writes above: the funnel darkens
+                # the sample and notifies, and a raise from it must not cost
+                # this site the ERROR state that stops the loop re-entering.
+                p.abort_run_fatal('motion_timeout', 'Protocol Error -- Motion Timeout', timeout_msg)
             return
         p._motion_wait_start = None
 

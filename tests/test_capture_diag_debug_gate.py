@@ -22,6 +22,9 @@ from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
 
 
+from modules.run_outcome import EndingLatch
+
+
 def _drive_capture(monkeypatch, debug_enabled):
     writer = ProtocolImageWriter(
         scope=MagicMock(),
@@ -30,6 +33,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,

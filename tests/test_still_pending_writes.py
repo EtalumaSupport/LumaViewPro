@@ -25,6 +25,9 @@ from modules.protocol_image_writer import ProtocolImageWriter
 from tests.scope_fakes import spec_scope
 
 
+from modules.run_outcome import EndingLatch
+
+
 def _writer(file_io_executor=None):
     return ProtocolImageWriter(
         scope=spec_scope(),
@@ -33,6 +36,7 @@ def _writer(file_io_executor=None):
         file_io_executor=file_io_executor or MagicMock(),
         abort_fn=MagicMock(),
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=MagicMock(),
         leds_off_fn=MagicMock(),
         is_run_in_progress_fn=lambda: True,

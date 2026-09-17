@@ -37,6 +37,9 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
     sys.modules.setdefault(_name, MagicMock())
 
 
+from modules.run_outcome import EndingLatch
+
+
 def _writer(callbacks):
     writer = ProtocolImageWriter(
         scope=spec_scope(),
@@ -45,6 +48,7 @@ def _writer(callbacks):
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,

@@ -32,6 +32,9 @@ from modules.exceptions import PositionOutOfRangeError
 # ---------------------------------------------------------------------------
 
 
+from modules.run_outcome import EndingLatch, RunEnding
+
+
 def _build_mock_logger():
     """Build a mock lvp_logger module with a logger attribute."""
     mock_logger = MagicMock()
@@ -1687,7 +1690,7 @@ def _run_cleanup_kwargs(**overrides):
         'set_state_fn': MagicMock(),
         'run_lock': threading.Lock(),
         'scan_in_progress': threading.Event(),
-        'fatal_abort': False,
+        'forced_dark': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
         'autofocus_snapshot': _autofocus_snapshot(states={}),
@@ -1706,7 +1709,9 @@ def _run_cleanup_kwargs(**overrides):
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
         'set_run_in_progress_fn': MagicMock(),
-        'run_status': 'completed',
+        'ending': RunEnding(
+            'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
+        ),
     }
     kwargs.update(overrides)
     return kwargs
@@ -3149,6 +3154,7 @@ def _bare_protocol_writer(**overrides):
         'file_io_executor': MagicMock(),
         'abort_fn': lambda: None,
         'fatal_abort_event': threading.Event(),
+        'ending': EndingLatch(),
         'execution_record': None,
         'leds_off_fn': lambda: None,
         'is_run_in_progress_fn': lambda: True,
@@ -9267,7 +9273,7 @@ class TestSCEResetSignalsAbort:
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
-        runner._cleanup = MagicMock(side_effect=lambda **kwargs: order.append('cleanup'))
+        runner._cleanup = MagicMock(side_effect=lambda *args, **kwargs: order.append('cleanup'))
 
         runner.reset(requester='test')
 

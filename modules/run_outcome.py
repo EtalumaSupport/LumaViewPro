@@ -32,6 +32,14 @@ from either state, because nothing will finish the merge afterward.
 Every resolver returns a bool and never raises: they run inside cleanup's
 finally, ahead of the activity-claim release, and a raise there would
 leak the claim and refuse every future run.
+
+This module also holds the run's ENDING: the status a run finished in,
+and the reason, title and message for it, recorded by whatever ended the
+run at the site that knows why. The ending is first-wins -- a run dies
+once, and the first thing that killed it is the cause; everything after
+it is consequence. Cleanup reads the record once, after the lanes it
+waits on have drained, so a fault that lands during the drain is still
+the ending rather than a word chosen before the last fact arrived.
 """
 
 from __future__ import annotations
@@ -41,6 +49,61 @@ import threading
 import uuid
 
 from lvp_logger import logger
+
+
+@dataclasses.dataclass(frozen=True)
+class RunEnding:
+    """How a run ended, and why, in the shape a refusal already uses.
+
+    Attributes:
+        status: One of 'completed', 'aborted', 'failed',
+            'failed_at_start'. 'aborted' is an ending the user or a
+            policy ceiling asked for; 'failed' is one the instrument
+            imposed.
+        reason: Machine-readable cause, stable enough for a caller to
+            branch on ('motion_timeout', 'disk_space_critical',
+            'stopped', ...).
+        title: Short human sentence, suitable as a popup heading.
+        message: The sentence a user reads. Never a raw exception
+            string -- those go to the log, not into a field a remote
+            caller serialises.
+    """
+
+    status: str
+    reason: str
+    title: str
+    message: str
+
+
+class EndingLatch:
+    """One run's ending, recorded once by whoever got there first.
+
+    Sixteen sites can end a run and several of them fire in sequence as
+    one failure cascades: a motion timeout stops the loop, which trips
+    the step runner, which trips cleanup. Last-write-wins would report
+    the consequence and lose the cause, so the first record sticks and
+    every later one is dropped.
+
+    Held per run, never per runner: a drained writer from a previous run
+    that fires late lands on a latch nothing reads any more.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._ending: RunEnding | None = None
+
+    def set_if_unset(self, ending: RunEnding) -> bool:
+        """Record the ending; True when this caller's ending is the one kept."""
+        with self._lock:
+            if self._ending is not None:
+                return False
+            self._ending = ending
+            return True
+
+    def get(self) -> RunEnding | None:
+        """The recorded ending, or None when nothing has ended the run yet."""
+        with self._lock:
+            return self._ending
 
 
 @dataclasses.dataclass(frozen=True)

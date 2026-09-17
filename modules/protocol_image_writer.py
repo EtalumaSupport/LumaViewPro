@@ -27,6 +27,7 @@ from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
+from modules.run_outcome import EndingLatch, RunEnding
 from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED, IOTask
 
 if TYPE_CHECKING:
@@ -87,6 +88,11 @@ class ProtocolImageWriter:
         # then would fatal-brand and force-darken the successor run; a
         # per-run object lets the late set land on a dead flag.
         fatal_abort_event: threading.Event,
+        # THIS run's ending record, allocated fresh per run alongside the flag
+        # above and per-run for the same reason: a fatal from the old run's
+        # draining writer records into a latch nothing reads any more, instead
+        # of naming a cause for the run that is now live.
+        ending: EndingLatch,
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -117,6 +123,7 @@ class ProtocolImageWriter:
         self._file_io_executor = file_io_executor
         self._abort_fn = abort_fn
         self._fatal_abort_event = fatal_abort_event
+        self._ending = ending
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
@@ -139,7 +146,7 @@ class ProtocolImageWriter:
         self._still_drained = threading.Event()
         self._still_drained.set()
 
-    def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
+    def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
 
         Ordering is load-bearing:
@@ -149,19 +156,24 @@ class ProtocolImageWriter:
         2. fatal flag -- read by cleanup (terminal-dark assertion) and by
            the step-boundary gate; set before the LEDs go dark so a step
            racing this call cannot observe dark-but-not-fatal.
-        3. force_off -- darkens the sample NOW, on this thread, via the
+        3. the ending record -- a lock and a frozen construction, no I/O.
+           Recorded before anything that can block or raise, so the cause
+           survives a force_off that wedges on a dead driver; first-wins,
+           so the fault that started the cascade is the one reported.
+        4. force_off -- darkens the sample NOW, on this thread, via the
            direct driver path (no executor hop), because the fault that
            brought us here may be wedging the teardown that normally turns
            the LEDs off; a live sample must not stay illuminated while a
            dead disk times out. Worst case ~5 s behind an in-flight
            confirmed LED write on the driver lock.
-        4. the fatal popup -- last, after the hardware is safe.
+        5. the fatal popup -- last, after the hardware is safe.
         Safe to re-enter: every step is idempotent, so a second fault
         surfacing while this runs (e.g. the failure-record write itself
         wedging) changes nothing.
         """
         self._abort_fn()
         self._fatal_abort_event.set()
+        self._ending.set_if_unset(RunEnding('failed', reason, title, message))
         self._scope.illumination.force_off()
         from modules.notification_center import notifications
 
@@ -176,6 +188,14 @@ class ProtocolImageWriter:
         """
         self._abort_fn()
         self._fatal_abort_event.set()
+        self._ending.set_if_unset(
+            RunEnding(
+                'failed',
+                'video_writer_died',
+                'Video Writer Failed',
+                'The video writer lane died; the run was stopped.',
+            )
+        )
         self._scope.illumination.force_off()
 
     @property
@@ -383,6 +403,7 @@ class ProtocolImageWriter:
                 # camera here misnames the cause the user can
                 # actually act on.
                 self._abort_run_fatal(
+                    'led_channel_unavailable',
                     'Protocol',
                     'Channel not available',
                     f"This microscope has no '{step_color}' LED "
@@ -394,6 +415,7 @@ class ProtocolImageWriter:
                 )
             else:
                 self._abort_run_fatal(
+                    'camera_failure',
                     'Protocol',
                     'Camera Failure',
                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
@@ -474,6 +496,7 @@ class ProtocolImageWriter:
         if result is PROTOCOL_QUEUE_WEDGED:
             stuck = self._file_io_executor.describe_running_task()
             self._abort_run_fatal(
+                'file_writer_stalled',
                 'Protocol',
                 'File Writer Stalled',
                 f'Saving stopped making progress ({stuck}), so the protocol '
@@ -1011,6 +1034,7 @@ class ProtocolImageWriter:
                     # mid-capture, and abort must close its step-lighting
                     # gates before force_off darkens the sample.
                     self._abort_run_fatal(
+                        'disk_space_critical',
                         'FileIO',
                         'Disk Space Critical',
                         f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',

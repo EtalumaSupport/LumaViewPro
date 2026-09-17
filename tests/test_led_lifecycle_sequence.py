@@ -985,8 +985,12 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
         notifications.remove_listener(listener)
 
     assert completed, f'run_complete never fired after the wedge abort\n{sub.render()}'
-    assert result.get('status') == 'aborted', (
-        f'a wedged writer must abort the run; status={result.get("status")!r}'
+    assert result.get('status') == 'failed', (
+        f'a wedged writer is a fault the instrument imposed, not a stop the '
+        f'user asked for; status={result.get("status")!r}'
+    )
+    assert result.get('ending').reason == 'file_writer_stalled', (
+        f'the run must name the fault that killed it; got {result.get("ending")!r}'
     )
     assert install_results == [PROTOCOL_ENQUEUED, True, PROTOCOL_ENQUEUED], (
         f'wedge install did not follow the expected sequence: {install_results}'

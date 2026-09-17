@@ -31,6 +31,9 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 # ---------------------------------------------------------------------------
 
 
+from modules.run_outcome import EndingLatch
+
+
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
     # Write-time defense against duplicate filenames (#636): the plain
     # name when free, a numeric suffix only on actual collision.
@@ -74,6 +77,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,

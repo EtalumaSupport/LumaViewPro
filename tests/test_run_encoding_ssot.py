@@ -58,6 +58,9 @@ SAVE_FLUSH_TIMEOUT = 5  # seconds to wait for the file-IO thread's save
 # ---------------------------------------------------------------------------
 
 
+from modules.run_outcome import EndingLatch
+
+
 def _make_step(color='BF'):
     return {
         'Name': 'A1_BF',
@@ -273,6 +276,7 @@ class TestOneRunOneEncoding:
             file_io_executor=MagicMock(),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
+            ending=EndingLatch(),
             execution_record=None,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,

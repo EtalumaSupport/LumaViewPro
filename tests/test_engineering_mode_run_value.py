@@ -27,6 +27,9 @@ from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
 
+from modules.run_outcome import EndingLatch
+
+
 def _turret_token(session) -> str:
     """The token the writer renders for the turret position the scope holds."""
     return f'Turret{int(session.scope.motion.get_current_position("T"))}'
@@ -117,6 +120,7 @@ class TestTheWriterIsHandedTheMode:
             'file_io_executor': MagicMock(),
             'abort_fn': lambda: None,
             'fatal_abort_event': threading.Event(),
+            'ending': EndingLatch(),
             'execution_record': None,
             'leds_off_fn': lambda: None,
             'is_run_in_progress_fn': lambda: True,

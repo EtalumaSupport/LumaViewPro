@@ -59,6 +59,9 @@ GOOD_ROUND = {
 }
 
 
+from modules.run_outcome import EndingLatch
+
+
 class _StampedFrameHandler:
     """Image-handler stub for the per-frame depth stamp: get_last_image
     reports a stored frame stamped with significant_bits, or no-frame when
@@ -640,6 +643,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=_threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,

@@ -22,6 +22,7 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
+from modules.run_outcome import RunEnding
 from modules.sequential_io_executor import (
     IOTask,
     PROTOCOL_QUEUE_WEDGED,
@@ -121,10 +122,12 @@ def run_cleanup(
     set_state_fn: Callable[[ProtocolState], None],
     run_lock: threading.Lock,
     scan_in_progress: threading.Event,
-    # True when the run died on a fatal fault (stalled writer, dead camera,
-    # disk floor) rather than finishing or being stopped by the user.
-    # Required, not defaulted: every caller states which kind of end this is.
-    fatal_abort: bool,
+    # True when the run died on a fault that force-darkened the sample
+    # (stalled writer, dead camera, disk floor) rather than finishing or
+    # being stopped by the user. Required, not defaulted: every caller
+    # states which kind of end this is. Read once by the caller, so the
+    # decision cannot flip mid-cleanup.
+    forced_dark: bool,
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
@@ -149,15 +152,18 @@ def run_cleanup(
     # Mutable flag -- set to False when done
     set_run_in_progress_fn: Callable[[bool], None],
     logger_name: str = 'SequencedCaptureRunner',
-    # Terminal outcome the run_complete subscribers receive
-    run_status: str,
+    # How the run ended, and why. Terminal outcome the run_complete
+    # subscribers receive.
+    ending: RunEnding,
 ) -> bool:
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
-    Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status
-    ('completed', 'aborted', 'failed', 'failed_at_start') is required so
-    the cleanup site states the run's true terminal outcome; it reaches
-    every run_complete subscriber as the ``status`` kwarg.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``. ending is
+    required so the cleanup site states the run's true terminal outcome;
+    its status ('completed', 'aborted', 'failed', 'failed_at_start')
+    reaches every run_complete subscriber as the ``status`` kwarg, and
+    the whole record reaches them as ``ending`` -- the reason, title and
+    message the site that ended the run wrote.
 
     Returns True when the RUN_END LED transition actually applied -- the
     run's LED end-state is decided. False (or a raise anywhere in here)
@@ -217,7 +223,7 @@ def run_cleanup(
     # AF future here belongs to SOMEONE ELSE -- most likely the very holder
     # whose lease refusal failed this run. Aborting it would steal the
     # operation the refusal deferred to.
-    if autofocus_thread is not None and run_status != 'failed_at_start':
+    if autofocus_thread is not None and ending.status != 'failed_at_start':
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
             autofocus_thread.abort()
@@ -258,7 +264,7 @@ def run_cleanup(
         # skipped restore would leave a raced re-light on forever. User Stop
         # keeps the configured policy.
         end_policy, snapshot_lit = resolve_end_state(
-            'off' if fatal_abort else leds_state_at_end,
+            'off' if forced_dark else leds_state_at_end,
             original_led_states,
             scope.illumination.state_color2ch,
         )
@@ -575,6 +581,7 @@ def run_cleanup(
     _file_queue_active = file_io_executor.is_protocol_queue_active()
     # Log the pending-write count so a post-run read shows HOW MANY files were
     # still draining at protocol end, not just that the queue was non-empty.
+    logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')
     _file_queue_depth = file_io_executor.protocol_queue_size()
     logger.info(
         f'[{logger_name}] Cleanup: file queue active={_file_queue_active} '
@@ -583,7 +590,9 @@ def run_cleanup(
     if _file_queue_active:
         if callbacks.run_complete:
             _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
+                lambda dt: callbacks.run_complete(
+                    protocol=protocol, status=ending.status, ending=ending
+                ),
                 'Run-complete callback',
                 cleanup_errors,
                 summary_sent,
@@ -604,7 +613,9 @@ def run_cleanup(
     else:
         if callbacks.run_complete:
             _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
+                lambda dt: callbacks.run_complete(
+                    protocol=protocol, status=ending.status, ending=ending
+                ),
                 'Run-complete callback',
                 cleanup_errors,
                 summary_sent,

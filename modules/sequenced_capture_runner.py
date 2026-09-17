@@ -26,11 +26,11 @@ import modules.image_mode as image_mode
 import modules.labware_loader as labware_loader
 from modules.activity_claim import ActivityClaim
 from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RunStartError
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.run_outcome import MergeOutcome, RunMergeOutcome
+from modules.run_outcome import EndingLatch, MergeOutcome, RunEnding, RunMergeOutcome
 
 from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
@@ -332,6 +332,10 @@ class SequencedCaptureRunner:
         # run's clear -- fatal-branding and force-darkening the wrong run. A
         # late set on the old run's object lands dead instead.
         self._fatal_abort_event = threading.Event()
+        # The ending record shares that lifetime for the same reason: a late
+        # fault from a drained writer must land on the run it belongs to, not
+        # brand the successor with a cause that was never its own.
+        self._ending = EndingLatch()
         self._reset_scan_state()
         # _n_scans and _scan_count are the cross-thread progress pair, read
         # together under _protocol_state_lock by progress_snapshot(). Zero them
@@ -523,10 +527,15 @@ class SequencedCaptureRunner:
                     holder_trigger=holder,
                 )
 
+            # Recorded only past the guards above: a Stop that was refused
+            # or had nothing to stop ended no run, and must not leave a
+            # reason behind for the next one to report.
+            ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', f'Stopped by {requester}')
+            self._ending.set_if_unset(ending)
             needs_inline_cleanup = self._signal_abort_locked()
 
         if needs_inline_cleanup:
-            self._cleanup(run_status='aborted')
+            self._cleanup(ending)
 
     def force_reset(self, reason: str) -> None:
         """Unwind the live run whoever owns it -- app shutdown only.
@@ -545,10 +554,12 @@ class SequencedCaptureRunner:
                 f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
                 f'{self._run_trigger_source} run without an owner check'
             )
+            ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
+            self._ending.set_if_unset(ending)
             needs_inline_cleanup = self._signal_abort_locked()
 
         if needs_inline_cleanup:
-            self._cleanup(run_status='aborted')
+            self._cleanup(ending)
 
     def _signal_abort_locked(self) -> bool:
         """Signal the run loop to unwind. The caller holds _run_lock.
@@ -1197,6 +1208,7 @@ class SequencedCaptureRunner:
                 file_io_executor=self.file_io_executor,
                 abort_fn=self.protocol_thread.abort,
                 fatal_abort_event=self._fatal_abort_event,
+                ending=self._ending,
                 execution_record=self._protocol_execution_record,
                 leds_off_fn=self._step_executor.leds_off,
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
@@ -1229,7 +1241,11 @@ class SequencedCaptureRunner:
             # loop will never execute -- raise so the failed-at-start unwind
             # runs instead of the runner sitting committed forever.
             if dispatch_future.done() and dispatch_future.exception() is not None:
-                raise dispatch_future.exception()
+                raise RunStartError(
+                    'dispatch_refused',
+                    'Run failed to start',
+                    str(dispatch_future.exception()),
+                ) from dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc)
 
@@ -1251,19 +1267,30 @@ class SequencedCaptureRunner:
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
-            raise RuntimeError(
+            raise RunStartError(
+                'capture_location_unusable',
+                'Run failed to start',
                 f'Unable to save data to {self._parent_dir!s}. '
-                'Please select an accessible capture location.'
+                'Please select an accessible capture location.',
             ) from None
 
         result = self._create_run_dir()
         if not result['status']:
-            raise RuntimeError(result['error'])
+            # The allocator's own sentence: every failure it reports is about
+            # the capture location, so it shares that code.
+            raise RunStartError('capture_location_unusable', 'Run failed to start', result['error'])
 
         try:
             self._initialize_run_dir()
         except Exception as ex:
-            raise RuntimeError(f'Unable to initialize sequenced run directory: {ex}') from ex
+            # The exception text stays in the log. A message field is read by
+            # a popup and serialised by a remote caller; a raw traceback
+            # string is neither a sentence nor safe to put in front of them.
+            raise RunStartError(
+                'run_dir_init_failed',
+                'Run failed to start',
+                'The run folder could not be initialized. See the log for details.',
+            ) from ex
 
     def _fail_run_at_start(self, exc: Exception) -> None:
         """Unwind a run that failed during start()'s setup phase.
@@ -1287,17 +1314,39 @@ class SequencedCaptureRunner:
         # (possibly just-deleted) path would send callers' started-run
         # follow-ups (last-save-folder shortcuts) to a dead location.
         self._run_dir = None
-        self._cleanup(run_status='failed_at_start')
+        if isinstance(exc, RunStartError):
+            ending = RunEnding('failed_at_start', exc.reason, exc.title, exc.message)
+        else:
+            # Anything else reaching here is not an L1 sentence -- a serial
+            # fault from the camera-state save, say. The user gets the one
+            # thing that is true and actionable; the log has the rest.
+            ending = RunEnding(
+                'failed_at_start',
+                'start_failed',
+                'Run failed to start',
+                'The run could not start. See the log for details.',
+            )
+        self._ending.set_if_unset(ending)
+        self._cleanup(ending)
         # Notify AFTER cleanup: on an unattended run start() enabled the popup
         # suppression, which drops this non-fatal error until cleanup's
         # set_unattended_run(False) restores popups.
         from modules.notification_center import notifications
 
-        notifications.error(
-            'Protocol',
-            'Run failed to start',
-            'The run could not start. See the log for details.',
-        )
+        notifications.error('Protocol', ending.title, ending.message)
+
+    def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
+        """End the run now: abort, mark it dark, record the cause, darken.
+
+        The one way the run loop and the step runner reach the fatal-abort
+        funnel. The funnel lives on the image writer because the writer owns
+        the per-run flag and record it sets; routing through here keeps its
+        callers out of a peer's privates and gives them one shape to call.
+
+        The writer is built before the run is dispatched and is replaced only
+        by the next run's reset, so it is never absent while a run is live.
+        """
+        self._image_writer._abort_run_fatal(reason, 'Protocol', title, message)
 
     def run_in_progress(self) -> bool:
         with self._run_lock:
@@ -1335,18 +1384,20 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self, run_status: str):
-        """Unwind the run; run_status names the terminal outcome.
+    def _cleanup(self, ending: RunEnding):
+        """Unwind the run; ending names the terminal outcome and its cause.
 
-        run_status ('completed', 'aborted', 'failed', 'failed_at_start')
-        is REQUIRED so every cleanup site states the truth it knows --
-        a defaulted value would let an abort or failure silently report
-        itself as a normal completion to run_complete subscribers.
+        ending is REQUIRED so every cleanup site states the truth it
+        knows -- a defaulted value would let an abort or failure silently
+        report itself as a normal completion to run_complete subscribers.
+        It is what this site believes; a fault that recorded its own
+        cause into the run's ending latch outranks it, and cleanup
+        resolves the two in one read below.
         """
         if not self._cleanup_lock.acquire(blocking=False):
             return  # Another thread is already cleaning up
         try:
-            self._cleanup_inner(run_status=run_status)
+            self._cleanup_inner(ending)
         finally:
             self._cleanup_lock.release()
 
@@ -1580,29 +1631,35 @@ class SequencedCaptureRunner:
         thread.start()
         return thread
 
-    def _cleanup_inner(self, run_status: str):
+    def _cleanup_inner(self, ending: RunEnding):
         from modules.notification_center import notifications
+
+        # Restore popups: the unattended-run suppression ends here, on
+        # every cleanup path (normal end and abort). Unconditional -- an
+        # attended run never raised it, and lowering it twice is harmless,
+        # where missing one lowering mutes popups for the whole session.
+        notifications.set_unattended_run(False)
+
+        if not self._run_in_progress_event.is_set():
+            # run-in-progress was already cleared, so run_cleanup (which
+            # ends the executors' protocol-mode and drives the RUN_END LED
+            # transition) will not run here. Guarantee the io + file
+            # executors still leave protocol-mode -- an abort that cleared
+            # the run flag without ending them would otherwise wedge their
+            # worker on protocol_queue.get and starve normal file ops.
+            # Idempotent: a no-op when not in protocol-mode.
+            #
+            # Returns ahead of the try below, so this pass settles no
+            # outcome and releases nothing: it does not own the run. The
+            # releases are keyed on runner-lifetime state, so a pass
+            # arriving after the owner's release could otherwise hand away
+            # a claim a SUCCESSOR run had already taken.
+            self._io_executor.end_protocol_mode()
+            self.file_io_executor.end_protocol_mode()
+            return
 
         led_end_state_applied = False
         try:
-            # Restore popups: the unattended-run suppression ends here, on
-            # every cleanup path (normal end and abort). Unconditional -- an
-            # attended run never raised it, and lowering it twice is harmless,
-            # where missing one lowering mutes popups for the whole session.
-            notifications.set_unattended_run(False)
-
-            if not self._run_in_progress_event.is_set():
-                # run-in-progress was already cleared, so run_cleanup (which
-                # ends the executors' protocol-mode and drives the RUN_END LED
-                # transition) will not run here. Guarantee the io + file
-                # executors still leave protocol-mode -- an abort that cleared
-                # the run flag without ending them would otherwise wedge their
-                # worker on protocol_queue.get and starve normal file ops.
-                # Idempotent: a no-op when not in protocol-mode.
-                self._io_executor.end_protocol_mode()
-                self.file_io_executor.end_protocol_mode()
-                return
-
             # A video step's drain tail writes on its own thread; its
             # execution-record row must land before the record reconciles
             # inside run_cleanup, so wait it out here (bounded).
@@ -1611,15 +1668,23 @@ class SequencedCaptureRunner:
                 logger.info('[Protocol] Waiting for video write drain before run cleanup')
                 writer.wait_for_video_drains()
 
-            # Read once, pass a bool: cleanup's fatal decision must not flip
-            # mid-cleanup if a new run's _reset_vars replaces the Event object
-            # after the run flag clears.
+            # One read, here, after the last lane cleanup waits on has
+            # drained -- so a fault that lands during that drain is still
+            # the ending, not a word chosen before the last fact arrived.
+            # Read once and passed down: cleanup's decisions must not flip
+            # mid-cleanup if a new run's _reset_vars replaces these objects
+            # after the run flag clears. The latch outranks the caller's
+            # word because the latch is what the site that ended the run
+            # wrote, while the word is what the loop knew on its way out.
+            latched = self._ending.get()
+            forced_dark = self._fatal_abort_event.is_set()
+            ending = latched or ending
             led_end_state_applied = run_cleanup(
                 get_state_fn=lambda: self._state,
                 set_state_fn=self._set_state,
                 run_lock=self._run_lock,
                 scan_in_progress=self._scan_in_progress,
-                fatal_abort=self._fatal_abort_event.is_set(),
+                forced_dark=forced_dark,
                 leds_state_at_end=self._leds_state_at_end,
                 original_led_states=self._original_led_states,
                 autofocus_snapshot=self._autofocus_snapshot,
@@ -1641,7 +1706,7 @@ class SequencedCaptureRunner:
                     self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
                 ),
                 logger_name=self.LOGGER_NAME,
-                run_status=run_status,
+                ending=ending,
             )
             # After run_cleanup: the stack loader reads the execution
             # record, which reconciles inside it.
@@ -1678,7 +1743,7 @@ class SequencedCaptureRunner:
             # Non-raising by construction, because the claim release below
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.
-            self._settle_merge_outcome(run_status)
+            self._settle_merge_outcome(ending.status)
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
             # the next run. After run_cleanup, not before: apply(RUN_END) runs

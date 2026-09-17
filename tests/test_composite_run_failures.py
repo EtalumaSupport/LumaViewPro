@@ -293,7 +293,7 @@ class TestTheThreeStrikeFatalAbort:
 
             assert settled is not None, 'the aborted run never settled its outcome'
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
-            assert settled.reason == 'aborted', (
+            assert settled.reason == 'failed', (
                 f'the outcome named the ending {settled.reason!r}; a caller '
                 f'cannot tell an abort from a failed merge that way'
             )

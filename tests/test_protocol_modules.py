@@ -33,6 +33,9 @@ from tests.protocol_drives import autofocus_snapshot
 # ===========================================================================
 
 
+from modules.run_outcome import EndingLatch, RunEnding
+
+
 class TestSequencedCaptureRunMode:
     """Verify enum values match expected protocol run modes."""
 
@@ -422,7 +425,7 @@ class TestRunCleanup:
             'set_state_fn': set_state,
             'run_lock': threading.Lock(),
             'scan_in_progress': threading.Event(),
-            'fatal_abort': False,
+            'forced_dark': False,
             'leds_state_at_end': 'off',
             'original_led_states': {},
             'autofocus_snapshot': autofocus_snapshot(states={}),
@@ -441,7 +444,9 @@ class TestRunCleanup:
             'file_io_executor': file_exec,
             'camera_executor': camera_exec,
             'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
-            'run_status': 'completed',
+            'ending': RunEnding(
+                'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
+            ),
         }
         defaults.update(overrides)
         return defaults, state, run_in_progress
@@ -713,6 +718,7 @@ class TestProtocolImageWriterWriteCapture:
             file_io_executor=_FakeExecutor(),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
+            ending=EndingLatch(),
             execution_record=execution_record,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,

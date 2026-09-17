@@ -114,8 +114,15 @@ class TestRunLoopInnerClassifiesByConnection:
         from modules.notification_center import notifications
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
+        # Both channels, because the two classifications notify through
+        # different ones and "exactly one popup" has to count them all: a
+        # fatal abort goes through the fatal-abort funnel, which posts at
+        # critical severity, while the consecutive-failure ceiling notifies
+        # itself at error. Capturing one channel would let a second popup on
+        # the other slip past unseen.
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(notifications, 'critical', lambda *a, **k: captured.append(a))
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
         runner._scope.are_all_connected = MagicMock(return_value=connected)
@@ -126,11 +133,24 @@ class TestRunLoopInnerClassifiesByConnection:
         from modules.protocol_state_machine import ProtocolState
 
         runner, captured = self._drive_failing_run_loop(monkeypatch, connected=False)
-        assert len(captured) == 1 and captured[0][1] == 'Protocol Aborted', (
-            f'a disconnect must surface exactly one abort popup; got {captured}'
+        # The abort and its popup both come from the fatal-abort funnel, which
+        # this harness holds as a mock -- so the observable here is the one
+        # call into it, carrying the cause. The popup the funnel then posts is
+        # pinned by the funnel's own ordering test.
+        aborts = runner._image_writer._abort_run_fatal.call_args_list
+        assert len(aborts) == 1, (
+            f'a disconnect must abort the run exactly once; got {len(aborts)} calls'
         )
-        assert 'Hardware disconnected' in captured[0][2], (
-            f'the popup must name the disconnect; got {captured[0]}'
+        reason, _domain, title, message = aborts[0].args
+        assert (reason, title) == ('hardware_disconnected', 'Protocol Aborted'), (
+            f'the abort must name the disconnect as its cause; got {aborts[0].args}'
+        )
+        assert 'Hardware disconnected' in message, (
+            f'the message the user reads must name the disconnect; got {message!r}'
+        )
+        assert captured == [], (
+            f'the funnel posts the disconnect popup; a site posting its own too '
+            f'would show the user two dialogs for one fault. Got {captured}'
         )
         assert runner.protocol_state == ProtocolState.ERROR, (
             'a disconnect mid-scan must land the run in ERROR'
@@ -149,6 +169,10 @@ class TestRunLoopInnerClassifiesByConnection:
         assert runner._scan_count == 0, 'failed scans must not count as completed'
         assert len(captured) == 1, (
             f'transients are silent until the consecutive-failure ceiling; got {captured}'
+        )
+        assert runner._image_writer._abort_run_fatal.call_args_list == [], (
+            'the strike ceiling stops a run the instrument could not complete; '
+            'it must not force-darken the sample the way a fault does'
         )
         assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
             f'the ceiling popup must name the repeated failure; got {captured[0]}'
