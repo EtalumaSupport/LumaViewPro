@@ -2,14 +2,13 @@
 """Regression: a claim-refused run must not strand caller-committed state.
 
 ProtocolRunner commits caller-side running state (the session's
-protocol_running Event, the completion-event re-arm) between prepare()
-and start(). The session activity claim is gated inside start(), so a
-refusal for a held claim (a live video recording) raises AFTER that
-commit: session.protocol_running strands True with no run to ever
-clear it, and the completion event strands cleared so
-wait_for_completion() blocks until timeout for a run that never
-started. Both contradict the documented refusal contract ("no state
-was committed ... wait_for_completion() is not armed").
+protocol_running Event) between prepare() and start(). The session
+activity claim is gated inside start(), so a refusal for a held claim
+(a live video recording) raises AFTER that commit: session.protocol_
+running strands True with no run to ever clear it, and a caller asking
+how the run went is answered about a run that never started. Both
+contradict the documented refusal contract ("no state was committed
+... wait_for_completion() answers None").
 
 The prepare-side refusal contract (refusals that raise before the
 commit) is covered by tests/test_run_refusal_contract.py; this file
@@ -141,8 +140,15 @@ class TestClaimRefusalLeavesNoState:
                     'files_complete': lambda **kw: None,
                 },
             )
-            assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not complete'
-            assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
+            settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            assert settled is not None, 'the first run never reported an outcome'
+            # As in test_run_refusal_contract: this harness's scan fails its
+            # three-strike ceiling and always has. The subject is that the
+            # run's ending reached the caller at all, not which ending.
+            assert settled.reason == 'consecutive_scan_failures', (
+                f'the first run reported {settled.status!r} ({settled.reason!r})'
+            )
             # run_complete fires during cleanup; the claim releases at
             # cleanup END, moments later. Wait for the release before
             # claiming as the recording.
@@ -183,10 +189,10 @@ class TestClaimRefusalLeavesNoState:
             # immediately instead of blocking until timeout on a run
             # that never started.
             t0 = time.monotonic()
-            assert runner.wait_for_completion(timeout=2), (
-                'a claim-refused run must not leave the completion event '
-                'cleared; callers polling wait_for_completion would hang '
-                'on a run that never started'
+            assert runner.wait_for_completion(timeout=2) is None, (
+                'a claim-refused run committed nothing, so wait_for_completion '
+                'must answer None at once rather than blocking on a run that '
+                "never started or handing back an older run's result"
             )
             assert time.monotonic() - t0 < 1.0
 

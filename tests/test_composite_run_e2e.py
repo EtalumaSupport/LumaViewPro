@@ -177,7 +177,7 @@ class TestCompositeRunEndToEnd:
         assert not session.is_protocol_running, (
             'run_composite returned while the run still held the activity claim'
         )
-        outcome = runner._executor.merge_outcome()
+        outcome = runner._executor.run_outcome()
         settled = outcome.wait(timeout_s=0)
         assert settled is not None and settled.merged, (
             f'the merge outcome was not resolved-merged at return: {settled}'

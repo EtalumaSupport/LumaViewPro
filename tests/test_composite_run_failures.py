@@ -181,10 +181,16 @@ class TestAChannelThatCapturesNothing:
             # The runner's 'merge_failed' is only the fallback for a result
             # that carries no reason at all, so a caller seeing it here
             # would mean the specific code was lost on the way.
-            assert settled.reason == 'no_data', (
-                f'the outcome named the failure {settled.reason!r}; the reason '
-                f'is what a REST or SDK caller maps to a response, so it is '
-                f'part of the contract, not prose'
+            assert settled.merge_reason == 'no_data', (
+                f'the outcome named the failure {settled.merge_reason!r}; the '
+                f'code is what a REST or SDK caller maps to a response, so it '
+                f'is part of the contract, not prose'
+            )
+            # The run itself did everything asked of it; only the merge came
+            # up empty. Collapsing the two into one field is what made a
+            # caller unable to tell this from a run that aborted.
+            assert settled.status == 'completed', (
+                f'a merge that produced nothing reported the RUN as {settled.status!r}'
             )
 
     def test_a_rejected_capture_leaves_no_image_behind(self, tmp_path):
@@ -293,9 +299,18 @@ class TestTheThreeStrikeFatalAbort:
 
             assert settled is not None, 'the aborted run never settled its outcome'
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
-            assert settled.reason == 'failed', (
-                f'the outcome named the ending {settled.reason!r}; a caller '
-                f'cannot tell an abort from a failed merge that way'
+            # The two vocabularies, separated. status says the RUN failed;
+            # reason says what killed it. Before they shared one field the
+            # best a caller could read was the word 'failed', which is also
+            # what a merge failure said -- so an abort and a bad merge were
+            # indistinguishable to anyone deciding what to retry.
+            assert settled.status == 'failed', f'the outcome reported the run as {settled.status!r}'
+            assert settled.reason == 'camera_failure', (
+                f'the outcome named the cause {settled.reason!r}; a caller '
+                f'cannot tell a dead camera from a failed merge that way'
+            )
+            assert settled.merge_reason == '', (
+                'the run died before any merge, so there is no merge verdict to report'
             )
 
             run_dir = single_run_dir(tmp_path)

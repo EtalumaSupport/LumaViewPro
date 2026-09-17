@@ -30,7 +30,7 @@ from modules.exceptions import ProtocolRunRefusedError, RunStartError
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.run_outcome import EndingLatch, MergeOutcome, RunEnding, RunMergeOutcome
+from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 
 from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
@@ -324,7 +324,7 @@ class SequencedCaptureRunner:
         # Nulled, not replaced: the next run's start() builds a fresh one
         # under the run lock. A run that never started must leave nothing
         # for a caller to wait on.
-        self._merge_outcome = None
+        self._run_outcome = None
         self._run_in_progress_event.clear()
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
@@ -1034,7 +1034,7 @@ class SequencedCaptureRunner:
             return
         self._scope.imaging._set_auto_gain_impl(False, dict(arm.settings))
 
-    def start(self, plan: RunPlan) -> 'RunMergeOutcome':
+    def start(self, plan: RunPlan) -> 'PendingRunOutcome':
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -1152,8 +1152,8 @@ class SequencedCaptureRunner:
             # that fails at start releases the activity claim synchronously, so
             # a rival can commit in between and the caller waits on the rival's
             # run instead of its own.
-            outcome = RunMergeOutcome()
-            self._merge_outcome = outcome
+            outcome = PendingRunOutcome()
+            self._run_outcome = outcome
 
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
@@ -1417,43 +1417,46 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
-    def _settle_merge_outcome(self, run_status: str) -> None:
-        """Arm the merge on a completed run; settle it on any other ending.
+    def _settle_run_outcome(self, ending: RunEnding) -> None:
+        """Arm the merge on a completed composite; settle every other ending.
 
-        Only a composite run has a merge, so every other run kind settles
-        immediately -- a caller waiting on a scan's outcome gets an answer
-        rather than the bound.
+        The ending is carried into the outcome rather than restated here:
+        the status and reason a caller reads are the ones whatever ended
+        the run recorded, and this method decides only whether a merge is
+        still owed. Only a completed composite is, so every other run
+        settles immediately -- a caller waiting on a scan's outcome gets
+        an answer rather than the bound.
 
         Never raises: it runs inside cleanup's finally ahead of the
         activity-claim release, and a raise here would leak the claim and
         refuse every future run and recording.
         """
-        outcome = getattr(self, '_merge_outcome', None)
+        outcome = getattr(self, '_run_outcome', None)
         if outcome is None:
             return
         try:
-            if run_status != 'completed':
-                outcome.resolve_if_pending(run_status)
+            if (
+                ending.status != 'completed'
+                or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE
+            ):
+                outcome.resolve_if_pending(ending)
                 return
-            if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
-                outcome.resolve_if_pending('not_a_composite_run')
-                return
-            if self._start_composite_merge(outcome) is None:
+            if self._start_composite_merge(outcome, ending) is None:
                 # Either something already settled the run, or the merge
                 # declined to start and said why. Both leave the outcome
                 # resolved; neither leaves it armed with nothing coming.
-                outcome.resolve_if_pending('merge_not_started')
+                outcome.resolve_if_pending(ending, 'merge_not_started')
         except Exception:
             logger.error(
-                f'[{self.LOGGER_NAME}] Failed to settle the merge outcome; '
+                f'[{self.LOGGER_NAME}] Failed to settle the run outcome; '
                 'resolving it so no caller waits on a run that ended',
                 exc_info=True,
             )
-            outcome.force_resolve('cleanup_error')
+            outcome.force_resolve('cleanup_error', fallback=ending)
 
-    def merge_outcome(self) -> 'RunMergeOutcome | None':
-        """This run's merge outcome, or None when no run has started."""
-        return getattr(self, '_merge_outcome', None)
+    def run_outcome(self) -> 'PendingRunOutcome | None':
+        """This run's outcome, or None when no run has started."""
+        return getattr(self, '_run_outcome', None)
 
     def _release_activity_claim(self):
         """Release the run's exclusivity claim (idempotent).
@@ -1506,7 +1509,9 @@ class SequencedCaptureRunner:
             ),
         )
 
-    def _start_composite_merge(self, outcome: RunMergeOutcome) -> threading.Thread | None:
+    def _start_composite_merge(
+        self, outcome: PendingRunOutcome, ending: RunEnding
+    ) -> threading.Thread | None:
         """Merge this run's per-channel frames, then settle the outcome.
 
         Runs only for a composite run that reached 'completed'. Every exit
@@ -1517,9 +1522,12 @@ class SequencedCaptureRunner:
 
         The run's objects are captured BY VALUE here, at arming: the next
         run's start() nulls these fields, and a merge still running would
-        otherwise follow them onto the successor run's directory.
+        otherwise follow them onto the successor run's directory. The
+        ending goes in at the same moment and for the same reason: the
+        merge thread reports only what the merge produced, and would have
+        no honest way to restate how the run itself ended.
         """
-        token = outcome.arm()
+        token = outcome.arm(ending)
         if token is None:
             return None
 
@@ -1544,7 +1552,7 @@ class SequencedCaptureRunner:
 
             logger.error(f'[{self.LOGGER_NAME}] Composite merge failed ({reason}): {detail}')
             notifications.error('Protocol', 'Composite Failed', detail)
-            outcome.resolve(token, MergeOutcome(False, None, reason))
+            outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible
         # settles here and now, rather than leaving the outcome armed with
@@ -1577,7 +1585,7 @@ class SequencedCaptureRunner:
             paths = result.get('artifact_paths') or []
             if result.get('status') and paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                outcome.resolve(token, MergeOutcome(True, paths[0], ''))
+                outcome.resolve(token, merged=True, artifact_path=paths[0], merge_reason='')
             elif result.get('status'):
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
             else:
@@ -1743,7 +1751,7 @@ class SequencedCaptureRunner:
             # Non-raising by construction, because the claim release below
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.
-            self._settle_merge_outcome(ending.status)
+            self._settle_run_outcome(ending)
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
             # the next run. After run_cleanup, not before: apply(RUN_END) runs

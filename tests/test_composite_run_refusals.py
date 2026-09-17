@@ -164,7 +164,7 @@ class TestARivalRunRefusesTheComposite:
         session, runner, tmp_path = composite_session
         gate = _StepGate()
 
-        runner.run_single_scan(
+        pending = runner.run_single_scan(
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),
@@ -183,7 +183,18 @@ class TestARivalRunRefusesTheComposite:
             f'a composite clicked during a scan was refused for '
             f'{refusal.value.reason!r}, not for the run already holding the scope'
         )
-        assert runner.wait_for_completion(timeout=120), 'the scan never completed'
+        # Waited on through the scan's OWN handle, not through the runner:
+        # the refused composite above was this runner's last call, so
+        # wait_for_completion now answers None for it. The handle is how a
+        # caller follows the run it actually started.
+        settled = pending.wait(timeout_s=120)
+        assert settled is not None and settled.status == 'completed', (
+            f'the scan never completed: {settled}'
+        )
+        assert runner.wait_for_completion(timeout=2) is None, (
+            'the refused composite was the last call this runner was asked '
+            'to make, so it has no outcome to report'
+        )
         assert not session.is_protocol_running, 'the scan finished still holding the claim'
         # The scan's own directory, and only it.
         assert single_run_dir(tmp_path)

@@ -323,7 +323,7 @@ class TestACleanupPassThatDoesNotOwnTheRun:
             _run_in_progress_event=threading.Event(),  # clear: this pass does not own it
             _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
             file_io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('file')),
-            _settle_merge_outcome=lambda status: touched.append('settled'),
+            _settle_run_outcome=lambda ending: touched.append('settled'),
             _release_scan_led_lease=lambda: touched.append('lease'),
             _release_activity_claim=lambda: touched.append('claim'),
         )
@@ -501,3 +501,171 @@ class TestTheRunLoopsOwnEndings:
         assert reason == 'disk_space_critical'
         assert title == 'Protocol Aborted'
         assert '12 MB free' in message, f'the message must name the shortfall; got {message!r}'
+
+
+# ---------------------------------------------------------------------------
+# The ending a caller holds
+# ---------------------------------------------------------------------------
+
+
+def _plain_scan_protocol(session):
+    """The steps a composite would capture, for a NON-composite run.
+
+    Borrowed from production assembly rather than hand-rolled: what makes
+    this a scan is the run MODE, not which positions it visits.
+    """
+    import modules.config_helpers as config_helpers
+
+    input_config = config_helpers.get_composite_capture_config_from_settings(
+        session.settings,
+        session.objective_helper,
+        position=session.get_current_plate_position(),
+    )
+    return session.scope.protocols.create_protocol(input_config=input_config)
+
+
+class TestTheCallerHoldsTheEndingOfTheRunItStarted:
+    """The run's ending reaches the caller that asked for the run.
+
+    Sixteen sites could end a run and none of the answers left the
+    process: run_single_scan dropped what it started, and
+    wait_for_completion was one bit with three meanings ("completed",
+    "timed out", "never started"). A caller could not tell a user Stop
+    from a dead camera from a run that was refused.
+    """
+
+    def test_a_scan_hands_back_the_ending_its_subscribers_were_told(self, tmp_path):
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        reported = {}
+        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            pending = runner.run_single_scan(
+                _plain_scan_protocol(session),
+                sequence_name='ending_scan',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+                callbacks={'run_complete': lambda **kw: reported.update(kw)},
+            )
+            assert pending is not None, (
+                'run_single_scan committed a run and handed back nothing; the '
+                'caller has no way to learn how its own run ended'
+            )
+            settled = pending.wait(timeout_s=60)
+
+        assert settled is not None, 'the committed run never settled its outcome'
+        # The same fact through both channels. A caller that waits and a
+        # subscriber that is called back must not be able to disagree about
+        # the run they are both describing.
+        assert settled.status == reported['status'] == 'completed', (
+            f'the waiter was told {settled.status!r} and the run_complete '
+            f'subscriber {reported.get("status")!r}'
+        )
+        assert settled.reason == reported['ending'].reason
+
+    def test_a_completed_scan_carries_no_merge_verdict(self, tmp_path):
+        # A scan has no merge, so the merge fields say nothing rather than
+        # inventing a code. 'not_a_composite_run' in the field a caller
+        # branches on for merge failures read as one.
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            pending = runner.run_single_scan(
+                _plain_scan_protocol(session),
+                sequence_name='no_merge_scan',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+            )
+            settled = pending.wait(timeout_s=60)
+
+        assert settled is not None
+        assert (settled.status, settled.merged, settled.merge_reason) == ('completed', False, ''), (
+            f'a scan reported merged={settled.merged!r} merge_reason={settled.merge_reason!r}'
+        )
+        assert settled.artifact_path is None
+
+    def test_wait_for_completion_answers_for_the_last_committed_run(self, tmp_path):
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            runner.run_single_scan(
+                _plain_scan_protocol(session),
+                sequence_name='runner_wait_scan',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+            )
+            settled = runner.wait_for_completion(timeout=60)
+
+        assert settled is not None, 'wait_for_completion reported nothing for a committed run'
+        assert settled.status == 'completed'
+
+
+class TestWaitForCompletionWithNothingToReport:
+    """The two answers that are not a run's outcome.
+
+    Both were the same bit before: False meant "timed out" and also
+    "never started", so a caller could not tell a slow run from one that
+    was refused before it began.
+    """
+
+    def _runner_with(self, outcome):
+        from modules.protocol_runner import ProtocolRunner
+
+        runner = ProtocolRunner.__new__(ProtocolRunner)
+        runner._last_outcome = outcome
+        return runner
+
+    def test_a_fresh_runner_answers_none_at_once(self):
+        import time as _time
+
+        from modules.protocol_runner import ProtocolRunner
+
+        runner = ProtocolRunner.__new__(ProtocolRunner)
+        runner._last_outcome = None
+
+        t0 = _time.monotonic()
+        assert runner.wait_for_completion(timeout=30) is None
+        assert _time.monotonic() - t0 < 1.0, (
+            'a runner that has committed no run must answer at once rather '
+            'than blocking out the bound for a run that does not exist'
+        )
+
+    def test_a_live_run_answers_none_when_the_bound_expires(self):
+        from modules.run_outcome import PendingRunOutcome
+
+        runner = self._runner_with(PendingRunOutcome())
+
+        assert runner.wait_for_completion(timeout=0.05) is None, (
+            'an unsettled run must time out as None, distinct from a settled '
+            'outcome that reports the run did not merge'
+        )
+
+
+class TestSessionShutdownDoesNotRewriteAReportedEnding:
+    def test_a_composite_armed_at_shutdown_keeps_completed(self, tmp_path):
+        """The run already told its subscribers it completed.
+
+        Shutdown cuts the MERGE short, not the run: the executors go down
+        without draining, so the merge can never finish and a blocked
+        caller has to be released. Releasing it with 'aborted' would put
+        the waiter and the run_complete subscriber in contradiction about
+        a run that did, in fact, complete.
+        """
+        from modules.run_outcome import PendingRunOutcome, RunEnding
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
+            armed = PendingRunOutcome()
+            armed.arm(RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished.'))
+            session.sequenced_capture_runner._run_outcome = armed
+
+            session.shutdown()
+
+            settled = armed.wait(timeout_s=5)
+
+        assert settled is not None, 'shutdown left a caller blocked on a merge that cannot finish'
+        assert settled.status == 'completed', (
+            f'session shutdown rewrote a completed run as {settled.status!r}'
+        )
+        assert settled.merge_reason == 'shutdown', (
+            'the shutdown is why no artifact followed, not how the run ended'
+        )

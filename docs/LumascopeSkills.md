@@ -451,11 +451,12 @@ protocol = session.scope.protocols.create_protocol(input_config=config)
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.
 # Modes: '8bit', '12bit_scientific', '12bit_scaled', '12bit_false_color_rgb'.
-runner.run_single_scan(
+pending = runner.run_single_scan(
     protocol,
     image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
 )
-runner.wait_for_completion()
+result = pending.wait(timeout_s=300)     # or runner.wait_for_completion()
+print(result.status, result.reason, result.message)
 
 # Or abort at any time. `requester` is who is asking: it must match the
 # run's own run_trigger_source, because tearing a run down is an authority
@@ -464,6 +465,12 @@ runner.abort(requester='api_scan')
 ```
 
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, or hardware not connected. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+
+**How a run ends.** Every run that commits returns a handle; `handle.wait(timeout_s=...)` blocks until the run settles and hands back its outcome. `runner.wait_for_completion(timeout=None)` answers the same thing for the **last run this runner committed**. Both give back `None` when the bound expires, and `wait_for_completion` gives back `None` at once when the last call was refused or no run has ever been committed -- a refused start ran nothing, so there is no outcome to report and an older run's result would be a stale answer.
+
+The outcome carries seven fields. `status` is one of `completed`, `aborted`, `failed` or `failed_at_start`: `aborted` is an ending the user or a policy ceiling asked for (`stopped`, `consecutive_scan_failures`), `failed` is one the instrument imposed (`motion_timeout`, `camera_failure`, `disk_space_critical`), and `failed_at_start` is a run that could not begin after it committed. `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file.
+
+The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that completed but whose merge produced nothing reports `status='completed'` with the cause in `merge_reason`. `run_composite()` raises `CaptureError` carrying whichever of the two applies.
 
 A refusal with reason `not_run_owner` means the live run belongs to a different trigger and this caller may not tear it down; `holder_trigger` names the owner. The run is untouched -- stop it through whatever started it, or wait. `ProtocolRunner.reset(requester=...)` and `abort(requester=...)` both raise it, and both require the argument: a teardown that does not say who is asking cannot be authorised.
 
@@ -1551,11 +1558,12 @@ protocol = Protocol.from_file(
 )
 
 runner = session.create_protocol_runner()
-runner.run_single_scan(
+pending = runner.run_single_scan(
     protocol,
     image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
 )
-runner.wait_for_completion()
+result = pending.wait(timeout_s=300)
+print(result.status, result.reason, result.message)
 
 session.shutdown()          # the factory built this scope, so shutdown() disconnects it
 ```

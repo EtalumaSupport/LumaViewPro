@@ -16,22 +16,22 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    runner.run_single_scan(
+    pending = runner.run_single_scan(
         protocol,
         sequence_name="test_scan",
         image_capture_config=runner.build_image_capture_config(image_mode="8bit"),
     )
-    runner.wait_for_completion()
+    result = pending.wait(timeout_s=300)     # or runner.wait_for_completion()
+    print(result.status, result.reason, result.message)
 """
 
 import pathlib
-import threading
 import typing
 
 import modules.image_mode as image_mode_module
-from modules.exceptions import CaptureError, ConfigError, ProtocolRunRefusedError
+from modules.exceptions import CaptureError, ConfigError
 from modules.protocol import Protocol
-from modules.run_outcome import RunMergeOutcome
+from modules.run_outcome import PendingRunOutcome, RunOutcome
 from modules.sequenced_capture_runner import (
     RunPlan,
     SequencedCaptureRunner,
@@ -69,8 +69,12 @@ class ProtocolRunner:
         self.session = session
         self._protocol_thread = session.protocol_thread
         self._file_io_executor = session.file_io_executor
-        self._completion_event = threading.Event()
         self._executor = session.sequenced_capture_runner
+        # The outcome of the last run THIS runner committed, and what
+        # wait_for_completion answers from. None until a run commits, and
+        # None again the moment a later call is refused: a refusal ran
+        # nothing, so the previous run's result is not an answer about it.
+        self._last_outcome: PendingRunOutcome | None = None
 
     @property
     def sequenced_capture_runner(self) -> SequencedCaptureRunner:
@@ -121,7 +125,7 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
-    ):
+    ) -> PendingRunOutcome:
         """Run a single scan through the protocol steps.
 
         Args:
@@ -134,15 +138,19 @@ class ProtocolRunner:
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
 
+        Returns:
+            The committed run's outcome. wait(timeout_s=...) on it for the
+            status, reason, title and message the run ended with.
+
         Raises:
             ConfigError: image_capture_config was not provided -- there is
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; is_running() stays False and
-                wait_for_completion() is not armed.
+                wait_for_completion() answers None.
         """
-        self._run(
+        return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             run_trigger_source='api_scan',
@@ -163,7 +171,7 @@ class ProtocolRunner:
         image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
-    ):
+    ) -> PendingRunOutcome:
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -175,15 +183,19 @@ class ProtocolRunner:
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
 
+        Returns:
+            The committed run's outcome. wait(timeout_s=...) on it for the
+            status, reason, title and message the run ended with.
+
         Raises:
             ConfigError: image_capture_config was not provided -- there is
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; is_running() stays False and
-                wait_for_completion() is not armed.
+                wait_for_completion() answers None.
         """
-        self._run(
+        return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             run_trigger_source='api_protocol',
@@ -202,7 +214,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_composite',
         engineering_mode: bool | None = None,
-    ) -> RunMergeOutcome:
+    ) -> PendingRunOutcome:
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -227,7 +239,7 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The run's merge outcome, to wait on or to ignore.
+            The run's outcome, to wait on or to ignore.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -329,7 +341,12 @@ class ProtocolRunner:
                 'merge_timeout',
             )
         if not settled.merged:
-            raise CaptureError(f'no composite was produced ({settled.reason})', settled.reason)
+            # A run that did not complete names its own ending; a completed
+            # run with no artifact names what the merge did. One field is
+            # empty in each case, so the caller never has to guess which
+            # vocabulary it is reading.
+            code = settled.merge_reason or settled.reason
+            raise CaptureError(f'no composite was produced ({code})', code)
         return settled.artifact_path
 
     def _run(
@@ -347,11 +364,11 @@ class ProtocolRunner:
         leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
-    ):
+    ) -> PendingRunOutcome:
         """Internal: configure and launch the sequenced capture executor.
 
         Returns:
-            The committed run's merge outcome.
+            The committed run's outcome.
 
         Raises:
             ConfigError: image_capture_config was not provided; raised
@@ -361,6 +378,11 @@ class ProtocolRunner:
                 hardware not connected); no state was committed and the
                 user was already notified once.
         """
+        # Cleared before the gate, stored only once a run has committed:
+        # whatever this call does, wait_for_completion must not go on
+        # answering with the previous run's result.
+        self._last_outcome = None
+
         # No silent default: an unstated image mode silently decided the
         # data's bit depth (an older-release script that captured full depth
         # would quietly produce 8-bit files). The caller states intent once;
@@ -403,16 +425,8 @@ class ProtocolRunner:
         if engineering_mode is None:
             engineering_mode = self.session.engineering_mode
 
-        merged_callbacks = dict(callbacks or {})
-        # Wire up a completion callback
-        user_complete = merged_callbacks.get('run_complete')
-
-        def _on_complete(**kwargs):
-            if user_complete:
-                user_complete(**kwargs)
-            self._completion_event.set()
-
-        merged_callbacks['run_complete'] = _on_complete
+        # Copied so the engine cannot mutate the caller's dict.
+        run_callbacks = dict(callbacks or {})
 
         plan = self._executor.prepare(
             protocol=protocol,
@@ -424,7 +438,7 @@ class ProtocolRunner:
             image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             autogain_settings=autogain_settings,
-            callbacks=merged_callbacks,
+            callbacks=run_callbacks,
             return_to_position=return_to_position,
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
@@ -436,23 +450,15 @@ class ProtocolRunner:
         )
 
         # Run-state truth is the session claim, committed inside
-        # start()'s gate-and-commit -- a refusal means no state changed.
-        # The completion event is caller convenience, re-armed here and
-        # restored on a start()-stage refusal: for the already-running
-        # race the prior state was cleared (a live rival run resolves it
-        # when its run_complete fires -- every _run wires the same
-        # shared event), and for a claim refusal (e.g. a recording
-        # holds the scope) the prior state was set, so restoring it lets
-        # wait_for_completion return immediately instead of hanging on a
-        # run that never started.
-        completion_was_set = self._completion_event.is_set()
-        self._completion_event.clear()
-        try:
-            return self._executor.start(plan)
-        except ProtocolRunRefusedError:
-            if completion_was_set:
-                self._completion_event.set()
-            raise
+        # start()'s gate-and-commit -- a refusal means no state changed,
+        # and leaves _last_outcome None so a caller that waits is told
+        # "nothing ran" rather than blocked on a run that never started.
+        # The local is what this call returns: reading the attribute back
+        # is a race, because a run that fails at start releases the claim
+        # synchronously and a rival can commit in between.
+        outcome = self._executor.start(plan)
+        self._last_outcome = outcome
+        return outcome
 
     # ------------------------------------------------------------------
     # Status
@@ -495,17 +501,25 @@ class ProtocolRunner:
         """
         return self._executor.prepare(**kwargs)
 
-    def start(self, plan: RunPlan) -> RunMergeOutcome:
-        """Forward to the engine's start() -- the commitment point."""
-        return self._executor.start(plan)
+    def start(self, plan: RunPlan) -> PendingRunOutcome:
+        """Forward to the engine's start() -- the commitment point.
+
+        Records the committed run as this runner's last, so a caller that
+        drove prepare/start directly still has wait_for_completion.
+        """
+        self._last_outcome = None
+        outcome = self._executor.start(plan)
+        self._last_outcome = outcome
+        return outcome
 
     def reset(self, requester: str) -> None:
         """Unwind the current run without tearing the runner down.
 
-        Distinct from abort(): reset() leaves the completion event and
-        protocol thread alone (abort-and-continue); abort() also aborts
-        the scan loop and resolves waiters (abort-and-teardown for this
-        run's callers).
+        Distinct from abort(): reset() leaves the protocol thread alone
+        (abort-and-continue); abort() also aborts the scan loop
+        (abort-and-teardown for this run's callers). Neither releases a
+        waiter early -- the run's outcome settles in cleanup's finally,
+        which is when the teardown has actually happened.
 
         ``requester`` is the caller's run_trigger_source; the engine
         refuses a teardown from anyone but the run's owner.
@@ -513,10 +527,11 @@ class ProtocolRunner:
         self._executor.reset(requester=requester)
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
-        """Block until the engine's cleanup fully lands (claim released),
-        not merely until run_complete fires -- the completion-event wait
-        (wait_for_completion) resolves at the run-complete callback,
-        moments before cleanup's end."""
+        """Block until the engine's cleanup fully lands (claim released).
+
+        Distinct from wait_for_completion, which answers with the run's
+        outcome: this one answers only whether the runner is idle, for a
+        caller about to start something else."""
         return self._executor.wait_for_run_idle(timeout_s)
 
     def set_scope(self, scope) -> None:
@@ -539,16 +554,32 @@ class ProtocolRunner:
         the run raises out of reset() below -- ahead of every side effect
         here, because a refused abort must leave the protocol thread
         running and its waiters waiting. Ordering is the guard: the
-        thread signal and the completion event are both unconditional
-        once reset() has returned.
+        thread signal is unconditional once reset() has returned.
+
+        Waiters are NOT released here. The run's outcome settles inside
+        cleanup's finally, so a caller that wakes from
+        wait_for_completion knows the teardown happened rather than only
+        that someone asked for it.
         """
         self._executor.reset(requester=requester)
         self._protocol_thread.abort()
-        self._completion_event.set()
 
-    def wait_for_completion(self, timeout: float | None = None) -> bool:
-        """Block until the run completes. Returns True if completed, False on timeout."""
-        return self._completion_event.wait(timeout=timeout)
+    def wait_for_completion(self, timeout: float | None = None) -> RunOutcome | None:
+        """How did the last run this runner committed end?
+
+        Blocks until that run settles, then returns its outcome: the
+        status and reason it ended with, the title and message a user
+        would read, and what the merge produced.
+
+        None when the bound expires, and None AT ONCE when the last call
+        was refused or no run has ever been committed -- a refused start
+        ran nothing, and answering with an earlier run's 'completed'
+        would be a stale answer to a question about this one.
+        """
+        outcome = self._last_outcome
+        if outcome is None:
+            return None
+        return outcome.wait(timeout_s=timeout)
 
     # ------------------------------------------------------------------
     # Lifecycle

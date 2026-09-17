@@ -34,6 +34,7 @@ from modules.common_utils import CustomJSONizer
 from modules.exceptions import ConfigError, SettingsSaveRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
+from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 
 # ProtocolRunner is referenced only in a return annotation; it is
@@ -1453,9 +1454,21 @@ class ScopeSession:
         # tears down the same way from the waiter's point of view.
         runner = self.sequenced_capture_runner
         if runner is not None:
-            outcome = runner.merge_outcome()
+            outcome = runner.run_outcome()
             if outcome is not None:
-                outcome.settle_unfinished('shutdown')
+                # The fallback is used only when the run never reached
+                # cleanup and so recorded no ending of its own; a run that
+                # already reported one keeps it, and 'shutdown' says only
+                # that the merge is what the teardown cut short.
+                outcome.settle_unfinished(
+                    'shutdown',
+                    fallback=RunEnding(
+                        'aborted',
+                        'shutdown',
+                        'Session Shutdown',
+                        'The session shut down before the run reported.',
+                    ),
+                )
         # The session owns its scheduler: a session that borrowed its
         # executors still ends its own timers (a live health check
         # outliving the session would fire into torn-down state).

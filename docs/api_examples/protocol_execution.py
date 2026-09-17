@@ -132,7 +132,7 @@ def main():
     #   capture_config = runner.build_image_capture_config(image_mode="8bit")
     #
     #   # Run a single scan (captures all positions/channels once)
-    #   runner.run_single_scan(
+    #   pending = runner.run_single_scan(
     #       protocol=protocol,
     #       sequence_name="my_scan",
     #       parent_dir=pathlib.Path("./output"),
@@ -143,9 +143,11 @@ def main():
     #   print(f"Running: {runner.is_running()}")
     #   print(f"Output dir: {runner.run_dir()}")
     #
-    #   # Wait for completion (blocks until done)
-    #   completed = runner.wait_for_completion(timeout=300)
-    #   print(f"Completed: {completed}")
+    #   # Wait for the run to end, then read HOW it ended. None means the
+    #   # bound expired; otherwise status is completed/aborted/failed/
+    #   # failed_at_start and reason is the machine-readable cause.
+    #   result = pending.wait(timeout_s=300)
+    #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #
     #   # For a full timed protocol (repeats scans over duration):
     #   runner.run_protocol(
