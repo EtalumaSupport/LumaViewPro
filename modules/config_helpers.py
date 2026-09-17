@@ -1385,9 +1385,15 @@ def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn
     API caller gets the same typed error either way.
     """
     logger.error(f'[Composite] Run refused ({reason}): {message}')
-    from modules.notification_center import notifications
+    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 
-    notifications.warning('Composite', title, message)
+    notifications.warning(
+        'Composite',
+        title,
+        message,
+        solicited=True,
+        operation_key=REFUSAL_OPERATION_KEY,
+    )
     raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
 
 

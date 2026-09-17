@@ -718,10 +718,16 @@ class SequencedCaptureRunner:
         exception -- callers reconcile their own state without re-notifying.
         """
         logger.error(f'[{self.LOGGER_NAME} ] Run refused ({reason}): {message}')
-        from modules.notification_center import notifications
+        from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 
         notify = notifications.error if severity == 'error' else notifications.warning
-        notify('Protocol', title, message)
+        notify(
+            'Protocol',
+            title,
+            message,
+            solicited=True,
+            operation_key=REFUSAL_OPERATION_KEY,
+        )
         raise ProtocolRunRefusedError(
             reason=reason,
             title=title,

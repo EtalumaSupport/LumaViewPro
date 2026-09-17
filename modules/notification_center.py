@@ -63,6 +63,15 @@ class Notification:
     timestamp: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
     fatal: bool = False  # reaches listeners even while a protocol suppresses popups
+    # True when this notification ANSWERS a request that just arrived --
+    # a refusal of a button press or an API call. Both suppression rules
+    # below rest on a premise it falsifies: the unattended mute assumes
+    # nobody is watching, and dedup assumes "already shown recently",
+    # but someone asked, and asking twice is asking twice. Distinct from
+    # fatal, which is about the fault's severity: a fault that ends the
+    # operation must reach a watching user, yet one fault repeating is
+    # still one fault and must still dedup.
+    solicited: bool = False
     # Names the operation this notification is about, when it is one of a
     # sequence describing the same piece of work -- a "starting" notice and
     # the "finished" or "failed" notice that answers it. A UI listener can
@@ -141,11 +150,18 @@ class NotificationCenter:
         source: str = '',
         fatal: bool = False,
         operation_key: str = '',
+        solicited: bool = False,
     ) -> None:
         """Post a notification.  Thread-safe.  Always logs.
 
         ``fatal`` notifications reach listeners even while a protocol
         suppresses non-fatal popups (set via ``set_unattended_run``).
+
+        ``solicited`` notifications answer a request that just arrived, so
+        neither suppression rule applies to them: the caller is present by
+        construction, and a repeated request is a repeated question. Set it
+        at the funnel that knows the notification is an answer, never at an
+        emitter that cannot tell who asked.
 
         ``operation_key`` marks this as one of a sequence about a single piece
         of work, so a UI listener can replace the earlier message rather than
@@ -189,12 +205,15 @@ class NotificationCenter:
         with self._lock:
             if self._shutting_down:
                 suppressed_reason = 'shutdown'  # logged above; suppressed during close
-            elif self._unattended_run and not fatal:
+            elif self._unattended_run and not fatal and not solicited:
                 # logged above; non-fatal popups suppressed on an unattended run
                 suppressed_reason = 'unattended_run'
             else:
                 last = self._dedup.get(key, 0.0)
-                if (now - last) < self._dedup_window_s:
+                # The window still advances for a solicited notification, so a
+                # later unsolicited repeat of the same (category, title) is
+                # measured from the answer the user actually saw.
+                if not solicited and (now - last) < self._dedup_window_s:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
@@ -242,6 +261,7 @@ class NotificationCenter:
             source=source,
             fatal=fatal,
             operation_key=operation_key,
+            solicited=solicited,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:
@@ -295,6 +315,14 @@ class NotificationCenter:
         with self._lock:
             self._listeners.clear()
             self._dedup.clear()
+
+
+# The operation this key names is "the answer to the user's last refused
+# request". One key for every refusal, deliberately: the newest refusal is
+# the true answer, so the bridge's supersession replaces the dialog on a
+# second press instead of stacking one per press -- which is what bounds the
+# dialogs now that a solicited notification no longer dedups.
+REFUSAL_OPERATION_KEY = 'run_refusal'
 
 
 # Module-level singleton -- import this in producers and consumers.
