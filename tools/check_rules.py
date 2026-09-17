@@ -1030,7 +1030,9 @@ def _check_rule_45(content: str, path: str, added: set[int] | None) -> list[Viol
 
 
 _DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
-_DAILY_LOG_RE = re.compile(r'(?:^|/)docs/DAILY_LOG(?:_\d{4}-\d{2})?\.md$')
+# RETROSPECTIVES shards are top-inserted by four tracks exactly as the log
+# is, so they get the same newest-first check.
+_DAILY_LOG_RE = re.compile(r'(?:^|/)docs/(?:DAILY_LOG|RETROSPECTIVES)(?:_\d{4}-\d{2})?\.md$')
 
 
 def _is_daily_log(path: str) -> bool:
@@ -1113,7 +1115,7 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
                     'handover_shape',
                     f'handover section `{m.group(1)}` is outside the closed shape '
                     f'({shape}); a fact goes to its doc with a pointer in Next, '
-                    'a lesson to the DAILY_LOG Calibration line',
+                    'a lesson to the RETROSPECTIVES entry',
                     severity='warn',
                 )
             )
@@ -1135,7 +1137,7 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
 
 
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
-    """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
+    """BLOCK a DAILY_LOG or RETROSPECTIVES shard whose entry dates are not newest-first.
 
     The shard header promises newest-at-top; four recurrences of
     bottom-appended entries outlived that prose, and the Rulings check
@@ -1160,8 +1162,8 @@ def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
                     lineno,
                     0,
                     'daily_log_ordering',
-                    f'DAILY_LOG shard entries are newest-first: the {date} '
-                    f'entry sits below the older {prev[0]} entry (line '
+                    f'{p.rsplit("/", 1)[-1]} entries are newest-first: the '
+                    f'{date} entry sits below the older {prev[0]} entry (line '
                     f'{prev[1]}); insert new entries at the TOP, directly '
                     'under the header block',
                 )
