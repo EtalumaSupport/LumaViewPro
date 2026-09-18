@@ -2861,7 +2861,7 @@ class PylonCamera(Camera):
                     recording_id=profile_trace.NO_RECORDING,
                 )
 
-    def set_frame_size(self, w, h) -> None:
+    def set_frame_size(self, w: int, h: int) -> dict | bool:
         """Set camera frame size to ``w`` x ``h`` and recenter the ROI.
 
         Width and height are clamped to the camera's reported maxima

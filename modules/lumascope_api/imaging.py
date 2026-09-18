@@ -986,7 +986,7 @@ class ImagingAPI:
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
 
-    def set_gain_db(self, gain_db: float) -> None:
+    def set_gain_db(self, gain_db: float) -> bool | None:
         """Set the camera gain, and wait for it.
 
         See ``_set_gain_db_impl`` for the value contract and the rejection
@@ -1017,7 +1017,7 @@ class ImagingAPI:
         # them. The raise is added to that, not substituted for it.
         return applied
 
-    def set_exposure_ms(self, exposure_ms: float) -> None:
+    def set_exposure_ms(self, exposure_ms: float) -> bool | None:
         """Set the camera exposure time, and wait for it.
 
         See ``_set_exposure_ms_impl`` for the value contract and the
