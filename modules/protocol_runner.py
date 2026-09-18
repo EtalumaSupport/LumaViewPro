@@ -278,6 +278,107 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    def run_autofocus(
+        self,
+        layer: str,
+        save_characterization_data: bool = False,
+        sequence_name: str = 'autofocus',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+    ) -> PendingRunOutcome:
+        """Autofocus once on *layer*, at the current stage position.
+
+        The headless twin of the standalone autofocus button: a
+        one-position, one-layer run with autofocus on, saving no images and
+        no run artifacts, that leaves the stage at the focus it found.
+
+        The layer is named rather than discovered. A GUI reads it from
+        whichever drawer is open, which is a fact about a running GUI and
+        means nothing to a caller that has none, so this asks for it and
+        has no default -- an autofocus on a layer nobody chose is not a
+        useful answer.
+
+        Everything else comes from the settings store, so this run and a
+        click on the button resolve the same way.
+
+        The stage is deliberately left where the focus was found, and there
+        is no return-to-position input: ending at the focus is the point.
+        A caller sweeping the same field repeatedly sets its own Z between
+        runs, which it must do anyway for the measurements to be comparable.
+
+        Args:
+            layer: Which layer to focus on ('BF', 'Green', ...).
+            save_characterization_data: Whether to write the per-position
+                focus scores this sweep measured. Off by default: a caller
+                that does not ask for data gets no folder. When on, the
+                run's outcome reports whether the file was written and
+                names it (af_data_saved / af_data_path), which is the only
+                way a headless caller can tell a delivered file from a
+                requested one.
+            sequence_name: Name for the run.
+            parent_dir: Where characterization data goes. Defaults to
+                'Autofocus Characterization' under the live folder, where
+                the button already puts it.
+            callbacks: Optional dict of callback functions.
+
+        Returns:
+            The run's outcome, to wait on or to ignore.
+
+        Raises:
+            ConfigError: *layer* is not a layer this release has.
+            ProtocolRunRefusedError: The runner refused the request
+                (already running, files still writing, hardware not
+                connected); no state was committed.
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.settings
+        input_config = config_helpers.get_standalone_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            self.session.wellplate_loader,
+            layer=layer,
+            position=self.session.get_current_plate_position(),
+            position_name='Autofocus',
+            autofocus=True,
+            use_zstacking=False,
+            # A standalone autofocus never pulses stimulation at the sample:
+            # it is a measurement of focus, and firing the stim hardware
+            # during one is something no caller has asked for.
+            stim_config={},
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve()
+                / 'Autofocus Characterization'
+            )
+
+        # Resolved here rather than left empty: the prepare boundary reads an
+        # empty parent directory as "suppress artifacts", and the autofocus
+        # engine raises outright when asked to save with nowhere to save to.
+        # Suppressing artifacts and delivering data are not in conflict --
+        # the run directory setup returns early on suppression while the
+        # parent directory is still taken from the plan.
+        return self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_trigger_source='api_autofocus',
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
+            enable_image_saving=False,
+            callbacks=callbacks,
+            # A one-field operation at a scope someone is standing at, so it
+            # hands the illumination back the way it was found rather than
+            # forcing every channel dark the way a plate traverse does.
+            leds_state_at_end='return_to_original',
+            disable_saving_artifacts=True,
+            save_autofocus_data=save_characterization_data,
+        )
+
     def run_composite(
         self,
         sequence_name: str = 'composite',
@@ -364,6 +465,8 @@ class ProtocolRunner:
         leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
+        disable_saving_artifacts: bool = False,
+        save_autofocus_data: bool = False,
     ) -> PendingRunOutcome:
         """Internal: configure and launch the sequenced capture executor.
 
@@ -443,6 +546,12 @@ class ProtocolRunner:
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
+            # Forwarded with the boundary's own names and its own defaults,
+            # so this helper and the prepare it wraps stay one-to-one. No
+            # existing caller passes either; both were reachable only from
+            # inside the engine until a run kind needed to ask for them.
+            disable_saving_artifacts=disable_saving_artifacts,
+            save_autofocus_data=save_autofocus_data,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock
             ),

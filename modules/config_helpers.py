@@ -1501,6 +1501,102 @@ def get_composite_capture_config_from_settings(
     )
 
 
+def get_standalone_capture_config_from_settings(
+    settings: dict,
+    objective_helper: ObjectiveLoader,
+    wellplate_loader: WellPlateLoader,
+    *,
+    layer: str,
+    position: dict,
+    position_name: str,
+    autofocus: bool,
+    use_zstacking: bool,
+    stim_config: dict,
+) -> dict:
+    """Build the input_config for a one-position, one-layer run at *position*.
+
+    The third settings lane into the canonical builder, beside the
+    plate-wide and composite ones. It serves the degenerate case both
+    standalone buttons drive -- a single field, a single layer, with
+    autofocus or z-stacking turned on -- which until now had no named
+    selector, so each starter chose the same thirteen values inline.
+
+    Not expressed as the plate-wide selector plus arguments on purpose:
+    this case does not subset that one. It forces tiling off, period and
+    duration to nothing, names its position, and overrides the layer's
+    stored autofocus flag -- arguments the plate-wide callers could not
+    use, in combinations that would mean nothing to them.
+
+    The position keeps its z, unlike the composite lane which nulls it so
+    each channel falls to its own focus. Here the z IS the input: it is
+    where the autofocus sweep starts, and the plane a z-stack is built
+    around.
+
+    Args:
+        layer: Which layer to capture. Named by the caller because a GUI
+            reads it from the open drawer and a script has none.
+        position: Plate coordinates for the single step, from
+            get_current_plate_position.
+        position_name: What the step is called in the saved data.
+        autofocus: Whether the step runs autofocus. Overrides the layer's
+            stored flag either way, so a caller gets what it asked for
+            rather than what the user last left switched on.
+        use_zstacking: Whether the step expands into a z-stack. The
+            z-stack parameters are read from settings only when this is
+            set; a caller that is not stacking gets none rather than
+            stale ones.
+        stim_config: Per-layer stimulation to stamp onto the step. An
+            empty dict keeps the run stim-free.
+
+    Raises:
+        ConfigError: *layer* is not a layer this release has.
+    """
+    # Validated BEFORE anything indexes settings by it. The layer selector
+    # below iterates the release catalogue and skips what does not match,
+    # so an unknown name does not fail there -- it yields no layers, and
+    # the run is refused several steps later as "Protocol has no steps",
+    # naming a cause that has nothing to do with what the caller got
+    # wrong.
+    known_layers = common_utils.get_layers()
+    if layer not in known_layers:
+        raise ConfigError(
+            f'{layer!r} is not a layer on this scope; available: {", ".join(known_layers)}'
+        )
+
+    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+
+    layer_configs = get_layer_configs(settings, specific_layers=[layer])
+    layer_config = layer_configs[layer]
+    # Both starters do exactly this: the step captures an image, and the
+    # caller's intent decides autofocus rather than the layer's stored
+    # flag. Assembling a config is not the place to honour a leftover
+    # switch the caller said nothing about.
+    layer_config['acquire'] = 'image'
+    layer_config['autofocus'] = autofocus
+
+    step_position = dict(position)
+    step_position['name'] = position_name
+
+    return build_sequenced_capture_config(
+        {
+            'labware_id': labware_id,
+            'objective_id': objective_id,
+            'zstack_params': get_zstack_params_from_settings(settings) if use_zstacking else {},
+            'use_zstacking': use_zstacking,
+            'tiling': TilingConfig.no_tiling_label(),
+            'tiling_overlap_percent': 0.0,
+            'layer_configs': {layer: layer_config},
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            'stim_config': stim_config,
+            'positions': [step_position],
+        }
+    )
+
+
 def get_sequenced_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,

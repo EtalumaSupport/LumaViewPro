@@ -464,11 +464,26 @@ print(result.status, result.reason, result.message)
 runner.abort(requester='api_scan')
 ```
 
+**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol:
+
+```python
+pending = runner.run_autofocus('BF', save_characterization_data=True)
+result = pending.wait(timeout_s=120)
+if result.af_data_saved:
+    print('focus curve written to', result.af_data_path)
+```
+
+The layer is named by the caller and has no default: a GUI reads it from whichever drawer is open, which is a fact about a running GUI and means nothing to a script. A layer this release does not have raises `ConfigError` naming it, before any hardware moves. Everything else -- illumination, gain, exposure, frame size, binning, labware, objective -- comes from the settings store, so this run resolves exactly as the standalone autofocus button does.
+
+The run saves no images and writes no run artifacts, and it leaves the stage at the focus it found; that is the point of it, so there is no return-to-position input, and a caller sweeping the same field repeatedly sets its own Z between runs. It hands the illumination back the way it found it rather than forcing every channel dark, because it is a single-field operation at a scope someone is standing at.
+
+`save_characterization_data` is off by default: a caller that does not ask for the focus curve gets no folder. When on, the data lands under `Autofocus Characterization` in the live folder (or a `parent_dir` you state), and the outcome's `af_data_saved` / `af_data_path` report whether the file was written and where.
+
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, or a live owner holding the illumination. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
 **How a run ends.** Every run that commits returns a handle; `handle.wait(timeout_s=...)` blocks until the run settles and hands back its outcome. `runner.wait_for_completion(timeout=None)` answers the same thing for the **last run this runner committed**. Both give back `None` when the bound expires, and `wait_for_completion` gives back `None` at once when the last call was refused or no run has ever been committed -- a refused start ran nothing, so there is no outcome to report and an older run's result would be a stale answer.
 
-The outcome carries seven fields. `status` is one of `completed`, `aborted`, `failed` or `failed_at_start`: `aborted` is an ending the user or a policy ceiling asked for (`stopped`, `consecutive_scan_failures`), `failed` is one the instrument imposed (`motion_timeout`, `camera_failure`, `disk_space_critical`), and `failed_at_start` is a run that could not begin after it committed. `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file.
+The outcome carries nine fields. `status` is one of `completed`, `aborted`, `failed` or `failed_at_start`: `aborted` is an ending the user or a policy ceiling asked for (`stopped`, `consecutive_scan_failures`), `failed` is one the instrument imposed (`motion_timeout`, `camera_failure`, `disk_space_critical`), and `failed_at_start` is a run that could not begin after it committed. `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file. `af_data_saved` and `af_data_path` describe autofocus characterization data the same way: `af_data_saved` is true only when the data file was actually WRITTEN, and `af_data_path` names it. A run that asked for no data, a sweep that measured none, and a run whose queued write an abort discarded all report `af_data_saved=False` with `af_data_path=None` -- the fields answer "did it land", not "was it requested", so a headless caller never has to go looking on disk to find out.
 
 The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that completed but whose merge produced nothing reports `status='completed'` with the cause in `merge_reason`. `run_composite()` raises `CaptureError` carrying whichever of the two applies.
 
