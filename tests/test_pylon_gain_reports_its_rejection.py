@@ -60,6 +60,10 @@ def pylon_cam():
     # answers 0 -- seeded here rather than in the shared bare_pylon_camera so
     # the other users of that harness keep the shape they were written against.
     cam.cam_image_handler = None
+    # The API asks is_device_removed() when a write reports refused, to tell a
+    # refusal apart from a camera that vanished mid-write. __new__ skips the
+    # Camera.__init__ that seeds it.
+    cam._device_removed = False
     return cam
 
 

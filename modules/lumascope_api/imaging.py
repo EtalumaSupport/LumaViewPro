@@ -741,8 +741,9 @@ class ImagingAPI:
 
         Returns:
             bool | None: ``False`` on a confirmed driver rejection. ``None``
-                when no camera is active, or when the driver has no
-                confirmation signal -- neither of those is a refusal.
+                when no camera is active, when the camera was removed
+                during the write, or when the driver has no confirmation
+                signal -- none of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -767,6 +768,23 @@ class ImagingAPI:
             cache_update={'gain_db': float(gain_db)},
         )
         if ok is False:
+            if self._driver.is_device_removed():
+                # A write that failed because the device vanished arrives here
+                # looking exactly like a refusal: _mark_disconnected() leaves
+                # _active set on purpose (the SDK handle is released later,
+                # off this thread), so the driver's own inactive branch never
+                # fires. Reporting it as a rejection names the wrong cause --
+                # it tells the user to check their value when the camera is
+                # gone -- and raises CameraSettingRejected at the public
+                # setter for what the missing-hardware contract calls a quiet
+                # no-op. Answer "not confirmed" instead, which is what a
+                # vanished camera actually leaves behind.
+                logger.error(
+                    f'[SCOPE API ] gain_db: camera removed during the write; '
+                    f'{float(gain_db)!r} was not applied'
+                )
+                self._notify_camera_absent('gain')
+                return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD gain,
             # and IDS has no chunk backstop to catch the mismatch
@@ -800,8 +818,9 @@ class ImagingAPI:
 
         Returns:
             bool | None: ``False`` on a confirmed driver rejection. ``None``
-                when no camera is active, or when the driver has no
-                confirmation signal -- neither of those is a refusal.
+                when no camera is active, when the camera was removed
+                during the write, or when the driver has no confirmation
+                signal -- none of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -845,6 +864,23 @@ class ImagingAPI:
             cache_update={'exposure_ms': float(exposure_ms)},
         )
         if ok is False:
+            if self._driver.is_device_removed():
+                # A write that failed because the device vanished arrives here
+                # looking exactly like a refusal: _mark_disconnected() leaves
+                # _active set on purpose (the SDK handle is released later,
+                # off this thread), so the driver's own inactive branch never
+                # fires. Reporting it as a rejection names the wrong cause --
+                # it tells the user to check their value when the camera is
+                # gone -- and raises CameraSettingRejected at the public
+                # setter for what the missing-hardware contract calls a quiet
+                # no-op. Answer "not confirmed" instead, which is what a
+                # vanished camera actually leaves behind.
+                logger.error(
+                    f'[SCOPE API ] exposure_ms: camera removed during the write; '
+                    f'{float(exposure_ms)!r} was not applied'
+                )
+                self._notify_camera_absent('exposure')
+                return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD
             # exposure, and IDS has no chunk backstop to catch the

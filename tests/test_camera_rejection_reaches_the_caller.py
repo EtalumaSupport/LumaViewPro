@@ -156,6 +156,77 @@ class TestARefusalIsNotRecordedAsTruth:
         assert imaging.gain_db_cached == 9.0
 
 
+class TestARemovedCameraIsNotAValueRejection:
+    """A camera that vanished mid-write is the missing-hardware contract's
+    quiet no-op, not a refusal of the value.
+
+    ``_mark_disconnected()`` deliberately leaves the SDK handle attached -- the
+    release is deferred to a teardown thread -- so the driver's own inactive
+    branch never fires for a removed device and the failed write arrives here
+    looking exactly like a rejection. Both consequences name the wrong cause:
+    the user is told to check that the value is within the camera limits, and
+    an L2 caller gets ``CameraSettingRejected`` for a camera that is gone.
+    """
+
+    def test_a_removed_camera_does_not_raise_a_rejection(self, sim_imaging, monkeypatch):
+        imaging, cam = sim_imaging
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        monkeypatch.setattr(cam, 'is_device_removed', lambda: True)
+
+        assert imaging.set_gain_db(9.0) is None
+
+    def test_a_removed_camera_reads_as_absent_not_as_refused(self, sim_imaging, monkeypatch):
+        imaging, cam = sim_imaging
+        warned, errored = [], []
+        monkeypatch.setattr(
+            'modules.lumascope_api.imaging.notifications.warning',
+            lambda *a, **kw: warned.append(a),
+        )
+        monkeypatch.setattr(
+            'modules.lumascope_api.imaging.notifications.error',
+            lambda *a, **kw: errored.append(a),
+        )
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        monkeypatch.setattr(cam, 'is_device_removed', lambda: True)
+
+        imaging.set_gain_db(9.0)
+
+        assert warned, 'a vanished camera still has to reach the user'
+        assert 'not connected' in warned[0][1].lower()
+        assert not errored, 'and must not be reported as a refused value'
+
+    def test_a_live_camera_still_reports_its_refusal(self, sim_imaging, notified, monkeypatch):
+        """The discrimination must not swallow a real refusal -- the whole
+        point of the driver-side fix is that this one is reachable."""
+        imaging, cam = sim_imaging
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_gain_db(9.0)
+
+    def test_the_exposure_twin_discriminates_the_same_way(self, sim_imaging, monkeypatch):
+        imaging, cam = sim_imaging
+        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+        monkeypatch.setattr(cam, 'is_device_removed', lambda: True)
+
+        assert imaging.set_exposure_ms(25.0) is None
+
+    def test_a_refused_write_on_a_removed_camera_still_records_nothing(
+        self, sim_imaging, monkeypatch
+    ):
+        """Not raising must not become recording: the cache and the chunk
+        target stay where the hardware was."""
+        imaging, cam = sim_imaging
+        imaging.set_gain_db(3.0)
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        monkeypatch.setattr(cam, 'is_device_removed', lambda: True)
+
+        imaging.set_gain_db(9.0)
+
+        assert imaging.gain_db_cached == 3.0
+        assert imaging.frame_validity.target('gain') == 3.0
+
+
 class TestTheImplsStayNonRaising:
     """The in-run composition primitive must not throw into the scan loop.
 
