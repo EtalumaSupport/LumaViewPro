@@ -28,6 +28,7 @@ import datetime
 import pathlib
 import sys
 import threading
+import time
 from unittest.mock import MagicMock
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
@@ -322,3 +323,99 @@ class TestEverySettlePathCarriesTheRecordedData:
         assert pending.resolve_if_pending(_ending()) is True
         outcome = pending.wait(timeout_s=1.0)
         assert (outcome.af_data_saved, outcome.af_data_path) == (False, None)
+
+
+class TestTheSweepDoesNotReturnBeforeItsWriteLands:
+    """Queueing the save is not writing it.
+
+    The sweep's answer to "what did I write" is read after the sweep ends,
+    by the run that settles its outcome. The save rides the sequential file
+    lane and run cleanup does not wait for it -- it defers a files-complete
+    callback instead -- so a sweep that returned as soon as the task was
+    queued would let a reader be told nothing was written by a sweep whose
+    file lands moments later.
+    """
+
+    def _bare_runner(self):
+        """A runner whose only exercised surface is the wait itself.
+
+        The scope is specced rather than bare so a name this test does not
+        use, but a future edit might, fails loudly instead of answering
+        with a mock. The executors stay plain doubles: nothing here
+        submits work, and the waiter is handed in directly.
+        """
+        from modules.autofocus_runner import AutofocusRunner
+        from tests.scope_fakes import spec_scope
+
+        return AutofocusRunner(
+            scope=spec_scope(),
+            camera_executor=MagicMock(),
+            io_executor=MagicMock(),
+            file_io_executor=MagicMock(),
+        )
+
+    def test_the_wait_blocks_until_the_write_completes(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+
+        runner = self._bare_runner()
+        waiter = _ReusableTaskWaiter()
+        runner._data_write_future = waiter
+
+        HOLD_S = 0.25
+        threading.Timer(HOLD_S, lambda: waiter.set_result(None)).start()
+        started = time.monotonic()
+        runner._await_data_write()
+        elapsed = time.monotonic() - started
+
+        assert elapsed >= HOLD_S, (
+            'the sweep returned before its queued write completed; a reader '
+            'would be told nothing was written by a sweep whose file lands '
+            f'moments later (waited {elapsed:.3f}s for a {HOLD_S}s write)'
+        )
+
+    def test_a_cancelled_write_does_not_cost_the_bound(self):
+        """An aborting run discards the queued save on purpose.
+
+        clear_protocol_pending cancels the task rather than running it, so
+        the wait must end on the cancellation and not sit out the timeout --
+        an abort exists to give the user control back.
+        """
+        from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+
+        runner = self._bare_runner()
+        waiter = _ReusableTaskWaiter()
+        waiter.cancel()
+        runner._data_write_future = waiter
+
+        started = time.monotonic()
+        runner._await_data_write()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < AF_DATA_WRITE_WAIT_S / 2, (
+            f'a cancelled write should end the wait at once, not sit out the '
+            f'{AF_DATA_WRITE_WAIT_S}s bound (took {elapsed:.3f}s)'
+        )
+
+    def test_nothing_queued_needs_no_wait(self):
+        """A refused submit returns no waiter, and saved_data_path stays None."""
+        runner = self._bare_runner()
+        runner._data_write_future = None
+
+        started = time.monotonic()
+        runner._await_data_write()
+
+        assert time.monotonic() - started < 0.1
+        assert runner.saved_data_path() is None
+
+    def test_the_waiter_is_consumed_so_a_later_sweep_cannot_inherit_it(self):
+        from modules.sequential_io_executor import _ReusableTaskWaiter
+
+        runner = self._bare_runner()
+        waiter = _ReusableTaskWaiter()
+        waiter.set_result(None)
+        runner._data_write_future = waiter
+
+        runner._await_data_write()
+
+        assert runner._data_write_future is None

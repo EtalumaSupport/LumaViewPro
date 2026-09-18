@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
+import concurrent.futures
 import logging
 import pathlib
 import threading
@@ -32,6 +33,13 @@ if TYPE_CHECKING:
     from modules.lumascope_api.illumination import LedLease
 
 _af_log = logging.getLogger('LVP.autofocus')
+
+# How long a sweep waits for its queued characterization write to reach disk
+# before reporting that it wrote nothing. Budget row: af_data_write_wait_s in
+# PERFORMANCE_BUDGETS.md. Only a sweep that ASKED to save waits at all, and an
+# aborting run cancels the write rather than running it, which resolves the
+# wait at once -- so this bound is paid only by a save that is genuinely slow.
+AF_DATA_WRITE_WAIT_S = 5.0
 
 
 def _describe_restore(restore: dict) -> str:
@@ -420,8 +428,12 @@ class AutofocusRunner:
                         self._af_data_full.extend(self._af_data_pass)
                         self._af_data_pass = []
                     try:
-                        self._file_io_executor.protocol_put(
-                            IOTask(action=self._save_autofocus_data)
+                        # Keep the waiter: the sweep reports what it WROTE, so
+                        # it has to outlive the queueing and be awaited before
+                        # run() returns (see _await_data_write below).
+                        self._data_write_future = self._file_io_executor.protocol_put(
+                            IOTask(action=self._save_autofocus_data),
+                            return_future=True,
                         )
                     except Exception as ex:
                         logger.warning(f'[AF] Failed to queue autofocus data save: {ex}')
@@ -564,6 +576,10 @@ class AutofocusRunner:
                     self._led_lease.release(leave_on=True)
                     self._led_lease = None
                 self._abort_event = None
+                # Last, after every flag is cleared and the lease is released:
+                # the wait must not hold the LED lease or the in-progress flag
+                # that gates the next run, and by here it holds neither.
+                self._await_data_write()
 
     def _apply_sweep_camera_targets(self, lock) -> str:
         """Choose what the sweep scans at and write it if the lock has not.
@@ -1050,6 +1066,7 @@ class AutofocusRunner:
         self._af_data_full = []
         self._best_focus_position = None
         self._saved_data_path = None
+        self._data_write_future = None
         self._last_pass = False
         self._params = {}
         self._run_trigger_source = None
@@ -1057,6 +1074,55 @@ class AutofocusRunner:
         self._led_illumination = 0
         with self._callbacks_lock:
             self._callbacks = {}
+
+    def _await_data_write(self) -> None:
+        """Block until the queued characterization save has actually run.
+
+        A sweep answers "what did I write" through saved_data_path(), and
+        that answer is read after the sweep ends -- by the run that settles
+        its outcome, among others. Queueing the save is not writing it: the
+        file lane is sequential and the run's cleanup does not wait for it
+        (it hands the caller a deferred files-complete callback instead), so
+        without this a reader is told nothing was written by a sweep whose
+        CSV lands moments later.
+
+        Bounded, and a bound that expires is not silent: the answer then
+        stays None, which is wrong-but-honest in the safe direction, and
+        the log says a write outlived its window rather than leaving a
+        reader to wonder. An aborting run cancels the queued task rather
+        than running it, and the cancellation resolves this wait
+        immediately -- so the abort path does not pay the bound.
+
+        A refused submit returns no waiter at all, which needs no wait:
+        nothing was queued, and saved_data_path() correctly stays None.
+        """
+        fut = self._data_write_future
+        self._data_write_future = None
+        if fut is None:
+            return
+        try:
+            fut.result(timeout=AF_DATA_WRITE_WAIT_S)
+        except concurrent.futures.CancelledError:
+            # The expected end of an aborting run: it discarded the queued
+            # write on purpose, so there is no data file and nothing wrong.
+            logger.info(
+                '[AF] autofocus characterization write was discarded with the '
+                'run; this sweep reports no data file'
+            )
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                f'[AF] autofocus characterization write did not finish within '
+                f'{AF_DATA_WRITE_WAIT_S}s; this sweep reports no data file, and '
+                f'one may still appear on disk afterwards'
+            )
+        except Exception:
+            # The write itself failed -- a full disk, a vanished drive. Said
+            # as that, not as a timeout: a caller reading the log has to be
+            # able to tell a slow write from a failed one.
+            logger.warning(
+                '[AF] autofocus characterization write failed; this sweep reports no data file',
+                exc_info=True,
+            )
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)
