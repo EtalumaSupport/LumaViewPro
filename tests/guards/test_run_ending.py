@@ -217,14 +217,12 @@ def test_every_error_state_write_aborts_the_run_in_the_same_function():
 def _stop_stub(trigger='test', signals_inline_cleanup=False):
     import modules.sequenced_capture_runner as scr
 
-    run_flag = threading.Event()
-    run_flag.set()
     cleaned = []
     return (
         scr,
         SimpleNamespace(
             _run_lock=threading.RLock(),
-            _run_in_progress_event=run_flag,
+            _is_run_live=lambda: True,
             _run_trigger_source=trigger,
             _ending=EndingLatch(),
             _signal_abort_locked=lambda: signals_inline_cleanup,
@@ -250,7 +248,7 @@ class TestTheRunnerRecordsWhoStoppedIt:
         """A no-op Stop ended no run, so it must leave no reason behind for
         the NEXT run to report as its own."""
         scr, stub, _ = _stop_stub()
-        stub._run_in_progress_event.clear()
+        stub._is_run_live = lambda: False
         scr.SequencedCaptureRunner.reset(stub, 'test')
         assert stub._ending.get() is None
 
@@ -320,7 +318,7 @@ class TestACleanupPassThatDoesNotOwnTheRun:
 
         touched = []
         stub = SimpleNamespace(
-            _run_in_progress_event=threading.Event(),  # clear: this pass does not own it
+            _is_run_live=lambda: False,  # this pass does not own the run
             _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
             file_io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('file')),
             _settle_run_outcome=lambda ending: touched.append('settled'),
@@ -345,8 +343,6 @@ class TestACleanupPassThatDoesNotOwnTheRun:
 
 def _cleanup_stub(latched=None, forced_dark=False):
     """A runner far enough along to reach cleanup's single read."""
-    run_flag = threading.Event()
-    run_flag.set()
     fatal = threading.Event()
     if forced_dark:
         fatal.set()
@@ -357,7 +353,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
     # before calling it, so every attribute it reads must exist. Only the ones
     # this test reasons about are pinned; the rest are inert.
     stub = MagicMock()
-    stub._run_in_progress_event = run_flag
+    stub._is_run_live = lambda: True
     stub._ending = latch
     stub._fatal_abort_event = fatal
     stub._image_writer = None  # no video lane to drain

@@ -37,6 +37,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.protocol_state_machine import ProtocolState
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -536,7 +537,7 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         executor._protocol = protocol
         executor._aborted = _threading.Event()
         executor._scan_in_progress.set()
-        executor._run_in_progress_event.set()
+        executor._set_state(ProtocolState.RUNNING)
         executor._grease_redistribution_event.set()
         executor._curr_step = 0
         executor._motion_wait_start = None
@@ -2374,9 +2375,7 @@ class TestRunReturnValueContract:
         assert executor.run_dir() is None, (
             'A refused run must not leave a run directory for callers to save into'
         )
-        assert not executor._run_in_progress_event.is_set(), (
-            'A refused run must not mark a run as in progress'
-        )
+        assert not executor.run_in_progress(), 'A refused run must not mark a run as in progress'
 
     def test_started_run_completes(self, executor, tmp_path):
         done = threading.Event()

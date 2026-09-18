@@ -1534,7 +1534,7 @@ class TestRule14_A4_PreRunValidationNotify:
         assert not protocol.copy_for_execution.called, (
             'run must abort at validation, before snapshotting the protocol'
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
     def test_validation_summary_truncates_at_five(self, monkeypatch):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
@@ -1572,7 +1572,7 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
         assert captured[0][1] == 'Cannot verify hardware state', (
             f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
@@ -1687,7 +1687,6 @@ def _run_cleanup_kwargs(**overrides):
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
         'set_state_fn': MagicMock(),
-        'run_lock': threading.Lock(),
         'scan_in_progress': threading.Event(),
         'forced_dark': False,
         'leds_state_at_end': 'off',
@@ -1707,7 +1706,6 @@ def _run_cleanup_kwargs(**overrides):
         'autofocus_thread': None,
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
-        'set_run_in_progress_fn': MagicMock(),
         'ending': RunEnding(
             'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
         ),
@@ -1727,6 +1725,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         from modules.notification_center import notifications
         from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
@@ -1775,7 +1774,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         assert kwargs['io_executor'].protocol_end.called, (
             'the executor teardown must still run after step failures'
         )
-        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
 
     def test_cleanup_summary_notify(self, monkeypatch):
         """A single failing step must produce exactly one summary warning
@@ -3635,6 +3634,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         from modules.notification_center import notifications
         from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
@@ -3648,7 +3648,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         assert kwargs['io_executor'].protocol_end.called, (
             'cleanup steps after the shader raise must still run'
         )
-        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
         assert captured and 'Restore layer shader' in captured[0][2], (
             f'the shader failure must appear in the cleanup summary; got {captured}'
         )
@@ -3849,8 +3849,8 @@ class TestPF2_FileIoExecutorClearedOnAbort:
             'the initial state must be read before the COMPLETING transition '
             f'so abort (ERROR) is distinguishable from normal end; got {order}'
         )
-        assert state['value'] == ProtocolState.IDLE, (
-            f'cleanup must transition back to IDLE at the end; got {order}'
+        assert state['value'] == ProtocolState.COMPLETING, (
+            f'cleanup must leave the run in COMPLETING for the caller to end; got {order}'
         )
 
     def test_file_io_cleared_on_abort_only(self):
@@ -8948,7 +8948,6 @@ class TestStageOffsetSnapshot:
     def _snapshot_via_run_start(self, exc):
         """Drive the snapshot the way a run takes it: prepare deepcopies
         the live source, start adopts the plan's copy."""
-        exc._run_in_progress_event.clear()
         exc.start(exc.prepare(**_scr_run_kwargs()))
 
     def test_constructor_holds_live_reference(self):
@@ -9166,11 +9165,13 @@ class TestSCEResetSignalsAbort:
         return _make_capture_runner()
 
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
@@ -9185,11 +9186,13 @@ class TestSCEResetSignalsAbort:
         a UI abort calls reset() on the Kivy main thread, and running the
         teardown inline froze the GUI for the duration of the queued moves.
         The run loop's finally-block owns cleanup on the protocol thread."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
@@ -9203,11 +9206,13 @@ class TestSCEResetSignalsAbort:
         """With the run flagged in progress but no live run loop (dispatch
         failed / thread died before its finally), reset() must still clean
         up so run state is not orphaned."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
@@ -9221,11 +9226,13 @@ class TestSCEResetSignalsAbort:
         in-flight scan step (exercised on the inline-fallback path; the
         deferred path orders abort before the run loop's own cleanup by
         construction)."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner.protocol_thread.is_running = False
 
@@ -9242,24 +9249,28 @@ class TestSCEResetSignalsAbort:
         assert runner.wait_for_run_idle(timeout_s=0.2) is True
 
     def test_wait_for_run_idle_times_out_while_run_unwinds(self):
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
         import threading
 
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Setting the flag alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
-        threading.Timer(0.1, runner._run_in_progress_event.clear).start()
+        threading.Timer(0.1, lambda: runner._set_state(ProtocolState.IDLE)).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
@@ -11354,7 +11365,7 @@ class TestRunPreValidationFiresNotificationOnException:
             'run must return at the validation failure, not fall through '
             'to the connectivity check (old anti-pattern: proceed anyway)'
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
 
 class TestCompositeOrchestrationByteEqualManualVsProtocol:

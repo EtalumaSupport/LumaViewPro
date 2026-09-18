@@ -217,13 +217,10 @@ class SequencedCaptureRunner:
         # construct SCE without a real protocol_thread can still read
         # this Event because it defaults to a local Event before start().
         self._aborted: threading.Event = threading.Event()
-        self._run_in_progress_event = (
-            threading.Event()
-        )  # GIL-free safe replacement for _run_in_progress bool
         # Monotonic per-start() counter that scopes each run's LED-lease
-        # liveness probe to ITS run: the Event above is shared across
-        # runs, so without the generation a stale lease would probe live
-        # again the moment the next run sets it.
+        # liveness probe to ITS run: the run phase is one store shared
+        # across runs, so without the generation a stale lease would
+        # probe live again the moment the next run leaves IDLE.
         self._run_generation = 0
         # The loaded protocol exists from construction so a runner that has
         # never started (or refused to start) answers getters with None
@@ -325,7 +322,6 @@ class SequencedCaptureRunner:
         # under the run lock. A run that never started must leave nothing
         # for a caller to wait on.
         self._run_outcome = None
-        self._run_in_progress_event.clear()
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
         # a fatal fault (disk floor) would set a SHARED flag after the next
@@ -511,7 +507,7 @@ class SequencedCaptureRunner:
         with self._run_lock:
             # No live run means no owner to be wrong about: a stop with
             # nothing to stop is a no-op, never a refusal.
-            if not self._run_in_progress_event.is_set():
+            if not self._is_run_live():
                 return
 
             holder = self._run_trigger_source
@@ -547,7 +543,7 @@ class SequencedCaptureRunner:
         invisible to a grep for the override's users.
         """
         with self._run_lock:
-            if not self._run_in_progress_event.is_set():
+            if not self._is_run_live():
                 return
 
             logger.warning(
@@ -565,9 +561,10 @@ class SequencedCaptureRunner:
         """Signal the run loop to unwind. The caller holds _run_lock.
 
         Returns True when no live run loop will run the cleanup, so the
-        caller must run it inline -- and OUTSIDE the lock, because
-        _cleanup reaches run_cleanup(run_lock=...) which takes the same
-        lock again. Holding it across that call self-deadlocks.
+        caller must run it inline -- and OUTSIDE the lock, because that
+        cleanup runs the whole teardown (hardware restores, bounded
+        drains) on the calling thread. Holding the run lock across it
+        would block every prepare(), start() and stop for its duration.
         """
         # Signal abort before any cleanup runs hardware. Without this, an
         # abort tears down LEDs / camera / position while the protocol
@@ -604,7 +601,7 @@ class SequencedCaptureRunner:
                 with cleanup still in flight.
         """
         deadline = time.monotonic() + timeout_s
-        while self._run_in_progress_event.is_set():
+        while self._is_run_live():
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.05)
@@ -798,7 +795,7 @@ class SequencedCaptureRunner:
                 -- same class of call-site programming error.
         """
         with self._run_lock:
-            if self._run_in_progress_event.is_set():
+            if self._is_run_live():
                 self._refuse(
                     reason='already_running',
                     title='Already Running',
@@ -1087,7 +1084,7 @@ class SequencedCaptureRunner:
         # concurrently-prepared plans both pass the gate and interleave
         # their field writes onto the same runner.
         with self._run_lock:
-            if self._run_in_progress_event.is_set():
+            if self._is_run_live():
                 self._refuse(
                     reason='already_running',
                     title='Already Running',
@@ -1207,7 +1204,7 @@ class SequencedCaptureRunner:
             # Created here, inside the gate-and-commit lock and after both
             # refusals: a refused start leaves no outcome object at all, so a
             # caller that never started a run cannot wait on one. It must
-            # exist BEFORE the run flag is set, because setting the flag is
+            # exist BEFORE the run leaves IDLE, because leaving IDLE is
             # what lets reset() drive cleanup into a finally that reads it.
             #
             # Bound to a local as well, and the local is what start() returns:
@@ -1220,7 +1217,6 @@ class SequencedCaptureRunner:
             self._run_outcome = outcome
 
             self._set_state(ProtocolState.RUNNING)
-            self._run_in_progress_event.set()
 
         try:
             # Declare whether anyone is watching, so non-fatal popups are
@@ -1266,7 +1262,7 @@ class SequencedCaptureRunner:
                 ending=self._ending,
                 execution_record=self._protocol_execution_record,
                 leds_off_fn=self._step_executor.leds_off,
-                is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
+                is_run_in_progress_fn=self._is_run_live,
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
@@ -1284,7 +1280,7 @@ class SequencedCaptureRunner:
             )
 
             # Dispatch the main run loop onto protocol_thread. Completion is
-            # signalled via _run_in_progress_event clearing inside _cleanup.
+            # signalled by the run phase returning to IDLE inside _cleanup.
             # run_protocol also clears _aborted under its state lock
             # atomically with publishing the new Future, mirroring the
             # AutofocusThread fix.
@@ -1403,14 +1399,26 @@ class SequencedCaptureRunner:
         """
         self._image_writer._abort_run_fatal(reason, 'Protocol', title, message)
 
+    def _is_run_live(self) -> bool:
+        """Is a run happening, in any phase? The one predicate.
+
+        Read straight off the state machine, which is the only store of
+        the run's phase. ERROR counts as live deliberately: it is
+        written on three in-run paths and cleanup holds it through the
+        whole teardown, so an answer that excluded it would tell a
+        shutdown the run was already idle and make reset() and
+        force_reset() silently return with a run still unwinding.
+
+        Lock-free, like the flag it replaces. Callers whose decision
+        must not race a start take _run_lock around their own read
+        (prepare(), start(), run_in_progress()); the run loop and the
+        step path poll it and tolerate a stale tick.
+        """
+        return self._state is not ProtocolState.IDLE
+
     def run_in_progress(self) -> bool:
         with self._run_lock:
-            # Derive from both legacy flag and state for safety during transition
-            return self._run_in_progress_event.is_set() or self._state in (
-                ProtocolState.RUNNING,
-                ProtocolState.SCANNING,
-                ProtocolState.COMPLETING,
-            )
+            return self._is_run_live()
 
     def run_trigger_source(self) -> 'str | None':
         """The trigger of the run HOLDING the scope; None when none does.
@@ -1726,12 +1734,12 @@ class SequencedCaptureRunner:
         # where missing one lowering mutes popups for the whole session.
         notifications.set_unattended_run(False)
 
-        if not self._run_in_progress_event.is_set():
-            # run-in-progress was already cleared, so run_cleanup (which
-            # ends the executors' protocol-mode and drives the RUN_END LED
+        if not self._is_run_live():
+            # The run is already back at IDLE, so run_cleanup (which ends
+            # the executors' protocol-mode and drives the RUN_END LED
             # transition) will not run here. Guarantee the io + file
-            # executors still leave protocol-mode -- an abort that cleared
-            # the run flag without ending them would otherwise wedge their
+            # executors still leave protocol-mode -- an abort that ended
+            # the run without ending them would otherwise wedge their
             # worker on protocol_queue.get and starve normal file ops.
             # Idempotent: a no-op when not in protocol-mode.
             #
@@ -1768,7 +1776,6 @@ class SequencedCaptureRunner:
             led_end_state_applied = run_cleanup(
                 get_state_fn=lambda: self._state,
                 set_state_fn=self._set_state,
-                run_lock=self._run_lock,
                 scan_in_progress=self._scan_in_progress,
                 forced_dark=forced_dark,
                 leds_state_at_end=self._leds_state_at_end,
@@ -1788,9 +1795,6 @@ class SequencedCaptureRunner:
                 autofocus_thread=self.autofocus_thread,
                 file_io_executor=self.file_io_executor,
                 camera_executor=self.camera_executor,
-                set_run_in_progress_fn=lambda v: (
-                    self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
-                ),
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
                 # Read here, with the claim still held, so the value the
@@ -1840,15 +1844,15 @@ class SequencedCaptureRunner:
             # inside it and the authority refuses a released lease, so the lease
             # stays held through it; this release still runs once it returns.
             self._release_scan_led_lease()
-            # The run flag clears HERE, beside the claim, not only deep
-            # inside run_cleanup: the two describe the same run, and a
-            # cleanup that raised before reaching the flag would otherwise
-            # leave a run that holds nothing and still reports itself in
-            # progress -- a state in which the owner's own Stop is refused
-            # in the name of a run whose trigger now reads as nobody's.
-            # Idempotent: run_cleanup clears it first on every path that
-            # reaches that far.
-            self._run_in_progress_event.clear()
             # The activity claim releases on the same every-path guarantee:
             # a leaked claim would refuse every future run AND recording.
             self._release_activity_claim()
+            # The run ENDS here, last, and only here: this is the store
+            # prepare() and start() read, so while it says non-IDLE the
+            # next run is refused rather than admitted onto resources
+            # this cleanup is still handing back. A raise anywhere above
+            # still reaches this line -- which is the whole point, since
+            # a run phase that outlives its run is a lockout: the next
+            # start takes the claim and the lease, then dies on the
+            # illegal transition before the try that would unwind them.
+            self._set_state(ProtocolState.IDLE)

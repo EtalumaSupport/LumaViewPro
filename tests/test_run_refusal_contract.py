@@ -66,6 +66,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
+from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
@@ -598,7 +599,7 @@ class TestRefusalNotifyOnceFunnel:
         """(reason, setup_fn(mp) -> protocol) for each reachable gate."""
 
         def already_running(mp):
-            executor._run_in_progress_event.set()
+            executor._set_state(ProtocolState.RUNNING)
             return _make_single_step_protocol()
 
         def files_writing(mp):
@@ -688,7 +689,7 @@ class TestRefusalNotifyOnceFunnel:
                     with pytest.raises(ProtocolRunRefusedError) as excinfo:
                         _prepare(executor, protocol, tmp_path)
                 finally:
-                    executor._run_in_progress_event.clear()
+                    executor._set_state(ProtocolState.IDLE)
                 assert excinfo.value.reason == reason, (
                     f'expected refusal reason {reason!r}, got {excinfo.value.reason!r}'
                 )

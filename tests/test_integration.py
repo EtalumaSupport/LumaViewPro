@@ -192,7 +192,7 @@ def _wait_for_executor_idle(executor, timeout=5.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if (
-            not executor._run_in_progress_event.is_set()
+            not executor.run_in_progress()
             and not executor.file_io_executor.is_protocol_queue_active()
         ):
             return True

@@ -144,7 +144,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     run_cleanup(
         get_state_fn=lambda: state[0],
         set_state_fn=lambda s: state.__setitem__(0, s),
-        run_lock=threading.Lock(),
         scan_in_progress=threading.Event(),
         forced_dark=forced_dark,
         leds_state_at_end=leds_state_at_end,
@@ -164,7 +163,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         autofocus_thread=af_thread,
         file_io_executor=file_io_executor,
         camera_executor=_FakeExecutor(),
-        set_run_in_progress_fn=lambda v: None,
         ending=RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'),
         run_dir=None,
     )

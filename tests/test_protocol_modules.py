@@ -412,7 +412,6 @@ class TestRunCleanup:
             validate_transition(state[0], s)
             state[0] = s
 
-        run_in_progress = [True]
         io_exec = _FakeExecutor()
         # autofocus_thread replaces autofocus_io_executor in Stage B2;
         # MagicMock so the cleanup tests can assert abort() was called.
@@ -423,7 +422,6 @@ class TestRunCleanup:
         defaults = {
             'get_state_fn': get_state,
             'set_state_fn': set_state,
-            'run_lock': threading.Lock(),
             'scan_in_progress': threading.Event(),
             'forced_dark': False,
             'leds_state_at_end': 'off',
@@ -443,28 +441,27 @@ class TestRunCleanup:
             'autofocus_thread': af_thread,
             'file_io_executor': file_exec,
             'camera_executor': camera_exec,
-            'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
             'ending': RunEnding(
                 'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
             ),
             'run_dir': None,
         }
         defaults.update(overrides)
-        return defaults, state, run_in_progress
+        return defaults, state
 
-    def test_cleanup_transitions_to_idle(self):
+    def test_cleanup_hands_the_run_back_completing_and_does_not_end_it(self):
+        """Cleanup moves the run into COMPLETING and leaves it there.
+
+        Ending the run belongs to the caller's finally, which runs even
+        when a step in here raises. A second writer at the end of this
+        function is what used to admit the next run onto resources the
+        teardown was still handing back.
+        """
         from modules.protocol_cleanup import run_cleanup
 
-        args, state, _ = self._make_cleanup_args()
+        args, state = self._make_cleanup_args()
         run_cleanup(**args)
-        assert state[0] == ProtocolState.IDLE
-
-    def test_cleanup_sets_run_not_in_progress(self):
-        from modules.protocol_cleanup import run_cleanup
-
-        args, _, run_in_progress = self._make_cleanup_args()
-        run_cleanup(**args)
-        assert run_in_progress[0] is False
+        assert state[0] == ProtocolState.COMPLETING
 
     def test_closed_camera_executor_is_not_submitted_to(self):
         """Cleanup runs after the run has disabled the camera executor, so a
@@ -481,7 +478,7 @@ class TestRunCleanup:
             'cleanup must not submit to a camera executor it already knows is closed'
         )
         scope = MagicMock()
-        args, _, _ = self._make_cleanup_args(
+        args, _ = self._make_cleanup_args(
             camera_executor=closed,
             saved_camera_state={'gain': 1.0, 'exposure': 10.0},
             scope=scope,
@@ -503,7 +500,7 @@ class TestRunCleanup:
         future = MagicMock()
         live.protocol_put.return_value = future
         scope = MagicMock()
-        args, _, _ = self._make_cleanup_args(
+        args, _ = self._make_cleanup_args(
             camera_executor=live,
             saved_camera_state={'gain': 1.0, 'exposure': 10.0},
             scope=scope,
@@ -518,7 +515,7 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
         from unittest.mock import patch
 
-        args, _, _ = self._make_cleanup_args()
+        args, _ = self._make_cleanup_args()
         args['file_io_executor']._dropped = 3
         with patch('modules.notification_center.notifications') as notif:
             run_cleanup(**args)
@@ -530,7 +527,7 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
         from unittest.mock import patch
 
-        args, _, _ = self._make_cleanup_args()
+        args, _ = self._make_cleanup_args()
         args['file_io_executor']._dropped = 0
         with patch('modules.notification_center.notifications') as notif:
             run_cleanup(**args)
@@ -542,7 +539,7 @@ class TestRunCleanup:
 
         completed = []
         cb = ProtocolCallbacks(run_complete=lambda protocol=None, **kwargs: completed.append(True))
-        args, _, _ = self._make_cleanup_args(callbacks=cb)
+        args, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
         assert len(completed) == 1
 
@@ -554,7 +551,7 @@ class TestRunCleanup:
             run_complete=lambda protocol=None, **kwargs: None,
             files_complete=lambda protocol=None, **kwargs: files_done.append(True),
         )
-        args, _, _ = self._make_cleanup_args(callbacks=cb)
+        args, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
         assert len(files_done) == 1
 
@@ -562,16 +559,16 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
 
         cb = ProtocolCallbacks()  # all None
-        args, state, _ = self._make_cleanup_args(callbacks=cb)
+        args, state = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)  # should not raise
-        assert state[0] == ProtocolState.IDLE
+        assert state[0] == ProtocolState.COMPLETING
 
     def test_cleanup_offs_leds_via_run_end_transition(self):
         from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
         from modules.protocol_cleanup import run_cleanup
 
         calls = []
-        args, _, _ = self._make_cleanup_args(
+        args, _ = self._make_cleanup_args(
             apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
             leds_state_at_end='off',
         )
@@ -596,7 +593,7 @@ class TestRunCleanup:
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
-        args, _, _ = self._make_cleanup_args(
+        args, _ = self._make_cleanup_args(
             leds_state_at_end='return_to_original',
             original_led_states=original_leds,
             scope=scope,
@@ -613,7 +610,7 @@ class TestRunCleanup:
     def test_cleanup_ends_all_executors(self):
         from modules.protocol_cleanup import run_cleanup
 
-        args, _, _ = self._make_cleanup_args()
+        args, _ = self._make_cleanup_args()
         run_cleanup(**args)
         assert args['io_executor'].protocol_ended
         assert args['autofocus_thread'].abort.called
@@ -622,7 +619,7 @@ class TestRunCleanup:
     def test_cleanup_clears_scan_in_progress(self):
         from modules.protocol_cleanup import run_cleanup
 
-        args, _, _ = self._make_cleanup_args()
+        args, _ = self._make_cleanup_args()
         args['scan_in_progress'].set()
         run_cleanup(**args)
         assert not args['scan_in_progress'].is_set()
@@ -632,35 +629,34 @@ class TestRunCleanup:
 
         moved_to = []
         pos = {'x': 1.0, 'y': 2.0, 'z': 3.0}
-        args, _, _ = self._make_cleanup_args(
+        args, _ = self._make_cleanup_args(
             return_to_position=pos,
             default_move_fn=lambda px=0, py=0, z=0: moved_to.append((px, py, z)),
         )
         run_cleanup(**args)
         assert moved_to == [(1.0, 2.0, 3.0)]
 
-    def test_cleanup_from_error_state(self):
-        """Cleanup from ERROR state should transition ERROR -> IDLE."""
+    def test_cleanup_holds_error_through_the_teardown(self):
+        """A run that died holds ERROR for the whole teardown.
+
+        ERROR is what tells the rest of cleanup this was a fault (it is
+        what drops the suspect write queue), and the run still holds the
+        scope while it unwinds. The caller's finally is what returns it
+        to IDLE, once everything has been handed back.
+        """
         from modules.protocol_cleanup import run_cleanup
 
         state = [ProtocolState.ERROR]
-        args, _, _ = self._make_cleanup_args()
-        # Override state functions to use ERROR as starting state
+        args, _ = self._make_cleanup_args()
         args['get_state_fn'] = lambda: state[0]
 
         def set_state(s):
-            # ERROR -> IDLE is valid
-            if state[0] == ProtocolState.ERROR and s == ProtocolState.IDLE:
-                state[0] = s
-            elif state[0] == s:
-                pass
-            else:
-                validate_transition(state[0], s)
-                state[0] = s
+            validate_transition(state[0], s)
+            state[0] = s
 
         args['set_state_fn'] = set_state
         run_cleanup(**args)
-        assert state[0] == ProtocolState.IDLE
+        assert state[0] == ProtocolState.ERROR
 
     def test_pending_writes_dropped_only_on_error_abort(self):
         """The pending FILE-write queue is cleared only on an ERROR-state abort.
@@ -672,7 +668,7 @@ class TestRunCleanup:
 
         # ERROR abort (hardware fault): pending file writes are dropped.
         err_state = [ProtocolState.ERROR]
-        args, _, _ = self._make_cleanup_args()
+        args, _ = self._make_cleanup_args()
         args['get_state_fn'] = lambda: err_state[0]
 
         def set_err_state(s):
@@ -692,7 +688,7 @@ class TestRunCleanup:
 
         # Non-ERROR end/abort (user Stop, RUNNING -> COMPLETING -> IDLE): pending
         # writes drain, not dropped.
-        args2, _, _ = self._make_cleanup_args()
+        args2, _ = self._make_cleanup_args()
         run_cleanup(**args2)
         assert not args2['file_io_executor'].protocol_pending_cleared, (
             'a non-ERROR (user Stop) abort must drain pending writes, not drop them'
@@ -818,7 +814,7 @@ class TestRunCleanupCancelledHandoff:
         def cancelled_apply(transition, ctx):
             raise CancelledError()
 
-        args, _, _ = self._args(apply_led_transition_fn=cancelled_apply)
+        args, _ = self._args(apply_led_transition_fn=cancelled_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_not_called()
@@ -831,7 +827,7 @@ class TestRunCleanupCancelledHandoff:
         def cancelled_move(**kw):
             raise CancelledError()
 
-        args, _, _ = self._args(
+        args, _ = self._args(
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=cancelled_move,
         )
@@ -846,7 +842,7 @@ class TestRunCleanupCancelledHandoff:
         def broken_apply(transition, ctx):
             raise RuntimeError('serial dead')
 
-        args, _, _ = self._args(apply_led_transition_fn=broken_apply)
+        args, _ = self._args(apply_led_transition_fn=broken_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_called_once()

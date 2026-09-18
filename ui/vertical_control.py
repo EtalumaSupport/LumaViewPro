@@ -448,9 +448,10 @@ class VerticalControl(BoxLayout):
                 self._cleanup_at_end_of_autofocus()
                 return
 
-            # The post-run file drain deliberately holds the lockout
-            # while run_in_progress() is already False; the gate helper
-            # owns the stalled-writer recovery popup.
+            # The post-run file drain outlives the run by design: writes
+            # keep landing after the run itself has ended, so it needs a
+            # gate of its own here rather than riding on the run's. The
+            # gate helper owns the stalled-writer recovery popup.
             if not require_file_writes_idle('start autofocus'):
                 self._reset_run_autofocus_button_cosmetics()
                 return

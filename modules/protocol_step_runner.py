@@ -107,7 +107,7 @@ class ProtocolStepRunner:
         # the next step waiting for it. Frames are already captured and queued.
         if not p._scan_in_progress.is_set():
             return
-        if not p._run_in_progress_event.is_set():
+        if not p._is_run_live():
             return
         if p._af_future is not None and not p._af_future.done():
             return

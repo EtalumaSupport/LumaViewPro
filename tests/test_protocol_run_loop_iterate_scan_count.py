@@ -16,11 +16,12 @@ drives two scans, then runs the callbacks and asserts they counted down.
 import datetime
 import threading
 import time
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest import mock
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
 def _make_two_scan_parent():
@@ -30,10 +31,11 @@ def _make_two_scan_parent():
     # Real remaining-scan semantics: n_scans - scan_count, counting down as
     # scans complete (scan_count is incremented inside the loop).
     p.remaining_scans = lambda: p._n_scans - p._scan_count
-    p._run_in_progress_event = threading.Event()
-    p._run_in_progress_event.set()
     p._aborted = threading.Event()
     p._state = ProtocolState.RUNNING
+    # The production predicate over the stub's own state, so the stub
+    # cannot answer 'is a run live' differently from the runner.
+    p._is_run_live = MethodType(SequencedCaptureRunner._is_run_live, p)
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(0)

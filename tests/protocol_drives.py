@@ -155,6 +155,8 @@ def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
+    from modules.protocol_state_machine import ProtocolState
+
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False
     runner._scope.led_connected = False
@@ -164,7 +166,7 @@ def scan_ready_runner(step, **state):
     runner._protocol = protocol
     runner._n_scans = 1
     runner._scan_in_progress.set()
-    runner._run_in_progress_event.set()
+    runner._state = ProtocolState.RUNNING
     runner._autogain_settings = {}
     runner._image_writer = MagicMock()
     runner._disable_saving_artifacts = True

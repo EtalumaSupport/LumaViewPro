@@ -69,7 +69,7 @@ class ProtocolRunLoop:
             # Safety net: ensure cleanup always runs so LEDs are turned off,
             # protocol state is reset, and resources are released even if an
             # unhandled exception occurs.  _cleanup() is idempotent (guarded
-            # by _cleanup_lock and _run_in_progress check) so duplicate calls
+            # by _cleanup_lock and the run-phase check) so duplicate calls
             # from the normal path are harmless -- the inner loop's own
             # cleanup already ran and this no-ops, so the ending below only
             # ever reaches subscribers for a loop that died on the way out.
@@ -160,7 +160,7 @@ class ProtocolRunLoop:
         run_required_mb = None
         num_steps = 0
 
-        while p._run_in_progress_event.is_set() and not p._aborted.is_set():
+        while p._is_run_live() and not p._aborted.is_set():
             try:
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()

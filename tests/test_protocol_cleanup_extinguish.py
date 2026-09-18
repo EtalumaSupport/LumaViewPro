@@ -17,7 +17,6 @@ cleanup that never owned the run's LEDs (double cleanup, early return)
 must not darken a prior cleanup's restored end-state.
 """
 
-import threading
 import types
 from unittest.mock import MagicMock
 
@@ -54,8 +53,7 @@ def _make_runner_stub(scope, *, lease):
     stub._scope = scope
     stub._led_lease = lease
     stub._image_writer = None
-    stub._run_in_progress_event = threading.Event()
-    stub._run_in_progress_event.set()
+    stub._is_run_live = lambda: True
     stub.LOGGER_NAME = 'TestCleanup'
     stub._start_hyperstack_build = lambda: None
     stub._release_scan_led_lease = types.MethodType(
@@ -136,7 +134,7 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
     stub = _make_runner_stub(scope, lease=None)
-    stub._run_in_progress_event.clear()
+    stub._is_run_live = lambda: False
 
     _run_cleanup_inner(stub)
 

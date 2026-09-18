@@ -121,7 +121,6 @@ def run_cleanup(
     # State
     get_state_fn: Callable[[], ProtocolState],
     set_state_fn: Callable[[ProtocolState], None],
-    run_lock: threading.Lock,
     scan_in_progress: threading.Event,
     # True when the run died on a fault that force-darkened the sample
     # (stalled writer, dead camera, disk floor) rather than finishing or
@@ -150,8 +149,6 @@ def run_cleanup(
     autofocus_thread: AutofocusThread | None,
     file_io_executor: SequentialIOExecutor,
     camera_executor: SequentialIOExecutor,
-    # Mutable flag -- set to False when done
-    set_run_in_progress_fn: Callable[[bool], None],
     logger_name: str = 'SequencedCaptureRunner',
     # How the run ended, and why. Terminal outcome the run_complete
     # subscribers receive.
@@ -506,11 +503,11 @@ def run_cleanup(
         logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
         cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
 
-    with run_lock:
-        set_run_in_progress_fn(False)
-        # Transition back to IDLE from COMPLETING or ERROR
-        if get_state_fn() in (ProtocolState.COMPLETING, ProtocolState.ERROR):
-            set_state_fn(ProtocolState.IDLE)
+    # The run is NOT ended here. The phase returns to IDLE in the caller's
+    # finally, after the activity claim is released -- one writer, on a
+    # path that runs even when a step in here raises. Ending the run from
+    # inside this function is what used to admit the next run while the
+    # teardown was still handing resources back.
 
     # Surface a single summary if any cleanup step failed. Fault
     # tolerance ran each step regardless; the user needs to know LED
