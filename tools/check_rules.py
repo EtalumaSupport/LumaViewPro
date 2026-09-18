@@ -942,7 +942,7 @@ def _check_rule_42(source: str, path: str) -> list[Violation]:
     return violations
 
 
-_RULE_45_DOC_RE = re.compile(r'(?:^|/)(?:AUDIT_[^/]+|[^/]*_PLAN[^/]*)\.md$')
+_RULE_45_DOC_RE = re.compile(r'(?:^|/)(?:AUDIT_[^/]+|[^/]*_PLAN[^/]*|PROGRAM_OVERVIEW)\.md$')
 _RULE_45_STATUS_RE = re.compile(r'^##[ \t]+Status\b', re.IGNORECASE)
 
 
@@ -950,7 +950,10 @@ def _is_rule_45_doc(path: str) -> bool:
     """Mechanical proxy for "plan / audit / design / roadmap doc" (Rule 45).
 
     Fires on docs/ markdown whose basename is AUDIT_* or contains _PLAN
-    (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...).
+    (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...), and on
+    PROGRAM_OVERVIEW, the program reference: every fact in it is verified
+    at a pin its Status names, so an edit that leaves the Status untouched
+    is a fact nobody dated.
     Archived docs under docs/completed/ are exempt -- they are frozen
     records, not live trackers. Handovers are exempt by name: their
     basename used to carry a free-text headline, and one headline

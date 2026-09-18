@@ -36,3 +36,12 @@ def test_handover_with_plan_in_its_headline_is_not_a_plan_doc():
 def test_archived_docs_are_exempt():
     assert not _is_rule_45_doc('docs/completed/FOO_PLAN_2026-01-01.md')
     assert not _is_rule_45_doc('docs/completed/AUDIT_OLD_2026-01-01.md')
+
+
+def test_program_reference_is_a_rule_45_doc():
+    # The program reference is the one document CLAUDE.md points at for
+    # program facts; an edit that leaves its Status untouched is a stale
+    # fact nobody dated, so it is gated like a plan.
+    assert _is_rule_45_doc('docs/PROGRAM_OVERVIEW.md')
+    assert not _is_rule_45_doc('docs/completed/PROGRAM_OVERVIEW.md')
+    assert not _is_rule_45_doc('docs/PROGRAM_OVERVIEW_NOTES.md')
