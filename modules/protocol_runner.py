@@ -471,7 +471,8 @@ class ProtocolRunner:
         return self._executor.run_dir()
 
     def run_trigger_source(self) -> 'str | None':
-        """The current (or, between runs, most recent) run's trigger kind."""
+        """The trigger kind of the run holding the scope; None when no
+        run holds it."""
         return self._executor.run_trigger_source()
 
     def remaining_scans(self) -> int:

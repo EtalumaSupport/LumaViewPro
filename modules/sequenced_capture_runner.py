@@ -24,7 +24,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
-from modules.activity_claim import ActivityClaim
+from modules.activity_claim import ActivityClaim, ActivityHolder
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError, RunStartError
 from modules.protocol import Protocol
@@ -639,13 +639,16 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
-    def _refuse_exclusive_activity(self, holder: str | None) -> None:
+    def _refuse_exclusive_activity(self, holder: 'ActivityHolder | None') -> None:
         """Refuse this run because an exclusive activity holds the session claim.
 
         Shared by the prepare-time look and the start-time claim so the two
-        phases cannot describe the same holder in two different ways.
+        phases cannot describe the same holder in two different ways. The
+        holder is the claim's own snapshot, so the kind and the run behind
+        it are one fact rather than two reads that can disagree.
         """
-        if holder == 'recording':
+        kind = holder.kind if holder is not None else None
+        if kind == 'recording':
             title = 'Recording Active'
             message = (
                 'A video recording is in progress. Stop it or let it finish, then start the run.'
@@ -660,8 +663,8 @@ class SequencedCaptureRunner:
             reason='exclusive_activity_running',
             title=title,
             message=message,
-            holder=holder,
-            holder_trigger=(self._run_trigger_source if holder == 'protocol' else None),
+            holder=kind,
+            holder_trigger=(holder.run_trigger_source if holder is not None else None),
         )
 
     def _acquire_led_lease_for_run(self):
@@ -774,9 +777,10 @@ class SequencedCaptureRunner:
         """Validate a run request and build its immutable RunPlan.
 
         Mutates no runner state, touches no hardware, and writes nothing
-        to disk: a refused prepare is observationally a no-op, and every
-        getter (run_dir(), num_scans(), run_trigger_source()) still
-        answers for the previous run. Callers commit their own
+        to disk: a refused prepare is observationally a no-op. The
+        record getters (run_dir(), num_scans()) still answer for the
+        previous run; run_trigger_source() answers for whoever holds
+        the scope, which a refused prepare did not change either. Callers commit their own
         "a run is now underway" state (events, buttons, motion locks)
         only between a successful prepare() and start().
 
@@ -815,8 +819,8 @@ class SequencedCaptureRunner:
         # with better messages. The claim is still TAKEN in start() under
         # the run lock -- prepare() stays a no-op, and an activity that
         # begins after this look is caught there.
-        activity_holder = self._activity_claim.owner
-        if activity_holder is not None and activity_holder != 'protocol':
+        activity_holder = self._activity_claim.holder
+        if activity_holder is not None and activity_holder.kind != 'protocol':
             self._refuse_exclusive_activity(activity_holder)
 
         if self.file_io_executor.is_protocol_queue_active():
@@ -1092,8 +1096,14 @@ class SequencedCaptureRunner:
                     holder_trigger=self._run_trigger_source,
                 )
 
-            if not self._activity_claim.try_claim('protocol'):
-                self._refuse_exclusive_activity(self._activity_claim.owner)
+            # The claim carries WHICH run holds the scope, written by the
+            # same call that takes it: the holder question has one store,
+            # and it is the one that already knows whether anything holds
+            # the scope at all.
+            if not self._activity_claim.try_claim(
+                'protocol', run_trigger_source=plan.run_trigger_source
+            ):
+                self._refuse_exclusive_activity(self._activity_claim.holder)
             self._activity_claim_held = True
 
             # Bumped before the acquire below, because that acquire's
@@ -1402,8 +1412,19 @@ class SequencedCaptureRunner:
                 ProtocolState.COMPLETING,
             )
 
-    def run_trigger_source(self) -> str:
-        return self._run_trigger_source
+    def run_trigger_source(self) -> 'str | None':
+        """The trigger of the run HOLDING the scope; None when none does.
+
+        Answered off the session claim, which is taken and released with
+        the run, so this cannot outlive the run it names. The runner's
+        private field is a different thing -- the plan's copy, read
+        inside the run as the run's own parameter and by the file-drain
+        refusals as the just-finished run's.
+        """
+        holder = self._activity_claim.holder
+        if holder is None or holder.kind != 'protocol':
+            return None
+        return holder.run_trigger_source
 
     def current_step_color(self) -> str | None:
         """Return the Color of the currently-executing protocol step.

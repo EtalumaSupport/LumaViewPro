@@ -156,9 +156,6 @@ class ManualRecordingController:
         # engine with the previous recording's start timestamp.
         self._state_lock = threading.Lock()
         self._end_reason: str | None = None
-        # Set by the composing session: the engine's claim refusal
-        # names the holding run's trigger through this.
-        self.run_trigger_lookup = None
 
     def set_scope(self, scope: Any) -> None:
         """Rewire onto a NEW scope after a reconnect.
@@ -448,7 +445,6 @@ class ManualRecordingController:
             claim=self._claim,
             clock=self._clock,
             notify=notifications,
-            run_trigger_lookup=self.run_trigger_lookup,
         )
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.

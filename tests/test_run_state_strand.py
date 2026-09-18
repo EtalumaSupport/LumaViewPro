@@ -223,3 +223,56 @@ class TestClaimRefusalLeavesNoState:
                 session.activity_claim.release('recording')
             runner.shutdown()
             session.shutdown_executors()
+
+
+class TestTheHolderIsTheLiveRun:
+    """Who holds the microscope is answered by the thing that knows
+    whether anything holds it: the session's activity claim."""
+
+    def test_the_claim_and_the_getter_name_the_run_while_it_holds_the_scope(self, tmp_path):
+        from modules.scope_session import ScopeSession
+
+        session = ScopeSession.create_headless(
+            settings=complete_settings(**_make_session_settings(tmp_path))
+        )
+        runner = session.create_protocol_runner()
+        try:
+            # Read from inside the run: run_complete fires during
+            # cleanup, with the claim still held, so this observes the
+            # holder while it holds rather than racing the run's end.
+            observed = {}
+
+            def _observe(**_kwargs):
+                holder = session.activity_claim.holder
+                observed['kind'] = holder.kind if holder is not None else None
+                observed['trigger'] = holder.run_trigger_source if holder is not None else None
+                observed['getter'] = runner.run_trigger_source()
+
+            runner.run_single_scan(
+                protocol=_make_single_step_protocol(),
+                sequence_name='holder_scan',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+                callbacks={'run_complete': _observe, 'files_complete': lambda **kw: None},
+            )
+            assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT) is not None
+
+            assert observed['kind'] == 'protocol', (
+                'the run did not hold the claim while it was running'
+            )
+            assert observed['trigger'] == 'api_scan', (
+                "the claim must carry the run's own trigger, not a constant"
+            )
+            assert observed['getter'] == 'api_scan', (
+                'the getter must answer off the claim the live run holds'
+            )
+
+            assert wait_until_not_running(session)
+            assert runner.run_trigger_source() is None, (
+                'the getter outlived the run it named: between runs it must '
+                'answer for nobody, not for whoever ran last'
+            )
+            assert session.activity_claim.holder is None
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()

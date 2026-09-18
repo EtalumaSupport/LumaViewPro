@@ -90,10 +90,17 @@ class _NestedClaim:
     the run releases its claim at run end, never per step.
     """
 
-    def try_claim(self, owner: str) -> bool:
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
         return True
 
     def release(self, owner: str) -> None:
+        return None
+
+    @property
+    def holder(self) -> None:
+        """Nothing is held HERE: the run's own session claim is the
+        fence, so a read of this one reports no holder rather than
+        raising at a caller that only asks on the refusal path."""
         return None
 
 

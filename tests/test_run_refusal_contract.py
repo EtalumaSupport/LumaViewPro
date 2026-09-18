@@ -467,7 +467,11 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         output_dir = tmp_path / 'output'
         first_run_dir = executor.run_dir()
         first_num_scans = executor.num_scans()
-        first_trigger = executor.run_trigger_source()
+        # The completed run released the scope, so nobody holds it -- the
+        # state the refused prepare below must also leave untouched.
+        assert executor.run_trigger_source() is None, (
+            'a settled run still names itself as the holder of the scope'
+        )
         listing_after_first = sorted(p.name for p in output_dir.iterdir())
 
         protocol2 = _make_single_step_protocol()
@@ -480,14 +484,17 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             _prepare(executor, protocol2, tmp_path)
         assert excinfo.value.reason == 'validation_crashed'
 
-        # Observationally a no-op: every getter still answers for the
-        # FIRST run and the disk is untouched.
+        # Observationally a no-op: the record getters still answer for
+        # the FIRST run, nothing holds the scope, and the disk is
+        # untouched.
         assert executor.run_dir() == first_run_dir, (
             'a refused prepare must not disturb run_dir(); callers saving '
             'into it would target the wrong location'
         )
         assert executor.num_scans() == first_num_scans
-        assert executor.run_trigger_source() == first_trigger
+        assert executor.run_trigger_source() is None, (
+            'a refused prepare must not make the runner claim to hold the scope'
+        )
         assert sorted(p.name for p in output_dir.iterdir()) == listing_after_first, (
             'a refused prepare must not touch the capture location'
         )

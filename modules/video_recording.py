@@ -72,8 +72,13 @@ class ExclusivityClaim(Protocol):
     cannot both win.
     """
 
-    def try_claim(self, owner: str) -> bool:
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
         """Atomically claim for ``owner``; False if another owner holds it."""
+        ...
+
+    @property
+    def holder(self) -> Any:
+        """The current holder (kind, and the run behind it), or None."""
         ...
 
     def release(self, owner: str) -> None:
@@ -205,16 +210,11 @@ class VideoRecordingEngine:
         claim: ExclusivityClaim,
         clock: Callable[[], float],
         notify: Any = None,
-        run_trigger_lookup: 'Callable[[], str | None] | None' = None,
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
         self._notify = notify
-        # Busy-with-what for the claim refusal below: when a run holds
-        # the claim, the refusal names the run's trigger. Kind stays the
-        # runner's job -- the claim carries only the owner.
-        self._run_trigger_lookup = run_trigger_lookup
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -290,10 +290,10 @@ class VideoRecordingEngine:
                     message='A recording is already in progress. Stop it, then record again.',
                 )
             if not self._claim.try_claim('recording'):
-                holder = self._claim.owner
-                holder_trigger = None
-                if holder == 'protocol' and self._run_trigger_lookup is not None:
-                    holder_trigger = self._run_trigger_lookup()
+                # Busy-with-what comes off the claim this just failed to
+                # take: the activity that holds it names itself and, when
+                # it is a run, which run.
+                holder = self._claim.holder
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
@@ -301,8 +301,8 @@ class VideoRecordingEngine:
                         'Another exclusive activity is using the microscope. '
                         'Let it finish, then start the recording.'
                     ),
-                    holder=holder,
-                    holder_trigger=holder_trigger,
+                    holder=holder.kind if holder is not None else None,
+                    holder_trigger=(holder.run_trigger_source if holder is not None else None),
                 )
             self._claim_owner = 'recording'
             try:

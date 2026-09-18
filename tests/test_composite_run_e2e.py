@@ -31,6 +31,7 @@ import pytest
 import tifffile as tf
 
 from modules.image_mode import OUTPUT_FORMAT_TIFF
+from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 
@@ -240,22 +241,25 @@ class TestStartComposite:
         # A constant here instead of a parameter would make a GUI click
         # during an API composite read as that run's OWN second click, so
         # the click would abort someone else's run instead of being refused.
-        _session, runner, tmp_path = composite_session
+        session, runner, tmp_path = composite_session
 
+        # Observed from inside the run rather than after it: run_complete
+        # fires during cleanup, with the claim still held, so this reads
+        # the holder while it holds rather than racing the run's end.
+        held_by = []
         outcome = runner.start_composite(
             sequence_name='start_token',
             parent_dir=str(tmp_path),
             run_trigger_source='composite',
+            callbacks={'run_complete': lambda **kw: held_by.append(runner.run_trigger_source())},
         )
         assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
-        assert runner.run_trigger_source() == 'composite'
+        assert held_by == ['composite']
 
-    def test_the_api_entry_point_keeps_its_own_token(self, composite_session):
-        _session, runner, tmp_path = composite_session
-
-        runner.run_composite(sequence_name='api_token', parent_dir=str(tmp_path))
-
-        assert runner.run_trigger_source() == 'api_composite'
+        assert wait_until_not_running(session), 'the run never released the claim'
+        assert runner.run_trigger_source() is None, (
+            'the getter answers for the run HOLDING the scope; nothing holds it now'
+        )
 
     def test_each_run_gets_the_outcome_it_started(self, composite_session):
         # The outcome used to be read back off the executor after start

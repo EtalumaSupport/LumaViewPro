@@ -243,9 +243,6 @@ class ScopeSession:
             wellplate_loader=wellplate_loader,
         )
         self._protocol_runner = None
-        # Refusals say busy-with-what: a recording refused by a running
-        # run names the run's trigger through this lookup.
-        self.manual_recording.run_trigger_lookup = self.sequenced_capture_runner.run_trigger_source
 
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
