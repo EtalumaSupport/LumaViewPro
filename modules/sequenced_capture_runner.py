@@ -1828,6 +1828,15 @@ class SequencedCaptureRunner:
             # inside it and the authority refuses a released lease, so the lease
             # stays held through it; this release still runs once it returns.
             self._release_scan_led_lease()
+            # The run flag clears HERE, beside the claim, not only deep
+            # inside run_cleanup: the two describe the same run, and a
+            # cleanup that raised before reaching the flag would otherwise
+            # leave a run that holds nothing and still reports itself in
+            # progress -- a state in which the owner's own Stop is refused
+            # in the name of a run whose trigger now reads as nobody's.
+            # Idempotent: run_cleanup clears it first on every path that
+            # reaches that far.
+            self._run_in_progress_event.clear()
             # The activity claim releases on the same every-path guarantee:
             # a leaked claim would refuse every future run AND recording.
             self._release_activity_claim()

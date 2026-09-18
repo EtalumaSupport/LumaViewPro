@@ -18,11 +18,12 @@ silence is correct and a popup would be noise -- and that distinction is
 what this guard keys on, so the exclusions fall out of the rule instead
 of being listed by hand.
 
-The refusal popup deliberately bypasses the notification centre. The
-centre drops every non-fatal notification for the whole of a run nobody
-is watching, which is every run kind but a standalone autofocus; a
-refusal answers a button press, so a human is present by construction
-and must be told regardless.
+A refusal answers a button press, so a human is present by construction
+and must be told regardless of what kind of run is in flight. The
+engine's own funnel posts its refusal solicited, which reaches the user
+during a run of any kind; a starter's direct popup is for the branches
+that refuse in the GUI without ever asking the engine, where no funnel
+has run.
 
 Test approach
 -------------

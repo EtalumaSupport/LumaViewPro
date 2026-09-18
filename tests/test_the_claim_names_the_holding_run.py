@@ -110,3 +110,46 @@ class TestTheRunnerReadsTheClaim:
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert excinfo.value.holder == 'recording'
         assert excinfo.value.holder_trigger is None, 'a recording has no trigger to name'
+
+
+class TestTheFlagAndTheClaimEndTogether:
+    """The run flag and the claim describe the same run.
+
+    They are cleared deep in two different places -- the flag inside
+    run_cleanup, the claim in the caller's finally -- so a cleanup that
+    raised in between used to leave a run holding nothing that still
+    reported itself in progress. In that state the owner's own Stop is
+    refused in the name of a run whose trigger reads as nobody's.
+    """
+
+    def test_a_cleanup_that_raises_still_ends_the_run(self, monkeypatch):
+        from tests.protocol_drives import autofocus_snapshot, protocol_step, scan_ready_runner
+
+        runner = scan_ready_runner(
+            protocol_step(),
+            _original_led_states=None,
+            _return_to_position=None,
+            _protocol_execution_record=None,
+            _autofocus_snapshot=autofocus_snapshot(states={}),
+            _run_dir=None,
+        )
+        assert runner._activity_claim.try_claim('protocol', run_trigger_source='test')
+        runner._activity_claim_held = True
+        assert runner.run_in_progress()
+
+        def _boom(**_kwargs):
+            raise RuntimeError('cleanup died before it cleared the run flag')
+
+        monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', _boom)
+        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
+
+        from modules.run_outcome import RunEnding
+
+        with pytest.raises(RuntimeError, match='cleanup died'):
+            runner._cleanup_inner(RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'))
+
+        assert not runner.run_in_progress(), (
+            'a run that released the scope still reports itself in progress'
+        )
+        assert runner._activity_claim.holder is None
+        assert runner.run_trigger_source() is None

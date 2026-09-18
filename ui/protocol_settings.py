@@ -150,6 +150,10 @@ class ProtocolSettings(FloatLayout):
 
         # Thread-safe flag to prevent duplicate file completion handlers
         self._scan_files_completed_event = threading.Event()
+        # The finished run's directory, held only between that run's
+        # completion callback and whichever path completes its file
+        # drain. Never read to answer what is running now.
+        self._pending_run_dir = None
 
         # source_path: use ctx if available, otherwise derive from install-aware defaults
         ctx = _app_ctx.ctx
@@ -2120,6 +2124,12 @@ class ProtocolSettings(FloatLayout):
                 self._update_protocol_write_status,
                 0.5,  # Update every 500ms
             )
+            # Held for that poll, which is this leg's completion backstop
+            # and knows no run of its own: a successor committed in the
+            # gap before the file lane reports its drain clears the
+            # pending files-complete callback without firing it, and the
+            # finished run's post-processing would then never run at all.
+            self._pending_run_dir = kwargs.get('run_dir')
             # Initial button state
             queue_size = file_io_executor.protocol_queue_size()
             self.ids['run_protocol_btn'].state = 'normal'
@@ -2149,15 +2159,17 @@ class ProtocolSettings(FloatLayout):
         if file_io_executor.is_protocol_queue_active():
             self._update_write_lockout_button('run_protocol_btn')
         else:
-            # Label only. Completion belongs to the files-complete
-            # callback, which is the only one of the two that carries the
-            # finished run's directory; this poll knows no run. The
-            # callback always arrives -- the executor fires it on its next
-            # empty-queue poll whether or not the queue drained before it
-            # was registered.
+            # Queue is empty - cancel this scheduled update and trigger
+            # completion, carrying the directory the finished run handed
+            # over. Whichever of this and the files-complete callback
+            # arrives first completes the run; the other is absorbed by
+            # the double-call guard. Both name the SAME run now, which is
+            # what makes the duplication harmless rather than a source of
+            # wrong answers.
             if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
                 Clock.unschedule(self._file_write_status_event)
                 self._file_write_status_event = None
+                self._protocol_files_complete(run_dir=self._pending_run_dir)
 
     def _protocol_files_complete(self, **kwargs):
         """Called when ALL files are written to disk for protocol run."""
@@ -2187,6 +2199,7 @@ class ProtocolSettings(FloatLayout):
 
         # Auto-run post_processing plugins that opted in.
         self._dispatch_post_processing_auto_run(ctx, **kwargs)
+        self._pending_run_dir = None
 
     def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
         """Fire post_processing plugins opted into
