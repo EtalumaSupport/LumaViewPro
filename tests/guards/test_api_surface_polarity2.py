@@ -28,9 +28,10 @@ members that only exist on real hardware are outside its reach.
 """
 
 import re
-import pathlib
 
-DOC = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'LumascopeSkills.md'
+from tests.ast_seams import REPO_ROOT
+
+DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
 # Hand-maintained sub-API roster -- add every new sub-API here, or its
 # members escape this guard entirely.

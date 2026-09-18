@@ -16,10 +16,9 @@ handler itself, which legitimately wants the typed request.
 """
 
 import ast
-import pathlib
 from unittest.mock import MagicMock
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
+from tests.ast_seams import REPO_ROOT
 
 
 def _frame_fields(typed: str):
@@ -65,7 +64,7 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
 def _settings():
     import json
 
-    settings = json.loads((REPO / 'data' / 'settings.json').read_text())
+    settings = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
     settings['frame'] = {'width': 1900, 'height': 1900}
     return settings
 
@@ -92,8 +91,8 @@ def test_no_modules_file_reads_the_frame_fields():
     fields live on, reading its own tree.
     """
     offenders = {
-        path.relative_to(REPO).as_posix()
-        for path in (REPO / 'modules').glob('*.py')
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in (REPO_ROOT / 'modules').glob('*.py')
         if 'frame_width_id' in path.read_text() or 'frame_height_id' in path.read_text()
     }
 

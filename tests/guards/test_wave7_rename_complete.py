@@ -37,19 +37,18 @@ during the transition.
 import ast
 import pathlib
 
+from tests.ast_seams import REPO_ROOT
+
 BANNED_ATTRS = frozenset({'camera', 'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
 PROD_ROOTS = ('modules', 'ui')
 
-# Repo root inferred from this file's location (LumaViewPro/tests/).
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
 
 def _iter_prod_files() -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
     for root_name in PROD_ROOTS:
-        root = _REPO_ROOT / root_name
+        root = REPO_ROOT / root_name
         if not root.is_dir():
             continue
         files.extend(sorted(p for p in root.rglob('*.py')))
@@ -103,7 +102,7 @@ def test_no_legacy_scope_driver_accesses_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_banned_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} -- use scope._{attr}_driver '
                 f'(post-Wave-7 rename). See test_wave7_rename_complete.py.'
@@ -189,7 +188,7 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_motion_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.motion.{attr}')
     assert not failures, (
         'Motion methods reached on bare scope -- production code must '
@@ -253,7 +252,7 @@ def test_no_illumination_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_illumination_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.illumination.{attr}')
     assert not failures, (
         'Illumination methods reached on bare scope -- production code '
@@ -271,7 +270,7 @@ def test_no_illumination_method_calls_on_bare_scope_in_production():
 # motivating incident: Lumascope.initialize() called self.leds_off()
 # which was retired in Phase 3f.
 
-_LUMASCOPE_PATH = _REPO_ROOT / 'modules' / 'lumascope_api' / '_lumascope.py'
+_LUMASCOPE_PATH = REPO_ROOT / 'modules' / 'lumascope_api' / '_lumascope.py'
 
 
 def _find_self_method_accesses(tree: ast.AST, banned: frozenset[str]) -> list[tuple[int, str]]:
@@ -412,7 +411,7 @@ def test_no_imaging_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_imaging_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.imaging.{attr}')
     assert not failures, (
         'Imaging methods reached on bare scope -- production code must '
@@ -484,7 +483,7 @@ def test_no_diagnostics_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_diagnostics_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}')
     assert not failures, (
         'Diagnostics methods reached on bare scope -- production code '
@@ -592,7 +591,7 @@ def test_no_image_save_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_image_save_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} -- '
                 f'use `from modules.image_save import {attr}; {attr}(scope, ...)`'
@@ -617,7 +616,7 @@ def test_no_lumascope_class_static_method_calls():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_lumascope_static_method_accesses(tree):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             bare_name = attr.removesuffix('_static')
             failures.append(
                 f'{rel}:{lineno}: Lumascope.{attr} retired -- '
@@ -719,7 +718,7 @@ def test_no_diagnostic_facade_getter_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_chain_method_accesses(tree, DIAGNOSTIC_FACADE_GETTERS):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.diagnostics.{attr}')
     assert not failures, (
         'Diagnostic facade getters reached on bare scope -- production '
@@ -759,7 +758,7 @@ def test_no_compute_focus_score_calls_on_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_chain_method_accesses(tree, COMPUTE_FOCUS_SCORE_RETIRED):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} retired -- '
                 f'use `from modules import autofocus_functions; '
@@ -839,7 +838,7 @@ def test_no_runtime_state_method_calls_on_bare_scope_in_production():
             failures.append(f'{path}: parse failed: {e}')
             continue
         for lineno, attr in _find_chain_method_accesses(tree, RUNTIME_STATE_ONLY_METHODS):
-            rel = path.relative_to(_REPO_ROOT)
+            rel = path.relative_to(REPO_ROOT)
             failures.append(
                 f'{rel}:{lineno}: scope.{attr} -- migrate to scope.runtime_state.{attr}'
             )
@@ -883,7 +882,7 @@ def test_no_self_runtime_state_calls_in_lumascope():
 # Resolution is pure-AST for the same reason the sets are hardcoded: this
 # module must not import the API or instantiate a simulator at collection.
 
-_API_ROOT = _REPO_ROOT / 'modules' / 'lumascope_api'
+_API_ROOT = REPO_ROOT / 'modules' / 'lumascope_api'
 
 # frozenset name -> the module whose members it names.
 PRESENCE_SETS = {
@@ -895,7 +894,7 @@ PRESENCE_SETS = {
     # Phase 7 finished the migration these six were staged for; they live on
     # DiagnosticsAPI now, not on Lumascope.
     'DIAGNOSTIC_FACADE_GETTERS': _API_ROOT / 'diagnostics.py',
-    'IMAGE_SAVE_METHODS': _REPO_ROOT / 'modules' / 'image_save.py',
+    'IMAGE_SAVE_METHODS': REPO_ROOT / 'modules' / 'image_save.py',
 }
 
 # Sets whose names must NOT resolve -- these pin retirements, so the

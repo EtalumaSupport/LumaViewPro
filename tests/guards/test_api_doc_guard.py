@@ -46,13 +46,14 @@ accuracy is maintained by review, not by resolution.
 
 import ast
 import inspect
-import pathlib
 import re
 import warnings
 
 import pytest
 
-DOC = pathlib.Path('docs/LumascopeSkills.md')
+from tests.ast_seams import REPO_ROOT
+
+DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
 # Receivers the reference uses for the live objects an L2 caller holds.
 # `scope` is the Lumascope composition root, `session` the ScopeSession L2

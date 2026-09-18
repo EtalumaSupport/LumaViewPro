@@ -7,13 +7,13 @@ Covers ``convert_12bit_to_8bit(out=...)``, whose reusable out buffer saves
 from __future__ import annotations
 
 import ast
-import pathlib
 from typing import ClassVar
 
 import numpy as np
 
 import modules.image_utils as image_utils
 from modules.image_utils import convert_12bit_to_8bit
+from tests.ast_seams import REPO_ROOT
 
 
 class TestConvert12to8OutBuffer:
@@ -185,11 +185,10 @@ class TestTiffSuffixSingleSource:
 
     @staticmethod
     def _production_files():
-        root = pathlib.Path(__file__).resolve().parents[1]
-        files = [root / 'lumaviewpro.py']
+        files = [REPO_ROOT / 'lumaviewpro.py']
         for sub in ('modules', 'ui', 'drivers'):
-            files.extend(sorted((root / sub).rglob('*.py')))
-        return root, files
+            files.extend(sorted((REPO_ROOT / sub).rglob('*.py')))
+        return REPO_ROOT, files
 
     @classmethod
     def _container_holds_suffix(cls, node) -> bool:

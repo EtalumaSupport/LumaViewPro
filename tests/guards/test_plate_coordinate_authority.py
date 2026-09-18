@@ -23,6 +23,7 @@ import pytest
 
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import PositionOutOfRangeError
+from tests.ast_seams import REPO_ROOT
 
 # The shipped 96-well geometry and a stock LS850T's travel. The reachable
 # plate band these produce -- X 2.26-122.26, Y 1.48-81.48 -- is the
@@ -210,15 +211,13 @@ class TestTheConversionLeftTheCallers:
     }
 
     def test_only_the_enumerators_call_the_raw_transform(self):
-        import pathlib
         import re
 
-        root = pathlib.Path(__file__).resolve().parent.parent
         call = re.compile(r'\.plate_to_stage\s*\(')
 
         offenders = []
-        for path in sorted([*root.glob('ui/**/*.py'), *root.glob('modules/**/*.py')]):
-            relative = path.relative_to(root).as_posix()
+        for path in sorted([*REPO_ROOT.glob('ui/**/*.py'), *REPO_ROOT.glob('modules/**/*.py')]):
+            relative = path.relative_to(REPO_ROOT).as_posix()
             if relative in self.SANCTIONED:
                 continue
             for number, line in enumerate(path.read_text().splitlines(), 1):

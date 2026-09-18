@@ -25,7 +25,7 @@ import pytest
 import tifffile as tf
 
 from modules.labware_loader import WellPlateLoader
-from tests.ast_seams import find_def, parse_module
+from tests.ast_seams import REPO_ROOT, find_def, parse_module
 
 
 # ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
@@ -265,13 +265,12 @@ def test_capture_task_reads_no_widget_and_the_button_snapshots_before_arming():
 
 
 def _production_modules():
-    import pathlib
-
-    root = pathlib.Path(__file__).resolve().parent.parent
     files = (
-        sorted(root.glob('modules/*.py')) + sorted(root.glob('ui/*.py')) + [root / 'lumaviewpro.py']
+        sorted(REPO_ROOT.glob('modules/*.py'))
+        + sorted(REPO_ROOT.glob('ui/*.py'))
+        + [REPO_ROOT / 'lumaviewpro.py']
     )
-    return [str(f.relative_to(root)) for f in files]
+    return [str(f.relative_to(REPO_ROOT)) for f in files]
 
 
 def test_specific_layers_is_always_handed_a_list():

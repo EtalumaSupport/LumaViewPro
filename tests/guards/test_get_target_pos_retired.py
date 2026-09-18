@@ -23,6 +23,8 @@ returned -1 on any failure).
 
 from __future__ import annotations
 
+from tests.ast_seams import REPO_ROOT
+
 
 class TestGetTargetPosRetired:
     def test_motion_api_has_no_get_target_pos(self):
@@ -66,18 +68,15 @@ class TestGetTargetPosRetired:
         """Source-wide source-grep guard: a future merge that re-adds
         an API call to scope.get_target_pos() or motion.get_target_pos()
         should be caught."""
-        import pathlib
-
-        repo_root = pathlib.Path(__file__).resolve().parent.parent
         for sub in ('modules', 'ui', 'drivers'):
-            for path in (repo_root / sub).rglob('*.py'):
+            for path in (REPO_ROOT / sub).rglob('*.py'):
                 text = path.read_text()
                 # Skip the driver-level target_pos (legitimate); only
                 # the API-shape get_target_pos is retired.
                 for line in text.splitlines():
                     if 'get_target_pos(' in line:
                         raise AssertionError(
-                            f'{path.relative_to(repo_root)}: line '
+                            f'{path.relative_to(REPO_ROOT)}: line '
                             f'references retired `get_target_pos(...)`. '
                             f'Use `get_target_position(...)` (cache-'
                             f'based, zero serial I/O) instead. Line: '

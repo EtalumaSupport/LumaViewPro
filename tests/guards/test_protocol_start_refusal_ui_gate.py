@@ -40,10 +40,8 @@ import ast
 import pathlib
 import re
 
-from tests.ast_seams import parse_module
+from tests.ast_seams import REPO_ROOT, parse_module
 
-
-REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # The four UI starters that kick off a sequenced run.
 UI_STARTERS = (
@@ -93,7 +91,7 @@ def test_run_sequenced_capture_orders_prepare_commit_start():
     then start -- so a refusal (raised by prepare) can never leave the
     UI committed to a run that does not exist."""
     method = _method_node(
-        REPO / 'ui' / 'protocol_settings.py', 'ProtocolSettings', 'run_sequenced_capture'
+        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', 'run_sequenced_capture'
     )
 
     prepare_calls = _calls_named(method, 'prepare')
@@ -138,7 +136,7 @@ def test_every_ui_starter_routes_through_refusal_boundary():
     catch site for the typed refusal -- no per-starter try/except
     drift."""
     for rel_path, class_name, method_name in UI_STARTERS:
-        method = _method_node(REPO / rel_path, class_name, method_name)
+        method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
         boundary_calls = [
             n
             for n in ast.walk(method)
@@ -167,7 +165,7 @@ def test_no_starter_writes_running_state():
     run-state listener. A starter-side write re-creates the second
     store whose strand/mis-restore family this migration retired."""
     for rel_path, class_name, method_name in UI_STARTERS:
-        method = _method_node(REPO / rel_path, class_name, method_name)
+        method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
         src_text = ast.unparse(method)
         for marker in FORBIDDEN_COMMIT_MARKERS:
             assert marker not in src_text, (
@@ -204,12 +202,12 @@ def test_no_retired_runner_run_call_sites_remain():
     calls carry neither)."""
     offenders = []
     for sub in ('modules', 'ui'):
-        for path in sorted((REPO / sub).rglob('*.py')):
+        for path in sorted((REPO_ROOT / sub).rglob('*.py')):
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):
                 block = _balanced_block(src, m.end() - 1)
                 if 'run_mode=' in block or 'protocol=' in block:
-                    offenders.append(f'{path.relative_to(REPO)}: {block[:80]}')
+                    offenders.append(f'{path.relative_to(REPO_ROOT)}: {block[:80]}')
     assert not offenders, (
         'Call sites of the retired SequencedCaptureRunner.run() remain; '
         'migrate them to prepare()/start():\n' + '\n'.join(offenders)
@@ -251,7 +249,7 @@ def _runner_reset_calls():
             return func
         return None
 
-    for source_file in sorted((REPO / 'ui').glob('*.py')):
+    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -290,7 +288,7 @@ def _teardown_iotasks():
     Derived for the same reason as the list above: a hand-kept roster of
     "the tasks that can be refused" is one more mirror to forget.
     """
-    for source_file in sorted((REPO / 'ui').glob('*.py')):
+    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if not (

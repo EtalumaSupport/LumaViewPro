@@ -43,6 +43,28 @@ def iter_package_modules(packages):
             )
 
 
+def direct_call_names(fn) -> list[str]:
+    """Names called in this function's OWN body; nested defs excluded.
+
+    Without the exclusion an outer function would be credited with every
+    call its closures make, and a "called exactly once" count would
+    silently drift.
+    """
+    names = []
+    stack = list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.append(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.append(node.func.attr)
+        stack.extend(ast.iter_child_nodes(node))
+    return names
+
+
 def find_def(rel_path: str, name: str, class_name: str | None = None):
     """Return the FunctionDef node for ``name``, or None when absent.
 

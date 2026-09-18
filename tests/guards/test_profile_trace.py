@@ -3,18 +3,14 @@
 
 import ast
 import csv
-import os
-import sys
 import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 import pytest
 
 from lib import profile_trace
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import REPO_ROOT, iter_package_modules
 
 
 @pytest.fixture(autouse=True)
@@ -598,8 +594,7 @@ class TestSettingsActivation:
 
         importlib.reload(profile_trace)
         assert profile_trace.ENABLE_PROFILE_TRACE is False
-        repo_root = Path(__file__).parent.parent
-        assert not (repo_root / 'MagicMock').exists(), (
+        assert not (REPO_ROOT / 'MagicMock').exists(), (
             'profile_trace gate leaked a real directory from a MagicMock '
             'load_profile_trace_setting() return value'
         )

@@ -60,9 +60,8 @@ from modules import gui_logger
 from modules.exceptions import SettingsSaveRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
 from tests.settings_fixtures import complete_settings
-from tests.test_objective_prompt_single_flight import _direct_call_names
 from ui.vertical_control import VerticalControl
 
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -111,7 +110,7 @@ def _mixin_methods() -> dict:
 def _self_call_names(fn) -> list[str]:
     """``self.<name>()`` called in this function's OWN body.
 
-    Modelled on _direct_call_names, but attribute-qualified: the plain
+    Modelled on direct_call_names, but attribute-qualified: the plain
     walker cannot tell ``self.stop()`` from ``popup.stop()``, and a
     reachability walk that followed every attribute name would resolve
     unrelated objects' methods to LumaViewProApp's.
@@ -338,7 +337,7 @@ class TestTheQuestionIsAskable:
         build = _app_methods().get('build')
         assert build is not None, 'lumaviewpro.py: LumaViewProApp.build is gone'
 
-        assert '_ask_about_rejected_settings' not in _direct_call_names(build)
+        assert '_ask_about_rejected_settings' not in direct_call_names(build)
 
     def test_the_question_is_deferred_and_its_failure_stays_fatal(self):
         """Deferral alone would drop the fatal property: after the move,
@@ -413,7 +412,7 @@ class TestTheQuestionIsAskable:
         offenders = [
             (owner, call)
             for owner, fn in walked.items()
-            for call in _direct_call_names(fn)
+            for call in direct_call_names(fn)
             if call.startswith('show_') and call.endswith('_popup')
         ]
         assert offenders == [], f'popup(s) opened before the root attaches: {offenders}'

@@ -6,7 +6,7 @@ every name, every attribute access invents a child mock, and every call
 returns one. A test written against it passes whether or not the code
 under test asks the real `Lumascope` for something it has. Two families
 of production-dead code stayed green in this suite for exactly that
-reason (see `tests/test_capability_probe_reality.py`).
+reason (see `tests/guards/test_capability_probe_reality.py`).
 
 `spec_scope()` builds its double by autospec'ing a CONSTRUCTED
 `Lumascope(simulate=True)` INSTANCE. Accessing a name the real scope

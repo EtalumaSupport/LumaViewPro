@@ -4,11 +4,21 @@
 The hook delegates to ``tools/check_rules.py --staged`` so every commit
 runs the mechanical CLAUDE.md rule checks before the commit lands.
 
-LVP-specific: the managed hook ALSO bumps version.txt (timestamp +
-branch fields) after the rule check passes, replacing the standalone
-version-bump hook that lived in LVP previously. Order is intentional:
-rule check first so a violation fails fast and version.txt isn't
-touched on a doomed commit.
+LVP-specific: the managed hook ALSO runs the guard gate and bumps
+version.txt (timestamp + branch fields) after the rule check passes,
+replacing the standalone version-bump hook that lived in LVP
+previously. Order is intentional: rule check first so a violation
+fails fast, the guards next, and version.txt isn't touched on a
+doomed commit.
+
+The guard gate: the tests under tests/guards/ measure the whole tree
+(count ratchets, surface parity, architecture sweeps), so no run near
+a changed file ever selects them, and only a per-commit run does. The
+hook exports the INDEX to a temporary directory and runs that
+directory there, so a pathspec or partial commit is judged as it will
+land. A red guard, a collection error, an empty directory or a missing
+pytest each refuse the commit; the one skip is a branch whose index
+carries no tests/guards/ at all, which predates the gate.
 
 Modes:
 
@@ -40,8 +50,8 @@ _HOOK_MARKER = '# managed by tools/install_hooks.py (CLAUDE.md Rule 31)'
 
 _HOOK_SCRIPT = f"""#!/usr/bin/env bash
 {_HOOK_MARKER}
-# Mechanical Rule 24 / 27 / 28 pre-commit gate + version.txt bump.
-# Edit tools/check_rules.py to change the checks; do NOT edit this
+# Mechanical Rule 24 / 27 / 28 pre-commit gate + guard gate + version.txt
+# bump. Edit tools/check_rules.py to change the checks; do NOT edit this
 # hook directly (re-running tools/install_hooks.py --install will
 # overwrite).
 set -e
@@ -75,6 +85,43 @@ if python3 -m ruff --version >/dev/null 2>&1; then
             exit 1
         fi
     done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
+fi
+
+# Guard gate. The tests under tests/guards/ measure the whole tree, so no
+# run near a changed file selects them; this is the one run that does. The
+# INDEX is exported and run, so a pathspec or partial commit is judged as
+# it will land. Whether this branch has the gate at all is decided from the
+# index BEFORE anything is exported, so a broken export can never read as
+# an old branch. Inside the subshell every step refuses for itself: a
+# subshell whose status is inspected runs with `set -e` suppressed. pytest
+# exits 0 on an all-skipped selection, which is why no guard may skip
+# itself (tests/guards/test_guards_directory.py); every other way the run
+# can fail to happen is a refusal, because a gate that did not run has not
+# gated. Exit 6 is this stage's own code, outside pytest's 0-5.
+if [ -z "$(git ls-files --cached -- tests/guards)" ]; then
+    echo "pre-commit: no tests/guards/ in the index -- this branch predates the guard gate; skipping it" >&2
+else
+    GUARD_RC=0
+    (
+        EXPORT="$(mktemp -d)" || {{ echo "pre-commit: guard gate could not create an export directory" >&2; exit 6; }}
+        trap 'rm -rf "$EXPORT"' EXIT
+        git checkout-index -a --prefix="$EXPORT/" || {{ echo "pre-commit: guard gate could not export the index" >&2; exit 6; }}
+        cd "$EXPORT" || {{ echo "pre-commit: guard gate could not enter its export" >&2; exit 6; }}
+        python3 -c 'import pytest' 2>/dev/null || {{ echo "pre-commit: guard gate needs pytest, and $(command -v python3) cannot import it -- refusing the commit" >&2; exit 6; }}
+        python3 -m pytest -o addopts= -q -p no:cacheprovider --tb=short -rf tests/guards
+    ) || GUARD_RC=$?
+    if [ "$GUARD_RC" -ne 0 ]; then
+        case "$GUARD_RC" in
+            1) GUARD_KIND="a guard is red" ;;
+            2) GUARD_KIND="collection was interrupted" ;;
+            5) GUARD_KIND="nothing was collected under tests/guards/" ;;
+            6) GUARD_KIND="the gate could not run (see above)" ;;
+            *) GUARD_KIND="pytest exited $GUARD_RC" ;;
+        esac
+        echo "pre-commit: guard gate refused the commit -- $GUARD_KIND." >&2
+        echo "  Fix the guard in this commit, then re-run: python3 -m pytest -o addopts= -q -p no:cacheprovider tests/guards" >&2
+        exit 1
+    fi
 fi
 
 # version.txt refresh (LVP-specific). 4-line format:
@@ -171,7 +218,8 @@ def install() -> int:
     hook.write_text(_HOOK_SCRIPT, encoding='utf-8')
     hook.chmod(0o755)
     print(f'Installed pre-commit hook at {hook}')
-    print('  Hook delegates to tools/check_rules.py --staged.')
+    print('  Hook delegates to tools/check_rules.py --staged, runs ruff on the index,')
+    print('  runs tests/guards on an export of the index, then bumps version.txt.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
     return 0

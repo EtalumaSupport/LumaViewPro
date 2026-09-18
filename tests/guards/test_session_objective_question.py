@@ -14,7 +14,6 @@ apart, and so the resolved-optics record fires for every host.
 import ast
 import json
 import logging
-import os
 import shutil
 
 import pytest
@@ -23,7 +22,7 @@ from modules import settings_init
 from modules.exceptions import ConfigError
 import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module
 from tests.settings_fixtures import complete_settings
 
 
@@ -472,10 +471,9 @@ class TestPopulatedSlotsSurviveTheLoad:
     """
 
     def test_a_populated_current_json_keeps_every_assignment(self, tmp_path):
-        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         data = tmp_path / 'data'
         data.mkdir()
-        shutil.copy(os.path.join(repo, 'data', 'settings.json'), data / 'settings.json')
+        shutil.copy(REPO_ROOT / 'data' / 'settings.json', data / 'settings.json')
         template = settings_init.read_settings_json(str(data / 'settings.json'))
         assert all(value is None for value in template['turret_objectives'].values())
         user = dict(template)

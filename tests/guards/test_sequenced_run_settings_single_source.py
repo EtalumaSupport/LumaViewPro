@@ -22,13 +22,12 @@ still gets keep_led_between_steps=False and
 separate_folder_per_channel=False whatever the user settings hold.
 """
 
-import pathlib
 import re
 
 import modules.config_helpers as config_helpers
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from tests.ast_seams import REPO_ROOT
 
-_REPO = pathlib.Path(__file__).resolve().parents[1]
 _OWNED_PARAMS = (
     'keep_led_between_steps',
     'video_as_frames',
@@ -63,12 +62,12 @@ def _acquisition_run_call_blocks():
     `.prepare(` whose arg block carries a run_mode= kwarg (the capture
     runner's required selector)."""
     for sub in ('modules', 'ui'):
-        for path in sorted((_REPO / sub).glob('*.py')):
+        for path in sorted((REPO_ROOT / sub).glob('*.py')):
             src = path.read_text()
             for m in _RUN_CALL.finditer(src):
                 block = _balanced_block(src, m.end() - 1)
                 if 'run_mode=' in block:
-                    yield path.relative_to(_REPO).as_posix(), block
+                    yield path.relative_to(REPO_ROOT).as_posix(), block
 
 
 def test_helper_passes_settings_values_through():

@@ -22,7 +22,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+from tests.ast_seams import REPO_ROOT
+
 
 SELF_DISPATCHING_WRAPPERS = frozenset(
     {

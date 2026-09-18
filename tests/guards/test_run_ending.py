@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import pathlib
 import threading
 from types import SimpleNamespace
 
@@ -21,8 +20,9 @@ import pytest
 from unittest.mock import MagicMock
 
 from modules.run_outcome import EndingLatch, RunEnding
+from tests.ast_seams import REPO_ROOT
 
-MODULES = pathlib.Path(__file__).resolve().parent.parent / 'modules'
+MODULES = REPO_ROOT / 'modules'
 
 
 # ---------------------------------------------------------------------------

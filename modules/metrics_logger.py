@@ -184,7 +184,7 @@ class MetricsLogger:
         So the order is: move fps accounting into the API, then arm.
         Until then a False here is honest and a True would be a guess.
         Whoever arms it should delete this note and the matching entry
-        in tests/test_capability_probe_reality.py, which fails the
+        in tests/guards/test_capability_probe_reality.py, which fails the
         moment `camera` becomes a real attribute.
         """
         try:

@@ -14,13 +14,12 @@ drivers answer from the hardware that is actually attached.
 """
 
 import ast
-import pathlib
 
 from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.scope_capabilities import ScopeCapabilities
+from tests.ast_seams import REPO_ROOT
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # The scopes.json keys that duplicate a driver-derived capability. `Layers`
 # is deliberately absent: no capability describes which illumination
@@ -38,7 +37,7 @@ class TestUiGatesOnTheDriver:
     configured scope model."""
 
     def test_scope_ui_apply_path_reads_no_model_keyed_capability(self):
-        tree = ast.parse((REPO / 'ui' / 'microscope_settings.py').read_text())
+        tree = ast.parse((REPO_ROOT / 'ui' / 'microscope_settings.py').read_text())
         func = next(
             n
             for n in ast.walk(tree)
@@ -59,7 +58,7 @@ class TestUiGatesOnTheDriver:
     def test_no_ui_file_gates_on_a_model_keyed_capability(self):
         # Pass 2/3 of the cluster: the same shape lived in protocol_settings
         # (labware validation) and, as a mirror, in stage and the session.
-        for path in sorted((REPO / 'ui').glob('*.py')):
+        for path in sorted((REPO_ROOT / 'ui').glob('*.py')):
             src = path.read_text()
             for flag in DUPLICATED_FLAGS:
                 assert f"scope_config['{flag}']" not in src, (
@@ -70,10 +69,10 @@ class TestUiGatesOnTheDriver:
         # Each was a copy of the XY fact written from the scope model. A
         # mirror needing manual sync is how the wrong value reached the
         # crosshair; deriving at read makes the stale state unconstructible.
-        stage_src = (REPO / 'ui' / 'stage.py').read_text()
+        stage_src = (REPO_ROOT / 'ui' / 'stage.py').read_text()
         assert 'set_xy_stage_capability' not in stage_src
         assert 'self._has_xy_stage' not in stage_src
-        session_src = (REPO / 'modules' / 'scope_session.py').read_text()
+        session_src = (REPO_ROOT / 'modules' / 'scope_session.py').read_text()
         assert 'xystage_configured' not in session_src
 
 

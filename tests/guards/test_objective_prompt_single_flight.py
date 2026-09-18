@@ -18,7 +18,6 @@ unconfirmed so the next usable session asks.
 import ast
 import json
 import shutil
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -28,11 +27,16 @@ import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
 from modules.exceptions import ConfigError
 from modules.scope_session import ObjectiveQuestion, ScopeSession
-from tests.ast_seams import find_def, iter_package_modules, parse_module
+from tests.ast_seams import (
+    REPO_ROOT,
+    direct_call_names,
+    find_def,
+    iter_package_modules,
+    parse_module,
+)
 from tests.settings_fixtures import complete_settings
 from ui.vertical_control import VerticalControl
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
 # Read at IMPORT time, before the reset fixture below can create or
@@ -385,28 +389,6 @@ class TestProvisionalSettings:
 # ---------------------------------------------------------------------------
 
 
-def _direct_call_names(fn) -> list[str]:
-    """Names called in this function's OWN body; nested defs excluded.
-
-    Without the exclusion an outer function would be credited with every
-    call its closures make, and the "exactly one opener" count below
-    would silently drift.
-    """
-    names = []
-    stack = list(fn.body)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                names.append(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                names.append(node.func.attr)
-        stack.extend(ast.iter_child_nodes(node))
-    return names
-
-
 def _walk_defs(body, prefix=''):
     """Yield (qualname, node) for every def, methods and closures included."""
     for node in body:
@@ -437,7 +419,7 @@ class TestOneOpenerOneMessage:
         openers = set()
         for rel_path, tree in _production_modules():
             for qualname, fn in _walk_defs(tree.body):
-                if 'show_objective_selection_popup' in _direct_call_names(fn):
+                if 'show_objective_selection_popup' in direct_call_names(fn):
                     openers.add((rel_path, qualname))
 
         assert openers == {('ui/vertical_control.py', 'VerticalControl._render_objective_question')}
@@ -453,7 +435,7 @@ class TestOneOpenerOneMessage:
         )
         assert fn is not None
 
-        assert _direct_call_names(fn).count('show_objective_selection_popup') == 1
+        assert direct_call_names(fn).count('show_objective_selection_popup') == 1
 
     def test_the_question_carries_no_per_trigger_variant(self):
         """The decision moved into the Session with the flag it reads; the
@@ -497,8 +479,8 @@ class TestProvisionalResolutionReAsks:
         never be asked at all."""
         on_start = find_def('lumaviewpro.py', 'on_start', class_name='LumaViewProApp')
         assert on_start is not None
-        assert '_prompt_objective_if_needed' in _direct_call_names(on_start)
+        assert '_prompt_objective_if_needed' in direct_call_names(on_start)
 
         revert = find_def('lumaviewpro.py', '_revert', class_name='LumaViewProApp')
         assert revert is not None, 'the _revert closure inside _ask_about_rejected_settings is gone'
-        assert '_prompt_objective_if_needed' in _direct_call_names(revert)
+        assert '_prompt_objective_if_needed' in direct_call_names(revert)

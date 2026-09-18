@@ -31,7 +31,7 @@ from drivers.registry import camera_registry
 
 # modules.aoi_geometry (plan_aoi) and modules.image_utils (center_crop) are
 # imported function-locally where used: the driver layer must not import from
-# modules/ at top level (enforced by tests/test_architecture_fixes.py). Both are
+# modules/ at top level (enforced by tests/guards/test_architecture_fixes.py). Both are
 # pure helpers, so the lazy import carries no cycle risk; after first use the
 # import is a sys.modules dict hit, negligible even on the per-frame unpack path.
 

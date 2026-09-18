@@ -21,19 +21,19 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
+from tests.ast_seams import REPO_ROOT
+
 
 # ---------------------------------------------------------------------------
 # 1. Layer violations -- Architecture Rule 1: only call/import down one level
 # ---------------------------------------------------------------------------
-
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 
 def _list_py_files(subdir):
     """Return sorted list of *.py files in <repo>/<subdir>/, excluding dunder
     files like __init__.py.
     """
-    pattern = os.path.join(_REPO_ROOT, subdir, '*.py')
+    pattern = os.path.join(REPO_ROOT, subdir, '*.py')
     return sorted(p for p in glob.glob(pattern) if not os.path.basename(p).startswith('__'))
 
 
@@ -132,13 +132,13 @@ class TestConfigGettersRename:
     def test_old_file_does_not_exist(self):
         import os
 
-        old_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'config_getters.py')
+        old_path = os.path.join(REPO_ROOT, 'modules', 'config_getters.py')
         assert not os.path.exists(old_path), 'Old config_getters.py still exists'
 
     def test_new_file_exists(self):
         import os
 
-        new_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'config_ui_getters.py')
+        new_path = os.path.join(REPO_ROOT, 'modules', 'config_ui_getters.py')
         assert os.path.exists(new_path), 'config_ui_getters.py not found'
 
     def test_no_imports_reference_old_name(self):
@@ -147,7 +147,7 @@ class TestConfigGettersRename:
         import glob
 
         old_module = 'modules.config_' + 'getters'  # avoid matching this test file
-        root = os.path.join(os.path.dirname(__file__), '..')
+        root = REPO_ROOT
         violations = []
         for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
             if '__pycache__' in py_file or 'test_architecture' in py_file:
@@ -177,7 +177,7 @@ class TestStitchAlgorithmsModule:
     def test_old_module_gone(self):
         import os
 
-        old_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'image_stitcher.py')
+        old_path = os.path.join(REPO_ROOT, 'modules', 'image_stitcher.py')
         assert not os.path.exists(old_path), 'Old image_stitcher.py still exists'
 
     def test_feature_stitch_rejects_single_image(self):
@@ -265,7 +265,7 @@ class TestTinyFileConsolidation:
     def test_deleted_files_are_gone(self):
         import os
 
-        modules_dir = os.path.join(os.path.dirname(__file__), '..', 'modules')
+        modules_dir = os.path.join(REPO_ROOT, 'modules')
         for filename in self.DELETED_FILES:
             path = os.path.join(modules_dir, filename)
             assert not os.path.exists(path), f'{filename} should be deleted'
@@ -315,7 +315,7 @@ class TestTinyFileConsolidation:
         ]
         # Deleted module that must not be confused with protocol_step_runner
         old_protocol_step = 'modules.protocol_' + 'step'
-        root = os.path.join(os.path.dirname(__file__), '..')
+        root = REPO_ROOT
         violations = []
         for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
             if '__pycache__' in py_file or 'test_architecture' in py_file:
@@ -343,7 +343,7 @@ class TestTinyFileConsolidation:
         import os
         import py_compile
 
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root = REPO_ROOT
         errors = []
         for dirpath, _, filenames in os.walk(root):
             if '__pycache__' in dirpath or '.git' in dirpath:
@@ -401,7 +401,7 @@ def _ui_source_files():
 
 
 def _relpath(path):
-    return os.path.relpath(path, _REPO_ROOT)
+    return os.path.relpath(path, REPO_ROOT)
 
 
 def _ui_modules_import_counts():
@@ -514,7 +514,7 @@ _ORCHESTRATION_CONSTRUCTORS = frozenset(
 
 
 def _gui_source_files():
-    return [*_ui_source_files(), os.path.join(_REPO_ROOT, 'lumaviewpro.py')]
+    return [*_ui_source_files(), os.path.join(REPO_ROOT, 'lumaviewpro.py')]
 
 
 def _attribute_chain(node):

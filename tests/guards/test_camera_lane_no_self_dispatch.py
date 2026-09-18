@@ -30,10 +30,10 @@ site unguarded, which is exactly how this one arrived.
 from __future__ import annotations
 
 import ast
-import pathlib
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
-IMAGING_SRC = REPO / 'modules' / 'lumascope_api' / 'imaging.py'
+from tests.ast_seams import REPO_ROOT
+
+IMAGING_SRC = REPO_ROOT / 'modules' / 'lumascope_api' / 'imaging.py'
 
 
 def _redispatching_setters() -> set[str]:
@@ -54,7 +54,7 @@ def _redispatching_setters() -> set[str]:
 def _camera_task_actions() -> list[tuple[str, int, str]]:
     """(file, line, action expression) for every camera_executor.put(IOTask(...))."""
     found = []
-    for path in sorted((REPO / 'ui').glob('*.py')):
+    for path in sorted((REPO_ROOT / 'ui').glob('*.py')):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -69,7 +69,7 @@ def _camera_task_actions() -> list[tuple[str, int, str]]:
                     if action is None and arg.args:
                         action = ast.unparse(arg.args[0])
                     if action:
-                        found.append((str(path.relative_to(REPO)), node.lineno, action))
+                        found.append((str(path.relative_to(REPO_ROOT)), node.lineno, action))
     return found
 
 

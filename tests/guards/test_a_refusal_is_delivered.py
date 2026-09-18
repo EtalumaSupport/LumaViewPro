@@ -21,13 +21,11 @@ raises the typed refusal rather than reading a list.
 """
 
 import ast
-import pathlib
 
 import pytest
 
 from modules.notification_center import NotificationCenter, Severity
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+from tests.ast_seams import REPO_ROOT
 
 
 @pytest.fixture

@@ -25,8 +25,9 @@ from pathlib import Path
 
 import ui.mod_slider
 import ui.shader
+from tests.ast_seams import REPO_ROOT
 
-UI = Path(__file__).resolve().parent.parent / 'ui'
+UI = REPO_ROOT / 'ui'
 
 
 def _method(module, class_name, method_name):

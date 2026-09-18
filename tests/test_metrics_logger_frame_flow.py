@@ -24,7 +24,7 @@ depend on. What was retired is the claim, not the coverage.
 Arming is deliberately deferred -- see the decision record on
 `_check_frame_flow_heartbeat` for the two things that must land first
 (one owner for scope identity, and frame accounting moved out of the UI
-widget). `tests/test_capability_probe_reality.py` holds the expiry: it
+widget). `tests/guards/test_capability_probe_reality.py` holds the expiry: it
 fails the moment `camera` becomes a real attribute, at which point this
 docstring is wrong and must be rewritten.
 

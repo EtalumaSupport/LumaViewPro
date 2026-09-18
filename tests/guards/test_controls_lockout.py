@@ -10,11 +10,12 @@ binding topology is pinned on the source text (established precedent);
 the gesture funnel is pinned behaviorally.
 """
 
-import pathlib
 import sys
 from types import ModuleType
 from unittest import mock
 from unittest.mock import MagicMock
+
+from tests.ast_seams import REPO_ROOT
 
 # ui.vertical_control / ui.protocol_settings are Kivy widget modules;
 # conftest mocks `kivy` but not the uix submodules, and the widget
@@ -54,10 +55,9 @@ _real_base_module('kivy.uix.boxlayout', BoxLayout=_StubWidget)
 _real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
 
-APP_SRC = (REPO / 'lumaviewpro.py').read_text()
-KV_SRC = (REPO / 'ui' / 'lumaviewpro.kv').read_text()
+APP_SRC = (REPO_ROOT / 'lumaviewpro.py').read_text()
+KV_SRC = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
 
 
 class TestDerivedLockProperty:
@@ -93,7 +93,7 @@ class TestDerivedLockProperty:
         # The live->drain flip has no claim transition of its own, so
         # the recording UI paths trigger the session republish; the
         # listener derives recording_active from the engine phase.
-        src = (REPO / 'ui' / 'main_display.py').read_text()
+        src = (REPO_ROOT / 'ui' / 'main_display.py').read_text()
         assert src.count('session.notify_run_state()') >= 3
         assert 'app.recording_active = value' not in src
 
@@ -171,7 +171,7 @@ class TestNoCallerSideRunStateCommit:
     )
 
     def test_no_ui_file_writes_run_state(self):
-        for path in [*sorted((REPO / 'ui').glob('*.py')), REPO / 'lumaviewpro.py']:
+        for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']:
             text = path.read_text()
             for marker in self.FORBIDDEN:
                 assert marker not in text, (
@@ -184,12 +184,12 @@ class TestNoCallerSideRunStateCommit:
         # The UI used to push the XY fact onto the session, which made the
         # session's copy only as fresh as the last apply. motion_enabled now
         # reads the driver, so there is no write for the UI to get wrong.
-        ui_src = (REPO / 'ui' / 'microscope_settings.py').read_text()
+        ui_src = (REPO_ROOT / 'ui' / 'microscope_settings.py').read_text()
         assert 'xystage_configured' not in ui_src, (
             'the UI must not write an XY capability fact onto the session; '
             'motion_enabled derives it from the drivers'
         )
-        session_src = (REPO / 'modules' / 'scope_session.py').read_text()
+        session_src = (REPO_ROOT / 'modules' / 'scope_session.py').read_text()
         assert 'capabilities.has_xy_stage' in session_src, (
             'motion_enabled must derive the XY fact from the live scope'
         )
@@ -295,7 +295,7 @@ class TestGestureMotionFunnel:
         assert ui_helpers._user_motion_locked('X') is False
 
     def test_all_three_movers_guard(self):
-        src = (REPO / 'ui' / 'ui_helpers.py').read_text()
+        src = (REPO_ROOT / 'ui' / 'ui_helpers.py').read_text()
         for mover in ('move_relative', 'move_absolute', 'move_home'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
