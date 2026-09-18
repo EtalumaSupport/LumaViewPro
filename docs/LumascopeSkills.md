@@ -479,6 +479,20 @@ The run saves no images and writes no run artifacts, and it leaves the stage at 
 
 `save_characterization_data` is off by default: a caller that does not ask for the focus curve gets no folder. When on, the data lands under `Autofocus Characterization` in the live folder (or a `parent_dir` you state), and the outcome's `af_data_saved` / `af_data_path` report whether the file was written and where.
 
+**Standalone z-stack.** `run_zstack(layer)` captures a stack on one layer, around the current stage position:
+
+```python
+pending = runner.run_zstack('BF')
+result = pending.wait(timeout_s=600)
+print(result.status, result.reason)
+```
+
+The stack's range, step size and reference come from the settings store, so this run resolves exactly as the z-stack panel's Acquire button does, and an unconfigured stack behaves the same way there as here. The layer is named by the caller, and an unknown one raises `ConfigError` before any hardware moves.
+
+Unlike `run_autofocus`, the slices are the product: the run saves its images (under `Manual/Z-Stacks` in the live folder, or a `parent_dir` you state) and writes its run artifacts. Autofocus is forced off for the step and cannot be turned on -- refocusing at each slice re-centres the very range the stack is sweeping. Stimulation configs are carried onto the step as stored, enabled or not, matching the button.
+
+`return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
+
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, or a live owner holding the illumination. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
 **How a run ends.** Every run that commits returns a handle; `handle.wait(timeout_s=...)` blocks until the run settles and hands back its outcome. `runner.wait_for_completion(timeout=None)` answers the same thing for the **last run this runner committed**. Both give back `None` when the bound expires, and `wait_for_completion` gives back `None` at once when the last call was refused or no run has ever been committed -- a refused start ran nothing, so there is no outcome to report and an older run's result would be a stale answer.

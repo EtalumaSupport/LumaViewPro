@@ -379,6 +379,104 @@ class ProtocolRunner:
             save_autofocus_data=save_characterization_data,
         )
 
+    def run_zstack(
+        self,
+        layer: str,
+        sequence_name: str = 'zstack',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+        return_to_start: bool = True,
+    ) -> PendingRunOutcome:
+        """Capture a z-stack on *layer*, around the current stage position.
+
+        The headless twin of the Acquire button on the z-stack panel: a
+        one-position, one-layer run that expands into one step per slice.
+        The slices are its product, so unlike an autofocus this one saves
+        its images.
+
+        The stack's range, step size and reference -- whether the current
+        position is the top, centre or bottom of the sweep -- come from the
+        settings store, as does everything else about the capture, so this
+        run and a click on the button resolve the same way. The layer is named by the
+        caller for the same reason run_autofocus asks for it: an open
+        drawer is a fact about a running GUI.
+
+        Autofocus is forced OFF for the step, matching the button. A
+        z-stack with autofocus enabled refocuses at each slice and
+        flattens the stack it was asked to capture.
+
+        Stimulation configs are carried onto the step as stored, enabled or
+        not, which is what the button does today. Stated rather than
+        inherited silently: if the API should instead carry only the
+        enabled ones, this is the line that changes.
+
+        Args:
+            layer: Which layer to capture ('BF', 'Green', ...).
+            sequence_name: Name for the output folder.
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Z-Stacks' under the live folder, where the button
+                already puts it.
+            callbacks: Optional dict of callback functions.
+            return_to_start: Whether to put the stage back where the stack
+                was centred when the run ends. On by default, because a
+                stack leaves Z at whichever end it finished on, which is
+                not where the operator was looking. A bool rather than a
+                position, so a caller cannot hand back coordinates in a
+                frame this run never used.
+
+        Returns:
+            The run's outcome, to wait on or to ignore.
+
+        Raises:
+            ConfigError: *layer* is not a layer this release has.
+            ProtocolRunRefusedError: The runner refused the request
+                (already running, files still writing, hardware not
+                connected); no state was committed.
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.settings
+        position = self.session.get_current_plate_position()
+        input_config = config_helpers.get_standalone_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            self.session.wellplate_loader,
+            layer=layer,
+            position=position,
+            position_name='ZStack',
+            # Off, and not a caller's choice: an autofocus at every slice
+            # re-centres the very range the stack is sweeping.
+            autofocus=False,
+            use_zstacking=True,
+            # Unfiltered, matching the starter: every layer's stored config
+            # rides along whether or not that layer is enabled.
+            stim_config=config_helpers.get_stim_configs(settings),
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Z-Stacks'
+            )
+
+        return self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+            run_trigger_source='api_zstack',
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
+            # The slices ARE the product; a z-stack that saved nothing
+            # would have run the stage for no result.
+            enable_image_saving=True,
+            callbacks=callbacks,
+            return_to_position=position if return_to_start else None,
+            # A one-field operation at a scope someone is standing at, so it
+            # hands the illumination back the way it was found.
+            leds_state_at_end='return_to_original',
+        )
+
     def run_composite(
         self,
         sequence_name: str = 'composite',
