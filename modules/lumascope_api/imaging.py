@@ -723,6 +723,30 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
+    def _removed_during_write(self, setting: str, absent_label: str, requested: float) -> bool:
+        """Whether a write that reported refused had in fact lost its camera.
+
+        ``_mark_disconnected()`` deliberately leaves ``_active`` attached --
+        the SDK handle is released later, off this thread, so the C++
+        destructor cannot fire on an SDK callback thread -- so the driver's
+        own inactive branch never fires for a removed device, and a write
+        that failed because the hardware vanished arrives at the value
+        setters looking exactly like a refusal. Reporting it as one names
+        the wrong cause: it tells the user to check that their value is
+        within the camera limits, and raises ``CameraSettingRejected`` at
+        the public setter for what the missing-hardware contract calls a
+        quiet no-op. True here means the caller answers "not confirmed"
+        instead, which is what a vanished camera actually leaves behind.
+        """
+        if not self._driver.is_device_removed():
+            return False
+        logger.error(
+            f'[SCOPE API ] {setting}: camera removed during the write; '
+            f'{requested!r} was not applied'
+        )
+        self._notify_camera_absent(absent_label)
+        return True
+
     def _set_gain_db_impl(self, gain_db: float) -> bool | None:
         """Set the camera gain.
 
@@ -768,22 +792,7 @@ class ImagingAPI:
             cache_update={'gain_db': float(gain_db)},
         )
         if ok is False:
-            if self._driver.is_device_removed():
-                # A write that failed because the device vanished arrives here
-                # looking exactly like a refusal: _mark_disconnected() leaves
-                # _active set on purpose (the SDK handle is released later,
-                # off this thread), so the driver's own inactive branch never
-                # fires. Reporting it as a rejection names the wrong cause --
-                # it tells the user to check their value when the camera is
-                # gone -- and raises CameraSettingRejected at the public
-                # setter for what the missing-hardware contract calls a quiet
-                # no-op. Answer "not confirmed" instead, which is what a
-                # vanished camera actually leaves behind.
-                logger.error(
-                    f'[SCOPE API ] gain_db: camera removed during the write; '
-                    f'{float(gain_db)!r} was not applied'
-                )
-                self._notify_camera_absent('gain')
+            if self._removed_during_write('gain_db', 'gain', float(gain_db)):
                 return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD gain,
@@ -864,22 +873,7 @@ class ImagingAPI:
             cache_update={'exposure_ms': float(exposure_ms)},
         )
         if ok is False:
-            if self._driver.is_device_removed():
-                # A write that failed because the device vanished arrives here
-                # looking exactly like a refusal: _mark_disconnected() leaves
-                # _active set on purpose (the SDK handle is released later,
-                # off this thread), so the driver's own inactive branch never
-                # fires. Reporting it as a rejection names the wrong cause --
-                # it tells the user to check their value when the camera is
-                # gone -- and raises CameraSettingRejected at the public
-                # setter for what the missing-hardware contract calls a quiet
-                # no-op. Answer "not confirmed" instead, which is what a
-                # vanished camera actually leaves behind.
-                logger.error(
-                    f'[SCOPE API ] exposure_ms: camera removed during the write; '
-                    f'{float(exposure_ms)!r} was not applied'
-                )
-                self._notify_camera_absent('exposure')
+            if self._removed_during_write('exposure_ms', 'exposure', float(exposure_ms)):
                 return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD
