@@ -791,11 +791,15 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def auto_exposure_t(self, state: bool = True) -> None:
+    def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable hardware auto-exposure.
 
         Args:
             state: True to enable, False to disable.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 
@@ -1123,12 +1127,16 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool | None:
         """Update the target brightness for the auto-gain loop.
 
         Args:
             auto_target_brightness: Normalized target brightness (0.0
                 to 1.0).
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 
@@ -1154,11 +1162,32 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def gain(self, value: float) -> None:
-        """Set the camera gain.
+    def gain(self, value: float) -> bool | None:
+        """Set the camera gain, and report whether the camera took it.
+
+        The caller records the requested value in its camera cache and as
+        the frame-validity chunk target, and does so whenever the answer is
+        not ``False`` -- a driver that cannot confirm is believed. So a
+        driver that CAN tell a refusal apart from a success must say which:
+        a swallowed rejection reported as applied leaves the cache naming a
+        gain the hardware is not at and a chunk target no frame will ever
+        carry, and on a camera that reports gain in chunk data every
+        subsequent frame then fails the match.
+
+        This is the canonical statement of the three-case return the
+        bool-reporting setters share; the auto-mode setters point here.
+        ``exposure_t`` extends it with a fourth case, the value in effect.
 
         Args:
             value: Gain in dB.
+
+        Returns:
+            True: Applied -- the hardware holds the value, including when
+                the write was skipped because it already did.
+            False: Refused -- the hardware did NOT move. The caller must
+                not record the request as truth.
+            None: Not attempted, because no camera is active. Not a
+                refusal: nothing was asked of any hardware.
         """
         pass
 
@@ -1170,7 +1199,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable continuous auto-gain.
 
         Args:
@@ -1181,6 +1210,10 @@ class Camera(ABC):
             ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
                 on the exposure auto-exposure may drive to. Honored where
                 the driver supports auto-exposure bounds; ignored otherwise.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 
@@ -1192,7 +1225,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run a single auto-gain iteration.
 
         Args:
@@ -1202,6 +1235,10 @@ class Camera(ABC):
             max_gain_db: Optional upper bound in dB.
             ae_max_exposure_ms: Optional per-channel-class exposure upper
                 bound (ms); honored where the driver supports it.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 

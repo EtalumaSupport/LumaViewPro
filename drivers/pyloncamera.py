@@ -2591,7 +2591,7 @@ class PylonCamera(Camera):
     def update_auto_gain_target_brightness(
         self,
         auto_target_brightness: float,
-    ) -> None:
+    ) -> bool | None:
         """Update `AutoTargetBrightness` without an over-stop cycle.
 
         Live-writable per Basler -- no `update_camera_config()` wrap
@@ -2618,7 +2618,7 @@ class PylonCamera(Camera):
                         f'pylon AutoTargetBrightness.SetValue'
                         f'({auto_target_brightness:.3f}) short-circuited'
                     )
-                return
+                return True
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             logger.debug(
                 f'[CAM Class ] AutoTargetBrightness short-circuit read failed; '
@@ -2629,6 +2629,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+            return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2639,6 +2640,7 @@ class PylonCamera(Camera):
                 f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2647,6 +2649,7 @@ class PylonCamera(Camera):
             _cam_log.exception(
                 f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}'
             )
+            return False
 
     def update_auto_gain_min_max(
         self,
@@ -3062,11 +3065,20 @@ class PylonCamera(Camera):
             return False
         return True
 
-    def gain(self, value) -> None:
+    def gain(self, value: float) -> bool | None:
         """Set Gain in dB. Asserts GainSelector='All' first (Basler gain.html three-step).
 
         Caller is responsible for ``GainAuto=Off``. GainSelector write
         failures are tolerated (cameras without the selector).
+
+        The GenICam classes a refused value arrives as -- OutOfRange,
+        Access, InvalidArgument, LogicalError -- are siblings of
+        RuntimeException, not subclasses, so they land in the general
+        handler below with the camera still live and streaming. That
+        handler reports the refusal rather than falling through it.
+
+        Returns:
+            bool | None: See ``Camera.gain``.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3087,7 +3099,7 @@ class PylonCamera(Camera):
                     if _cam_log is not None:
                         _cam_log.info(f'pylon Gain.SetValue({float(value):.3f}) short-circuited')
                     _log_cam('info', f'[CAM Class ] Gain already at {value}')
-                    return
+                    return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Gain short-circuit read failed; '
@@ -3097,24 +3109,27 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
             _log_cam('debug', f'[CAM Class ] Gain set to {value}')
+            return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.exception(f'[CAM Class ] Unexpected error in gain: {e}')
+            return False
 
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
         When enabled, ``GainAuto`` and ``ExposureAuto`` are set to
@@ -3171,20 +3186,23 @@ class PylonCamera(Camera):
                 if _cam_log is not None:
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             _log_cam('info', f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
+            return False
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
         ``GainAuto`` and ``ExposureAuto`` are set to ``Once`` -- the
@@ -3223,11 +3241,14 @@ class PylonCamera(Camera):
                 self.active.GainAuto.SetValue('Off')
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
+            return False
 
     def exposure_t(self, exposure_ms: float) -> float | bool | None:
         """Set the camera's exposure time in milliseconds.
@@ -3375,7 +3396,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True) -> None:
+    def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable continuous auto-exposure.
 
         When ``state=True``, ``ExposureAuto`` is set to ``Continuous``;
@@ -3398,11 +3419,14 @@ class PylonCamera(Camera):
             else:
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
+            return False
 
     def set_test_pattern(
         self,

@@ -625,3 +625,156 @@ class TestAuthorityIsSingleWritePath:
         )
         offenders, found = _driver_write_offenders(ast.parse(src))
         assert not offenders and found == 1
+
+
+# The camera drivers that implement the members above. A member here answers
+# _camera_write, whose rule is that anything not False was applied -- so a
+# member that swallows a rejection and falls off the end reports the refusal as
+# a success, and the requested value is cached and stamped as the chunk target.
+_CAMERA_DRIVER_RELS = (
+    'drivers/camera.py',
+    'drivers/pyloncamera.py',
+    'drivers/simulated_camera.py',
+    'drivers/fx2driver.py',
+    'drivers/idscamera.py',
+)
+
+
+def _handler_reraises(handler):
+    return any(isinstance(node, ast.Raise) for node in ast.walk(handler))
+
+
+def _handler_reports_refused(handler):
+    """Some path out of the handler returns an explicit False."""
+    return any(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value is False
+        for node in ast.walk(handler)
+    )
+
+
+def _swallowed_rejection_offenders(tree):
+    """(offenders, found): camera-write members whose FINAL statement is a try
+    with a handler that neither re-raises nor returns False.
+
+    Scoped to the try that ENDS the member on purpose. A handler with code
+    after it is tolerating one step and continuing -- pyloncamera.gain's
+    GainSelector write is the sanctioned case, since cameras without the
+    selector are expected. A handler that ends the member decides the member's
+    answer, and falling off the end of one answers None, which the authority
+    reads as applied. Annotations are deliberately NOT consulted: a member can
+    be annotated -> bool and never return False, so the type declares an
+    intention while the body decides the behaviour.
+    """
+    offenders = []
+    found = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name not in CAMERA_WRITE_METHODS:
+            continue
+        found += 1
+        last = node.body[-1] if node.body else None
+        if not isinstance(last, ast.Try):
+            continue
+        for handler in last.handlers:
+            if _handler_reraises(handler) or _handler_reports_refused(handler):
+                continue
+            offenders.append((node.name, handler.lineno))
+    return offenders, found
+
+
+class TestNoSetterSwallowsItsRejection:
+    """A camera-write member may raise or report False, never both-nor.
+
+    pyloncamera.gain caught four GenICam rejection classes -- all siblings of
+    RuntimeException rather than subclasses, so they arrive with the camera
+    still live -- logged them, and fell off the end returning None. The
+    authority read that as applied and recorded a gain the hardware refused.
+    """
+
+    def test_no_camera_driver_swallows_a_rejection(self):
+        all_offenders = []
+        total_found = 0
+        for rel in _CAMERA_DRIVER_RELS:
+            offenders, found = _swallowed_rejection_offenders(parse_module(rel))
+            total_found += found
+            all_offenders += [(rel, name, line) for name, line in offenders]
+
+        assert not all_offenders, (
+            f'camera setter swallows an exception and answers None: {all_offenders}. '
+            f'The handler that ENDS the member must return False (refused) or re-raise; '
+            f'falling off the end reports the refusal to _camera_write as applied, which '
+            f'caches the value and stamps it as the chunk target.'
+        )
+        # Never pass on zero findings: a rename or a member-set drift would
+        # otherwise make this guard silently vacuous.
+        assert total_found >= len(CAMERA_WRITE_METHODS), (
+            f'expected at least {len(CAMERA_WRITE_METHODS)} camera-write member definitions '
+            f'across the drivers, found {total_found}; CAMERA_WRITE_METHODS may be stale.'
+        )
+
+    def test_guard_flags_a_handler_that_falls_off_the_end(self):
+        src = (
+            'class Cam:\n'
+            '    def gain(self, value):\n'
+            '        try:\n'
+            '            self.active.Gain.SetValue(value)\n'
+            '        except Exception as e:\n'
+            '            log(e)\n'
+        )
+        offenders, found = _swallowed_rejection_offenders(ast.parse(src))
+        assert offenders and found == 1
+
+    def test_guard_accepts_a_handler_that_reports_refused(self):
+        src = (
+            'class Cam:\n'
+            '    def gain(self, value):\n'
+            '        try:\n'
+            '            self.active.Gain.SetValue(value)\n'
+            '            return True\n'
+            '        except Exception as e:\n'
+            '            log(e)\n'
+            '            return False\n'
+        )
+        offenders, found = _swallowed_rejection_offenders(ast.parse(src))
+        assert not offenders and found == 1
+
+    def test_guard_accepts_a_handler_that_reraises(self):
+        src = (
+            'class Cam:\n'
+            '    def gain(self, value):\n'
+            '        try:\n'
+            '            self.active.Gain.SetValue(value)\n'
+            '        except Exception:\n'
+            '            raise\n'
+        )
+        offenders, found = _swallowed_rejection_offenders(ast.parse(src))
+        assert not offenders and found == 1
+
+    def test_guard_accepts_a_tolerating_handler_that_continues(self):
+        """A handler with the member's real work after it is tolerating a step,
+        not deciding the answer -- the GainSelector case."""
+        src = (
+            'class Cam:\n'
+            '    def gain(self, value):\n'
+            '        try:\n'
+            '            self.active.GainSelector.SetValue("All")\n'
+            '        except Exception as e:\n'
+            '            log(e)\n'
+            '        return True\n'
+        )
+        offenders, found = _swallowed_rejection_offenders(ast.parse(src))
+        assert not offenders and found == 1
+
+    def test_guard_is_not_fooled_by_an_annotation(self):
+        """The rev 1 guard checked the return TYPE, which proves nothing."""
+        src = (
+            'class Cam:\n'
+            '    def gain(self, value) -> bool:\n'
+            '        try:\n'
+            '            self.active.Gain.SetValue(value)\n'
+            '        except Exception as e:\n'
+            '            log(e)\n'
+        )
+        offenders, _found = _swallowed_rejection_offenders(ast.parse(src))
+        assert offenders, 'an annotation is a declaration, not a behaviour'

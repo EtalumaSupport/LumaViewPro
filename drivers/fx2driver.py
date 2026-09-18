@@ -2166,8 +2166,16 @@ class FX2Camera(Camera):
 
     # -- Gain --------------------------------------------------------------
 
-    def gain(self, g):
-        """Set gain in dB. Clamped to [0.0, 42.1] (audit-corrected max)."""
+    def gain(self, g: float) -> bool | None:
+        """Set gain in dB. Clamped to [0.0, 42.1].
+
+        A failed register write RAISES out of ``sensor_reg_write`` rather than
+        returning, so this never answers refused; it answers APPLIED so the
+        caller is not left reading a bare fall-through as "cannot confirm".
+
+        Returns:
+            bool | None: See ``Camera.gain``.
+        """
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
@@ -2176,6 +2184,7 @@ class FX2Camera(Camera):
                 f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
             )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        return True
 
     def get_gain(self):
         _, db = _register_to_gain_db(self._gain_reg)

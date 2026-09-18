@@ -111,6 +111,51 @@ class TestOnlyAConfirmedRejectionRaises:
         imaging.set_exposure_ms(25.0)
 
 
+class TestARefusalIsNotRecordedAsTruth:
+    """The API's judgement rule, pinned independently of any one driver.
+
+    Driver-agnostic and it passes before the Pylon fix as well as after: what it
+    guards is ``_camera_write``'s rule that only an explicit ``False`` is a
+    refusal, and the state consequence that rule carries. A future change that
+    loosened the rule -- or that recorded the request before consulting the
+    result -- would leave the cache describing a gain the camera is not at and a
+    chunk target no frame can ever carry. The driver half of the same contract
+    is ``tests/test_pylon_gain_reports_its_rejection.py``.
+    """
+
+    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(
+        self, sim_imaging, notified, monkeypatch
+    ):
+        imaging, cam = sim_imaging
+        imaging.set_gain_db(3.0)
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_gain_db(9.0)
+
+        assert imaging.gain_db_cached == 3.0
+        assert imaging.frame_validity.target('gain') == 3.0
+
+    def test_an_applied_gain_moves_both(self, sim_imaging):
+        imaging, _cam = sim_imaging
+        imaging.set_gain_db(3.0)
+
+        imaging.set_gain_db(9.0)
+
+        assert imaging.gain_db_cached == 9.0
+        assert imaging.frame_validity.target('gain') == 9.0
+
+    def test_a_driver_that_cannot_confirm_is_believed(self, sim_imaging, monkeypatch):
+        """``None`` is not a refusal, so the request IS recorded -- that is the
+        deliberate rule, and it is why a driver that CAN confirm must."""
+        imaging, cam = sim_imaging
+        monkeypatch.setattr(cam, 'gain', lambda v: None)
+
+        imaging.set_gain_db(9.0)
+
+        assert imaging.gain_db_cached == 9.0
+
+
 class TestTheImplsStayNonRaising:
     """The in-run composition primitive must not throw into the scan loop.
 

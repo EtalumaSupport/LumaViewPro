@@ -996,19 +996,29 @@ class SimulatedCamera(Camera):
             return -1
         return self._gain
 
-    def gain(self, value: float) -> None:
+    def gain(self, value: float) -> bool | None:
         """Set the simulated camera gain.
+
+        There is no path on which the write can fail, so this never answers
+        refused -- but it answers APPLIED rather than falling off the end,
+        because the caller reads a bare fall-through as "this driver cannot
+        confirm" and believes the request either way. Saying so explicitly is
+        what keeps a future failure path from inheriting that silence.
 
         Args:
             value: Gain in dB.
+
+        Returns:
+            bool | None: See ``Camera.gain``.
         """
         if not self.active:
-            return
+            return None
         with self._lock:
             self._gain = float(value)
             if _cam_log is not None:
                 _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
             logger.debug(f'[CAM Sim   ] Gain set to {value}')
+        return True
 
     def init_auto_gain_focus(
         self,
