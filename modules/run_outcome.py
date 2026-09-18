@@ -114,10 +114,12 @@ class RunOutcome:
     """How a run ended, and what its merge produced.
 
     The first four fields are the run's ENDING, copied from the
-    RunEnding whatever ended the run recorded; the last three describe
-    the merge. A non-composite run carries merged=False and an empty
-    merge_reason under whatever status it ended in, so a caller reads
-    one shape for every run kind.
+    RunEnding whatever ended the run recorded; the next three describe
+    the merge, and the last two describe the autofocus characterization
+    data. A non-composite run carries merged=False and an empty
+    merge_reason under whatever status it ended in, and a run that saved
+    no autofocus data carries af_data_saved=False, so a caller reads one
+    shape for every run kind.
 
     Attributes:
         status: One of 'completed', 'aborted', 'failed',
@@ -131,6 +133,14 @@ class RunOutcome:
             'no_run_dir', 'shutdown', ...). Empty on success and on
             every run that has no merge, so a caller can branch on
             merged and still log one field.
+        af_data_saved: True only when autofocus characterization data
+            was WRITTEN. False covers every run that asked for none, and
+            every run that asked and got none -- a sweep that collected
+            nothing, or one whose queued save an abort discarded.
+        af_data_path: The characterization file that was written; None
+            whenever af_data_saved is False. Never the folder: that is
+            allocated before the sweep runs and exists even when nothing
+            was written, which is the answer a caller must not be given.
     """
 
     status: str
@@ -140,6 +150,8 @@ class RunOutcome:
     merged: bool
     artifact_path: str | None
     merge_reason: str
+    af_data_saved: bool
+    af_data_path: str | None
 
     @classmethod
     def from_ending(
@@ -149,12 +161,19 @@ class RunOutcome:
         merged: bool,
         artifact_path: str | None,
         merge_reason: str,
+        af_data_path: str | None = None,
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
         The only constructor the settle paths use: the run's status and
         reason are never restated at a settle site, so the word a caller
         reads is always the one the thing that ended the run recorded.
+
+        Takes the autofocus path rather than the pair, and derives the
+        flag from it: "data was saved" and "here is the file" are one
+        fact, and a constructor that accepted both could be handed a
+        saved=True carrying nowhere to look -- the shape a remote caller
+        cannot tell from a real delivery.
         """
         return cls(
             status=ending.status,
@@ -164,6 +183,8 @@ class RunOutcome:
             merged=merged,
             artifact_path=artifact_path,
             merge_reason=merge_reason,
+            af_data_saved=af_data_path is not None,
+            af_data_path=af_data_path,
         )
 
 
@@ -181,12 +202,32 @@ class PendingRunOutcome:
         self._token: str | None = None
         self._ending: RunEnding | None = None
         self._outcome: RunOutcome | None = None
+        self._af_data_path: str | None = None
         self._settled = threading.Event()
 
     @property
     def state(self) -> str:
         with self._lock:
             return self._state
+
+    def record_autofocus_data(self, path: str | None) -> None:
+        """Record the characterization file this run wrote, if any.
+
+        Held here rather than passed to a resolver because a run can
+        settle down any of three paths -- cleanup's first-wins resolve,
+        the merge thread's, or a teardown force-resolve -- and the data
+        landed (or did not) regardless of which one gets there. Recording
+        it once, on the object every path composes from, is what keeps
+        the three answers from diverging.
+
+        Recorded before the outcome settles, which is the same moment for
+        every run kind: the run's cleanup knows what its autofocus wrote
+        by the time it settles, because the write is queued ahead of
+        cleanup's own blocking record write on the same sequential lane.
+        A run that saved nothing records None and reads as such.
+        """
+        with self._lock:
+            self._af_data_path = path
 
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
@@ -219,7 +260,11 @@ class PendingRunOutcome:
                 return False
             self._state = RESOLVED
             self._outcome = RunOutcome.from_ending(
-                ending, merged=False, artifact_path=None, merge_reason=merge_reason
+                ending,
+                merged=False,
+                artifact_path=None,
+                merge_reason=merge_reason,
+                af_data_path=self._af_data_path,
             )
             self._settled.set()
             return True
@@ -246,7 +291,11 @@ class PendingRunOutcome:
             ending = self._ending if self._ending is not None else fallback
             self._state = RESOLVED
             self._outcome = RunOutcome.from_ending(
-                ending, merged=False, artifact_path=None, merge_reason=merge_reason
+                ending,
+                merged=False,
+                artifact_path=None,
+                merge_reason=merge_reason,
+                af_data_path=self._af_data_path,
             )
             self._settled.set()
             return True
@@ -277,6 +326,7 @@ class PendingRunOutcome:
                 merged=merged,
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
+                af_data_path=self._af_data_path,
             )
             self._settled.set()
             return True

@@ -1501,6 +1501,18 @@ class SequencedCaptureRunner:
         if outcome is None:
             return
         try:
+            # Carry what this run's autofocus actually wrote onto the
+            # outcome before any path settles it, so the answer is the
+            # same whichever one gets there. Sourced from the sweep
+            # rather than from the plan's request or from the results
+            # folder: both say what was ASKED FOR, and a caller that
+            # cannot tell a delivered file from a requested one has to
+            # go looking on disk to find out -- which is the whole
+            # reason this field exists. The sweep clears it per run, so
+            # a run whose autofocus never fired reads None.
+            if self._autofocus_runner is not None:
+                af_path = self._autofocus_runner.saved_data_path()
+                outcome.record_autofocus_data(str(af_path) if af_path is not None else None)
             if (
                 ending.status != 'completed'
                 or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE

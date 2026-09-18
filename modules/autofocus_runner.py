@@ -858,23 +858,37 @@ class AutofocusRunner:
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
 
-    def clear_result(self) -> None:
-        """Drop the last result so it cannot outlive the run that made it.
+    def saved_data_path(self) -> pathlib.Path | None:
+        """The characterization file THIS run wrote, or None if none was.
 
-        The result answers one question -- what did THIS run's autofocus
-        find -- but the attribute is reset only at run() entry, so a value
-        stayed valid from one autofocus's start to the NEXT autofocus's
-        start. A run therefore clears it before producing one.
+        None covers every way there is nothing to point at: the sweep was
+        not asked to save, it collected no data, or its queued save was
+        dropped by an aborting run. The results directory cannot stand in
+        for this -- it is allocated before the sweep starts and survives
+        all three -- so a caller that needs to know the data landed reads
+        this and not the folder.
+        """
+        return self._saved_data_path
+
+    def clear_result(self) -> None:
+        """Drop the last run's results so they cannot outlive it.
+
+        The results answer one question -- what did THIS run's autofocus
+        find, and what did it write -- but the attributes are reset only
+        at run() entry, so a value stayed valid from one autofocus's start
+        to the NEXT autofocus's start. A run therefore clears them before
+        producing any.
 
         Deliberately NOT guarded on _af_in_progress the way reset() is. A
         prior autofocus can still be unwinding when the next run starts,
         because run cleanup proceeds once its wait times out, and that is
         exactly the case where a stale value would be read; a guard would
         make the clear a no-op precisely there. The guard reset() carries
-        protects _params, which run() reads on the AF thread -- the result
-        is only ever WRITTEN there, so clearing it alone races nothing.
+        protects _params, which run() reads on the AF thread -- the results
+        are only ever WRITTEN there, so clearing them alone races nothing.
         """
         self._best_focus_position = None
+        self._saved_data_path = None
 
     def _move_absolute_position(self, position):
         # Internal-caller contract of the motion API: the public members are
@@ -918,6 +932,16 @@ class AutofocusRunner:
 
         df = pd.DataFrame(self._af_data_full)
         df.to_csv(results_file_loc, header=True, index=False)
+        # Recorded HERE, after the write returns, because every earlier
+        # point can be true while the file never appears: the results dir
+        # is allocated eagerly at AF start, this save is queued rather
+        # than performed, the queue is dropped wholesale on an error
+        # abort, and the early return above fires when the sweep
+        # collected nothing. A caller asking "did the characterization
+        # data land" can only be answered honestly by the write itself.
+        # The plot below is diagnostic garnish and may fail on its own;
+        # the CSV is the data, so it alone decides the answer.
+        self._saved_data_path = results_file_loc
 
         plot_filename = f'autofocus_plot_{ts}.png'
         plot_outfile_loc = self._results_dir / plot_filename
@@ -1025,6 +1049,7 @@ class AutofocusRunner:
         self._af_data_pass = []
         self._af_data_full = []
         self._best_focus_position = None
+        self._saved_data_path = None
         self._last_pass = False
         self._params = {}
         self._run_trigger_source = None
