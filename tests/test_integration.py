@@ -292,7 +292,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -317,7 +317,7 @@ def af_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
         autofocus_runner=af,
     )
     return exc
@@ -622,6 +622,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
+                run_trigger_source='autofocus',
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
@@ -1109,7 +1110,9 @@ class TestRestAPIPrep:
             thread.start()
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
-                future = thread.run_autofocus(objective_id=objectives[0])
+                future = thread.run_autofocus(
+                    run_trigger_source='autofocus', objective_id=objectives[0]
+                )
                 result = future.result(timeout=30)
                 assert result is not None
                 assert af.complete() is True
@@ -1137,7 +1140,9 @@ class TestRestAPIPrep:
             thread.start()
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
-                future = thread.run_autofocus(objective_id=objectives[0])
+                future = thread.run_autofocus(
+                    run_trigger_source='autofocus', objective_id=objectives[0]
+                )
 
                 # Give the thread a moment to enter AFE.run()
                 time.sleep(0.1)

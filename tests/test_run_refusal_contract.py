@@ -42,6 +42,7 @@ import pathlib
 import sys
 import threading
 import time
+from concurrent.futures import Future
 from unittest.mock import MagicMock
 
 import pytest
@@ -63,6 +64,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
 from modules.image_mode import ImageCaptureConfig
@@ -216,7 +218,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -643,7 +645,11 @@ class TestRefusalNotifyOnceFunnel:
         def autofocus_running(mp):
             # A live interactive autofocus owns Z and the LED lease; a run
             # prepared under it must be refused before any commitment.
-            mp.setattr(executor.autofocus_thread, 'is_running', True)
+            mp.setattr(
+                executor.autofocus_thread,
+                'in_flight_sweep',
+                AutofocusSweep(future=Future(), run_trigger_source='autofocus'),
+            )
             return _make_single_step_protocol()
 
         return [

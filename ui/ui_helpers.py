@@ -44,13 +44,11 @@ def run_with_refusal_boundary(
     autofocus scan, z-stack) routes its prepare/start sequence through
     this one handler so refusal handling cannot drift between them.
 
-    The funnel also POSTS a user notification, but posting is not
-    delivery: the notification centre drops every non-fatal
-    notification for the whole of a run nobody is watching, which is
-    every run kind but a standalone autofocus. A starter that assumes
-    the engine reached the user is therefore wrong during exactly the
-    runs a rival refusal happens in; one that must be sure raises its
-    own popup.
+    The funnel also DELIVERS the user notification: a refusal answers a
+    button press, so it is posted solicited and reaches the user during
+    a run of any kind. A starter therefore adds no popup of its own --
+    a second one would say what the engine already said, and would say
+    it only to whoever is looking at this GUI.
     """
     try:
         start_fn()
@@ -69,12 +67,12 @@ def show_run_refused_popup(blocked_action: str, holder: str | None) -> None:
     raise a popup, so without this the explanation a user got depended
     on which gate happened to fire first.
 
-    The direct popup is deliberate rather than the notification centre:
-    the centre drops non-fatal notifications for the whole of a run
-    nobody is watching, and a refusal answers a button press, so someone
-    is present by construction. An empty holder is reachable, because
-    the windows around the activity claim are not zero, so it degrades
-    to naming no kind rather than interpolating a blank.
+    The direct popup is what the calling branch leaves no alternative:
+    it refuses in the GUI without ever asking the engine, so no refusal
+    funnel has run and nothing else has told the user anything. An
+    empty holder is reachable, because the windows around the activity
+    claim are not zero, so it degrades to naming no kind rather than
+    interpolating a blank.
     """
     from ui.notification_popup import show_notification_popup
 
@@ -82,26 +80,6 @@ def show_run_refused_popup(blocked_action: str, holder: str | None) -> None:
     show_notification_popup(
         title='Run In Progress',
         message=f'{owner} is using the microscope.\n\nStop it before you {blocked_action}.',
-    )
-
-
-def show_autofocus_busy_popup(blocked_action: str, holder: str | None) -> None:
-    """Refuse for an autofocus sweep, naming the run that OWNS the sweep.
-
-    The gate behind this reads the autofocus thread, and a protocol's
-    own autofocus steps drive that same thread -- so naming only the
-    autofocus would report a sweep when a full protocol is the thing the
-    user actually has to stop.
-    """
-    from ui.notification_popup import show_notification_popup
-
-    owner = f'the {holder} run' if holder else 'another run'
-    show_notification_popup(
-        title='Autofocus In Progress',
-        message=(
-            f'An autofocus sweep from {owner} is using the microscope.\n\n'
-            f'Wait for it to finish before you {blocked_action}.'
-        ),
     )
 
 

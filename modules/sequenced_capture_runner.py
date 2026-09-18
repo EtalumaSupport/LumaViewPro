@@ -858,13 +858,19 @@ class SequencedCaptureRunner:
         # a future non-AF holder), which is why it is pinned by tests and
         # not by a sim scenario. The window closes for good when AF
         # acquires its lease at enqueue time instead of on the worker.
-        if self.autofocus_thread is not None and bool(self.autofocus_thread.is_running):
+        in_flight_sweep = (
+            self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
+        )
+        if in_flight_sweep is not None:
             self._refuse(
                 reason='autofocus_running',
                 title='Autofocus Running',
                 message=(
-                    'Autofocus is still running. Stop it or let it finish, then start the run.'
+                    f'An autofocus sweep from the {in_flight_sweep.run_trigger_source} run '
+                    'is still running. Stop it or let it finish, then start the run.'
                 ),
+                holder='autofocus',
+                holder_trigger=in_flight_sweep.run_trigger_source,
             )
 
         if leds_state_at_end not in (

@@ -81,13 +81,16 @@ class ProtocolRunRefusedError(ProtocolError):
             refusals to responses (REST status codes, UI branches).
         title: The notification title already shown to the user.
         message: The notification body already shown to the user.
-        holder: The exclusive-activity claim owner at refusal time
-            ('protocol' or 'recording'), or None when the refusal is
-            not claim-shaped (validation, hardware, file drain).
-        holder_trigger: Busy-with-what for run-shaped holders: the
-            holding (or, for a file-drain refusal, the just-finished)
-            run's run_trigger_source. None when the holder is not a
-            run -- a recording has no trigger; its kind IS the holder.
+        holder: What holds the microscope at refusal time
+            ('protocol' or 'recording' for the exclusive-activity claim
+            owner; 'autofocus' for a sweep in flight), or None when the
+            refusal is not holder-shaped (validation, hardware, file
+            drain).
+        holder_trigger: Busy-with-what: the trigger of the run that
+            holds the scope -- for a file-drain refusal the just-
+            finished run's, for an autofocus sweep the run that
+            dispatched it. None when no run is behind the holder -- a
+            recording has no trigger; its kind IS the holder.
     """
 
     def __init__(

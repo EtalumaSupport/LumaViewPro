@@ -3188,7 +3188,7 @@ def _make_capture_runner(**overrides):
         'protocol_thread': MagicMock(),
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(is_running=False),
+        'autofocus_thread': MagicMock(in_flight_sweep=None),
     }
     kwargs.update(overrides)
     return SequencedCaptureRunner(**kwargs)
@@ -9147,7 +9147,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(is_running=False),
+            autofocus_thread=MagicMock(in_flight_sweep=None),
         )
         exc._parent_dir = parent_dir
         return exc

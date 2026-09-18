@@ -72,7 +72,6 @@ NOTIFIERS = frozenset(
     {
         'show_notification_popup',
         'show_run_refused_popup',
-        'show_autofocus_busy_popup',
         'require_file_writes_idle',
         '_is_protocol_valid',
         '_offer_wedged_writer_recovery',
@@ -253,22 +252,6 @@ class TestTheRefusalNamesWhatIsHoldingTheScope:
         _title, message = shown[0]
         assert 'Another run' in message
         assert '  ' not in message, 'an empty holder was interpolated into the sentence'
-
-    def test_an_autofocus_sweep_names_the_run_that_owns_it(self, monkeypatch):
-        """A protocol's own AF steps drive the same thread.
-
-        Naming only the autofocus would report a sweep when a full
-        protocol is the thing the user actually has to stop.
-        """
-        from ui.ui_helpers import show_autofocus_busy_popup
-
-        shown = self._capture(monkeypatch)
-        show_autofocus_busy_popup('start a scan', 'protocol')
-
-        assert len(shown) == 1
-        _title, message = shown[0]
-        assert 'autofocus' in message.lower()
-        assert 'protocol' in message, 'the sweep belongs to a run; the message must name that run'
 
 
 def test_the_composite_guard_does_not_blame_the_wrong_subsystem():

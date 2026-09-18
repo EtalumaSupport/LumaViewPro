@@ -12,15 +12,18 @@ or failure).
 Public API:
   start()                       -- spawn worker thread
   stop(timeout)                 -- signal stop, join with bound timeout
-  run_autofocus(**kwargs)       -- enqueue an AF request; returns a Future.
+  run_autofocus(run_trigger_source=..., **kwargs)
+                                -- enqueue an AF request; returns a Future.
                                    Future resolves to best_focus_position
                                    (float | None) on success, or carries
                                    the exception on failure / abort.
                                    AutofocusAborted is raised through the
                                    Future on caller-requested abort.
   abort()                       -- signal current run to unwind
+  in_flight_sweep               -- the sweep running now (its Future and
+                                   the run that dispatched it), or None
   is_running                    -- True if an AF run is in flight
-  current_future                -- the in-flight Future, or None
+  current_future                -- the recorded Future, or None
 
 Concurrency contract: one AF at a time. A second run_autofocus()
 invocation while the first is in flight returns a Future that resolves
@@ -32,6 +35,7 @@ import logging
 import queue
 import threading
 from concurrent.futures import Future
+from dataclasses import dataclass
 from typing import Any
 
 from modules.exceptions import AutofocusAborted
@@ -42,6 +46,21 @@ logger = logging.getLogger('LVP.modules.autofocus_thread')
 # Sentinel posted to the request queue by stop() to wake the worker
 # from queue.get() even when no AF request is pending.
 _SHUTDOWN_SENTINEL = object()
+
+
+@dataclass(frozen=True)
+class AutofocusSweep:
+    """A sweep in flight: its Future and the run that dispatched it.
+
+    One object, written and cleared in one act, so "a sweep is running"
+    and "whose sweep" cannot be read at two different instants and
+    disagree -- the reader that sees the sweep sees the run that owns
+    it. Naming only the sweep would report an autofocus when a whole
+    protocol is the thing the user has to stop.
+    """
+
+    future: Future
+    run_trigger_source: str
 
 
 class AutofocusThread:
@@ -74,7 +93,7 @@ class AutofocusThread:
         self._request_queue: queue.Queue = queue.Queue(maxsize=1)
 
         self._state_lock = threading.Lock()
-        self._current_future: Future | None = None
+        self._current_sweep: AutofocusSweep | None = None
 
     # ---- lifecycle ----
 
@@ -121,12 +140,18 @@ class AutofocusThread:
 
     # ---- public API ----
 
-    def run_autofocus(self, **kwargs) -> Future:
+    def run_autofocus(self, *, run_trigger_source: str, **kwargs) -> Future:
         """Enqueue an AF request. Returns a Future that resolves to the
         best focus position (float | None) on success, or carries the
         exception on failure or abort.
 
         Args:
+            run_trigger_source: the trigger of the run dispatching this
+                sweep. Required, because every dispatch has one and a
+                sweep whose owner is unknown is precisely what the
+                refusals downstream cannot describe. Recorded with the
+                Future AND forwarded to the runner, which gates its own
+                failure popups on it.
             **kwargs: forwarded verbatim to AutofocusRunner.run().
 
         Returns:
@@ -134,28 +159,38 @@ class AutofocusThread:
             block; ignore to fire-and-forget. Caller-requested abort
             surfaces as AutofocusAborted via the Future.
         """
+        request_kwargs = {**kwargs, 'run_trigger_source': run_trigger_source}
         future: Future = Future()
         with self._state_lock:
-            if self._current_future is not None and not self._current_future.done():
-                future.set_exception(RuntimeError('Autofocus already in progress'))
+            in_flight = self._current_sweep
+            if in_flight is not None and not in_flight.future.done():
+                future.set_exception(
+                    RuntimeError(
+                        'Autofocus already in progress, dispatched by the '
+                        f'{in_flight.run_trigger_source} run'
+                    )
+                )
                 return future
-            self._current_future = future
-            # Clear _aborted under the same lock that publishes
-            # _current_future. A concurrent abort() reads is_running
-            # under this lock; with the clear() outside the lock there
-            # was a one-instruction window where abort() could see
-            # is_running True (just-published Future), set _aborted,
-            # and then have its bit cleared here -- silently dropping
-            # the abort. Same-lock pairing makes the new-Future-with-
-            # cleared-aborted publication atomic w.r.t. abort().
+            self._current_sweep = AutofocusSweep(
+                future=future,
+                run_trigger_source=run_trigger_source,
+            )
+            # Clear _aborted under the same lock that publishes the
+            # sweep. A concurrent abort() reads is_running under this
+            # lock; with the clear() outside the lock there was a
+            # one-instruction window where abort() could see is_running
+            # True (just-published Future), set _aborted, and then have
+            # its bit cleared here -- silently dropping the abort.
+            # Same-lock pairing makes the new-sweep-with-cleared-aborted
+            # publication atomic w.r.t. abort().
             self._aborted.clear()
         try:
-            self._request_queue.put_nowait((kwargs, future))
+            self._request_queue.put_nowait((request_kwargs, future))
         except queue.Full:
             # Queue full despite the state lock guard above; should not
             # happen but degrade gracefully by failing the new Future.
             with self._state_lock:
-                self._current_future = None
+                self._current_sweep = None
             future.set_exception(RuntimeError('Autofocus request queue full'))
         return future
 
@@ -174,15 +209,30 @@ class AutofocusThread:
     # ---- inspection ----
 
     @property
-    def is_running(self) -> bool:
+    def in_flight_sweep(self) -> AutofocusSweep | None:
+        """The sweep running NOW and the run that dispatched it, or None.
+
+        The single read a gate needs: liveness and owner come from one
+        snapshot, so a caller cannot pair "a sweep is running" with the
+        name of a run that has since been replaced.
+        """
         with self._state_lock:
-            fut = self._current_future
-        return fut is not None and not fut.done()
+            sweep = self._current_sweep
+        if sweep is None or sweep.future.done():
+            return None
+        return sweep
+
+    @property
+    def is_running(self) -> bool:
+        return self.in_flight_sweep is not None
 
     @property
     def current_future(self) -> Future | None:
+        """The recorded Future, in flight or just finished and not yet
+        cleared -- what a teardown waits on, unlike in_flight_sweep."""
         with self._state_lock:
-            return self._current_future
+            sweep = self._current_sweep
+        return sweep.future if sweep is not None else None
 
     @property
     def aborted(self) -> threading.Event:
@@ -218,12 +268,12 @@ class AutofocusThread:
                 future.set_exception(ex)
             finally:
                 with self._state_lock:
-                    # Only clear current_future if it still points to
-                    # this run; a second concurrent call could not have
+                    # Only clear the sweep if it still points to this
+                    # run; a second concurrent call could not have
                     # replaced it (run_autofocus rejects while we're
                     # running), but the explicit identity check costs
                     # nothing and survives future refactors.
-                    if self._current_future is future:
-                        self._current_future = None
+                    if self._current_sweep is not None and self._current_sweep.future is future:
+                        self._current_sweep = None
 
         logger.info('autofocus_thread exiting')
