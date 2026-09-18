@@ -166,6 +166,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         camera_executor=_FakeExecutor(),
         set_run_in_progress_fn=lambda v: None,
         ending=RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'),
+        run_dir=None,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1

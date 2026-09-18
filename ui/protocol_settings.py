@@ -2149,12 +2149,15 @@ class ProtocolSettings(FloatLayout):
         if file_io_executor.is_protocol_queue_active():
             self._update_write_lockout_button('run_protocol_btn')
         else:
-            # Queue is empty - cancel this scheduled update and trigger completion
+            # Label only. Completion belongs to the files-complete
+            # callback, which is the only one of the two that carries the
+            # finished run's directory; this poll knows no run. The
+            # callback always arrives -- the executor fires it on its next
+            # empty-queue poll whether or not the queue drained before it
+            # was registered.
             if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
                 Clock.unschedule(self._file_write_status_event)
                 self._file_write_status_event = None
-                # Trigger completion directly since queue is done
-                self._protocol_files_complete()
 
     def _protocol_files_complete(self, **kwargs):
         """Called when ALL files are written to disk for protocol run."""
@@ -2193,7 +2196,12 @@ class ProtocolSettings(FloatLayout):
         """
         from modules.plugins import run_protocol_complete_processors
 
-        run_dir = ctx.sequenced_capture_runner.run_dir()
+        # The finished run hands its directory over in the callback. Read
+        # back off the runner it would be whatever run holds the scope
+        # NOW: this dispatch can reach the user's next run, because the
+        # file-drain wait re-enables the z-stack, composite and autofocus
+        # starters while it is still pending.
+        run_dir = kwargs.get('run_dir')
         if run_dir is None:
             return
         run_dir_str = str(run_dir)

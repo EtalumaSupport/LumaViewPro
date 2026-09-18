@@ -1713,6 +1713,7 @@ def _run_cleanup_kwargs(**overrides):
             'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
         ),
     }
+    kwargs['run_dir'] = None
     kwargs.update(overrides)
     return kwargs
 

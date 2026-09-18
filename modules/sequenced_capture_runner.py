@@ -1781,6 +1781,10 @@ class SequencedCaptureRunner:
                 ),
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
+                # Read here, with the claim still held, so the value the
+                # subscribers get is this run's whatever a successor does
+                # afterwards.
+                run_dir=self._run_dir,
             )
             # After run_cleanup: the stack loader reads the execution
             # record, which reconciles inside it.

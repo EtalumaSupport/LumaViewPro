@@ -447,6 +447,7 @@ class TestRunCleanup:
             'ending': RunEnding(
                 'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
             ),
+            'run_dir': None,
         }
         defaults.update(overrides)
         return defaults, state, run_in_progress
@@ -551,7 +552,7 @@ class TestRunCleanup:
         files_done = []
         cb = ProtocolCallbacks(
             run_complete=lambda protocol=None, **kwargs: None,
-            files_complete=lambda protocol=None: files_done.append(True),
+            files_complete=lambda protocol=None, **kwargs: files_done.append(True),
         )
         args, _, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)

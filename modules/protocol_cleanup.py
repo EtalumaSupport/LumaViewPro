@@ -9,6 +9,7 @@ protocol-decomposition refactor.
 
 from __future__ import annotations
 
+import pathlib
 import threading
 from concurrent.futures import CancelledError
 from functools import partial
@@ -155,6 +156,12 @@ def run_cleanup(
     # How the run ended, and why. Terminal outcome the run_complete
     # subscribers receive.
     ending: RunEnding,
+    # THIS run's output directory, handed to the completion callbacks by
+    # value. Required, not read back off the runner: a successor started
+    # in the gap between the run releasing its buttons and a subscriber
+    # running would have replaced the runner's field, and the subscriber
+    # would process the successor's directory as the finished run's.
+    run_dir: pathlib.Path | None,
 ) -> bool:
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
@@ -591,7 +598,7 @@ def run_cleanup(
         if callbacks.run_complete:
             _schedule_cleanup_ui(
                 lambda dt: callbacks.run_complete(
-                    protocol=protocol, status=ending.status, ending=ending
+                    protocol=protocol, status=ending.status, ending=ending, run_dir=run_dir
                 ),
                 'Run-complete callback',
                 cleanup_errors,
@@ -600,7 +607,7 @@ def run_cleanup(
         if callbacks.files_complete:
             file_io_executor.set_protocol_complete_callback(
                 callback=lambda: _schedule_cleanup_ui(
-                    lambda dt: callbacks.files_complete(protocol=protocol),
+                    lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir),
                     'Files-complete callback',
                     cleanup_errors,
                     summary_sent,
@@ -614,7 +621,7 @@ def run_cleanup(
         if callbacks.run_complete:
             _schedule_cleanup_ui(
                 lambda dt: callbacks.run_complete(
-                    protocol=protocol, status=ending.status, ending=ending
+                    protocol=protocol, status=ending.status, ending=ending, run_dir=run_dir
                 ),
                 'Run-complete callback',
                 cleanup_errors,
@@ -622,7 +629,7 @@ def run_cleanup(
             )
         if callbacks.files_complete:
             _schedule_cleanup_ui(
-                lambda dt: callbacks.files_complete(protocol=protocol),
+                lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir),
                 'Files-complete callback',
                 cleanup_errors,
                 summary_sent,
