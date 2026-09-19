@@ -69,6 +69,48 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
     )
 
 
+def capture_location_problem(parent_dir: pathlib.Path) -> str | None:
+    """Say why ``parent_dir`` could not hold a new output directory, or None.
+
+    Answers WITHOUT writing anything, because the caller is a run's
+    preparation gate: it promises a refused request leaves nothing on
+    disk, so a probe file is not available to it even as a temporary.
+
+    The predicate is ``os.access`` on the nearest EXISTING ancestor,
+    because the directory itself is normally absent -- ``ProtocolData``,
+    ``Manual/Z-Stacks`` and their siblings are created by the first run
+    that needs them, so testing the leaf alone would refuse every run
+    into a fresh save location.
+
+    Deliberately weaker than a write: it passes on a full disk, and on
+    mounts that report permissions they do not honour. Those reach
+    ``allocate_directory`` at commit time and are reported from there,
+    as the failed run they are.
+
+    Args:
+        parent_dir: The directory the run would create its output in.
+
+    Returns:
+        A phrase naming the problem, for a caller to put in a sentence,
+        or None when nothing about the location says it cannot be used.
+    """
+    existing = pathlib.Path(parent_dir)
+    while not existing.exists():
+        parent = existing.parent
+        if parent == existing:
+            # Walked the whole path without finding anything that exists:
+            # an unmounted drive, or a path saved on another machine.
+            return f'{existing} does not exist'
+        existing = parent
+    if not existing.is_dir():
+        return f'{existing} is a file, not a folder'
+    # Entering a directory and creating in it are separate permissions,
+    # and a location missing either one cannot take the output.
+    if not os.access(existing, os.W_OK | os.X_OK):
+        return f'{existing} is not writable'
+    return None
+
+
 def get_script_root() -> pathlib.Path:
     """Return the application install/source root."""
     return pathlib.Path(__file__).resolve().parent.parent

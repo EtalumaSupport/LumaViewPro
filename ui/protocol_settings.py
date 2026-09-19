@@ -1644,29 +1644,13 @@ class ProtocolSettings(FloatLayout):
             )
             return False
 
-        # Validate save folder is accessible
-        settings = _app_ctx.ctx.settings
-        live_folder = settings.get('live_folder')
-        if live_folder:
-            import pathlib
-
-            parent_dir = pathlib.Path(live_folder).resolve() / 'ProtocolData'
-            try:
-                parent_dir.mkdir(parents=True, exist_ok=True)
-                # Test write permission
-                test_file = parent_dir / '.write_test'
-                test_file.touch()
-                test_file.unlink()
-            except (FileNotFoundError, PermissionError, OSError) as e:
-                logger.error(f'[LVP Main  ] Save folder not writable: {parent_dir}: {e}')
-                show_notification_popup(
-                    title='Save Path Error',
-                    message=f'Cannot write to save folder:\n{parent_dir}\n\nError: {e}',
-                )
-                return False
-
-        # The turret-objective check that used to sit here now refuses at
-        # the preparation chokepoint, so a script and the SDK get it too.
+        # The save-folder check that used to sit here, and the
+        # turret-objective check beside it, now refuse at the preparation
+        # chokepoint, so a script and the SDK get them too. The save-folder
+        # one also stopped WRITING to answer: it probed one hardcoded
+        # ProtocolData path with a real file, which refused the autofocus
+        # scan over a folder that run never writes to and said nothing at
+        # all about the folders the other runs save into.
         return True
 
     def _autofocus_run_complete_callback(self, **kwargs):

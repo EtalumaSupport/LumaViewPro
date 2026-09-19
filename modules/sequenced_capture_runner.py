@@ -999,6 +999,35 @@ class SequencedCaptureRunner:
                 severity='error',
             )
 
+        # The last gate, and the only one about where the run SAVES rather
+        # than about the instrument. Without it a bad save location is
+        # discovered after the run has committed, moved the stage and taken
+        # images -- a failed run for a request that could have been turned
+        # away. It is last so that it cannot reorder any refusal that was
+        # already reachable.
+        #
+        # parent_dir None means the run writes nowhere at all (a
+        # non-engineering standalone autofocus), so it has no location to
+        # be unusable. A parent_dir with artifacts suppressed is NOT that
+        # case: the autofocus characterization data still lands there.
+        if parent_dir is not None:
+            location_problem = path_utils.capture_location_problem(parent_dir)
+            if location_problem is not None:
+                self._refuse(
+                    # Kept a literal at the raise: the refusal-vocabulary
+                    # census collects reason= only when it is one, so a
+                    # reason hoisted into a local becomes invisible to the
+                    # guard that makes the vocabulary a contract.
+                    reason='capture_location_unusable',
+                    title='Save Location Unusable',
+                    message=(
+                        f'Cannot save this run to {parent_dir}: {location_problem}. '
+                        'Reconnect the drive or choose an accessible save '
+                        'location, then try again.'
+                    ),
+                    severity='error',
+                )
+
         # Lightweight copy -- shares read-only loaders, copies only the
         # mutable steps DataFrame (which AF modifies via
         # modify_step_z_height). Much cheaper than deepcopy for large

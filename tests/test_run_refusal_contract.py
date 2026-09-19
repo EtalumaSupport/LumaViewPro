@@ -605,6 +605,13 @@ RUNNER_REFUSAL_COVERAGE = {
     'zstack_not_configured': (
         'tests/test_a_zstack_with_no_range_is_refused.py::TestTheRefusalReachesTheUser'
     ),
+    # Raised at prepare() like the loop's own reasons, but it needs a real
+    # unusable directory on disk rather than a patched probe -- the whole
+    # point of the gate is which filesystem states it can see, and a
+    # scenario that stubs the predicate would pin nothing about them.
+    'capture_location_unusable': (
+        'tests/test_a_run_cannot_start_where_it_cannot_save.py::TestTheEngineRefuses'
+    ),
 }
 
 # Every module that raises a run refusal. The census below reads all of
