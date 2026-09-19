@@ -15,8 +15,8 @@ import copy
 from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError, ProtocolError
-from modules.notification_center import notifications
+from modules.exceptions import ConfigError, ProtocolError, ProtocolRunRefusedError
+from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
@@ -1628,6 +1628,35 @@ class Protocol:
         binning_size = input_config['binning_size']
         stim_config = input_config['stim_config']
 
+        # A stack was asked for and cannot be built: refuse here, before any
+        # of the work below, rather than in the per-position loop where the
+        # answer would be recomputed identically for every position. What
+        # this replaces built one plane per position and logged a warning --
+        # which produced a NON-EMPTY protocol, so the empty-protocol refusal
+        # downstream passed it too, and a caller that asked for a stack got
+        # a photograph and a reported success.
+        if use_zstacking and (zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0):
+            reason = 'zstack_not_configured'
+            title = 'Z-Stack Not Configured'
+            message = (
+                f'Z-stack range ({zstack_params["range"]}) and step size '
+                f'({zstack_params["step_size"]}) must both be greater than zero.'
+            )
+            # Solicited: a refusal answers something the caller just asked
+            # for, so it must reach the user even while a run is in flight.
+            # Raising alone would drop it exactly then. WARNING rather than
+            # ERROR because a refusal is a designed outcome; the two older
+            # refusal sites still log at ERROR and are their own queue row.
+            logger.warning(f'[Protocol] Build refused ({reason}): {message}')
+            notifications.warning(
+                'Protocol',
+                title,
+                message,
+                solicited=True,
+                operation_key=REFUSAL_OPERATION_KEY,
+            )
+            raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
 
@@ -1686,13 +1715,6 @@ class Protocol:
         for pos in actual_positions:
             for tile_label, tile_position in tiles.items():
                 if not use_zstacking:
-                    zstack_position_offsets = {None: None}
-                elif zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-                    # Z-stack enabled but not configured -- treat as single Z
-                    logger.warning(
-                        f'[Protocol] Z-stack enabled but range={zstack_params["range"]} '
-                        f'step_size={zstack_params["step_size"]} -- using single Z position'
-                    )
                     zstack_position_offsets = {None: None}
                 else:
                     zstack_config = ZStackConfig(

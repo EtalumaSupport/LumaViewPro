@@ -72,9 +72,16 @@ class ProtocolRunRefusedError(ProtocolError):
 
     Raised by SequencedCaptureRunner.prepare() when a run cannot start
     (already running, files still writing, empty protocol, validation
-    errors, hardware not connected). The refusal has already been logged
-    and notified to the user when this is raised, so callers reconcile
-    their own state without re-notifying.
+    errors, hardware not connected). Raised THERE, it has already been
+    logged and notified to the user by the runner's refusal funnel, so
+    callers reconcile their own state without re-notifying.
+
+    Raised by the protocol BUILDER (Protocol.from_config, for a z-stack
+    asked for with no range), it has not been: the builder runs before
+    any run exists, so no funnel has seen it and those callers own the
+    telling. A headless caller has the exception itself, which is the
+    whole of what it needs; a widget renders title and message, never
+    the joined str(e) form this class builds for debugging.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map

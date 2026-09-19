@@ -155,10 +155,10 @@ class TestARefusedZStackTeardown:
             )
 
 
-# The refusal the protocol builder is about to raise for a z-stack that
-# is enabled with no range. Today it degrades to a single plane instead,
-# so nothing reaches New Protocol's handler -- which is precisely why
-# this hole closes before the builder starts refusing.
+# The refusal the protocol builder raises for a z-stack enabled with no
+# range. The builder logs it and posts it solicited before raising, so by
+# the time the handler sees it the user has already been told -- which is
+# why the assertion below is that NO popup appears, not that one does.
 ZSTACK_NO_RANGE = ProtocolRunRefusedError(
     reason='zstack_not_configured',
     title='Z-Stack Not Configured',
@@ -191,9 +191,7 @@ class TestARefusedProtocolCreation:
         assert scope.protocols.create_protocol.called, (
             'the click never reached the builder -- the test is not exercising the refusal'
         )
-        assert popups, 'a refused protocol creation must still tell the user something'
-        for popup in popups:
-            assert 'zstack_not_configured' not in str(popup.get('message', '')), (
-                'the reason code is for a REST or SDK caller to branch on; '
-                f'the user gets the sentence. Popup: {popup}'
-            )
+        assert popups == [], (
+            'the builder already told the user, solicited, before it raised; a '
+            f'popup here is a second telling of one refusal. Popups: {popups}'
+        )
