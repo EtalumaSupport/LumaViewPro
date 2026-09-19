@@ -34,7 +34,6 @@ from ui.ui_helpers import (
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
-    show_run_refused_popup,
     sync_layer_widgets_from_settings,
 )
 from modules.zstack_config import ZStackConfig
@@ -168,16 +167,6 @@ class ZStack(FloatLayout):
             run_complete_func = self._zstack_run_complete
 
             run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
-            if ctx.sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_not_started_func()
-                logger.warning(
-                    f'Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}'
-                )
-                show_run_refused_popup('start a Z-Stack acquire', run_trigger_source)
-                return
-
             # The ownership term is not redundant with the toggle read: a
             # run callback can reset this button to 'normal' mid-run, and
             # Kivy flips a toggle at touch-down, so the user's own Stop can

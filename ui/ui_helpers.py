@@ -79,33 +79,6 @@ def reset_with_refusal_boundary(runner, requester: str) -> bool:
     return True
 
 
-def show_run_refused_popup(blocked_action: str, holder: str | None) -> None:
-    """Tell the user WHICH run refused their click, not only that it failed.
-
-    A refused starter resets its button cosmetics, which is visible but
-    mute: it says the click did not take, never what is holding the
-    scope, so a user who is told nothing presses again -- and a second
-    press is how a stale toggle used to tear down a live scan. The
-    file-drain and protocol-validity gates in these same ladders already
-    raise a popup, so without this the explanation a user got depended
-    on which gate happened to fire first.
-
-    The direct popup is what the calling branch leaves no alternative:
-    it refuses in the GUI without ever asking the engine, so no refusal
-    funnel has run and nothing else has told the user anything. An
-    empty holder is reachable, because the windows around the activity
-    claim are not zero, so it degrades to naming no kind rather than
-    interpolating a blank.
-    """
-    from ui.notification_popup import show_notification_popup
-
-    owner = f'A {holder} run' if holder else 'Another run'
-    show_notification_popup(
-        title='Run In Progress',
-        message=f'{owner} is using the microscope.\n\nStop it before you {blocked_action}.',
-    )
-
-
 # ============================================================================
 # Saved-folder helper
 # ============================================================================

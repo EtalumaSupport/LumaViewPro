@@ -32,7 +32,7 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     run_with_refusal_boundary,
-    show_run_refused_popup,
+    reset_with_refusal_boundary,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -329,10 +329,18 @@ class VerticalControl(BoxLayout):
         # next AFE.run().
         ctx.worker_pool.put(
             IOTask(
-                action=functools.partial(ctx.sequenced_capture_runner.reset, requester='autofocus'),
+                # Through the boundary, which returns the outcome instead
+                # of raising: a teardown this button does not own is
+                # refused, and the callback below must still run to put
+                # the button back -- a refused stop is not a stop, and a
+                # button left mid-stop is dead until the process ends.
+                action=functools.partial(
+                    reset_with_refusal_boundary,
+                    ctx.sequenced_capture_runner,
+                    requester='autofocus',
+                ),
                 callback=self._reset_run_autofocus_button,
-                # reset() refuses a teardown this button does not own, and
-                # that refusal has already logged once and notified once.
+                # The engine logs and notifies a refusal exactly once.
                 # Without this the executor's generic failure popup fires a
                 # SECOND notification for the same event -- and titles it
                 # from the action, which for a partial is its repr, heap
@@ -421,21 +429,11 @@ class VerticalControl(BoxLayout):
             runner = ctx.sequenced_capture_runner
             run_trigger_source = runner.run_trigger_source()
 
-            # A rival run owns the scope; undo cosmetics ONLY -- the
-            # lockout is that run's to keep. Read BEFORE the stop branch
-            # below, never after: a toggle sitting at 'normal' is not
-            # proof the user is stopping their OWN run, and when that
-            # branch ran first a click during someone else's scan tore it
-            # down instead of being refused. Scoped to a FOREIGN trigger,
-            # because this button must still abort the run it started.
-            if runner.run_in_progress() and run_trigger_source != trigger_source:
-                self._reset_run_autofocus_button_cosmetics()
-                logger.warning(
-                    'Cannot start autofocus: run already in progress '
-                    f'(trigger={run_trigger_source})'
-                )
-                show_run_refused_popup('start an autofocus', run_trigger_source)
-                return
+            # A click during someone else's run falls through to the stop
+            # branch below and the engine refuses the teardown, naming the
+            # run that holds the scope. This widget asks nothing about
+            # rival runs: the same refusal has to reach a script and REST,
+            # so it is the engine's to give.
 
             # Stop click: the toggle is back to 'normal', or re-clicked
             # while this button's own run is live. The ownership term is

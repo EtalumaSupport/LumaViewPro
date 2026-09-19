@@ -72,7 +72,6 @@ COSMETICS_RESETS = frozenset(
 NOTIFIERS = frozenset(
     {
         'show_notification_popup',
-        'show_run_refused_popup',
         'require_file_writes_idle',
         '_is_protocol_valid',
         '_offer_wedged_writer_recovery',
@@ -213,48 +212,10 @@ def test_a_double_click_guard_is_not_treated_as_a_refusal():
     )
 
 
-class TestTheRefusalNamesWhatIsHoldingTheScope:
-    """The message half, tested for real -- these helpers are plain functions."""
-
-    def _capture(self, monkeypatch):
-        import ui.notification_popup as popup_mod
-
-        shown = []
-        monkeypatch.setattr(
-            popup_mod,
-            'show_notification_popup',
-            lambda title, message: shown.append((title, message)),
-        )
-        return shown
-
-    def test_a_rival_run_is_named_by_kind(self, monkeypatch):
-        from ui.ui_helpers import show_run_refused_popup
-
-        shown = self._capture(monkeypatch)
-        show_run_refused_popup('start a scan', 'protocol')
-
-        assert len(shown) == 1, 'exactly one popup per refused click'
-        title, message = shown[0]
-        assert 'protocol' in message, (
-            'the refusal must name WHICH run holds the scope; a message that '
-            'only says "busy" is what sent the user back to click again'
-        )
-        assert 'start a scan' in message, 'the refusal must name what it refused'
-        assert title
-
-    def test_an_unknown_holder_does_not_render_a_blank(self, monkeypatch):
-        """Reachable: the windows around the activity claim are not zero."""
-        from ui.ui_helpers import show_run_refused_popup
-
-        shown = self._capture(monkeypatch)
-        show_run_refused_popup('start a scan', '')
-
-        assert len(shown) == 1
-        _title, message = shown[0]
-        assert 'Another run' in message
-        assert '  ' not in message, 'an empty holder was interpolated into the sentence'
-
-
+# The class that stood here pinned the GUI popup naming which run held
+# the scope. That sentence is the ENGINE's now: a refused start names
+# the run that has the scope, pinned where every caller gets it --
+# a script and REST included -- instead of only a click.
 def test_the_composite_guard_does_not_blame_the_wrong_subsystem():
     """A composite's own second click is taken by the stop branch above it.
 

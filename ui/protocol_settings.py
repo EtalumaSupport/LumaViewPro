@@ -54,7 +54,7 @@ from ui.ui_helpers import (
     set_recording_title,
     set_title_event_text,
     set_writing_title,
-    show_run_refused_popup,
+    reset_with_refusal_boundary,
     sync_layer_widgets_from_settings,
     text_input_debounced,
 )
@@ -1801,19 +1801,11 @@ class ProtocolSettings(FloatLayout):
                 run_refused_func()
                 return
 
-            # Read the rival BEFORE the stop branch, never after: a toggle
-            # sitting at 'normal' is not proof the user is stopping their
-            # OWN run, and when that branch ran first a click during
-            # someone else's scan tore it down instead of being refused.
-            if sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_refused_func()
-                logger.warning(
-                    f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
-                )
-                show_run_refused_popup('start an autofocus scan', run_trigger_source)
-                return
+            # A click during someone else's run falls through to the stop
+            # branch below and the engine refuses the teardown, naming the
+            # run that holds the scope. This widget asks nothing about
+            # rival runs: the same refusal has to reach a script and REST,
+            # so it is the engine's to give.
 
             # The ownership term is load-bearing: a run callback resets
             # this button to 'normal' mid-run and Kivy flips a toggle at
@@ -2018,12 +2010,6 @@ class ProtocolSettings(FloatLayout):
             return
 
         run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
-        if sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source):
-            run_refused_func()
-            logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
-            show_run_refused_popup('start a scan', run_trigger_source)
-            return
 
         # Abort BEFORE validity: the abort click must never be refused by
         # a validation failure (a mid-run unwritable save folder would
@@ -2253,16 +2239,6 @@ class ProtocolSettings(FloatLayout):
                 return
 
             run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
-            if sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_refused_func()
-                logger.warning(
-                    f'Cannot start protocol run. Run already in progress from {run_trigger_source}'
-                )
-                show_run_refused_popup('start a protocol run', run_trigger_source)
-                return
 
             # Abort BEFORE validity: the abort click must never be refused
             # by a validation failure (a mid-run unwritable save folder
@@ -2514,18 +2490,21 @@ class ProtocolSettings(FloatLayout):
             deferred_to_cleanup = sequenced_capture_runner.run_in_progress()
             if force:
                 sequenced_capture_runner.force_reset(reason='app shutdown')
-            else:
-                sequenced_capture_runner.reset(requester=requester)
+            elif not reset_with_refusal_boundary(sequenced_capture_runner, requester=requester):
+                # The engine refused: this starter does not own the live
+                # run, and the refusal has already been logged and
+                # notified once. Nothing is unwinding, so the deferred
+                # branch below would wait for run-complete callbacks that
+                # will never fire and leave the button reading
+                # "Stopping..." for a stop that did not happen. Clearing
+                # the flag routes the finally through the restore it
+                # already has.
+                deferred_to_cleanup = False
+                return
             live_histo_reverse()
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()
 
-        except exceptions.ProtocolRunRefusedError:
-            # The engine refused this teardown and has already logged and
-            # notified exactly once. Nothing was torn down, so there is no
-            # cleanup to finish -- and calling it an error here would put a
-            # second, wrong line in the bundle.
-            return
         except Exception as e:
             logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
         finally:
