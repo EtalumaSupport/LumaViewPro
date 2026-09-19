@@ -47,6 +47,7 @@ class SimulatedCamera(Camera):
         height: int = 1200,
         grab_delay: float = 0.0,
         z_position_func: Callable[[], float] | None = None,
+        illumination_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
         # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
@@ -114,6 +115,10 @@ class SimulatedCamera(Camera):
         self._focal_z = 5000.0  # Z position of perfect focus (um)
         self._blur_per_um = 0.01  # Blur sigma increase per um of defocus
         self._z_position_func = z_position_func  # Optional: auto-query Z from motor
+        # Optional: auto-query how much light is on the sample. Unwired, the
+        # camera renders as though the field were lit, which is what a camera
+        # constructed on its own with no scope around it has to assume.
+        self._illumination_func = illumination_func
 
         # Pre-generated focus target (lazily created)
         self._focus_target_cache = None
@@ -795,11 +800,38 @@ class SimulatedCamera(Camera):
             y_idx = np.linspace(0, src_h - 1, h, dtype=int)
             x_idx = np.linspace(0, src_w - 1, w, dtype=int)
             src = src[np.ix_(y_idx, x_idx)]
-        # Floor so the field stays visible at the short default exposures
-        brightness = max(0.5, brightness)
+        # Floor so the field stays visible at the short default exposures.
+        # Zero is exempt and must stay zero: it means no light reached the
+        # sample, and a floor that lifts darkness back to a visible field
+        # is what made an unlit capture indistinguishable from a lit one.
+        if brightness > 0.0:
+            brightness = max(0.5, brightness)
         if dtype == np.uint16:
             return (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
         return (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+
+    def _illumination_scale(self) -> float:
+        """1.0 when the sample is lit, 0.0 when nothing is.
+
+        A camera sees what the illumination gives it, so an unlit field is
+        black however long the exposure or however high the gain. Without
+        this the simulator could not produce a dark frame at all, and the
+        whole class of illumination failures -- an LED that did not come
+        on, a channel left dark through a run -- was reproducible only on
+        a bench.
+
+        Unwired, the answer is 1.0: a camera built with no scope around it
+        has no illumination to ask about, and rendering it black would
+        make every standalone camera test describe a fault.
+
+        Intensity is deliberately not modelled. The question this answers
+        is whether there is light, which is what distinguishes a failure
+        from a capture; how bright a lit field looks already follows
+        exposure and gain.
+        """
+        if self._illumination_func is None:
+            return 1.0
+        return 1.0 if self._illumination_func() > 0.0 else 0.0
 
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
@@ -815,7 +847,7 @@ class SimulatedCamera(Camera):
 
         # Scale brightness by exposure and gain
         raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
-        brightness = min(1.0, raw)
+        brightness = min(1.0, raw) * self._illumination_scale()
         if self._test_pattern == 'image_cycle':
             img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
         elif self._test_pattern == 'black':

@@ -448,6 +448,24 @@ class Lumascope:
         camera_kwargs: dict = {}
         if simulate:
             camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
+            # Light reaches the simulated sensor the same way Z does: the
+            # composition root hands it over, because it is the only object
+            # holding both halves and no driver may reach into a peer. The
+            # illumination API is asked rather than the board -- it is where
+            # which channel is lit is decided, and the board holds no state.
+            # Imported here like the other illumination references in this
+            # file: at module scope it closes an import cycle.
+            #
+            # Ordering: this reads self.illumination, which is built further
+            # down, and is safe because the callable only runs while a frame
+            # is being generated and nothing starts the camera grabbing
+            # during construction. Anything that begins streaming before the
+            # sub-APIs exist breaks that, so start it after them.
+            from modules.lumascope_api.illumination import live_lit_pairs
+
+            camera_kwargs['illumination_func'] = lambda: sum(
+                ma for _, ma in live_lit_pairs(self.illumination)
+            )
         try:
             self._camera_driver: Camera = camera_registry.create(
                 camera_type, simulate=simulate, **camera_kwargs

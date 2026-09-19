@@ -1562,3 +1562,40 @@ class TestFailureInjection:
         led._write_command_fast('LED2_100')  # cmd 3 -- should disconnect
         assert led.driver is None
         assert led.found is False
+
+
+class TestAnUnlitFieldIsDark:
+    """The simulated camera answers to light.
+
+    A real camera in a dark box returns a dark frame however long the
+    exposure. The simulator could not: nothing in it read illumination,
+    and a brightness floor kept the field visible at any gain and any
+    exposure. So the whole illumination-failure class -- an LED that
+    never came on, a channel dark through a run -- was reproducible only
+    on a bench, and a sim capture with no LED lit looked like a good one.
+    """
+
+    def test_the_same_camera_is_dark_unlit_and_bright_lit(self):
+        lit = {'on': False}
+        cam = SimulatedCamera(illumination_func=lambda: 50.0 if lit['on'] else 0.0)
+        cam.open_and_start()
+
+        cam.grab()
+        dark = cam.array.max()
+
+        lit['on'] = True
+        cam.grab()
+        bright = cam.array.max()
+
+        assert dark == 0, f'an unlit field must be black, peaked at {dark}'
+        assert bright > 0, 'a lit field must show the specimen'
+
+    def test_a_camera_with_no_illumination_source_still_renders(self):
+        """A camera built on its own has no scope to ask about light, so it
+        renders as it always did rather than describing a fault."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
+
+        cam.grab()
+
+        assert cam.array.max() > 0

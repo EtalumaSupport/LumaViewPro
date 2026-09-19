@@ -1111,7 +1111,16 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus', objective_id=objectives[0]
+                    run_trigger_source='autofocus',
+                    objective_id=objectives[0],
+                    # Lit, because a sweep in the dark has no focus to find.
+                    # The production caller supplies the step's channel and
+                    # current; driving the engine directly skips that, and
+                    # the engine's own default is no light at all. The
+                    # simulator used to render a lit field whatever the LEDs
+                    # were doing, so this read as a working sweep.
+                    led_color='BF',
+                    led_illumination=50.0,
                 )
                 result = future.result(timeout=30)
                 assert result is not None
