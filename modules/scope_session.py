@@ -1282,6 +1282,12 @@ class ScopeSession:
     def clear_turret_objective(self, position: int) -> None:
         """Leave turret slot ``position`` unassigned.
 
+        Logged for every host: the selected objective still sets the
+        image scale and is now backed by no assignment at this slot, so
+        a capture taken before the next answer carries a scale nothing
+        on the turret vouches for. A support bundle can only explain
+        that afterwards if the clear is in the record.
+
         Raises:
             ValueError: ``position`` is not a slot number 1-4.
         """
@@ -1289,6 +1295,10 @@ class ScopeSession:
         with self.settings_lock:
             self.settings['turret_objectives'][position] = None
         self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
+        logger.info(
+            f'[Session  ] Turret position {position} cleared; selected objective '
+            f'{self.settings.get("objective_id")!r} is no longer backed by an assignment'
+        )
 
     @staticmethod
     def _check_turret_slot(position) -> None:

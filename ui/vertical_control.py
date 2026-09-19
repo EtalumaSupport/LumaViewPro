@@ -637,10 +637,13 @@ class VerticalControl(BoxLayout):
             logger.exception(f'ResetTurretObjective] Error: {e}')
             return
 
-        # Clearing the assignment at the position the turret is sitting
-        # on leaves the app unable to say what is in the light path; the
-        # Session decides whether that is so and the prompt asks.
-        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
+        # No prompt follows, deliberately. The press IS the user saying
+        # this slot is empty, and the objective prompt has no cancel
+        # path -- so asking here forced an objective back into the slot
+        # that had just been cleared, leaving the button unable to do
+        # its job at any position. Arriving at an unassigned slot still
+        # asks, and so does startup, so no position goes unasked before
+        # its objective matters.
 
     def prompt_if_objective_unknown(self):
         """Ask the Session whether the objective needs confirming; render the answer.

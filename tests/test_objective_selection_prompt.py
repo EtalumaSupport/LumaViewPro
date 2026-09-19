@@ -35,6 +35,7 @@ class _ScriptedSession:
         self.question = question
         self.changed = changed
         self.confirmed = []
+        self.cleared = []
         self.is_protocol_running = False
 
     def objective_question(self):
@@ -51,6 +52,9 @@ class _ScriptedSession:
     def get_objective_info(self, objective_id):
         return {'magnification': 10, 'focal_length': 18.0}
 
+    def clear_turret_objective(self, position):
+        self.cleared.append(position)
+
 
 class _Stand:
     """The real renderer methods; the widget tree and the FOV refresh stood in."""
@@ -58,11 +62,15 @@ class _Stand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    reset_turret_objective = VerticalControl.reset_turret_objective
+    _selected_turret_position = VerticalControl._selected_turret_position
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(text='')}
         for position in range(1, 5):
-            self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
+            self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(
+                text=str(position), state='normal'
+            )
         self.fov_refreshes = []
         self.turret_states = []
 
@@ -71,6 +79,15 @@ class _Stand:
 
     def update_all_turret_btn_states(self, position):
         self.turret_states.append(position)
+
+
+class _ImmediateClock:
+    """Kivy's Clock with the delay taken out, for tests that must see
+    what a scheduled callback did."""
+
+    @staticmethod
+    def schedule_once(callback, timeout=0):
+        callback(0)
 
 
 class _Harness:
@@ -96,6 +113,15 @@ class _Harness:
             lambda kind, value: self.gui_log.append(('SELECT', kind, value)),
         )
         monkeypatch.setattr(vc, 'logger', self.logger)
+        monkeypatch.setattr(
+            vc.gui_logger,
+            'button',
+            lambda name: self.gui_log.append(('BUTTON', name)),
+        )
+        # The reset handler SCHEDULES its follow-up rather than calling
+        # it, so a test that never runs the callback cannot tell a live
+        # trigger from a deleted one. Run it inline.
+        monkeypatch.setattr(vc, 'Clock', _ImmediateClock)
 
     def prompt(self):
         self.stand.prompt_if_objective_unknown()
@@ -217,9 +243,55 @@ class TestUnknownObjectiveEventsReachThePrompt:
         calls = _method_calls('ui/vertical_control.py', 'VerticalControl', 'turret_select')
         assert 'prompt_if_objective_unknown' in calls
 
-    def test_reset_turret_objective_wires_the_prompt(self):
+    def test_reset_turret_objective_does_not_wire_the_prompt(self):
+        """The one trigger that must NOT exist.
+
+        Clearing a slot is the user saying the slot is empty; asking
+        them straight back which objective is in it, through a modal
+        with no cancel path, is a question they have just answered --
+        and it re-assigned the slot they had cleared, which made the
+        button dead at every position it can reach. The two triggers
+        above still ask, so nothing assumes an objective at a position
+        the user has not been asked about.
+        """
         calls = _method_calls('ui/vertical_control.py', 'VerticalControl', 'reset_turret_objective')
-        assert 'prompt_if_objective_unknown' in calls
+        assert 'prompt_if_objective_unknown' not in calls
+
+
+class TestResetLeavesTheSlotCleared:
+    """The behaviour the seam pin above protects."""
+
+    def _reset_at(self, monkeypatch, position, question):
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        h.stand.ids[f'turret_pos_{position}_btn'].state = 'down'
+        h.stand.reset_turret_objective()
+        return h
+
+    def test_a_reset_clears_the_slot_and_opens_no_popup(self, monkeypatch):
+        # The session has a question to ask -- hardware present, settings
+        # resolved -- which is exactly when the old trigger fired.
+        question = ObjectiveQuestion(turret_position=3, proposed='10x Oly', choices=CHOICES)
+        h = self._reset_at(monkeypatch, 3, question)
+        assert h.session.cleared == [3]
+        assert h.popups == []
+        assert h.session.confirmed == []
+
+    def test_the_cleared_slot_is_not_re_assigned(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='4x Oly', choices=CHOICES)
+        h = self._reset_at(monkeypatch, 2, question)
+        # The re-assignment the dead button performed went through
+        # confirm_objective; nothing may reach it from a reset.
+        assert h.session.confirmed == []
+        assert h.stand.ids['turret_pos_2_btn'].text == '2'
+
+    def test_every_position_behaves_the_same(self, monkeypatch):
+        for position in range(1, 5):
+            question = ObjectiveQuestion(
+                turret_position=position, proposed='10x Oly', choices=CHOICES
+            )
+            h = self._reset_at(monkeypatch, position, question)
+            assert h.session.cleared == [position]
+            assert h.popups == []
 
 
 def test_template_ships_the_unconfirmed_flag():

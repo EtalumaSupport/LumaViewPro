@@ -265,11 +265,11 @@ _ROSTER = {
     'VerticalControl.home_id': ('HOME_Z',),
     'VerticalControl.obj_position': ('Z_POSITION',),
     'VerticalControl.objective_spinner2': ('OBJECTIVE',),
-    'VerticalControl.reset_turret_objective_btn': (
-        'OBJECTIVE',
-        'RESET_TURRET_OBJECTIVE',
-        'TURRET_OBJECTIVE',
-    ),
+    # Narrowed to its own record: the reset no longer reaches the
+    # objective prompt, so it can no longer write that prompt's OBJECTIVE
+    # or the confirm path's TURRET_OBJECTIVE. Widening this again would
+    # mean the button had been given back a second responsibility.
+    'VerticalControl.reset_turret_objective_btn': ('RESET_TURRET_OBJECTIVE',),
     'VerticalControl.set_turret_objective_btn': ('TURRET_OBJECTIVE',),
     'VerticalControl.slow_down': (_D('fine_down'),),
     'VerticalControl.slow_up': (_D('fine_up'),),
