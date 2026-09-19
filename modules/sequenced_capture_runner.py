@@ -516,8 +516,8 @@ class SequencedCaptureRunner:
                     reason='not_run_owner',
                     title='Run In Progress',
                     message=(
-                        f'A {holder} run is using the microscope. Stop it from the '
-                        'control that started it, or let it finish.'
+                        f'{self._the_run_holding_the_scope(holder)} is using the microscope. '
+                        'Stop it from the control that started it, or let it finish.'
                     ),
                     holder='protocol',
                     holder_trigger=holder,
@@ -636,6 +636,44 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
+    @staticmethod
+    def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
+        """Name the run that holds the scope, for a refusal to put in a sentence.
+
+        One phrasing, one home. Every start refusal is handed the holder
+        already; before this they each printed a literal instead, so a
+        user turned away from a Z-stack by their own protocol read "a
+        protocol run is already in progress" and had to guess which
+        control to go back to. The stop refusal in reset() has always
+        named it; this is that sentence's other half.
+
+        Falls back to the indefinite form rather than printing None: a
+        trigger is absent only where no run holds the scope, and a
+        sentence a user reads must still parse.
+        """
+        if not holder_trigger:
+            return 'A run'
+        return f'The {holder_trigger} run'
+
+    def _refuse_already_running(self) -> typing.NoReturn:
+        """Refuse a start because a run already holds the scope.
+
+        Shared by prepare()'s look and start()'s commit, which asked the
+        same question and printed the same literal in two places -- two
+        phases with one answer between them.
+        """
+        holder_trigger = self._run_trigger_source
+        self._refuse(
+            reason='already_running',
+            title='Already Running',
+            message=(
+                f'{self._the_run_holding_the_scope(holder_trigger)} is using the microscope. '
+                'Stop it from the control that started it, or let it finish.'
+            ),
+            holder='protocol',
+            holder_trigger=holder_trigger,
+        )
+
     def _refuse_exclusive_activity(self, holder: 'ActivityHolder | None') -> None:
         """Refuse this run because an exclusive activity holds the session claim.
 
@@ -652,10 +690,10 @@ class SequencedCaptureRunner:
             )
         else:
             title = 'Another Activity Running'
-            message = (
-                'Another exclusive activity is using the microscope. '
-                'Let it finish, then start the run.'
-            )
+            # The kind, not the word "another": an activity the user cannot
+            # name is one they cannot go and stop.
+            named = f'A {kind} activity' if kind else 'Another exclusive activity'
+            message = f'{named} is using the microscope. Let it finish, then start the run.'
         self._refuse(
             reason='exclusive_activity_running',
             title=title,
@@ -796,13 +834,7 @@ class SequencedCaptureRunner:
         """
         with self._run_lock:
             if self._is_run_live():
-                self._refuse(
-                    reason='already_running',
-                    title='Already Running',
-                    message='A protocol run is already in progress.',
-                    holder='protocol',
-                    holder_trigger=self._run_trigger_source,
-                )
+                self._refuse_already_running()
 
         # A foreign exclusive activity (a video recording) is the durable,
         # user-actionable reason a run cannot start, and start()'s claim is
@@ -830,8 +862,9 @@ class SequencedCaptureRunner:
                     reason='files_writing_stalled',
                     title='File Writer Stalled',
                     message=(
-                        "Previous run's file writer has stopped making "
-                        f'progress ({self.file_io_executor.describe_running_task()}). '
+                        f'{self._the_run_holding_the_scope(self._run_trigger_source)} has '
+                        'stopped writing its files '
+                        f'({self.file_io_executor.describe_running_task()}). '
                         'Recover it (discard unsaved images) before starting '
                         'a new run.'
                     ),
@@ -839,7 +872,10 @@ class SequencedCaptureRunner:
             self._refuse(
                 reason='files_writing',
                 title='Files Still Writing',
-                message="Previous run's files are still being written. Please wait.",
+                message=(
+                    f'{self._the_run_holding_the_scope(self._run_trigger_source)} is still '
+                    'writing its files. Please wait.'
+                ),
                 holder_trigger=self._run_trigger_source,
             )
 
@@ -1139,13 +1175,7 @@ class SequencedCaptureRunner:
         # their field writes onto the same runner.
         with self._run_lock:
             if self._is_run_live():
-                self._refuse(
-                    reason='already_running',
-                    title='Already Running',
-                    message='A protocol run is already in progress.',
-                    holder='protocol',
-                    holder_trigger=self._run_trigger_source,
-                )
+                self._refuse_already_running()
 
             # The claim carries WHICH run holds the scope, written by the
             # same call that takes it: the holder question has one store,
