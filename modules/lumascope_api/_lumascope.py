@@ -988,18 +988,43 @@ class Lumascope:
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
+    def _camera_is_connected(self) -> bool:
+        """Answer the camera half of every connection question, raising.
+
+        One predicate with two callers that need opposite things from a
+        driver that throws: the display paths below want a bool and get
+        it from the property, while the run gate wants the throw, because
+        "the USB tree went away mid-question" is a different refusal from
+        "the camera is not plugged in" and the user has to be told which.
+
+        It exists because the two were written out separately and drifted:
+        the run gate's copy tested is_connected() alone while the property
+        tested active as well. No camera in the tree tells them apart --
+        all three make is_connected() False whenever active is unset -- so
+        the drift was invisible rather than harmless, which is the worse
+        of the two states to leave a predicate in.
+
+        Returns a real bool rather than the falsy operand that ended the
+        chain: a Pylon camera holds None in ``active`` once it is gone,
+        and the display paths log this value.
+        """
+        driver = getattr(self, '_camera_driver', None)
+        if driver is None or not getattr(driver, 'active', False):
+            return False
+        return driver.is_connected()
+
     @property
     def camera_connected(self) -> bool:
         """Whether the camera is connected and active.
 
         Returns:
             bool: True if a real camera driver is connected and active.
+                A driver that raises reads as not connected: the callers
+                here are display and metrics paths, where the question is
+                asked per frame and has no answer but False.
         """
-        driver = getattr(self, '_camera_driver', None)
-        if driver is None or not getattr(driver, 'active', False):
-            return False
         try:
-            return driver.is_connected()
+            return self._camera_is_connected()
         except Exception:
             return False
 
@@ -1227,13 +1252,19 @@ class Lumascope:
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
 
+        Each term is the one the matching single-board question asks, so
+        a run gate and a per-board gate cannot disagree about the same
+        hardware. A driver that RAISES propagates: the run gate that asks
+        this converts it into a refusal that says the state could not be
+        read, which is not the same answer as "not connected".
+
         Returns:
             bool: True if all three components are connected.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
-        led = not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
+        led = self.led_connected
         motion = self.motor_connected
-        camera = self._camera_driver is not None and self._camera_driver.is_connected()
+        camera = self._camera_is_connected()
 
         if not led:
             logger.info('[SCOPE API ] Connection Check: LED Board not connected')
