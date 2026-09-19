@@ -29,6 +29,7 @@ from modules.tiling_config import TilingConfig
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
+    from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -990,11 +991,30 @@ def camera_max_exposure_for_ui(imaging) -> float:
     return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
-def camera_max_gain_for_ui(imaging) -> float:
+def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
     """The gain-slider upper bound from the live camera, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
+
+    Normalised to the same precision every other gain number in the app
+    carries. A GenICam float node reports its maximum in continuous units and
+    that value can carry a float tail past the last real step -- a 48 dB gain
+    node reports 48.00000004350822 -- which the driver publishes raw whenever
+    the node declares no fixed increment, deliberately, because inventing a
+    step would narrow a range the camera did not narrow. Raw, it becomes the
+    slider maximum, the ceiling a typed entry is clamped to, and the value
+    written into the store when a layer is reconciled down to the cap, so the
+    tail reaches current.json and the gain box. This resolver is the one point
+    the whole chain passes through, so it is the one place to normalise it.
+
+    The precision comes from the existing owner rather than a number chosen
+    here: a second authority on the same quantity could disagree with the
+    first. Rounding rather than flooring matches how every other gain value is
+    normalised, and the overshoot it can introduce is orders below the
+    driver's own short-circuit tolerance, so it cannot produce a request the
+    camera treats as a change.
     """
-    return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    return round(cap, common_utils.max_decimal_precision('gain'))
 
 
 # Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
