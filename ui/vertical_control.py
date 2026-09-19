@@ -472,7 +472,6 @@ class VerticalControl(BoxLayout):
                 live_histo_reverse()
 
             self._set_run_autofocus_button()
-            self._schedule_af_safety_timer()
 
             # A one-position run at the current location: the active
             # layer with autofocus enabled, nothing saved. The same
@@ -557,6 +556,14 @@ class VerticalControl(BoxLayout):
                     ),
                 )
                 runner.start(plan)
+                # Armed by the run it bounds, never before it. Arming
+                # ahead of prepare() outlived every exit between the arm
+                # and a committed run -- a refusal, a raise out of the
+                # builder, anything the blanket handler below catches --
+                # and the bound cannot tell those apart: it fires on the
+                # trigger source alone, so a click that started nothing
+                # reached forward and aborted the next autofocus that did.
+                self._schedule_af_safety_timer()
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
