@@ -653,6 +653,7 @@ scope.motion.get_actual_position('Z')            # hardware position via serial 
 # Stop + tuning
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
 scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max
+scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 
 # Absolute moves (µm)
 scope.motion.move_absolute('Z', 5000)
@@ -776,6 +777,8 @@ scope.illumination.led_off('BF', owner='autofocus')    # works
 scope.illumination.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
 scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
 ```
+
+**A run can hold the LEDs exclusively, and a write refused on that account is SILENT.** While a protocol run, autofocus or another subsystem holds the internal LED lease, an `led_on` / `led_off` from anyone else is refused: the LED does not change, the refusal is recorded in `api.log`, and **the call returns `None` and raises nothing, exactly as a successful call does.** The refusal is deliberate — it stops a live UI change from disturbing a run's channels — but your call cannot see it, so a capture taken afterwards can come back dark with nothing in your own code to explain why. If an LED command appears to do nothing, check whether a run is in flight before suspecting the hardware. (Making this refusal visible at the API boundary is open work; the lease itself is internal machinery and not L2 surface.)
 
 ### Save / restore — the autofocus pattern
 
@@ -904,6 +907,14 @@ scope.imaging.get_live_camera_settings()           # any of: gain_db, exposure_m
 # `set_exposure_ms` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image).
+#
+# Bench and characterization scripts that sweep deliberately extreme
+# values can silence that warning for a block -- and ONLY for a block,
+# so a sweep does not disable the warning for the rest of the process:
+#
+#   with scope.imaging.suppress_value_warnings():
+#       for ms in (0.001, 0.002, 0.004):
+#           scope.imaging.set_exposure_ms(ms)
 
 # Every camera-settings setter in this section dispatches to the camera
 # lane and BLOCKS until applied (returns the body's own result). While a
@@ -917,6 +928,11 @@ scope.imaging.apply_layer_camera_settings(
     auto_gain=False, auto_gain_settings=None,
     layer='BF',          # names the layer in api.log; optional, defaults to '(unspecified)'
 )
+
+# Auto-exposure: the camera's own exposure control, where the body has one.
+# Blocks until the camera has applied it. Check
+# caps.camera_supports_auto_exposure first -- not every body offers it.
+scope.imaging.set_auto_exposure_time(True)
 
 # Auto-gain: the continuous toggle, the one-shot settle, and the setpoint
 scope.imaging.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
@@ -1172,6 +1188,14 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 # Camera temperature sensors. Returns dict {sensor_name: degC} or
 # empty when the camera lacks temperature sensors or is inactive.
 temps = scope.diagnostics.get_camera_temperatures_degc()
+
+# Throughput and latency characterization. Both run through the
+# PRODUCTION capture path, so what they measure is what a real run gets;
+# both take an optional progress_cb and return a dict of results. These
+# occupy the camera for their duration -- do not start one while a run
+# or recording is live.
+results = scope.diagnostics.run_camera_bandwidth_test(num_frames=200, timeout_s=60.0)
+results = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=100, vary_settings=False)
 
 # Cross-host / cross-camera / cross-firmware diagnostic probe.
 # Captures camera identity, current config, temperatures, and stream
