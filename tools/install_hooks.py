@@ -72,7 +72,7 @@ fi
 # partially staged, is judged as it will be committed, not as it sits
 # in the working tree. The absolute --stdin-filename keeps pyproject's
 # per-file-ignores and [tool.ruff.format].exclude binding; --force-exclude
-# keeps the top-level exclude lists binding for stdin. Skips gracefully
+# keeps the top-level exclude lists binding for stdin. Skips, and says so,
 # when ruff is unavailable so branches without it never block.
 if python3 -m ruff --version >/dev/null 2>&1; then
     while IFS= read -r -d '' f; do
@@ -85,6 +85,8 @@ if python3 -m ruff --version >/dev/null 2>&1; then
             exit 1
         fi
     done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
+else
+    echo "pre-commit: ruff not importable by $(command -v python3) -- skipping the ruff gate; staged .py files were NOT linted" >&2
 fi
 
 # Guard gate. The tests under tests/guards/ measure the whole tree, so no
@@ -157,6 +159,8 @@ if [ -f "$VERSION_FILE" ]; then
         || echo "nogenuid")
     printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERSION_FILE"
     git add "$VERSION_FILE"
+else
+    echo "pre-commit: version.txt absent on this branch -- skipping the version stamp" >&2
 fi
 """
 

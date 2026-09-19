@@ -123,3 +123,21 @@ def test_the_hook_runs_the_guards_directory():
     assert any('git checkout-index' in ln for ln in lines), (
         'The gate judges the index (what will be committed), not the working tree.'
     )
+
+
+def test_every_skipped_stage_says_so():
+    """A stage that passes by not running must say it did not run.
+
+    The rule gate and the guard gate already print why they skipped; the
+    ruff gate and the version stamp were bare `if ... fi`, so a python
+    without ruff, or a branch without version.txt, committed with no line
+    at all. The banner is the only signal on that path, so its text is
+    pinned here in the same idiom as the guard-gate assertion above.
+    """
+    from tools.install_hooks import _HOOK_SCRIPT
+
+    for banner in (
+        'pre-commit: ruff not importable by $(command -v python3) -- skipping the ruff gate; staged .py files were NOT linted',
+        'pre-commit: version.txt absent on this branch -- skipping the version stamp',
+    ):
+        assert banner in _HOOK_SCRIPT, f'the hook skips a stage silently; missing banner: {banner}'
