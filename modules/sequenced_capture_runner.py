@@ -897,6 +897,31 @@ class SequencedCaptureRunner:
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
+        # A protocol that changes objectives mid-run needs every one of them
+        # mounted, or it fails partway through with the stage already moved
+        # and images already taken. Distinct from the validation below,
+        # which catches an objective that does not EXIST; this catches one
+        # that exists and is not on this scope's turret right now.
+        #
+        # A single-objective protocol is deliberately not checked: that is
+        # long-standing behaviour, and widening it here would be a silent
+        # change of what runs, smuggled in with a relocation.
+        if self._scope.capabilities.has_turret:
+            protocol_objectives = set(protocol.steps()['Objective'].to_list())
+            turret_objectives = set(self._scope.runtime_state.get_turret_config().values())
+            if len(protocol_objectives) > 1 and not protocol_objectives.issubset(turret_objectives):
+                mounted = sorted(o for o in turret_objectives if o is not None)
+                self._refuse(
+                    reason='turret_objectives_unassigned',
+                    title='Turret Configuration Required',
+                    message=(
+                        'This protocol uses objectives that are not assigned to turret '
+                        f'positions.\n\nIt needs: {", ".join(sorted(protocol_objectives))}\n'
+                        f'The turret carries: {", ".join(mounted) if mounted else "None"}\n\n'
+                        'Assign the missing objectives in Objective Control > Turret.'
+                    ),
+                )
+
         # Snapshot stage_offset BEFORE validation so the pre-run travel
         # check and the run's coordinate transforms use the same offset.
         # Validating against a stale prior-run snapshot could pass a step

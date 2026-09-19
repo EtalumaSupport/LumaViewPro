@@ -1636,7 +1636,6 @@ class Protocol:
         # downstream passed it too, and a caller that asked for a stack got
         # a photograph and a reported success.
         if use_zstacking and (zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0):
-            reason = 'zstack_not_configured'
             title = 'Z-Stack Not Configured'
             message = (
                 f'Z-stack range ({zstack_params["range"]}) and step size '
@@ -1647,7 +1646,7 @@ class Protocol:
             # Raising alone would drop it exactly then. WARNING rather than
             # ERROR because a refusal is a designed outcome; the two older
             # refusal sites still log at ERROR and are their own queue row.
-            logger.warning(f'[Protocol] Build refused ({reason}): {message}')
+            logger.warning(f'[Protocol] Build refused (zstack_not_configured): {message}')
             notifications.warning(
                 'Protocol',
                 title,
@@ -1655,7 +1654,14 @@ class Protocol:
                 solicited=True,
                 operation_key=REFUSAL_OPERATION_KEY,
             )
-            raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+            # The reason stays a LITERAL here, repeated from the log line
+            # above rather than hoisted into a variable: the refusal
+            # vocabulary is censused by reading this argument out of the
+            # source, and a name in its place makes the code invisible to
+            # that census -- a new reason then ships with no coverage.
+            raise ProtocolRunRefusedError(
+                reason='zstack_not_configured', title=title, message=message
+            )
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)

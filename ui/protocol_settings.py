@@ -1665,21 +1665,8 @@ class ProtocolSettings(FloatLayout):
                 )
                 return False
 
-        # If turret is present, validate all protocol objectives are assigned (#606)
-        ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.capabilities.has_turret and not self._validate_objectives_in_protocol(
-            protocol_df=self._protocol.steps()
-        ):
-            turret_objectives = settings.get('turret_objectives', {})
-            assigned = [v for v in turret_objectives.values() if v is not None]
-            show_notification_popup(
-                title='Turret Configuration Required',
-                message='Protocol uses objectives not assigned to turret positions.\n\n'
-                f'Assigned: {assigned if assigned else "None"}\n\n'
-                'Please assign objectives in Objective Control > Turret before running.',
-            )
-            return False
-
+        # The turret-objective check that used to sit here now refuses at
+        # the preparation chokepoint, so a script and the SDK get it too.
         return True
 
     def _autofocus_run_complete_callback(self, **kwargs):

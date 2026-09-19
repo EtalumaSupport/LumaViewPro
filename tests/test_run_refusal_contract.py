@@ -183,6 +183,20 @@ def _make_single_step_protocol(color='BF'):
     return _build_real_protocol([step])
 
 
+def _make_two_objective_protocol():
+    """Two steps naming two DIFFERENT objectives, both of which exist.
+
+    Both must be real entries in objectives.json: an objective that does
+    not exist is caught by pre-run validation, which is a different gate
+    with a different reason code, so an invented name would test that one
+    instead.
+    """
+    base = _make_single_step_protocol().steps().iloc[0].to_dict()
+    second = {**base, 'Objective': '20x Oly', 'Name': 'A1_second', 'Step Index': 1}
+    second['Label'] = 'A1_second'
+    return _build_real_protocol([{**base, 'Label': base['Name']}, second])
+
+
 @pytest.fixture
 def scope():
     s = _make_simulated_scope()
@@ -565,6 +579,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'files_writing_stalled': _FUNNEL_LOOP,
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
+    'turret_objectives_unassigned': _FUNNEL_LOOP,
     'validation_failed': _FUNNEL_LOOP,
     'validation_crashed': _FUNNEL_LOOP,
     'hardware_state_unknown': _FUNNEL_LOOP,
@@ -583,6 +598,13 @@ RUNNER_REFUSAL_COVERAGE = {
     # Raised at reset(), not prepare(): it refuses a TEARDOWN rather than a
     # start, so there is no plan to drive and it cannot ride the loop.
     'not_run_owner': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
+    # Raised by the protocol BUILDER, before prepare() is reached at all:
+    # a stack cannot be built from a range of zero, so there is no plan to
+    # drive it with. The builder does its own log-notify-raise, and that
+    # is what the named tests pin.
+    'zstack_not_configured': (
+        'tests/test_a_zstack_with_no_range_is_refused.py::TestTheRefusalReachesTheUser'
+    ),
 }
 
 # Every module that raises a run refusal. The census below reads all of
@@ -591,6 +613,13 @@ RUNNER_REFUSAL_COVERAGE = {
 REFUSING_MODULES = (
     'modules/sequenced_capture_runner.py',
     'modules/config_helpers.py',
+    # The protocol BUILDER refuses too, before any run exists: a stack
+    # asked for with no range. Worth noting that this tuple is hand-kept
+    # while the comment above promises the vocabulary is the contract
+    # rather than the file -- so a refusal added in a module nobody
+    # listed escapes the census in silence, which is how this entry came
+    # to be missing for a commit.
+    'modules/protocol.py',
 )
 
 
@@ -660,12 +689,27 @@ class TestRefusalNotifyOnceFunnel:
             )
             return _make_single_step_protocol()
 
+        def turret_objectives_unassigned(mp):
+            # Two objectives that both EXIST -- an unknown one is caught by
+            # validation first, which is a different gate. The turret
+            # carries only the first, so the second has nowhere to be.
+            import dataclasses
+
+            mp.setattr(
+                scope,
+                'capabilities',
+                dataclasses.replace(scope.capabilities, has_turret=True),
+            )
+            mp.setattr(scope.runtime_state, 'get_turret_config', lambda: {1: '10x Oly'})
+            return _make_two_objective_protocol()
+
         return [
             ('already_running', already_running),
             ('files_writing', files_writing),
             ('files_writing_stalled', files_writing_stalled),
             ('autofocus_running', autofocus_running),
             ('empty_protocol', empty_protocol),
+            ('turret_objectives_unassigned', turret_objectives_unassigned),
             ('validation_failed', validation_failed),
             ('validation_crashed', validation_crashed),
             ('hardware_state_unknown', hardware_state_unknown),

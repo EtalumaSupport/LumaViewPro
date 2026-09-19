@@ -1353,17 +1353,27 @@ class TestIssue606_TurretObjectiveValidation:
             'detection must reach the log, not a dialog: this fires mid-assignment'
         )
 
-    def test_is_protocol_valid_checks_turret(self):
-        """_is_protocol_valid source must validate turret config."""
+    def test_the_engine_refuses_unassigned_turret_objectives(self):
+        """The guarantee moved from the widget to the preparation chokepoint.
+
+        It used to be pinned by searching _is_protocol_valid's source for
+        the word 'turret'. That pin could be satisfied by a COMMENT -- and
+        was, the moment the check itself moved out, so it reported green
+        over an absent guard.
+
+        Keyed on the reason code instead: prose can contain 'turret', but
+        a refusal code is the contract a caller branches on and cannot be
+        satisfied by describing it. The behaviour itself -- refused for a
+        multi-objective protocol, unchanged for one objective and for a
+        scope with no turret -- is exercised in
+        test_a_protocol_needs_its_objectives_on_the_turret.py.
+        """
         import pathlib
 
-        source = pathlib.Path('ui/protocol_settings.py').read_text()
-        # Find the _is_protocol_valid method
-        idx = source.find('def _is_protocol_valid')
-        assert idx != -1, '_is_protocol_valid method must exist'
-        method_body = source[idx : idx + 2000]
-        assert 'turret' in method_body.lower(), (
-            '_is_protocol_valid must check turret objective assignments (#606)'
+        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        assert "reason='turret_objectives_unassigned'" in source, (
+            'the engine must refuse a protocol naming objectives the turret '
+            'does not carry, so every caller gets it and not only the GUI'
         )
 
 
