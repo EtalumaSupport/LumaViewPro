@@ -734,6 +734,18 @@ class ProtocolSettings(FloatLayout):
 
         try:
             protocol = ctx.scope.protocols.create_protocol(input_config=config)
+        except exceptions.ProtocolRunRefusedError as e:
+            # A refusal already carries the words written for a human. The
+            # blanket handler below renders str(e), which for a refusal is
+            # the joined `reason: message` debugging form -- a machine code
+            # in a dialog. This branch is not reachable from the builder
+            # today; it exists so that the builder can begin refusing
+            # without a reason code arriving on screen the same day.
+            logger.warning(f'[LVP Main  ] Protocol creation refused ({e.reason}): {e.message}')
+            from ui.notification_popup import show_notification_popup
+
+            show_notification_popup(title=e.title, message=e.message)
+            return
         except Exception as e:
             logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
             from ui.notification_popup import show_notification_popup

@@ -56,6 +56,29 @@ def run_with_refusal_boundary(
         on_refused()
 
 
+def reset_with_refusal_boundary(runner, requester: str) -> bool:
+    """Tear the run down, and say whether the engine let you.
+
+    The teardown half of the boundary above. Tearing a run down is an
+    authority decision the engine owns: it compares the requester against
+    the run's owner and refuses anyone else, having already logged and
+    notified exactly once. What the widget needs back is not the
+    exception but the outcome -- a refused teardown left the run running,
+    so the caller must not go on to restyle its button as though a
+    stop were under way.
+
+    Returns True when the run was torn down (or there was none), False
+    when the engine refused. Without this the refusal reached a starter's
+    blanket handler, which renders str(e) -- the joined `reason: message`
+    debugging form, in a dialog, at a user.
+    """
+    try:
+        runner.reset(requester=requester)
+    except ProtocolRunRefusedError:
+        return False
+    return True
+
+
 def show_run_refused_popup(blocked_action: str, holder: str | None) -> None:
     """Tell the user WHICH run refused their click, not only that it failed.
 

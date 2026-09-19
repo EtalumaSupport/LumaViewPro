@@ -29,6 +29,7 @@ from ui.ui_helpers import (
     live_histo_off,
     live_histo_reverse,
     reset_title,
+    reset_with_refusal_boundary,
     run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
@@ -136,7 +137,12 @@ class ZStack(FloatLayout):
         # while the old one is still tearing down (the start guard
         # refuses it, but the label would lie about readiness).
         deferred_to_cleanup = runner.run_in_progress()
-        runner.reset(requester='zstack')
+        if not reset_with_refusal_boundary(runner, requester='zstack'):
+            # The engine refused: the run is someone else's and is still
+            # running. Nothing was torn down, so nothing here is restyled
+            # -- least of all to "Stopping...", which would describe a
+            # teardown that did not happen.
+            return
         if deferred_to_cleanup:
             self.ids['zstack_aqr_btn'].text = 'Stopping...'
             return
