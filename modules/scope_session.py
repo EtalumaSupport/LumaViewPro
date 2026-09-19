@@ -1661,3 +1661,10 @@ class ScopeSession:
             START_POSITION = 1
             self.set_turret_position(START_POSITION)
             turret_fn(START_POSITION)
+
+        # After the home, not instead of it: the simulator homes to the
+        # floor exactly as the instrument does, and only then is placed
+        # where its simulated sample is. A real scope is left alone here --
+        # its operator does the focusing, and startup moving their stage
+        # for them is not a convenience.
+        self.scope.move_to_simulated_sample_plane()

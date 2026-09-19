@@ -177,3 +177,44 @@ class TestDisableHomingIsNoStartupMotion:
         session.start_application_session(disable_homing=True)
 
         assert session.settings['turret_position'] == 3
+
+    def test_the_stage_is_not_placed_at_the_sample_either(self, session):
+        """No startup motion means none, including the simulator's own
+        placement.
+
+        The placement cannot run here even in principle: it is an absolute
+        move, and an absolute move on an axis that was never homed raises
+        rather than guessing where it is. Skipping the home therefore has
+        to skip the placement too, and this pins that they stay together.
+        """
+        session.start_application_session(disable_homing=True)
+
+        assert session.scope.motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0), (
+            'homing disabled must leave the stage untouched at its unhomed origin'
+        )
+
+
+class TestTheSimulatorStartsWhereItsSampleIs:
+    """Bring-up leaves a simulated stage at the plane its own camera calls
+    sharp, not at the floor where homing leaves it.
+
+    Homing to the bottom of travel is correct and shared with the real
+    instrument. The difference is what happens next: a real operator
+    focuses, and in the simulator nobody did, so every session started
+    5 mm from the specimen -- far enough that a z-stack asked for slices
+    below zero and an autofocus sweep began on nothing.
+    """
+
+    def test_bringup_leaves_z_off_the_floor_and_at_the_declared_plane(self, session):
+        session.start_application_session()
+
+        z = session.scope.motion.get_current_position('Z')
+        assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'
+
+        # Read from the camera rather than restated here: the point of the
+        # change is that one simulated scene holds one idea of where the
+        # sample is, so a literal in this test would defeat what it checks.
+        declared_plane = session.scope._camera_driver.get_focal_z()
+        assert z == pytest.approx(declared_plane, abs=1.0), (
+            f'the stage settled at {z} um but the camera calls {declared_plane} um sharp'
+        )

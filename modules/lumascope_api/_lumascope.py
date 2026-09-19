@@ -1162,6 +1162,50 @@ class Lumascope:
         """
         return self._no_hardware
 
+    def move_to_simulated_sample_plane(self) -> None:
+        """Place the stage where the simulated sample is (not part of the L2 API surface).
+
+        Bring-up's own step, called by ``ScopeSession.start_application_session``.
+        An L2 caller has no reason to reach it: on real hardware it does
+        nothing, and on a simulator bring-up has already run it.
+
+        Homing leaves Z at the bottom of travel on a real instrument and on
+        the simulator alike, and that is correct -- it is what homing means.
+        On a real scope the operator then focuses; in the simulator nobody
+        does, so every session began at the floor, where a z-stack asks for
+        slices below zero and an autofocus sweep starts 5 mm from anything
+        worth focusing on.
+
+        The height is not chosen here. The simulated camera already declares
+        the plane its specimen is sharp at, and reading it is what keeps the
+        two halves of one simulated scene agreeing about where the sample
+        sits rather than each holding a number.
+
+        Placed only on a scope that has a Z axis to place, and only once Z
+        has a reference position. A convenience may not be able to break
+        bring-up: an absolute move on an axis that was never homed refuses
+        rather than guessing, so this asks first instead of provoking that
+        refusal and catching it -- catching would hide a real one.
+        """
+        if not self._simulated:
+            return
+        if not self.capabilities.has_focus:
+            return
+        if not self.motion.position_is_known('Z'):
+            logger.info(
+                '[SCOPE API ] Simulated sample plane not applied: Z has no reference position'
+            )
+            return
+        # A camera that failed to construct leaves a driver that is not the
+        # simulator, so the focal plane is asked for rather than assumed.
+        focal_plane = getattr(self._camera_driver, 'get_focal_z', None)
+        if focal_plane is None:
+            return
+        # Waited, like the home before it: bring-up reports the stage ready,
+        # and a caller that starts a sweep against a Z still in flight reads
+        # a position that is not where the sample is.
+        self.motion.move_absolute('Z', focal_plane(), wait_until_complete=True)
+
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
 

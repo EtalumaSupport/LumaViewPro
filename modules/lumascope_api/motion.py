@@ -271,6 +271,27 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
+    def position_is_known(self, axis: str) -> bool:
+        """Whether *axis* has a reference position an absolute move can use.
+
+        The same question ``_pre_drive`` asks before it refuses, offered to
+        callers as a question rather than only as an exception. A caller
+        whose move is optional -- one that should be skipped rather than
+        attempted on an axis whose position was never established -- could
+        otherwise only discover the answer by provoking the refusal and
+        catching it, which is indistinguishable from swallowing a real one.
+
+        Args:
+            axis: The axis to ask about.
+
+        Returns:
+            bool: True when an absolute move on *axis* would pass the
+            pre-drive gate; False when the axis has no reference yet.
+        """
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis)
+        return self._position_known(state)
+
     def _fault_axis(self, axis: str) -> None:
         """Record that a commanded move failed at the driver.
 

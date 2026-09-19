@@ -665,6 +665,7 @@ scope.motion.move_relative('Z', 100)
 scope.motion.get_target_status('Z')              # True if target reached
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until all idle
+scope.motion.position_is_known('Z')              # False until homed: an absolute move would refuse
 
 # Limit switches -- why a move stopped short. Reaching a limit is reported,
 # not raised, so a move that ran out of travel and one that arrived look the
