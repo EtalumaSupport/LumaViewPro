@@ -1252,7 +1252,7 @@ caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no 
 Important consequences:
 
 - **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
-- **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
+- **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
 
@@ -1691,18 +1691,20 @@ Consult `Protocol.from_file` in `modules/protocol.py` for the canonical field li
 ```python
 from modules.common_utils import ColorChannel
 
-ColorChannel.Blue   # 0  — blue-excitation fluorescence
-ColorChannel.Green  # 1  — green-excitation fluorescence
-ColorChannel.Red    # 2  — red-excitation fluorescence
+ColorChannel.Blue   # 0  — blue-EMISSION fluorescence   (stock excitation 405 nm)
+ColorChannel.Green  # 1  — green-EMISSION fluorescence  (stock excitation 488 nm)
+ColorChannel.Red    # 2  — red-EMISSION fluorescence    (stock excitation 589 nm)
 ColorChannel.BF     # 3  — brightfield (white LED)
 ColorChannel.PC     # 4  — phase contrast (on scopes with separate PC hardware)
 ColorChannel.DF     # 5  — darkfield
 ColorChannel.Lumi   # 6  — luminescence (all LEDs off, sensitive mode)
 ```
 
+**A channel name is the colour you SEE, not the colour that excites it.** `Blue` is a blue-emitting dye excited by 405 nm violet light, `Green` a green-emitting dye excited by 488 nm, `Red` a red-emitting dye excited by 589 nm. The layer's `excitation_nm` field carries the excitation wavelength, and the UI marks it `Ex` for the same reason: a bare "Green 488 nm" invites reading 488 as the emission, which writes silently wrong metadata into your own data.
+
 **Fluorescence excitation wavelengths depend on the installed filterset** — the stock filterset is 405 / 488 / 589 nm, but OEM customers may have custom filtersets at different wavelengths.
 
-**Not every scope has every channel.** Always check `scope.capabilities.led_colors` before using a color — for example, LS560/LS620 expose only `{'BF', 'Blue', 'Green', 'Red'}`. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
+**Not every scope has every channel, and two models in the same family differ.** Always check `scope.capabilities.led_colors` before using a color — an LS620 exposes `{'BF', 'Blue', 'Green', 'Red'}`, while an **LS560 exposes only `{'BF', 'Green'}`**. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
 
 ---
 
