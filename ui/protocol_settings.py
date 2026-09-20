@@ -290,6 +290,9 @@ class ProtocolSettings(FloatLayout):
                 empty_config=protocol_config,
             )
 
+        # The panel applying the plate it already shows, so the scope is on it
+        # even when no protocol loaded; not a user pick.
+        gui_logger.note_write_back('LABWARE', self.ids['labware_spinner'].text)
         self.select_labware()
         self.update_step_ui()
 
