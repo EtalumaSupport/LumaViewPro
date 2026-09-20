@@ -140,14 +140,26 @@ class ProtocolPostProcessor(abc.ABC):
         raise NotImplementedError('Implement in child class')
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
-        if self._has_turret:
-            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)[
-                'short_name'
-            ]
-        else:
-            short_name = None
+        if not self._has_turret:
+            return None
 
-        return short_name
+        # The lookup answers an id it cannot resolve with None, and a protocol
+        # can name an objective the catalogue no longer holds -- edited or
+        # downgraded between the run and the post-processing of its files.
+        # Subscripting that None raised inside the loop that plans names for
+        # every group, so one bad id in one well aborted the post-processing of
+        # the whole run. The name simply omits the objective instead, which is
+        # what a scope with no turret has always produced here and what the
+        # capture lane does with the same answer from the same loader.
+        objective_info = self._objectives_helper.get_objective_info(objective_id=objective_id)
+        if objective_info is None:
+            logger.warning(
+                f'[{self._name}] Turret available but no objective info for ID '
+                f"'{objective_id}' -- omitting the objective from the output name"
+            )
+            return None
+
+        return objective_info.get('short_name')
 
     def _degraded_summary(self, count: int) -> str:
         """One clause naming what a degraded (fallback-produced) output means for
