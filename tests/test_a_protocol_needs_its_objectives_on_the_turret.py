@@ -1,21 +1,28 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A multi-objective protocol needs every objective it names on the turret.
+"""A protocol needs the glass it names on the turret.
 
-A protocol that switches objectives mid-run can only run if the turret
-carries each one. The check for that lived in a Kivy widget method, which
-meant a script, the SDK and REST could all start the run the GUI would
-have refused -- and the run then failed partway through, after it had
-moved the stage and taken images.
+A protocol names an objective per step; the turret carries objectives in
+its slots. When the two disagree the run does not fail -- it COMPLETES,
+and every file it writes takes its filename from the step's objective and
+its metadata from the turret's. The file lies about itself, and every
+scale derived from it follows the metadata, so the name is the only thing
+that is wrong and nothing in the output says so.
 
-The predicate was never the problem: it already read the API's runtime
-turret state rather than anything of the widget's own. Only its HOME was
-wrong. It now refuses at the preparation chokepoint, where every caller
-meets it.
+The check for that lived in a Kivy widget method, which meant a script,
+the SDK and REST could all start the run the GUI would have refused. It
+now refuses at the preparation chokepoint, where every caller meets it.
 
-Unchanged on purpose: a SINGLE-objective protocol is not checked at all.
-That is legacy behaviour, and widening it here would be an undeclared
-change riding along with a relocation -- a protocol with one objective
-the turret does not carry still starts today, exactly as it did before.
+Two rules, not one:
+
+- A turret that CARRIES something refuses a protocol naming anything it
+  does not carry, whatever the step count.
+- A turret with NOTHING assigned is the shipped first-run state: all four
+  slots ship null. It still refuses a protocol that changes objectives
+  mid-run, which cannot address a turret it has no assignments for; it
+  does not refuse a single-objective protocol, or a fresh install could
+  not run the shipped example.
+
+The cases below are that contract, one test per configuration.
 """
 
 from __future__ import annotations
@@ -113,6 +120,41 @@ class TestTheEngineRefuses:
             f'the refusal must say what IS on the turret: {refusal.value.message!r}'
         )
 
+    def test_one_objective_the_turret_does_not_carry_is_refused_too(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        """The defect: this run used to complete and write a lying filename.
+
+        A turret carrying only 10x and a protocol naming only 20x was
+        admitted, because the gate exempted anything with a single
+        objective. The run moved nothing, captured through the 10x that
+        was already in the light path, and named the files for the 20x
+        the protocol asked for.
+        """
+        _turret(scope, monkeypatch, carries=(ON_TURRET,))
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            _prepare(executor, _protocol(NOT_ON_TURRET), tmp_path)
+
+        assert refusal.value.reason == 'turret_objectives_unassigned'
+
+    def test_a_multi_objective_protocol_on_an_unassigned_turret_is_still_refused(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        """An empty turret cannot serve a protocol that changes objectives.
+
+        The simpler single-rule predicate -- refuse only on a mismatch
+        against what is actually assigned -- would let this one start,
+        and it cannot finish: there is no slot to rotate to for either
+        objective. It keeps refusing.
+        """
+        _turret(scope, monkeypatch, carries=())
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            _prepare(executor, _protocol(ON_TURRET, NOT_ON_TURRET), tmp_path)
+
+        assert refusal.value.reason == 'turret_objectives_unassigned'
+
     def test_a_protocol_whose_objectives_are_all_assigned_runs(
         self, executor, scope, monkeypatch, tmp_path
     ):
@@ -125,15 +167,32 @@ class TestTheEngineRefuses:
 
 
 class TestTheCasesThatMustNotChange:
-    def test_a_single_objective_protocol_is_not_checked(
+    def test_a_single_objective_protocol_runs_on_a_turret_with_no_assignments(
         self, executor, scope, monkeypatch, tmp_path
     ):
-        """Legacy, and carried deliberately rather than quietly widened."""
+        """The shipped first-run state, and the reason rule two exists.
+
+        data/settings.json ships all four turret slots null against a
+        96-step single-objective example protocol. A gate that refused
+        on "not carried" alone would refuse that, so a fresh install
+        could not run the protocol it came with.
+        """
         _turret(scope, monkeypatch, carries=())
 
         plan = _prepare(executor, _protocol(NOT_ON_TURRET), tmp_path)
 
-        assert plan is not None, 'one objective has never been validated against the turret'
+        assert plan is not None, 'an unassigned turret is a fresh install, not a mismatch'
+        executor.reset(requester='scan')
+
+    def test_a_single_objective_protocol_runs_when_the_turret_carries_it(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        """The common case: one objective, mounted. Nothing refuses it."""
+        _turret(scope, monkeypatch, carries=(ON_TURRET,))
+
+        plan = _prepare(executor, _protocol(ON_TURRET), tmp_path)
+
+        assert plan is not None
         executor.reset(requester='scan')
 
     def test_a_scope_with_no_turret_is_not_checked(self, executor, scope, monkeypatch, tmp_path):

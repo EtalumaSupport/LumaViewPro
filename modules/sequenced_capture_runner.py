@@ -933,20 +933,29 @@ class SequencedCaptureRunner:
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
-        # A protocol that changes objectives mid-run needs every one of them
-        # mounted, or it fails partway through with the stage already moved
-        # and images already taken. Distinct from the validation below,
-        # which catches an objective that does not EXIST; this catches one
-        # that exists and is not on this scope's turret right now.
+        # A protocol names glass and the turret carries glass; when they
+        # disagree the run does not fail, it COMPLETES and writes files that
+        # lie about themselves -- the filename is built from the step's
+        # objective and the metadata is read from the turret's, so the name
+        # says 4x over an image taken through the 20x that was already in
+        # the light path. Distinct from the validation below, which catches
+        # an objective that does not EXIST; this catches one that exists and
+        # is not on this scope's turret right now.
         #
-        # A single-objective protocol is deliberately not checked: that is
-        # long-standing behaviour, and widening it here would be a silent
-        # change of what runs, smuggled in with a relocation.
+        # Two rules, because an empty turret is not a mismatch. All four
+        # slots ship null, so a turret with no assignments is the state a
+        # fresh install boots in: refusing "not carried" there would refuse
+        # the 96-step example the app ships with. It still refuses a
+        # protocol that CHANGES objectives mid-run -- with nothing assigned
+        # there is no slot to rotate to for any of them.
         if self._scope.capabilities.has_turret:
             protocol_objectives = set(protocol.steps()['Objective'].to_list())
             turret_objectives = set(self._scope.runtime_state.get_turret_config().values())
-            if len(protocol_objectives) > 1 and not protocol_objectives.issubset(turret_objectives):
-                mounted = sorted(o for o in turret_objectives if o is not None)
+            assigned = {o for o in turret_objectives if o is not None}
+            carries_other_glass = bool(assigned) and not protocol_objectives.issubset(assigned)
+            cannot_change_objectives = not assigned and len(protocol_objectives) > 1
+            if carries_other_glass or cannot_change_objectives:
+                mounted = sorted(assigned)
                 self._refuse(
                     reason='turret_objectives_unassigned',
                     title='Turret Configuration Required',
