@@ -1052,7 +1052,7 @@ scope.imaging.remove_frame_listener(on_frame)
 
 ### Listener callback signatures (overview)
 
-The five listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
+The six listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
 
 | Listener | Register via | Callback signature |
 |---|---|---|
@@ -1061,8 +1061,11 @@ The five listener families each pass a different callback signature -- register 
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) |
+| Notifications | `notifications.add_listener` | `on_notification(n)` -- one `Notification`; takes `min_severity=` (see the factory section above) |
 
-The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications. The run-state listener is registered on the **session**, not the scope: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed.
+The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
+
+The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and it has no remover. **Notifications** is registered on the notification centre, takes a `min_severity=` floor, has a matching `remove_listener(callback)`, and must be registered BEFORE the session factory or a partial-hardware warning at `initialize` is lost -- the ordering rule stated in the factory section above.
 
 ### Camera info
 
