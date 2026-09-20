@@ -56,7 +56,6 @@ from ui.ui_helpers import (
     set_writing_title,
     reset_with_refusal_boundary,
     sync_layer_widgets_from_settings,
-    text_input_debounced,
 )
 from ui.progress_popup import show_popup
 
@@ -375,7 +374,7 @@ class ProtocolSettings(FloatLayout):
                 'Enter a period in minutes.',
             )
 
-        text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
+        gui_logger.text_input('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -424,7 +423,7 @@ class ProtocolSettings(FloatLayout):
                 'Enter a duration in hours.',
             )
 
-        text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
+        gui_logger.text_input('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -462,15 +461,12 @@ class ProtocolSettings(FloatLayout):
         sanitized = Protocol.sanitize_step_name(text)
         # What the user typed, then what sanitizing made of it. Recording only
         # the sanitized string asserts the user typed something they did not.
-        # The sanitized value is written back into the box and declared below,
-        # so a record carrying it is recognised as the app's own, not typed.
-        text_input_debounced('CAPTURE_ROOT', text)
+        gui_logger.text_input('CAPTURE_ROOT', text)
         if sanitized != text:
-            text_input_debounced('CAPTURE_ROOT_APPLIED', sanitized)
+            gui_logger.text_input('CAPTURE_ROOT_APPLIED', sanitized)
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
-        gui_logger.note_write_back('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
     def select_labware(self, labware: str | None = None):
@@ -1201,12 +1197,10 @@ class ProtocolSettings(FloatLayout):
     # ------------------------------
     #
     def handle_step_ui_input_change(self) -> None:
-        from ui.ui_helpers import text_input_debounced
-
         obj = self.ids['step_number_input']
         # Captured before either path below rewrites the box.
         typed = obj.text
-        text_input_debounced('STEP_NUMBER', typed)
+        gui_logger.text_input('STEP_NUMBER', typed)
         try:
             val = int(obj.text)
         except Exception:
@@ -1217,8 +1211,7 @@ class ProtocolSettings(FloatLayout):
                 val = 1
 
             obj.text = f'{val}'
-            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
-            gui_logger.note_write_back('STEP_NUMBER', obj.text)
+            gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
             return
 
         num_steps = self._protocol.num_steps()
@@ -1233,8 +1226,7 @@ class ProtocolSettings(FloatLayout):
             obj.text = f'{val}'
 
         if obj.text != typed:
-            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
-            gui_logger.note_write_back('STEP_NUMBER', obj.text)
+            gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
 
         self.go_to_step(step_idx=val - 1, protocol=False)
 

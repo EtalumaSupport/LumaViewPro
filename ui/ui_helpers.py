@@ -10,12 +10,10 @@ re-exports everything for existing callers.
 import logging
 import typing
 
-from kivy.clock import Clock
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
-from modules import gui_logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
@@ -407,51 +405,6 @@ def live_histo_reverse():
     if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
-
-
-_text_input_debounce_timers: dict = {}
-_TEXT_INPUT_DEBOUNCE_S: float = 1.5
-
-
-def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_DEBOUNCE_S) -> None:
-    """Log a text field's value once the user has stopped typing.
-
-    Each call cancels the previous pending log for ``name`` and schedules a
-    fresh one ``delay_s`` out, so a burst of calls collapses to one log line
-    carrying the settled value.
-
-    Today no caller sends a burst: a text field commits on focus loss, which
-    Enter also triggers, so one entry is one call. The deferral still does a
-    job: a handler that corrects the entry writes the correction back and
-    declares it, and the deferred emit is where an unmatched declaration is
-    consumed, so it cannot linger and swallow a later deliberate retype.
-
-    Lives here rather than beside the other gui_interactions entries because
-    the debounce needs the Kivy Clock and modules/ carries no GUI imports.
-    """
-    # The app's own write coming back around, not something the user typed.
-    # Checked HERE rather than at the emitter, because the cancel below would
-    # already have destroyed the pending typed line by the time it emits.
-    if gui_logger.consume_write_back(name, value):
-        return
-
-    existing = _text_input_debounce_timers.pop(name, None)
-    if existing is not None:
-        try:
-            existing.cancel()
-        except Exception:
-            # A timer that already fired cannot be cancelled; the emit has
-            # happened and popping it above is all the cleanup there is.
-            pass
-
-    def _emit(_dt):
-        _text_input_debounce_timers.pop(name, None)
-        # A declaration nobody echoed must not outlive this line, or it would
-        # swallow a later real entry of the same value.
-        gui_logger.consume_write_back(name, value)
-        gui_logger.text_input(name, value)
-
-    _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
 
 
 # ============================================================================

@@ -28,9 +28,15 @@ def _helper():
 
 
 def test_the_helper_emits_a_log_line():
-    """Positive pin: the helper reaches the debounced text-input emitter."""
-    names = {n.func.id for n in _calls(_helper()) if isinstance(n.func, ast.Name)}
-    assert 'text_input_debounced' in names, (
+    """Positive pin: the helper reaches the typed-text emitter."""
+    names = {
+        n.func.attr
+        for n in _calls(_helper())
+        if isinstance(n.func, ast.Attribute)
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == 'gui_logger'
+    }
+    assert 'text_input' in names, (
         'the shared helper no longer logs; a typed numeric commit would leave '
         'no line in gui_interactions.log'
     )

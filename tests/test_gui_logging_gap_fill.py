@@ -91,7 +91,7 @@ _WIRED = {
 
 # handlers that already existed and gained the emitter inside them
 _IN_HANDLER = {
-    'exp_text': ('ui/layer_control.py', 'LayerControl', 'exp_text', 'text_input_debounced'),
+    'exp_text': ('ui/layer_control.py', 'LayerControl', 'exp_text', 'text_input'),
     'video_recording_format_spinner': (
         'ui/microscope_settings.py',
         'MicroscopeSettings',
@@ -188,10 +188,10 @@ def _record_name_arg(fn, callee):
 def test_layer_owned_records_carry_the_channel_suffix():
     """A shared record name silently discards a line, so per-channel names differ.
 
-    The debounce table is keyed by record name and cancels any pending line for
-    that name, and LayerControl is instantiated once per channel with identical
-    child ids. Two channels emitting the same literal name would collide and one
-    of the two lines would never be written.
+    LayerControl is instantiated once per channel with identical child ids, so
+    two channels emitting the same literal name would produce records a reader
+    cannot attribute -- the bundle would show an exposure edit without saying
+    which channel was edited.
 
     So the assertion is on the ARGUMENT, not on the function text: the record
     name must be an f-string interpolating ``self.layer``. A test that merely
@@ -199,7 +199,7 @@ def test_layer_owned_records_carry_the_channel_suffix():
     string literal, which is the bug it is meant to catch.
     """
     for handler, callee in (
-        ('exp_text', 'text_input_debounced'),
+        ('exp_text', 'text_input'),
         ('log_histogram_scale', 'toggle'),
     ):
         fn = find_def('ui/layer_control.py', handler, class_name='LayerControl')
@@ -226,20 +226,22 @@ def test_layer_owned_records_carry_the_channel_suffix():
 #
 # The bare record name means "what the user typed". A companion <NAME>_APPLIED
 # line appears only when validation actually changed the value. The two names
-# must differ: the debounce table is keyed by record name and cancels any
-# pending line for that name, so reusing one name would discard the other.
+# must differ: one name for both would leave a reader unable to tell the entry
+# from the correction, which is the whole point of emitting the pair.
 # --------------------------------------------------------------------------
 
 _HELPER = '_validate_and_apply_text_input'
 
 
-def _debounced_calls(node):
+def _text_input_calls(node):
     return [
         n
         for n in ast.walk(node)
         if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Name)
-        and n.func.id == 'text_input_debounced'
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == 'text_input'
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == 'gui_logger'
         and n.args
     ]
 
@@ -249,7 +251,7 @@ def test_the_shared_helper_records_the_typed_text_not_the_clipped_value():
     fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
     assert fn is not None, f'{_HELPER} is the seam these tests pin'
 
-    bare = [c for c in _debounced_calls(fn) if isinstance(c.args[0], ast.Name)]
+    bare = [c for c in _text_input_calls(fn) if isinstance(c.args[0], ast.Name)]
     assert bare, f'{_HELPER} no longer logs under a plain record name'
     for call in bare:
         assert ast.unparse(call.args[1]) == 'typed_text', (
@@ -263,7 +265,7 @@ def test_the_shared_helper_reports_a_correction_under_its_own_name():
     fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
     applied = [
         c
-        for c in _debounced_calls(fn)
+        for c in _text_input_calls(fn)
         if isinstance(c.args[0], ast.JoinedStr) and '_APPLIED' in ast.unparse(c.args[0])
     ]
     assert len(applied) == 2, (
@@ -275,7 +277,7 @@ def test_the_shared_helper_reports_a_correction_under_its_own_name():
         n
         for n in ast.walk(fn)
         if isinstance(n, ast.If)
-        and any('_APPLIED' in ast.unparse(c.args[0]) for c in _debounced_calls(n) if c.args)
+        and any('_APPLIED' in ast.unparse(c.args[0]) for c in _text_input_calls(n) if c.args)
     ]
     assert guarded, (
         'the clipped-value line must be conditional; emitting it unconditionally '
@@ -291,7 +293,7 @@ def test_an_unparseable_entry_is_no_longer_invisible():
     fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
     handlers = [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]
     assert handlers, f'{_HELPER} no longer has a parse-failure path'
-    emitted = [c for h in handlers for c in _debounced_calls(h)]
+    emitted = [c for h in handlers for c in _text_input_calls(h)]
     assert len(emitted) == 2, (
         'a rejected entry must record both the attempt and the value the box was '
         f'reset to; found {len(emitted)} emission(s) on the reject path'

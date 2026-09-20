@@ -14,8 +14,7 @@ the kv as text (the suite mocks Kivy; it does not instantiate widgets) and
 pin two things:
 
 - no widget block binds ``on_text_validate`` and ``on_focus`` to the same
-  call, in ``ui/lumaviewpro.kv`` or in the kv string inside
-  ``ui/advanced_settings.py``;
+  call, in ``ui/lumaviewpro.kv`` or in any module holding a kv string;
 - no focus-commit box turns ``text_validate_unfocus`` off, which is the
   Kivy default the single binding rests on.
 
@@ -28,14 +27,17 @@ from __future__ import annotations
 import pathlib
 import re
 
+from tests.gui_logging_census import LOAD_STRING_MODULES
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-KV_SOURCES = (
-    REPO / 'ui' / 'lumaviewpro.kv',
-    # Holds its kv in a Builder.load_string literal; python lines never carry
-    # a `<event>:` property at line start, so the same scan applies.
-    REPO / 'ui' / 'advanced_settings.py',
-)
+# Derived, not hand-copied: the census already registers every module holding a
+# Builder.load_string block, and a module registered there but missing here
+# would be scanned for logging coverage and not for the double-binding that
+# makes one Enter run a handler twice. One list, so a new kv source cannot
+# satisfy one guard while escaping the other. Python lines never carry a
+# `<event>:` property at line start, so the same scan applies to both forms.
+KV_SOURCES = (REPO / 'ui' / 'lumaviewpro.kv', *(REPO / m for m in LOAD_STRING_MODULES))
 
 _VALIDATE = re.compile(r'^[ \t]*on_text_validate:\s*(?P<call>.+?)\s*$')
 _FOCUS_COMMIT = re.compile(r'^[ \t]*on_focus:\s*if not self\.focus:\s*(?P<call>.+?)\s*$')

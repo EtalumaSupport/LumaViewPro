@@ -471,7 +471,7 @@ _UI_MODULES_IMPORT_PIN = {
     'ui/stage.py': 5,
     'ui/step_navigation.py': 5,
     'ui/tooltip.py': 1,
-    'ui/ui_helpers.py': 7,
+    'ui/ui_helpers.py': 6,
     'ui/vertical_control.py': 10,
     'ui/zstack.py': 9,
 }

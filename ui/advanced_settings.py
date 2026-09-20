@@ -22,7 +22,6 @@ from kivy.uix.popup import Popup
 import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
-from ui.ui_helpers import text_input_debounced
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
@@ -180,19 +179,19 @@ class AdvancedSettings(Popup):
             )
             settings.setdefault('video', {})
             restored = str(settings['video'].get('max_fps', 0))
-            # A refused entry is still a user action, and until now it left no
-            # trace: the handler reverted the box and returned. Both halves are
+            # A refused entry is still a user action, and the revert below
+            # would otherwise leave no trace that it happened. Both halves are
             # recorded -- what was typed, and what the box was put back to --
-            # and the revert is declared, so a record carrying the reverted
-            # value is recognised as the app's write, not as something typed.
-            text_input_debounced('VIDEO_MAX_FPS', widget.text)
-            text_input_debounced('VIDEO_MAX_FPS_APPLIED', restored)
+            # so the pair says what the user asked for and what the app did
+            # instead. Assigning .text does not dispatch the focus event this
+            # handler is bound to, so the revert cannot come back as a record.
+            gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
+            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', restored)
             widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_FPS', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_fps'] = value
-        text_input_debounced('VIDEO_MAX_FPS', value)
+        gui_logger.text_input('VIDEO_MAX_FPS', value)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -214,16 +213,14 @@ class AdvancedSettings(Popup):
             settings.setdefault('video', {})
             restored = str(get_manual_video_max_duration(settings))
             # The twin of the FPS limit above, and the same reasoning: the
-            # attempt and the reverted value are both recorded, and the revert
-            # is declared so it cannot be reported as typed.
-            text_input_debounced('VIDEO_MAX_DURATION_S', widget.text)
-            text_input_debounced('VIDEO_MAX_DURATION_S_APPLIED', restored)
+            # attempt and the reverted value are both recorded.
+            gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
+            gui_logger.text_input('VIDEO_MAX_DURATION_S_APPLIED', restored)
             widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_DURATION_S', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_duration_seconds'] = value
-        text_input_debounced('VIDEO_MAX_DURATION_S', value)
+        gui_logger.text_input('VIDEO_MAX_DURATION_S', value)
 
     def update_video_timestamp_overlay(self):
         settings = _app_ctx.ctx.settings

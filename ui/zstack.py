@@ -76,15 +76,12 @@ class ZStack(FloatLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['zstack']['range'] = step_range
 
-        from ui.ui_helpers import text_input_debounced
-
         for wid, name in (
             ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
             ('zstack_range_id', 'ZSTACK_RANGE'),
         ):
             if self.ids[wid].text != typed[wid]:
-                text_input_debounced(f'{name}_APPLIED', self.ids[wid].text)
-                gui_logger.note_write_back(name, self.ids[wid].text)
+                gui_logger.text_input(f'{name}_APPLIED', self.ids[wid].text)
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
@@ -111,9 +108,7 @@ class ZStack(FloatLayout):
         entry to 0; that coercion is the system reacting, which belongs in the
         main log, while this file records what the user did.
         """
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(name, self.ids[widget_id].text)
+        gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
         gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
