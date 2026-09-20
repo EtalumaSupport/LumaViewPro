@@ -25,6 +25,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.protocols import ProtocolsAPI
+
 from modules.lumascope_api.illumination import LedTransition
 
 
@@ -76,6 +78,20 @@ def stepnav_env(monkeypatch):
         set_step_state=MagicMock(),
     )
     protocol_settings = MagicMock()
+    # A real ProtocolsAPI, because go_to_step asks it whether this scope can
+    # put the step's glass in the light path before it moves anything. A
+    # stand-in here would answer for production's rule without being it.
+    scope = SimpleNamespace(
+        motion=SimpleNamespace(),
+        capabilities=SimpleNamespace(has_turret=False),
+        motor_connected=False,
+        imaging=SimpleNamespace(active_cached=False),
+        illumination=SimpleNamespace(
+            color2ch=MagicMock(return_value=3),
+            apply_transition_async=MagicMock(),
+        ),
+    )
+    scope.protocols = ProtocolsAPI(scope)
     ctx = SimpleNamespace(
         settings={
             'protocol_led_on': True,
@@ -96,16 +112,7 @@ def stepnav_env(monkeypatch):
             set_expanded_layer=MagicMock(),
             toggle_settings=MagicMock(),
         ),
-        scope=SimpleNamespace(
-            motion=SimpleNamespace(),
-            capabilities=SimpleNamespace(has_turret=False),
-            motor_connected=False,
-            imaging=SimpleNamespace(active_cached=False),
-            illumination=SimpleNamespace(
-                color2ch=MagicMock(return_value=3),
-                apply_transition_async=MagicMock(),
-            ),
-        ),
+        scope=scope,
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
         session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),

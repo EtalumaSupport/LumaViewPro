@@ -13,6 +13,7 @@ import copy
 import logging
 
 import modules.common_utils as common_utils
+from modules.exceptions import ProtocolRunRefusedError
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
@@ -32,7 +33,6 @@ def go_to_step(
     # API call with UI update callbacks. step_navigation still reaches
     # upward here, which the display-only direction has yet to undo.
     from ui.ui_helpers import move_absolute
-    from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -50,6 +50,24 @@ def go_to_step(
         return
 
     step = protocol.step(idx=step_idx)
+
+    # Above the pointer write, and that position is the whole point. The
+    # pointer is what `modify_step_ex` and `insert_step_ex` address a step
+    # BY, and they fill that step from the LIVE stage -- so a pointer left
+    # on a step the scope never reached means the next edit silently writes
+    # the previous step's coordinates into it. Refusing after the write
+    # would leave exactly that.
+    #
+    # The rule is the API's, asked here for the one step this call is about
+    # to navigate to. The refusal does not propagate: it has already been
+    # logged and shown to the user, this call has changed nothing yet, and
+    # go_to_step is also the run's navigation callback -- raising would end
+    # a run over a question the engine already answered at prepare().
+    try:
+        ctx.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
+    except ProtocolRunRefusedError:
+        return
+
     # A same-step re-selection (re-clicking / re-typing the current number)
     # must leave a user-lit channel alone; only a REAL step change drives
     # the LED preview transition below.
@@ -74,12 +92,18 @@ def go_to_step(
             )
 
             if turret_pos is None:
-                logger.error(
-                    f'Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}'
+                # Unreachable: the rule above admitted this objective by
+                # reading the same turret configuration this lookup reads,
+                # so a slot carrying it exists. If the two ever disagree,
+                # stop -- what this replaces logged, raised a dialog, and
+                # then moved X, Y and Z anyway, capturing through whatever
+                # glass was in the path and naming the file for the glass
+                # the step asked for.
+                raise RuntimeError(
+                    f'No turret slot carries {step_objective_id!r} for step {step_idx}, '
+                    'yet the admissibility rule accepted it from the same turret '
+                    'configuration. The rule and the slot lookup have disagreed.'
                 )
-
-                error_msg = f"Cannot move turret to step {step_idx}. No objective position found matching step's objective: {step_objective_id}. Please check objective settings."
-                notifications.error('Protocol', 'Protocol Objective Not Set', error_msg)
 
         # Move into position
         if ctx.scope.motor_connected:
