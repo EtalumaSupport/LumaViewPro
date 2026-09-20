@@ -482,9 +482,10 @@ class LumaViewProApp(TooltipMixin, App):
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
-        # UI listener bridges live in modules/ui_listener_bridge.py so REST API and
-        # headless tools can reuse them.
-        from modules.ui_listener_bridge import UIListenerBridge
+        # The bridge subscribes the GUI to the scope's state events. It
+        # lives in ui/ because every one of its handlers ends in a widget
+        # write; a non-GUI host subscribes to the same events itself.
+        from ui.listener_bridge import UIListenerBridge
 
         ctx.ui_listener_bridge = UIListenerBridge(
             scope=lumaview.scope,

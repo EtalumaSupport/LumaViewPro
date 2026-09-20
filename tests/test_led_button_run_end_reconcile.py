@@ -61,7 +61,7 @@ _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps_module
-from modules.ui_listener_bridge import UIListenerBridge
+from ui.listener_bridge import UIListenerBridge
 from ui.protocol_settings import ProtocolSettings
 from ui.step_navigation import go_to_step_update_ui
 

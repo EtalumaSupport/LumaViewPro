@@ -451,7 +451,10 @@ def _ui_private_reach_counts():
 
 
 # Pinned at 530b6093 (beta34). Lower a value in the same commit that moves
-# the logic down; never raise one.
+# the logic down; never raise one. One key was added, not raised:
+# ui/listener_bridge.py arrived by a move out of modules/ in the commit that
+# emptied _LOWER_LAYER_UI_IMPORT_PIN; the program's GUI reach fell, the file's
+# home changed.
 _UI_MODULES_IMPORT_PIN = {
     'ui/advanced_settings.py': 9,
     'ui/composite_capture.py': 9,
@@ -460,6 +463,7 @@ _UI_MODULES_IMPORT_PIN = {
     'ui/image_settings.py': 4,
     'ui/image_utils_kivy.py': 1,
     'ui/layer_control.py': 14,
+    'ui/listener_bridge.py': 1,
     'ui/main_display.py': 6,
     'ui/microscope_settings.py': 16,
     'ui/motion_settings.py': 5,
@@ -667,12 +671,11 @@ def _lower_layer_ui_import_counts():
 # in as an argument or moves the popup to the caller; never raise one.
 _MODULES_WIDGET_READ_PIN = {
     'modules/config_ui_getters.py': 5,
-    'modules/ui_listener_bridge.py': 6,
 }
 
-_LOWER_LAYER_UI_IMPORT_PIN = {
-    'modules/ui_listener_bridge.py': 1,
-}
+# Empty, and empty is the achieved state: nothing under modules/ or
+# drivers/ imports ui/. The pin stays so the next one is a rise from zero.
+_LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 
 
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'

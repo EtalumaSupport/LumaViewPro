@@ -22,13 +22,11 @@ import ast
 
 from tests.ast_seams import iter_package_modules
 
-# modules/ui_listener_bridge.py exists to forward engine state to whatever
-# listener the host registered, and its one ui/ import is the GUI host's
-# own layer object, resolved lazily so headless never reaches it. Retiring
-# the import means giving the bridge a registration seam instead; that is
-# tracked as its own piece of work, and the exemption is named here so the
-# guard stays green without becoming blind.
-_UI_IMPORT_EXEMPT = frozenset({'modules/ui_listener_bridge.py'})
+# No exemption. The one file that held one -- the GUI's event subscriber --
+# now lives in ui/, where its widget writes belong. A ui/ import under
+# modules/ has no legitimate form: the work belongs in ui/, or the host
+# injects what the lower layer needs.
+_UI_IMPORT_EXEMPT: frozenset[str] = frozenset()
 
 # No allowlist. A GUI-framework import in modules/ has no legitimate form:
 # the work either belongs in ui/, or it needs a scheduler injected by the

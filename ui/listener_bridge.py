@@ -1,29 +1,28 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-6 -- Lumascope state-change -> UI update bridge.
+"""The GUI's subscriber to the scope's state-change events.
 
-Lumascope publishes state-change events (position, LED, camera-setting)
-via ``add_position_listener``, ``add_led_listener``, and
-``add_camera_listener``. The handlers translate those events into UI
-updates: stage redraw on motion, LED button state on LED change, gain
-/ exposure text on camera-setting change. Three listener implementations,
-each with closure state for coalescing rapid events.
+Lumascope publishes position, LED and camera-setting changes to
+registered listeners (``add_position_listener``, ``add_led_listener``,
+``add_camera_listener``). This module holds the GUI's handlers for
+them: stage redraw on motion, LED button state on LED change, gain /
+exposure text on camera-setting change.
 
-Pre-LVP-A-6 these lived inline in ``lumaviewpro.py:on_start`` (~110
-lines of nested closures). Lifting them into one module:
+It belongs in ``ui/`` because every handler ends in a widget write.
+The layers below publish the events and hold the truth; they do not
+import this one.
 
-- Lets future entry points (REST API status mirror, headless metrics
-  consumer, CLI tools that mirror state to a TUI) wire the same
-  listeners through one call.
-- Makes the coalescing pattern (``_pending_*`` dict per listener)
-  reusable instead of three slightly-different copies.
-- Stays Rule-15 clean: the bridge takes a ``ui_dispatcher`` callable
-  (``Clock.schedule_once`` for the Kivy app, anything matching the
-  ``(callable, dt)`` signature elsewhere) so it doesn't import Kivy.
+Two things earn a class here rather than three sets of closures at the
+registration site. The coalescing state (a ``_pending_*`` map per
+listener, so a burst of events costs at most one UI update per frame)
+is one implementation instead of three slightly different copies. And
+the scheduler arrives as the ``ui_dispatcher`` argument rather than an
+imported ``Clock``, so a test can drive the handlers synchronously and
+assert what they wrote.
 
 Usage:
 
-    from modules.ui_listener_bridge import UIListenerBridge
+    from ui.listener_bridge import UIListenerBridge
     bridge = UIListenerBridge(
         scope=lumaview.scope,
         ctx=ctx,
@@ -37,6 +36,7 @@ from __future__ import annotations
 
 from lvp_logger import logger
 import modules.common_utils as common_utils
+from ui.layer_control import LayerControl
 
 
 class UIListenerBridge:
@@ -64,8 +64,9 @@ class UIListenerBridge:
             ui_dispatcher: Callable matching
                 ``Clock.schedule_once(func, dt)`` -- used to marshal
                 listener callbacks (which fire on the worker thread
-                that caused the change) onto the UI thread. Passed
-                instead of imported (the bridge stays GUI-agnostic).
+                that caused the change) onto the UI thread. Passed in
+                rather than imported so a test can run the handlers
+                synchronously.
         """
         self._scope = scope
         self._ctx = ctx
@@ -76,11 +77,6 @@ class UIListenerBridge:
         # event for each LED color so the bridge construction stays
         # cheap.
         self._pending_led_updates: dict[str, bool] = {}
-
-        # LayerControl is imported lazily inside the LED listener to
-        # avoid a UI-import at module-load time (the bridge module
-        # stays GUI-agnostic: no GUI imports).
-        self._LayerControl = None
 
     # ------------------ Listener implementations ------------------
 
@@ -128,20 +124,14 @@ class UIListenerBridge:
             layer_obj = ctx.image_settings.layer_lookup(layer=color)
         except Exception:
             return
-        # Lazy import keeps the executor layer GUI-agnostic (no GUI
-        # module imported at bridge construction time).
-        if self._LayerControl is None:
-            from ui.layer_control import LayerControl
-
-            self._LayerControl = LayerControl
         state = self._scope.illumination.get_led_state(channel=color)
         target = 'down' if state.get('enabled', False) else 'normal'
         if layer_obj.ids['enable_led_btn'].state != target:
-            self._LayerControl._suppressing_led_log = True
+            LayerControl._suppressing_led_log = True
             try:
                 layer_obj.ids['enable_led_btn'].state = target
             finally:
-                self._LayerControl._suppressing_led_log = False
+                LayerControl._suppressing_led_log = False
 
     def reconcile_led_buttons(self) -> None:
         """Level-based reconcile of EVERY channel's enable toggle to driver truth.

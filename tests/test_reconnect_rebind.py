@@ -29,7 +29,7 @@ def _run_dispatch_inline(func, dt):
 
 class TestBridgeRebind:
     def test_rebind_moves_listeners_to_new_scope(self):
-        from modules.ui_listener_bridge import UIListenerBridge
+        from ui.listener_bridge import UIListenerBridge
 
         old_scope = spec_scope()
         new_scope = spec_scope()
@@ -62,7 +62,7 @@ class TestBridgeRebind:
     def test_rebind_reads_driver_truth_from_new_scope(self):
         """After rebind, a listener event reads driver state from the
         NEW scope, not the construction-time one."""
-        from modules.ui_listener_bridge import UIListenerBridge
+        from ui.listener_bridge import UIListenerBridge
 
         old_scope = spec_scope()
         new_scope = spec_scope()
@@ -77,9 +77,6 @@ class TestBridgeRebind:
         bridge.register_all()
         bridge.rebind(new_scope)
 
-        # Pre-seed the lazily-imported widget class so the LED write does
-        # not import Kivy inside this headless test.
-        bridge._LayerControl = MagicMock()
         bridge._on_led_state_changed('BF', True, 10.0, 'test')
         assert not old_scope.illumination.get_led_state.called, (
             'a rebound bridge must not read LED state from the discarded scope'
