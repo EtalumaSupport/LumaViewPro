@@ -180,12 +180,15 @@ scope.disconnect()
 
 The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. Each writer moves the settings store and the scope's runtime state together and records the resolved optics (`[Optics   ] objective=... -> N um/px`) in the log; every member refuses an id that is not exactly a catalogue key with `ConfigError`, before any write.
 
+The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses a name the labware catalogue cannot resolve -- and a name that is not a string -- with `ConfigError` before either store is written. Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
+
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
 if question is not None:
     session.confirm_objective(question.proposed, turret_position=question.turret_position)
 
 session.select_objective('10x Oly')                # True when the objective changed; False for the one held
+session.select_labware('384 well microplate')      # True when the plate changed; False for the one held
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (ValueError otherwise)
 session.clear_turret_objective(2)
 session.set_turret_position(2)                     # record the slot a move landed on; no-op when unchanged
@@ -210,7 +213,7 @@ scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turr
 scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
-scope.runtime_state.set_labware(labware_obj)           # LabWare object (see Coordinate transformations)
+scope.runtime_state.set_labware(labware_obj)           # bare-Lumascope form; a Session caller uses session.select_labware
 scope.runtime_state.get_labware()
 scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
 scope.runtime_state.get_stage_offset()

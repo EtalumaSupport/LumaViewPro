@@ -475,7 +475,6 @@ class ProtocolSettings(FloatLayout):
 
     # Labware Selection
     def select_labware(self, labware: str | None = None):
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
         wellplate_loader = ctx.wellplate_loader
 
@@ -484,11 +483,10 @@ class ProtocolSettings(FloatLayout):
             spinner = self.ids['labware_spinner']
             spinner.values = wellplate_loader.get_plate_list()
             gui_logger.select('LABWARE', spinner.text)
-            # Settings is the single labware store; an empty spinner
-            # (not yet populated at startup) is not a selection and must
-            # not clobber the stored choice.
-            if spinner.text:
-                settings['protocol']['labware'] = spinner.text
+            # An empty spinner (not yet populated at startup) names no
+            # plate, so there is nothing to select; bring-up already put
+            # the stored plate in place and it stays there.
+            selected = spinner.text
         else:
             center_plate_str = 'Center Plate'
             spinner = self.ids['labware_spinner']
@@ -497,15 +495,26 @@ class ProtocolSettings(FloatLayout):
             # the app falling back to Center Plate is not the user choosing it.
             gui_logger.note_write_back('LABWARE', center_plate_str)
             spinner.text = center_plate_str
-            settings['protocol']['labware'] = labware
+            selected = labware
 
-        labware_id, labware = get_selected_labware()
+        if selected:
+            try:
+                ctx.session.select_labware(selected)
+            except exceptions.ConfigError as e:
+                # Every value the spinner offers comes from the loader's own
+                # plate list, so a pick cannot land here; what can is a stored
+                # or supplied name the catalogue no longer has. The API has
+                # already refused it to whoever called -- this only keeps an
+                # unreachable path from being crash-shaped if it stops being
+                # unreachable. Neither store moved, so nothing needs redrawing.
+                logger.error(f'[LVP Main  ] Labware selection refused: {e}')
+                return
 
-        if labware is None:
+        labware_id, labware_obj = get_selected_labware()
+
+        if labware_obj is None:
             logger.error('Labware could not be loaded')
             return
-
-        ctx.lumaview.scope.runtime_state.set_labware(labware=labware)
 
         if self._protocol is not None:
             self._protocol.modify_labware(labware_id=labware_id)

@@ -597,7 +597,7 @@ _GUI_ORCHESTRATION_PIN = {
     ('ui/microscope_settings.py', 'disconnect'): 0,
     ('ui/microscope_settings.py', 'initialize'): 0,
     ('ui/microscope_settings.py', 'start_streaming'): 0,
-    ('ui/protocol_settings.py', 'set_labware'): 1,
+    ('ui/protocol_settings.py', 'set_labware'): 0,
 }
 
 _MODULES_CONTEXT_READ_PIN = {

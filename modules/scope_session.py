@@ -1264,6 +1264,71 @@ class ScopeSession:
         self._log_resolved_optics(objective_id, info['focal_length'])
         return True
 
+    # ------------------------------------------------------------------
+    # The labware
+    # ------------------------------------------------------------------
+
+    def _require_wellplate_loader(self) -> None:
+        if self.wellplate_loader is None:
+            raise ConfigError(
+                'the labware catalogue is unavailable: labware.json did not load '
+                f'under {self.source_path!r}'
+            )
+
+    def select_labware(self, labware_name: str) -> bool:
+        """Make ``labware_name`` the current plate. Returns whether it changed.
+
+        The one writer of the active labware for every host: the settings
+        store and the scope's runtime state move together, or neither
+        moves. Bring-up sets the plate from settings and offers no way
+        back, so without this a caller that is not the GUI can start with
+        a plate but never switch one.
+
+        Validation goes through the loader's own membership test rather
+        than its list of names: the list holds canonical keys only, while
+        the lookup also resolves plate names that were renamed, so a
+        list-based check would refuse a protocol saved under an old name.
+        The name is stored as given; making one plate have one spelling
+        everywhere is a separate problem, and it belongs where the names
+        enter -- the protocol reader and the settings loader -- not here.
+
+        Raises:
+            ConfigError: ``labware_name`` is not a string, the labware
+                catalogue did not load, the loader cannot resolve the
+                name, or the settings have no protocol block to hold the
+                selection. Refused before either store is written: a write
+                that half-lands leaves the settings store and the runtime
+                state describing different plates, and every well
+                position computed from the wrong one is silently wrong.
+        """
+        if not isinstance(labware_name, str):
+            # The loader resolves through a dict lookup, so an unhashable
+            # value raises TypeError out of the membership test instead of
+            # answering it. A caller handing over whatever a wire payload
+            # decoded to needs the refusal, not the TypeError.
+            raise ConfigError(f'labware name must be a string, got {type(labware_name).__name__}')
+        self._require_wellplate_loader()
+        if not self.wellplate_loader.is_known_plate(labware_name):
+            raise ConfigError(f'unknown labware {labware_name!r}; the catalogue has no such plate')
+        protocol_settings = self.settings.get('protocol')
+        if protocol_settings is None:
+            # Settings handed straight to a factory skip the template merge
+            # that puts this block there, so it can genuinely be missing.
+            # Named here, before either store moves: indexing it at the write
+            # below would raise with the runtime state already changed, and a
+            # store that cannot hold the plate is not one to write half of.
+            raise ConfigError(
+                'settings have no protocol block; the labware selection has nowhere to live'
+            )
+        if labware_name == protocol_settings.get('labware'):
+            return False
+        labware = self.wellplate_loader.get_plate(plate_key=labware_name)
+        self.scope.runtime_state.set_labware(labware=labware)
+        with self.settings_lock:
+            protocol_settings['labware'] = labware_name
+        logger.info(f'[Session  ] Labware set to {labware_name!r}')
+        return True
+
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
 
