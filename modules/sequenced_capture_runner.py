@@ -933,40 +933,6 @@ class SequencedCaptureRunner:
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
-        # A protocol names glass and the turret carries glass; when they
-        # disagree the run does not fail, it COMPLETES and writes files that
-        # lie about themselves -- the filename is built from the step's
-        # objective and the metadata is read from the turret's, so the name
-        # says 4x over an image taken through the 20x that was already in
-        # the light path. Distinct from the validation below, which catches
-        # an objective that does not EXIST; this catches one that exists and
-        # is not on this scope's turret right now.
-        #
-        # Two rules, because an empty turret is not a mismatch. All four
-        # slots ship null, so a turret with no assignments is the state a
-        # fresh install boots in: refusing "not carried" there would refuse
-        # the 96-step example the app ships with. It still refuses a
-        # protocol that CHANGES objectives mid-run -- with nothing assigned
-        # there is no slot to rotate to for any of them.
-        if self._scope.capabilities.has_turret:
-            protocol_objectives = set(protocol.steps()['Objective'].to_list())
-            turret_objectives = set(self._scope.runtime_state.get_turret_config().values())
-            assigned = {o for o in turret_objectives if o is not None}
-            carries_other_glass = bool(assigned) and not protocol_objectives.issubset(assigned)
-            cannot_change_objectives = not assigned and len(protocol_objectives) > 1
-            if carries_other_glass or cannot_change_objectives:
-                mounted = sorted(assigned)
-                self._refuse(
-                    reason='turret_objectives_unassigned',
-                    title='Turret Configuration Required',
-                    message=(
-                        'This protocol uses objectives that are not assigned to turret '
-                        f'positions.\n\nIt needs: {", ".join(sorted(protocol_objectives))}\n'
-                        f'The turret carries: {", ".join(mounted) if mounted else "None"}\n\n'
-                        'Assign the missing objectives in Objective Control > Turret.'
-                    ),
-                )
-
         # Snapshot stage_offset BEFORE validation so the pre-run travel
         # check and the run's coordinate transforms use the same offset.
         # Validating against a stale prior-run snapshot could pass a step
@@ -1020,6 +986,51 @@ class SequencedCaptureRunner:
                 ),
                 severity='error',
             )
+
+        # A protocol names glass and the turret carries glass; when they
+        # disagree the run does not fail, it COMPLETES and writes files that
+        # lie about themselves -- the filename is built from the step's
+        # objective and the metadata is read from the turret's, so the name
+        # says 4x over an image taken through the 20x that was already in
+        # the light path.
+        #
+        # Below the validation above, and that ordering is load-bearing: an
+        # id that names nothing in the catalogue, or a blank cell from a
+        # hand-edited protocol file, is not a turret mismatch. Judged before
+        # validation it was answered with "assign the missing objectives",
+        # sending the user to mount glass that does not exist. Validation
+        # names the real defect first, so the ids reaching here are ones it
+        # accepted and the only question left is which slot holds them.
+        #
+        # One hole, and it is not this gate's to close: the objective half of
+        # that validation is skipped outright when the catalogue fails to
+        # load, so a scope with an unreadable objectives.json still arrives
+        # here with unvetted ids and gets the turret's message for them.
+        #
+        # Two rules, because an empty turret is not a mismatch. All four
+        # slots ship null, so a turret with no assignments is the state a
+        # fresh install boots in: refusing "not carried" there would refuse
+        # the 96-step example the app ships with. It still refuses a
+        # protocol that CHANGES objectives mid-run -- with nothing assigned
+        # there is no slot to rotate to for any of them.
+        if self._scope.capabilities.has_turret:
+            protocol_objectives = set(protocol.steps()['Objective'].to_list())
+            turret_objectives = set(self._scope.runtime_state.get_turret_config().values())
+            assigned = {o for o in turret_objectives if o is not None}
+            carries_other_glass = bool(assigned) and not protocol_objectives.issubset(assigned)
+            cannot_change_objectives = not assigned and len(protocol_objectives) > 1
+            if carries_other_glass or cannot_change_objectives:
+                mounted = sorted(assigned)
+                self._refuse(
+                    reason='turret_objectives_unassigned',
+                    title='Turret Configuration Required',
+                    message=(
+                        'This protocol uses objectives that are not assigned to turret '
+                        f'positions.\n\nIt needs: {", ".join(sorted(protocol_objectives))}\n'
+                        f'The turret carries: {", ".join(mounted) if mounted else "None"}\n\n'
+                        'Assign the missing objectives in Objective Control > Turret.'
+                    ),
+                )
 
         try:
             all_connected = self._scope.are_all_connected()

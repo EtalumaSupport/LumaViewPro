@@ -166,6 +166,42 @@ class TestTheEngineRefuses:
         executor.reset(requester='scan')
 
 
+class TestAnObjectiveThatDoesNotExistIsNotATurretProblem:
+    """The turret gate must only judge objectives that ARE objectives.
+
+    A protocol saved on an install with a different objectives.json names
+    glass this catalogue has never heard of; a hand-edited or legacy file
+    can leave the Objective cell blank, which loads as the empty string.
+    Neither is a turret mismatch, and answering them with the turret's
+    message tells the user to go and mount something that does not exist.
+    Validation owns them, and it has a message that names the real defect.
+    """
+
+    def test_an_unknown_objective_refuses_as_a_validation_failure(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        _turret(scope, monkeypatch, carries=(ON_TURRET,))
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            _prepare(executor, _protocol('zzz-no-such-objective'), tmp_path)
+
+        assert refusal.value.reason == 'validation_failed', (
+            'an objective outside the catalogue is a validation defect, not a '
+            f'turret one: {refusal.value.message!r}'
+        )
+
+    def test_a_blank_objective_refuses_as_a_validation_failure(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        """A blank Objective cell in a protocol file loads as ''."""
+        _turret(scope, monkeypatch, carries=(ON_TURRET,))
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            _prepare(executor, _protocol(''), tmp_path)
+
+        assert refusal.value.reason == 'validation_failed'
+
+
 class TestTheCasesThatMustNotChange:
     def test_a_single_objective_protocol_runs_on_a_turret_with_no_assignments(
         self, executor, scope, monkeypatch, tmp_path
