@@ -439,6 +439,11 @@ class ProtocolSettings(FloatLayout):
         )
 
     def step_name_validation(self, text: str):
+        # What the user typed, before the sanitiser and the rename decide what
+        # to make of it. RENAME_STEP below reports the name that took effect;
+        # without this line a name the sanitiser changed, or a blank entry that
+        # kept the old name, leaves nothing saying what was actually entered.
+        gui_logger.text_input('STEP_NAME', text)
         if (
             hasattr(self, '_protocol')
             and (self._protocol is not None)

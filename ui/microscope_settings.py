@@ -32,6 +32,16 @@ from modules.zstack_config import ZStackConfig
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
 
+# Which frame box committed -> the record it owns and the stored dimension
+# that corrects it. Both boxes bind one handler, so the handler is told which
+# one the user left; the record name and the axis travel together because a
+# correction has to report the dimension the record is about.
+_FRAME_BOXES = {
+    'frame_width_id': ('FRAME_WIDTH', 'width'),
+    'frame_height_id': ('FRAME_HEIGHT', 'height'),
+}
+
+
 class _CoalescingApplier:
     """One-at-a-time worker that keeps only the LATEST pending value.
 
@@ -1068,8 +1078,14 @@ class MicroscopeSettings(BoxLayout):
         except Exception as e:
             raise ValueError('Invalid value for frame width/height') from e
 
-    def frame_size(self):
+    def frame_size(self, committed_id: str):
         """Apply a user edit of the frame width/height fields.
+
+        ``committed_id`` names the box whose commit invoked this. Both boxes
+        bind this one handler, and a record that cannot say which box the user
+        left is not a record of what they did; it is required rather than
+        defaulted because a caller that cannot answer cannot log the edit
+        either.
 
         The typed value is a displayed (post-binning) size, so the native ROI
         becomes ``displayed * binning`` capped at the sensor native resolution.
@@ -1080,6 +1096,11 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
 
+        record, axis = _FRAME_BOXES[committed_id]
+        # First act, and before the connected check: the user typed it whether
+        # or not a camera is there to hear about it.
+        gui_logger.text_input(record, self.ids[committed_id].text)
+
         if not lumaview.scope.camera_connected:
             return
 
@@ -1087,8 +1108,16 @@ class MicroscopeSettings(BoxLayout):
         try:
             typed = self._typed_frame_dimensions()
         except ValueError:
+            # An entry that is not a pair of integers is a CORRECTION, not a
+            # request. Substituting the stored size and applying it reported a
+            # framing the user never asked for -- emptying a box logged the
+            # size already in force, so the bundle claimed an edit that never
+            # happened while the box sat blank. Put both boxes back and stop.
             frame = ctx.settings['frame']
-            typed = {'width': frame['width'], 'height': frame['height']}
+            gui_logger.text_input(f'{record}_APPLIED', frame[axis])
+            self.ids['frame_width_id'].text = str(frame['width'])
+            self.ids['frame_height_id'].text = str(frame['height'])
+            return
 
         # The typed value is a displayed size at the UI binning, so reconstruct
         # native against the synchronous UI binning, not the async hardware

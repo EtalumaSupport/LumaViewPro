@@ -82,7 +82,7 @@ class VerticalControl(BoxLayout):
         """Write a Z read-back into its box, unless the user is typing in it.
 
         The box commits on focus loss (`on_focus: if not self.focus:
-        root.set_position(self.text)`), so a value written underneath a
+        root.set_position_text(self.text)`), so a value written underneath a
         part-typed entry is not merely displayed -- it is committed as a Z
         move when the user clicks away. Every read-back write goes through
         here so the guard cannot be present at three sites and missing at
@@ -177,18 +177,42 @@ class VerticalControl(BoxLayout):
     def coarse_down(self, overshoot_enabled: bool = False):
         self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
-    def set_position(self, pos):
+    def _queue_z_move(self, pos):
+        """Parse a committed Z value and queue the move; None when refused.
+
+        The slider and the text box share the move but not the record. The
+        slider reports the value it resolved to; the box reports what the user
+        typed, before anything parsed it. A drag and a keystroke have to stay
+        distinguishable in the bundle, so each caller writes its own line and
+        only the move lives here.
+        """
         ctx = _app_ctx.ctx
         if ctx.session.controls_locked:
-            return
+            return None
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         try:
             self._next_pos = float(pos)
         except Exception:
-            return
-        gui_logger.slider('Z_POSITION', self._next_pos)
+            return None
         self.queue_slider_position_trigger()
+        return self._next_pos
+
+    def set_position(self, pos):
+        """The SLIDER's commit -- the kv binds this to its on_release."""
+        resolved = self._queue_z_move(pos)
+        if resolved is not None:
+            gui_logger.slider('Z_POSITION', resolved)
+
+    def set_position_text(self, text):
+        """The BOX's commit -- what was typed is recorded before the move.
+
+        Separate from ``set_position`` so a typed commit does not report
+        itself as a drag; the record name is shared because it is the same
+        setting, and the verb is what tells them apart.
+        """
+        gui_logger.text_input('Z_POSITION', text)
+        self._queue_z_move(text)
 
     def queue_slider_position(self):
         move_absolute('Z', self._next_pos)

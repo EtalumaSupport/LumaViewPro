@@ -50,11 +50,6 @@ def _D(helper):
 # Controls that reach no gui_logger record at all. Each needs a reason; a new
 # entry is a decision, not a formality.
 _UNLOGGED = {
-    # D8. Typing an acceleration limit records nothing while the twin slider
-    # emits SLIDER ACCELERATION -- so the log shows a limit changing with no
-    # line saying a user set it. Fix is commit 4 (Eric 2026-09-11: gaps the
-    # sweep finds are filled in their own commit, not folded in here).
-    'AdvancedSettings.acceleration_pct_text': 'gap -- fill in commit 4',
     # Found by this commit's sweep, same class as D8 and invisible to every
     # census before it. Cancelling a stalled support-report / zip-logs /
     # stitching run leaves no record, although each of those runs logs its
@@ -69,6 +64,7 @@ _UNLOGGED = {
 }
 _ROSTER = {
     'AdvancedSettings.acceleration_pct_slider': ('ACCELERATION',),
+    'AdvancedSettings.acceleration_pct_text': ('ACCELERATION', 'ACCELERATION_APPLIED'),
     'AdvancedSettings.high_conversion_gain': ('HIGH_CONVERSION_GAIN',),
     'AdvancedSettings.keep_led_between_steps_btn': ('KEEP_LED_BETWEEN_STEPS',),
     'AdvancedSettings.line_noise_reduction': ('LINE_NOISE_REDUCTION',),
@@ -245,7 +241,7 @@ _ROSTER = {
         'ABORT_SCAN',
         'SCAN',
     ),
-    'ProtocolSettings.step_name_input': ('RENAME_STEP',),
+    'ProtocolSettings.step_name_input': ('RENAME_STEP', 'STEP_NAME'),
     'ProtocolSettings.step_number_input': (
         'STEP_NUMBER',
         'STEP_NUMBER_APPLIED',

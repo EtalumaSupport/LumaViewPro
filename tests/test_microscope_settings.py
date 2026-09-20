@@ -353,13 +353,35 @@ class TestCoalescingApplier:
 # ---------------------------------------------------------------------------
 
 
-def _extract_ms_method(method_name: str) -> str:
+def _ms_source_tree():
+    """The module's AST, read once so every extractor below shares one read."""
     import ast
     import pathlib
 
     src = pathlib.Path(__file__).parent.parent / 'ui' / 'microscope_settings.py'
-    source = src.read_text()
-    tree = ast.parse(source)
+    return ast.parse(src.read_text())
+
+
+def _extract_ms_constant(name: str):
+    """A module-level constant, taken from the source the methods come from.
+
+    Hand-copying it into the test would let the two drift apart in silence,
+    which is the whole failure this extraction harness exists to avoid.
+    """
+    import ast
+
+    for node in _ms_source_tree().body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f'microscope_settings.{name} not found')
+
+
+def _extract_ms_method(method_name: str) -> str:
+    import ast
+
+    tree = _ms_source_tree()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == 'MicroscopeSettings':
             for child in node.body:
@@ -797,3 +819,126 @@ class TestImageModeMirrorAgreesWithTheStore:
             assert (
                 image_mode_real.resolve_settings_image_mode(settings) == scope_display.image_mode
             ), f'revert to {prior} left the mirror and the store disagreeing'
+
+
+class TestTheFrameBoxesRecordWhatWasTyped:
+    """A frame edit reports what the user entered, before anything acts on it.
+
+    The boxes are an editor: until an apply lands they can hold a size no
+    camera is at. Two things follow, and both are pinned here. The typed value
+    is recorded FIRST, so a bundle reads in the order the user acted and a
+    freeze cannot swallow the entry. And an entry that is not a pair of
+    integers is a CORRECTION, not a request -- emptying a box used to log
+    FRAME_SIZE for the size already in force, so the record claimed an edit
+    that never happened while the box sat blank.
+    """
+
+    def _make(self, width_text, unparseable=False):
+        from types import SimpleNamespace
+
+        import modules.binning as binning_real
+
+        records = []
+        settings = {'frame': {'width': 768, 'height': 1200}}
+        boxes = {
+            'frame_width_id': SimpleNamespace(text=width_text),
+            'frame_height_id': SimpleNamespace(text='1200'),
+        }
+
+        def _typed():
+            if unparseable:
+                raise ValueError('Invalid value for frame width/height')
+            return {
+                'width': int(boxes['frame_width_id'].text),
+                'height': int(boxes['frame_height_id'].text),
+            }
+
+        imaging = SimpleNamespace(
+            get_native_resolution=lambda: {'width': 3840, 'height': 2400},
+            get_pixel_alignment=lambda: {'width': 4, 'height': 4},
+        )
+        ctx = SimpleNamespace(
+            settings=settings,
+            lumaview=SimpleNamespace(scope=SimpleNamespace(camera_connected=True, imaging=imaging)),
+        )
+        applied = []
+        fn = _compile_ms_method(
+            'frame_size',
+            {
+                '_app_ctx': SimpleNamespace(ctx=ctx),
+                'binning': binning_real,
+                'logger': MagicMock(),
+                '_FRAME_BOXES': _extract_ms_constant('_FRAME_BOXES'),
+                'gui_logger': SimpleNamespace(
+                    text_input=lambda name, value: records.append((name, str(value)))
+                ),
+            },
+        )
+        fake_self = SimpleNamespace(
+            ids=boxes,
+            _typed_frame_dimensions=_typed,
+            _ui_binning_size=lambda: 1,
+            _store_native_roi=lambda native: None,
+            _apply_displayed_frame=lambda frame: applied.append(frame),
+        )
+        return fn, fake_self, records, applied, settings, boxes
+
+    def test_the_typed_width_is_recorded_before_the_apply(self):
+        fn, fake_self, records, applied, _settings, _boxes = self._make('800')
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '800') in records, (
+            f'the typed width left no record of its own: {records}'
+        )
+        assert applied, 'a parseable entry must still reach the camera'
+        assert records[0] == ('FRAME_WIDTH', '800'), (
+            'the typed value must be the first thing recorded, so a bundle '
+            f'reads in the order the user acted. Got {records}'
+        )
+
+    def test_the_committed_box_names_itself(self):
+        fn, fake_self, records, _applied, _settings, boxes = self._make('800')
+        boxes['frame_height_id'].text = '640'
+
+        fn(fake_self, 'frame_height_id')
+
+        assert records[0] == ('FRAME_HEIGHT', '640'), (
+            f'the height box reported under the wrong name: {records}'
+        )
+
+    def test_a_blank_entry_is_reported_as_a_correction_and_applies_nothing(self):
+        fn, fake_self, records, applied, _settings, _boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '') in records, (
+            f'the blank entry itself was never recorded: {records}'
+        )
+        assert ('FRAME_WIDTH_APPLIED', '768') in records, (
+            f'the correction was not reported under _APPLIED: {records}'
+        )
+        assert applied == [], (
+            'an unparseable entry must not be applied -- substituting the '
+            f'stored size reports a framing the user never asked for: {applied}'
+        )
+
+    def test_a_blank_entry_puts_both_boxes_back(self):
+        fn, fake_self, _records, _applied, settings, boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert boxes['frame_width_id'].text == str(settings['frame']['width'])
+        assert boxes['frame_height_id'].text == str(settings['frame']['height'])
+
+    def test_a_disconnected_camera_still_records_the_entry(self):
+        """The user typed it whether or not a camera was there to hear it."""
+        fn, fake_self, records, applied, _settings, _boxes = self._make('800')
+        fn.__globals__['_app_ctx'].ctx.lumaview.scope.camera_connected = False
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '800') in records, (
+            f'a frame edit with no camera left no trace at all: {records}'
+        )
+        assert applied == []
