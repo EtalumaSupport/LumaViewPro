@@ -69,7 +69,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     monkeypatch.setattr(
         image_save,
         'generate_image_metadata',
-        lambda scope, channel, x, y, z: dict(stub_metadata),
+        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um: dict(stub_metadata),
     )
     from types import SimpleNamespace
 

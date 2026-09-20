@@ -3296,7 +3296,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
         monkeypatch.setattr(
-            image_save, 'generate_image_metadata', lambda scope, channel, x, y, z: {}
+            image_save,
+            'generate_image_metadata',
+            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um: {},
         )
         image_save.save_image(
             SimpleNamespace(
