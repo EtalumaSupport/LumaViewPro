@@ -1007,31 +1007,13 @@ class SequencedCaptureRunner:
         # load, so a scope with an unreadable objectives.json still arrives
         # here with unvetted ids and gets the turret's message for them.
         #
-        # Two rules, because an empty turret is not a mismatch. A fresh
-        # install ships all four slots null AND an objective selected, so
-        # the first protocol a user creates or loads names glass that no
-        # slot holds: an unconditional "not carried" refusal would refuse
-        # it before they had been anywhere near the turret screen. It still
-        # refuses a protocol that CHANGES objectives mid-run -- with
-        # nothing assigned there is no slot to rotate to for any of them.
-        if self._scope.capabilities.has_turret:
-            protocol_objectives = set(protocol.steps()['Objective'].to_list())
-            turret_objectives = set(self._scope.runtime_state.get_turret_config().values())
-            assigned = {o for o in turret_objectives if o is not None}
-            carries_other_glass = bool(assigned) and not protocol_objectives.issubset(assigned)
-            cannot_change_objectives = not assigned and len(protocol_objectives) > 1
-            if carries_other_glass or cannot_change_objectives:
-                mounted = sorted(assigned)
-                self._refuse(
-                    reason='turret_objectives_unassigned',
-                    title='Turret Configuration Required',
-                    message=(
-                        'This protocol uses objectives that are not assigned to turret '
-                        f'positions.\n\nIt needs: {", ".join(sorted(protocol_objectives))}\n'
-                        f'The turret carries: {", ".join(mounted) if mounted else "None"}\n\n'
-                        'Assign the missing objectives in Objective Control > Turret.'
-                    ),
-                )
+        # The rule itself belongs to the protocol-construction API, which
+        # owns it for the load and the step navigation too. Asked here
+        # rather than restated: a run refusing on a rule of its own is how
+        # the load and the navigation came to disagree with it.
+        self._scope.protocols.refuse_unaddressable_objectives(
+            protocol.steps()['Objective'].to_list()
+        )
 
         try:
             all_connected = self._scope.are_all_connected()

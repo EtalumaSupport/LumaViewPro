@@ -1354,7 +1354,7 @@ class TestIssue606_TurretObjectiveValidation:
         )
 
     def test_the_engine_refuses_unassigned_turret_objectives(self):
-        """The guarantee moved from the widget to the preparation chokepoint.
+        """The guarantee moved from the widget to the API that owns the rule.
 
         It used to be pinned by searching _is_protocol_valid's source for
         the word 'turret'. That pin could be satisfied by a COMMENT -- and
@@ -1363,14 +1363,19 @@ class TestIssue606_TurretObjectiveValidation:
 
         Keyed on the reason code instead: prose can contain 'turret', but
         a refusal code is the contract a caller branches on and cannot be
-        satisfied by describing it. The behaviour itself -- refused for a
-        multi-objective protocol, unchanged for one objective and for a
-        scope with no turret -- is exercised in
+        satisfied by describing it. The behaviour itself -- every
+        combination of what the turret carries and what a protocol names
+        -- is exercised as a table in
         test_a_protocol_needs_its_objectives_on_the_turret.py.
+
+        It reads the protocol-construction API rather than the runner
+        because that is where the rule lives now: the runner, the load,
+        a new protocol and a step navigation all ask it there, and a
+        refusal restated per caller is what let them disagree.
         """
         import pathlib
 
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
+        source = pathlib.Path('modules/lumascope_api/protocols.py').read_text()
         assert "reason='turret_objectives_unassigned'" in source, (
             'the engine must refuse a protocol naming objectives the turret '
             'does not carry, so every caller gets it and not only the GUI'

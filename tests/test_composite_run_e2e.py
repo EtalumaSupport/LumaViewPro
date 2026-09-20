@@ -34,6 +34,7 @@ from modules.image_mode import OUTPUT_FORMAT_TIFF
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
@@ -65,7 +66,11 @@ def headless_settings(
             settings[layer]['composite_brightness_threshold'] = 25
     settings['live_folder'] = str(tmp_path)
     settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
-    settings['turret_objectives'] = {}
+    # The slots a brought-up scope carries. Empty is not the neutral
+    # value it looks like: bring-up pushes these into the runtime store
+    # (and skips the push entirely when the dict is falsy), and a turret
+    # carrying nothing addresses no glass, so every protocol is refused.
+    settings['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
     return settings
 
 

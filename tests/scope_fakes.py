@@ -141,3 +141,39 @@ def spec_scope(**attrs):
         # scope lacks -- the point of the fixture, so it is not caught.
         setattr(double, name, value)
     return double
+
+
+# The objectives a test turret carries. Every slot but the last is filled,
+# because the protocols across this suite name three different objectives
+# and a scope that carries all of them is one fewer thing for a test about
+# something else to have to configure.
+TEST_TURRET_OBJECTIVES = {1: '10x Oly', 2: '20x Oly', 3: '4x Oly', 4: None}
+
+
+def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) -> None:
+    """Give a hand-built test scope the turret state a real one comes up with.
+
+    `Lumascope(simulate=True)` is not a scope that has been brought up. It
+    reports the only turreted model as its own (the simulate branch falls
+    back to LS850T when settings are not yet loaded), while its runtime
+    turret configuration stays empty -- a turret whose every slot is
+    clear. A real session never looks like that: bring-up pushes the
+    persisted slots into the runtime store, and on a turreted scope the
+    startup objective question assigns the current position before any
+    protocol can be loaded.
+
+    An empty turret addresses no glass at all, so without this every
+    protocol is refused, whatever the test was about. Test scopes that
+    run protocols call this for the same reason the ones here already
+    register a source path by hand: it is a step of bring-up that a bare
+    scope skipped, not a fact about the test.
+
+    Args:
+        scope: The Lumascope to configure.
+        turret_objectives: Slot -> objective id, defaulting to
+            TEST_TURRET_OBJECTIVES. Pass a narrower one to test a scope
+            that genuinely carries less.
+    """
+    scope.runtime_state.set_turret_config(
+        dict(TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives)
+    )

@@ -45,6 +45,7 @@ from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -66,6 +67,10 @@ def _make_simulated_scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
+    # Bring-up also pushes the persisted turret slots into the runtime
+    # store, and a turret carrying nothing addresses no glass, so every
+    # protocol naming an objective would be refused.
+    configure_turret_like_bringup(s)
     s.imaging.start_streaming()
     return s
 

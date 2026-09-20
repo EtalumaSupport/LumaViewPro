@@ -68,6 +68,7 @@ from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
+from tests.scope_fakes import configure_turret_like_bringup
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
@@ -87,6 +88,9 @@ TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 def _make_simulated_scope():
     s = Lumascope(simulate=True)
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -580,6 +584,9 @@ RUNNER_REFUSAL_COVERAGE = {
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
+    'objectives_require_turret': (
+        'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
+    ),
     'validation_failed': _FUNNEL_LOOP,
     'validation_crashed': _FUNNEL_LOOP,
     'hardware_state_unknown': _FUNNEL_LOOP,
@@ -627,6 +634,10 @@ REFUSING_MODULES = (
     # listed escapes the census in silence, which is how this entry came
     # to be missing for a commit.
     'modules/protocol.py',
+    # The protocol-construction API refuses too: a protocol naming glass
+    # this scope cannot put in the light path, asked by the run, the load,
+    # a new protocol and a step navigation alike.
+    'modules/lumascope_api/protocols.py',
 )
 
 

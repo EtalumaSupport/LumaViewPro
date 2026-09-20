@@ -76,6 +76,7 @@ import modules.kivy_utils as _kivy_utils
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 install_mock_deps()
 
@@ -255,6 +256,9 @@ class TestHeadlessProtocolExecution:
             from modules.labware_loader import WellPlateLoader
 
             scope = Lumascope(simulate=True)
+            # A bare scope skipped bring-up, which fills the turret from the
+            # persisted slots; an empty turret addresses no glass at all.
+            configure_turret_like_bringup(scope)
             # The session registers the data root at bring-up; a runner over a
             # bare scope needs it too, or the run refuses at start.
             scope.protocols.register_source_path('.')

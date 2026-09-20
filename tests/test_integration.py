@@ -244,6 +244,9 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     """Create a real Lumascope with simulated hardware."""
     s = Lumascope(simulate=True)
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -744,6 +747,7 @@ class TestIntegrationStateAssertions:
 
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import configure_turret_like_bringup
 from modules.protocol_runner import ProtocolRunner
 
 

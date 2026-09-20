@@ -53,6 +53,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -108,6 +109,9 @@ class TestStandaloneAfDeliversCharacterizationData:
         from modules.protocol_thread import ProtocolThread
 
         scope = home_sim_scope(Lumascope(simulate=True))
+        # A bare scope skipped bring-up, which fills the turret from the
+        # persisted slots; an empty turret addresses no glass at all.
+        configure_turret_like_bringup(scope)
         # The session registers the data root at bring-up; a runner over a
         # bare scope needs it too, or the run refuses at start.
         scope.protocols.register_source_path('.')
