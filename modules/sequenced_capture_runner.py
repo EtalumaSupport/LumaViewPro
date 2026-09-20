@@ -1007,12 +1007,13 @@ class SequencedCaptureRunner:
         # load, so a scope with an unreadable objectives.json still arrives
         # here with unvetted ids and gets the turret's message for them.
         #
-        # Two rules, because an empty turret is not a mismatch. All four
-        # slots ship null, so a turret with no assignments is the state a
-        # fresh install boots in: refusing "not carried" there would refuse
-        # the 96-step example the app ships with. It still refuses a
-        # protocol that CHANGES objectives mid-run -- with nothing assigned
-        # there is no slot to rotate to for any of them.
+        # Two rules, because an empty turret is not a mismatch. A fresh
+        # install ships all four slots null AND an objective selected, so
+        # the first protocol a user creates or loads names glass that no
+        # slot holds: an unconditional "not carried" refusal would refuse
+        # it before they had been anywhere near the turret screen. It still
+        # refuses a protocol that CHANGES objectives mid-run -- with
+        # nothing assigned there is no slot to rotate to for any of them.
         if self._scope.capabilities.has_turret:
             protocol_objectives = set(protocol.steps()['Objective'].to_list())
             turret_objectives = set(self._scope.runtime_state.get_turret_config().values())

@@ -17,10 +17,10 @@ Two rules, not one:
 - A turret that CARRIES something refuses a protocol naming anything it
   does not carry, whatever the step count.
 - A turret with NOTHING assigned is the shipped first-run state: all four
-  slots ship null. It still refuses a protocol that changes objectives
-  mid-run, which cannot address a turret it has no assignments for; it
-  does not refuse a single-objective protocol, or a fresh install could
-  not run the shipped example.
+  slots ship null while an objective ships selected. It still refuses a
+  protocol that changes objectives mid-run, which cannot address a turret
+  it has no assignments for; it does not refuse a single-objective
+  protocol, or the first one a user made would be refused.
 
 The cases below are that contract, one test per configuration.
 """
@@ -208,10 +208,11 @@ class TestTheCasesThatMustNotChange:
     ):
         """The shipped first-run state, and the reason rule two exists.
 
-        data/settings.json ships all four turret slots null against a
-        96-step single-objective example protocol. A gate that refused
-        on "not carried" alone would refuse that, so a fresh install
-        could not run the protocol it came with.
+        data/settings.json ships all four turret slots null and an
+        objective already selected, so the first protocol a user creates
+        or loads names glass no slot holds. A gate that refused on "not
+        carried" alone would refuse it before they had been near the
+        turret screen.
         """
         _turret(scope, monkeypatch, carries=())
 
