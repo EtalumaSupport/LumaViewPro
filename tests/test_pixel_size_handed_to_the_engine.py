@@ -55,7 +55,9 @@ class TestAHeadlessImageCarriesItsScale:
             * sim_scope.imaging._binning_size
         )
 
-        metadata = image_save.generate_image_metadata(sim_scope, channel='BF', x=0, y=0, z=0)
+        metadata = image_save.generate_image_metadata(
+            sim_scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        )
 
         assert metadata['pixel_size_um'] == pytest.approx(expected, abs=1e-4), metadata.get(
             'pixel_size_um'

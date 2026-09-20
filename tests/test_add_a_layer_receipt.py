@@ -87,7 +87,9 @@ def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
     sim_scope.runtime_state.set_objective('20x Oly')
     sim_scope.runtime_state.set_labware(loader.get_plate('96 well microplate'))
     sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
-    metadata = generate_image_metadata(sim_scope, channel='NIR', x=0, y=0, z=0)
+    metadata = generate_image_metadata(
+        sim_scope, channel='NIR', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+    )
     assert metadata['channel'] == 'NIR'
 
 

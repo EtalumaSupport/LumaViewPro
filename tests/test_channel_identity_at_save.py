@@ -321,7 +321,9 @@ def test_metadata_rejects_a_channel_outside_the_vocabulary(identity_scope):
     """The seam is a public surface once channel is required; an index or a
     typo must not reach durable metadata as an identity."""
     with pytest.raises(ValueError, match='unknown channel'):
-        image_save.generate_image_metadata(identity_scope, channel=3, x=0, y=0, z=0)
+        image_save.generate_image_metadata(
+            identity_scope, channel=3, plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        )
 
 
 # ---------------------------------------------------------------------------

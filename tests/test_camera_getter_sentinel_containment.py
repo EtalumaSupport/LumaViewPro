@@ -546,7 +546,9 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     driver._scripts['get_exposure_t'] = [RAISE]
     scope = _metadata_scope_with_real_imaging(imaging, driver)
 
-    metadata = generate_image_metadata(scope, channel='BF', x=0, y=0, z=0)
+    metadata = generate_image_metadata(
+        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+    )
 
     assert 'gain_db' not in metadata, (
         f'failed live gain read must omit the key, not record '

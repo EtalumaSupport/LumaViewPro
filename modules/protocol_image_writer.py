@@ -1083,9 +1083,13 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
+                    # A step's X and Y are plate mm and its Z is stage um --
+                    # the frames the saved file declares, so each goes into
+                    # the parameter named for it and reaches the file
+                    # unconverted.
+                    plate_x_mm=step['X'],
+                    plate_y_mm=step['Y'],
+                    stage_z_um=step['Z'],
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
                 )

@@ -244,18 +244,33 @@ def generate_image_save_path(
 
 
 def generate_image_metadata(
-    scope: Lumascope, channel: str, x: float | None, y: float | None, z: float | None
+    scope: Lumascope,
+    channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
+    The XY position arrives in the frame the file records -- plate millimetres
+    -- and is written through unconverted. The parameters carry their frame in
+    their names because the alternative was tried: they were `x` and `y`,
+    documented as stage micrometres, and the protocol writer filled them with
+    plate millimetres. This function converted a second time, so steps nine
+    millimetres apart were recorded nine microns apart and inverted, in numbers
+    that still looked like plate coordinates. A position whose frame is stated
+    only in prose is a position that will arrive in the wrong one.
+
+    Z is unconverted in either direction: the file declares it in micrometres
+    and every producer already holds it that way.
+
     Args:
         scope: Read for objective / labware / stage-offset state,
-            coordinate transformer, current camera + LED settings,
-            and pending camera chunk metadata.
+            current camera + LED settings, and pending camera chunk metadata.
         channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
-        x (float): Stage X position in um (or None).
-        y (float): Stage Y position in um (or None).
-        z (float): Stage Z position in um (or None).
+        plate_x_mm (float): Plate X position in mm (or None).
+        plate_y_mm (float): Plate Y position in mm (or None).
+        stage_z_um (float): Stage Z position in um (or None).
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
@@ -288,19 +303,18 @@ def generate_image_metadata(
     if scope.runtime_state.get_stage_offset() is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
-    if x is None:
-        x = 0
-    if y is None:
-        y = 0
-    if z is None:
-        z = 0
+    if plate_x_mm is None:
+        plate_x_mm = 0
+    if plate_y_mm is None:
+        plate_y_mm = 0
+    if stage_z_um is None:
+        stage_z_um = 0
 
-    px, py = scope.runtime_state.stage_to_plate(sx=x, sy=y)
     well_label = scope.runtime_state.get_well_label()
 
-    px = round(px, common_utils.max_decimal_precision('x'))
-    py = round(py, common_utils.max_decimal_precision('y'))
-    z = round(z, common_utils.max_decimal_precision('z'))
+    px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
+    py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
+    z = round(stage_z_um, common_utils.max_decimal_precision('z'))
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
@@ -489,9 +503,9 @@ def prepare_image_for_saving(
     append: str,
     tail_id_mode: str,
     output_format: str,
-    x,
-    y,
-    z,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
     *,
     channel: str,
     significant_bits: int,
@@ -511,9 +525,9 @@ def prepare_image_for_saving(
         append: String appended to filename (e.g. channel label).
         tail_id_mode: "increment" for auto-numbered files, or None.
         output_format: "TIFF" or "OME-TIFF".
-        x: Stage X position in um.
-        y: Stage Y position in um.
-        z: Stage Z position in um.
+        plate_x_mm: Plate X position in mm -- the frame the file records.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
         channel: Channel the frame was acquired on. Required and keyword-only:
             it is the sole durable carrier of channel identity, so a save that
             never states its channel must not be constructible. It is
@@ -528,7 +542,13 @@ def prepare_image_for_saving(
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
-    metadata = generate_image_metadata(scope, channel=channel, x=x, y=y, z=z)
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+    )
 
     metadata['significant_bits'] = significant_bits
 
@@ -563,9 +583,9 @@ def save_image(
     false_color_on: bool,
     save_encoding: str,
     output_format: str = 'TIFF',
-    x: float | None = None,
-    y: float | None = None,
-    z: float | None = None,
+    plate_x_mm: float | None = None,
+    plate_y_mm: float | None = None,
+    stage_z_um: float | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
@@ -587,9 +607,12 @@ def save_image(
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
         output_format: "TIFF", "OME-TIFF", or "JPG".
-        x: Stage X position in um.
-        y: Stage Y position in um.
-        z: Stage Z position in um.
+        plate_x_mm: Plate X position in mm -- the frame the file records, and
+            the frame the caller must supply. Named for its frame because the
+            defect this replaces was a plate value passed into a parameter
+            documented as stage micrometres.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
         save_encoding: The derived on-disk encoding from the image_mode
             config layer (rgb / msb_aligned / right_aligned / 8bit). Required
             and keyword-only: it is the single value that drives the save
@@ -651,9 +674,9 @@ def save_image(
             tail_id_mode=tail_id_mode,
             output_format=output_format,
             channel=channel,
-            x=x,
-            y=y,
-            z=z,
+            plate_x_mm=plate_x_mm,
+            plate_y_mm=plate_y_mm,
+            stage_z_um=stage_z_um,
             significant_bits=significant_bits,
         )
         image = image_data['image']
