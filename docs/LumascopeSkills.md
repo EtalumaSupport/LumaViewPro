@@ -190,7 +190,7 @@ if question is not None:
     session.confirm_objective(question.proposed, turret_position=question.turret_position)
 
 session.select_objective('10x Oly')                # True when the objective changed; False for the one held
-session.select_labware('384 well microplate')      # True when the STORED NAME changed (see below); both stores are written either way
+session.select_labware('384 well microplate')      # True when the plate changed; a retired spelling is accepted and stored under its catalogue key; both stores are written either way
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (ValueError otherwise)
 session.clear_turret_objective(2)
 session.set_turret_position(2)                     # record the slot a move landed on; no-op when unchanged
@@ -450,6 +450,7 @@ session.scope.imaging.capture_frame_depth(image)
 ```python
 runner = session.create_protocol_runner()
 protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
+# ProtocolFormatError names a malformed file, or a plate this installation's labware catalogue does not have
 # or build one in-memory (config= | input_config= | empty_config=):
 protocol = session.scope.protocols.create_protocol(input_config=config)
 
@@ -1684,7 +1685,7 @@ LumaViewPro Protocol
 Version	5
 Period	1.0
 Duration	0.002778
-Labware	96-well
+Labware	96 well microplate
 Capture Root
 
 Steps

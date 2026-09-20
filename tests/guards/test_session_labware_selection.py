@@ -91,18 +91,30 @@ class TestSelectingAPlate:
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
 
-    def test_a_renamed_plate_is_accepted_under_its_old_name(self, sessions):
+    def test_a_renamed_plate_is_accepted_under_its_old_name_and_stored_under_its_key(
+        self, sessions
+    ):
         """A protocol saved before the rename still names a real plate.
 
-        Validation goes through the loader's membership test rather than its
-        list of names, because the list holds canonical keys only -- checking
-        against it would refuse a plate the lookup resolves perfectly well.
+        The old spelling is accepted and translated here, once: the settings
+        store carries the catalogue key, so nothing downstream ever compares
+        an old spelling to a key, and a spinner restored from settings finds
+        the name in its list.
         """
         session = sessions()
 
         assert session.select_labware(RENAMED_PLATE_OLD_NAME) is True
 
+        assert session.settings['protocol']['labware'] == OTHER_PLATE
         assert _runtime_plate_shape(session) == _expected_plate_shape(OTHER_PLATE)
+
+    def test_the_old_name_of_the_held_plate_is_a_no_op(self, sessions):
+        # "Changed" is decided on the key, not the spelling handed in.
+        session = sessions(labware=OTHER_PLATE)
+
+        assert session.select_labware(RENAMED_PLATE_OLD_NAME) is False
+
+        assert session.settings['protocol']['labware'] == OTHER_PLATE
 
 
 class TestTheSettingsStoreIsNotAProxyForTheScope:

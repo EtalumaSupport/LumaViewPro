@@ -493,15 +493,13 @@ class TestRoundTripBasic:
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
         )
 
-    def test_legacy_labware_alias_accepted_by_validator(self, tmp_path):
+    def test_legacy_labware_alias_is_canonical_once_loaded(self, tmp_path):
         """Legacy TSVs save the pre-rename labware name "384 well Corning Spheroid
-        Microplate". The WellPlateLoader alias table resolves it to
-        "384 well microplate" at runtime (get_plate), so the protocol runs. But
-        validate_for_run() was checking plate_list membership directly, which
-        excludes aliases -- so validation rejected names that runtime would
-        accept. This asymmetry blocked every legacy Corning protocol with
-        'Labware ... not found'. Validator must now accept any name that
-        resolves via the alias table.
+        Microplate". The reader translates it to the catalogue key at the
+        edge, so nothing past the reader sees the old spelling: the protocol
+        reports "384 well microplate", and the run's validator, which once
+        rejected the old name by checking canonical-list membership, has
+        nothing to reject.
         """
         tsv = tmp_path / 'legacy_corning.tsv'
         tsv.write_text(
@@ -530,7 +528,7 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        assert proto.labware() == '384 well Corning Spheroid Microplate'
+        assert proto.labware() == '384 well microplate'
 
         errors = proto.validate_for_run()
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]

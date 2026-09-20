@@ -1284,13 +1284,11 @@ class ScopeSession:
         back, so without this a caller that is not the GUI can start with
         a plate but never switch one.
 
-        Validation goes through the loader's own membership test rather
-        than its list of names: the list holds canonical keys only, while
-        the lookup also resolves plate names that were renamed, so a
-        list-based check would refuse a protocol saved under an old name.
-        The name is stored as given; making one plate have one spelling
-        everywhere is a separate problem, and it belongs where the names
-        enter -- the protocol reader and the settings loader -- not here.
+        The name is stored in the catalogue's spelling: a plate renamed
+        since a protocol or settings file named it is accepted under the old
+        name and written under the key, so the settings store never carries
+        a spelling the catalogue lacks, and whether the plate changed is
+        decided on the key rather than on how it was spelled.
 
         Raises:
             ConfigError: ``labware_name`` is not a string, the labware
@@ -1301,15 +1299,8 @@ class ScopeSession:
                 state describing different plates, and every well
                 position computed from the wrong one is silently wrong.
         """
-        if not isinstance(labware_name, str):
-            # The loader resolves through a dict lookup, so an unhashable
-            # value raises TypeError out of the membership test instead of
-            # answering it. A caller handing over whatever a wire payload
-            # decoded to needs the refusal, not the TypeError.
-            raise ConfigError(f'labware name must be a string, got {type(labware_name).__name__}')
         self._require_wellplate_loader()
-        if not self.wellplate_loader.is_known_plate(labware_name):
-            raise ConfigError(f'unknown labware {labware_name!r}; the catalogue has no such plate')
+        labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
         protocol_settings = self.settings.get('protocol')
         if not isinstance(protocol_settings, dict):
             # Settings handed straight to a factory skip the template merge

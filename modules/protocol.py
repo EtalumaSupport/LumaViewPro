@@ -1999,10 +1999,13 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path | None,
         *,
         led_max_ma: int | None = None,
+        wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
     ) -> 'Protocol | bool':
         """
         Returns Protocol object loaded from file on success
-        Raises ProtocolFormatError on format issues
+        Raises ProtocolFormatError on format issues, and, when
+        ``wellplate_loader`` (the installation's catalogue) is given, on a
+        Labware row naming a plate that catalogue does not have
         """
 
         # A bound on how much memory one file may ask for, not a judgement
@@ -2155,7 +2158,21 @@ class Protocol:
                 logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
                 raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
 
-            config['labware_id'] = labware[1]
+            # Stored in the catalogue's spelling whatever the file carried:
+            # a plate renamed since the file was saved is translated here,
+            # once, and nothing downstream sees the old name. Whether the
+            # plate EXISTS is judged only when the caller handed over the
+            # installation's catalogue -- post-processing reads a run's
+            # protocol on whatever install it is on and never uses the
+            # plate, so it has no standing to refuse for it.
+            if wellplate_loader is None:
+                config['labware_id'] = labware_loader.canonical_plate_name(labware[1])
+            else:
+                try:
+                    config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
+                except ConfigError as e:
+                    logger.error(f"'Labware' row in protocol file {file_path} refused: {e}")
+                    raise ProtocolFormatError(str(e)) from e
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")

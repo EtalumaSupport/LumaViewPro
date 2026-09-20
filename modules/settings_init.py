@@ -4,6 +4,8 @@ import json
 import logging
 import time
 
+from modules import labware_loader
+
 
 settings = None
 
@@ -352,6 +354,19 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # for a second, disagreeing source of the same fact.
     if settings_dict.pop('binning_size', None) is not None:
         changed = True
+
+    # A plate the catalogue has renamed since this file named it, folded to
+    # the key so the one store every reader trusts never carries a spelling
+    # the catalogue lacks. Whether the plate exists at all is answered where
+    # it is selected, against the catalogue -- not here, where refusing
+    # would mean discarding the whole file.
+    protocol_settings = settings_dict.get('protocol')
+    if isinstance(protocol_settings, dict):
+        stored_plate = protocol_settings.get('labware')
+        folded_plate = labware_loader.canonical_plate_name(stored_plate)
+        if folded_plate != stored_plate:
+            protocol_settings['labware'] = folded_plate
+            changed = True
 
     for layer in get_layers():
         layer_settings = settings_dict.get(layer)

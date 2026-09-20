@@ -47,6 +47,8 @@ def _legacy_current(data_dir):
     current['BF'].pop('video_config', None)
     current['BF']['acquire'] = 'stack'
     current['Green']['video_config'] = {'duration': 12, 'fps': 0}
+    # a plate the catalogue renamed after this file was written
+    current['protocol']['labware'] = 'Center Dish'
     # A key the running version ships and this older file predates.
     current.pop('stimulation_enabled', None)
 
@@ -77,6 +79,9 @@ def test_legacy_file_is_fully_prepared(tmp_path):
     # a rate the recorder would divide by, repaired without losing the
     # duration beside it -- the merge cannot do this, nothing is missing
     assert prepared['Green']['video_config'] == {'duration': 12, 'fps': 30}
+    # a retired plate name, folded to its catalogue key so the one store
+    # every reader trusts never carries a spelling the catalogue lacks
+    assert prepared['protocol']['labware'] == 'Center Plate'
     # and the keys the running version added since the file was written
     assert 'stimulation_enabled' in prepared
 
@@ -132,3 +137,20 @@ def test_normalization_reports_whether_it_changed_anything():
     legacy = copy.deepcopy(shipped)
     legacy['image_output_format']['sequenced'] = 'ImageJ Hyperstack'
     assert settings_init.normalize_loaded_settings(legacy) is True
+
+    renamed_plate = copy.deepcopy(shipped)
+    renamed_plate['protocol']['labware'] = '384 well Corning Spheroid Microplate'
+    assert settings_init.normalize_loaded_settings(renamed_plate) is True
+    assert renamed_plate['protocol']['labware'] == '384 well microplate'
+
+
+def test_a_plate_the_catalogue_never_had_is_left_as_written():
+    # Preparation folds spellings; it does not judge. Whether the plate
+    # exists is answered where the plate is selected, against the catalogue.
+    with open(SHIPPED_TEMPLATE) as f:
+        shipped = json.load(f)
+    unknown = copy.deepcopy(shipped)
+    unknown['protocol']['labware'] = 'Acme 1536 Ultra Plate'
+
+    assert settings_init.normalize_loaded_settings(unknown) is False
+    assert unknown['protocol']['labware'] == 'Acme 1536 Ultra Plate'

@@ -85,14 +85,19 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolFormatError: On format issues (same surface as
-                Protocol.from_file).
+                Protocol.from_file), or when the file names a plate this
+                installation's labware catalogue does not have. Refused
+                here, by name, before any object exists: a protocol whose
+                plate the scope cannot be on must never be adopted.
         """
+        from modules import labware_loader
         from modules.protocol import Protocol
 
         return Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self.tiling_configs_path(),
             led_max_ma=self._scope.capabilities.led_max_ma,
+            wellplate_loader=labware_loader.WellPlateLoader(source_path=self._source_path),
         )
 
     def create_protocol(
