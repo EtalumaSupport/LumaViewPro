@@ -33,6 +33,8 @@ from tests.ast_seams import (
     find_def,
     iter_package_modules,
     parse_module,
+    production_modules,
+    walk_defs,
 )
 from tests.settings_fixtures import complete_settings
 from ui.vertical_control import VerticalControl
@@ -389,36 +391,14 @@ class TestProvisionalSettings:
 # ---------------------------------------------------------------------------
 
 
-def _walk_defs(body, prefix=''):
-    """Yield (qualname, node) for every def, methods and closures included."""
-    for node in body:
-        if isinstance(node, ast.ClassDef):
-            yield from _walk_defs(node.body, f'{prefix}{node.name}.')
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            qualname = f'{prefix}{node.name}'
-            yield qualname, node
-            yield from _walk_defs(node.body, f'{qualname}.')
-
-
-def _production_modules():
-    """Every production module the prompt could be opened from.
-
-    iter_package_modules walks packages only, and the startup path lives
-    in the top-level lumaviewpro.py -- the one module a package-only
-    sweep would miss.
-    """
-    yield from iter_package_modules(['ui', 'modules'])
-    yield 'lumaviewpro.py', parse_module('lumaviewpro.py')
-
-
 class TestOneOpenerOneMessage:
     def test_the_objective_popup_has_one_production_opener(self):
         """Single-flight is enforced inside the popup helper, so a second
         opener would not duplicate the modal -- but a second CALLER that
         built its own popup would. Pin the funnel."""
         openers = set()
-        for rel_path, tree in _production_modules():
-            for qualname, fn in _walk_defs(tree.body):
+        for rel_path, tree in production_modules():
+            for qualname, fn in walk_defs(tree.body):
                 if 'show_objective_selection_popup' in direct_call_names(fn):
                     openers.add((rel_path, qualname))
 

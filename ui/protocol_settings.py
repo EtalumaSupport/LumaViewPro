@@ -529,6 +529,8 @@ class ProtocolSettings(FloatLayout):
         labware_spinner.disabled = not visible
 
         if not visible:
+            # The app hides the choice and parks the spinner; not a user pick.
+            gui_logger.note_write_back('LABWARE', 'Center Plate')
             labware_spinner.text = 'Center Plate'
         else:
             # UI-1 follow-up (plate-spinner): when re-enabling labware
@@ -544,6 +546,7 @@ class ProtocolSettings(FloatLayout):
             try:
                 labware_spinner.values = wellplate_loader.get_plate_list()
                 if saved_labware and saved_labware in labware_spinner.values:
+                    gui_logger.note_write_back('LABWARE', saved_labware)
                     labware_spinner.text = saved_labware
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
@@ -987,8 +990,18 @@ class ProtocolSettings(FloatLayout):
 
         settings['protocol']['period'] = period
         settings['protocol']['duration'] = duration
-        settings['protocol']['labware'] = labware
-        self.ids['labware_spinner'].text = settings['protocol']['labware']
+        # The plate takes the route start-up uses: the spinner shows it, and
+        # the explicit call below hands it to the Session, the one writer of
+        # the labware key for every host. The spinner's own event cannot be
+        # relied on for that: an assignment equal to the current text does
+        # not dispatch, and the text can already show a plate the scope
+        # never took (a refused pick leaves it where the user put it).
+        # Declared twice because only one declaration is pending per name
+        # and either emission may be the one that consumes it.
+        gui_logger.note_write_back('LABWARE', labware)
+        self.ids['labware_spinner'].text = labware
+        gui_logger.note_write_back('LABWARE', labware)
+        self.select_labware()
         self.ids['capture_root'].text = self._protocol.capture_root()
 
         # Restore per-layer UI state from the protocol's Layer Settings

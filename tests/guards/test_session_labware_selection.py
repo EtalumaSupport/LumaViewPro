@@ -21,6 +21,7 @@ import pytest
 from modules import labware_loader
 from modules.exceptions import ConfigError
 from modules.scope_session import ScopeSession
+from tests.ast_seams import writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
 
 
@@ -200,3 +201,36 @@ class TestRefusals:
             session.select_labware(['96 well microplate'])
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
+
+
+# ---------------------------------------------------------------------------
+# The exit criterion: the Session member is the ONLY writer of the plate
+# ---------------------------------------------------------------------------
+
+_LABWARE_FACT = {'labware'}
+
+# The member is the one home of the plate for every host; settings
+# preparation may rewrite a retired spelling to its key before any host
+# exists. A write anywhere else is a second store the API cannot see -- the
+# protocol load used to be one, and it left the scope on the previous plate
+# while settings named the new one.
+_ALLOWED_LABWARE_WRITERS = {
+    ('modules/scope_session.py', 'ScopeSession.select_labware'),
+    ('modules/settings_init.py', 'normalize_loaded_settings'),
+}
+
+
+class TestTheSessionIsTheOnlyWriterOfThePlate:
+    def test_no_other_site_writes_the_labware_key(self):
+        writers = writers_of_settings_keys(_LABWARE_FACT)
+        assert writers - _ALLOWED_LABWARE_WRITERS == set(), sorted(
+            writers - _ALLOWED_LABWARE_WRITERS
+        )
+
+    def test_the_allowed_writers_still_write(self):
+        # A pin over an empty set proves nothing: every named writer must
+        # still be found writing, or the walk is broken.
+        writers = writers_of_settings_keys(_LABWARE_FACT)
+        assert _ALLOWED_LABWARE_WRITERS - writers == set(), sorted(
+            _ALLOWED_LABWARE_WRITERS - writers
+        )

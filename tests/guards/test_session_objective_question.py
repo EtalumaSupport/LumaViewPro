@@ -22,7 +22,7 @@ from modules import settings_init
 from modules.exceptions import ConfigError
 import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module
+from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module, writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
 
 
@@ -507,51 +507,10 @@ _ALLOWED_WRITERS = {
 }
 
 
-def _innermost_subscript_key(node):
-    """The literal key at the innermost slice of a subscript chain.
-
-    The slot writers are ``settings['turret_objectives'][n] = ...``: the
-    fact's key sits one level in, so a slice-only match on the outer
-    subscript would miss them.
-    """
-    while isinstance(node, ast.Subscript):
-        key = node.slice
-        if isinstance(key, ast.Constant) and key.value in _OBJECTIVE_FACTS:
-            return key.value
-        node = node.value
-    return None
-
-
-def _walk_defs(body, prefix=''):
-    for node in body:
-        if isinstance(node, ast.ClassDef):
-            yield from _walk_defs(node.body, f'{prefix}{node.name}.')
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            qualname = f'{prefix}{node.name}'
-            yield qualname, node
-            yield from _walk_defs(node.body, f'{qualname}.')
-
-
 def _writers_of_the_objective_facts():
-    modules = list(iter_package_modules(('modules', 'ui')))
-    modules.append(('lumaviewpro.py', parse_module('lumaviewpro.py')))
-    found = set()
-    for rel_path, tree in modules:
-        for qualname, fn in _walk_defs(tree.body):
-            for node in ast.walk(fn):
-                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
-                    if _innermost_subscript_key(node) is not None:
-                        found.add((rel_path, qualname))
-                elif (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == 'update_settings'
-                    and node.args
-                    and isinstance(node.args[0], ast.Constant)
-                    and node.args[0].value in _OBJECTIVE_FACTS
-                ):
-                    found.add((rel_path, qualname))
-    return found
+    # The slot writers are ``settings['turret_objectives'][n] = ...``, the
+    # fact's key one level in; the shared census matches that shape.
+    return writers_of_settings_keys(_OBJECTIVE_FACTS)
 
 
 class TestTheSessionIsTheOnlyWriter:
