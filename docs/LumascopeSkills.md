@@ -180,7 +180,9 @@ scope.disconnect()
 
 The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. Each writer moves the settings store and the scope's runtime state together and records the resolved optics (`[Optics   ] objective=... -> N um/px`) in the log; every member refuses an id that is not exactly a catalogue key with `ConfigError`, before any write.
 
-The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses a name the labware catalogue cannot resolve -- and a name that is not a string -- with `ConfigError` before either store is written. Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
+The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses with `ConfigError` -- before either store is written -- a name that is not a string, a name the labware catalogue cannot resolve, and settings with no usable `protocol` block to hold the selection. Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
+
+Its return value reports whether the stored NAME changed, not whether the plate did: selecting a renamed plate under its old name while the new name is stored returns `True` and both names refer to the same plate. Both stores are written on every accepted call, including one that reports no change -- the settings key is not evidence about what the scope holds, so a caller that writes it first cannot make the selection skip itself.
 
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
@@ -188,7 +190,7 @@ if question is not None:
     session.confirm_objective(question.proposed, turret_position=question.turret_position)
 
 session.select_objective('10x Oly')                # True when the objective changed; False for the one held
-session.select_labware('384 well microplate')      # True when the plate changed; False for the one held
+session.select_labware('384 well microplate')      # True when the STORED NAME changed (see below); both stores are written either way
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (ValueError otherwise)
 session.clear_turret_objective(2)
 session.set_turret_position(2)                     # record the slot a move landed on; no-op when unchanged

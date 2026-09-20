@@ -503,12 +503,11 @@ class ProtocolSettings(FloatLayout):
             except exceptions.ConfigError as e:
                 # Every value the spinner offers comes from the loader's own
                 # plate list, so a pick cannot land here; what can is a stored
-                # or supplied name the catalogue no longer has. The API has
-                # already refused it to whoever called -- this only keeps an
-                # unreachable path from being crash-shaped if it stops being
-                # unreachable. Neither store moved, so nothing needs redrawing.
+                # or supplied name the catalogue no longer has. Both stores
+                # keep the plate they had, and the tail below still renders
+                # that plate -- the panel must not be left describing a
+                # selection the scope did not take.
                 logger.error(f'[LVP Main  ] Labware selection refused: {e}')
-                return
 
         labware_id, labware_obj = get_selected_labware()
 

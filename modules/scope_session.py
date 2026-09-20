@@ -1311,23 +1311,33 @@ class ScopeSession:
         if not self.wellplate_loader.is_known_plate(labware_name):
             raise ConfigError(f'unknown labware {labware_name!r}; the catalogue has no such plate')
         protocol_settings = self.settings.get('protocol')
-        if protocol_settings is None:
+        if not isinstance(protocol_settings, dict):
             # Settings handed straight to a factory skip the template merge
-            # that puts this block there, so it can genuinely be missing.
-            # Named here, before either store moves: indexing it at the write
-            # below would raise with the runtime state already changed, and a
-            # store that cannot hold the plate is not one to write half of.
+            # that puts this block there, so it can be missing -- and a
+            # hand-edited file can put something that is not a mapping in its
+            # place. Named here, before either store moves: reaching into it
+            # at the write below would raise with the runtime state already
+            # changed, and a store that cannot hold the plate is not one to
+            # write half of.
             raise ConfigError(
-                'settings have no protocol block; the labware selection has nowhere to live'
+                'settings have no usable protocol block; the labware selection '
+                f'has nowhere to live (found {type(protocol_settings).__name__})'
             )
-        if labware_name == protocol_settings.get('labware'):
-            return False
+        changed = labware_name != protocol_settings.get('labware')
+        # Both stores are written even when the settings key already reads
+        # the new name, because that key is not evidence about the scope.
+        # Anything that writes it before calling here -- and the protocol
+        # load does exactly that, one line before the spinner event that
+        # reaches this member -- would otherwise make the selection look
+        # finished and leave the runtime state on the previous plate. The
+        # writes are idempotent; only the report of a change is not.
         labware = self.wellplate_loader.get_plate(plate_key=labware_name)
         self.scope.runtime_state.set_labware(labware=labware)
         with self.settings_lock:
             protocol_settings['labware'] = labware_name
-        logger.info(f'[Session  ] Labware set to {labware_name!r}')
-        return True
+        if changed:
+            logger.info(f'[Session  ] Labware set to {labware_name!r}')
+        return changed
 
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
