@@ -217,7 +217,7 @@ _ROSTER = {
         'FILE_SAVE',
         'FILE_SAVE_OPEN',
     ),
-    'ProtocolSettings.RoundedButton(new_protocol)': ('NEW',),
+    'ProtocolSettings.RoundedButton(new_protocol)': ('NEW', 'NEW_PROTOCOL'),
     'ProtocolSettings.RoundedButton(save_protocol)': ('SAVE',),
     'ProtocolSettings.acquire_zstack_id': ('ACQUIRE_ZSTACK',),
     'ProtocolSettings.add_step_btn': ('INSERT_STEP',),

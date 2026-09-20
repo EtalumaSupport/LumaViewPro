@@ -489,6 +489,10 @@ class XYStageControl(BoxLayout):
             x_pos = float(x_pos)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
+            # An entry the box refuses is still the user pressing this control.
+            # Returning silently left the bundle with no line at all, so a
+            # stage that did not move looked like a stage nobody asked to move.
+            gui_logger.button('SET_X_POSITION', f'refused: {x_pos!r}')
             return
         gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
@@ -507,6 +511,10 @@ class XYStageControl(BoxLayout):
             y_pos = float(y_pos)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
+            # An entry the box refuses is still the user pressing this control.
+            # Returning silently left the bundle with no line at all, so a
+            # stage that did not move looked like a stage nobody asked to move.
+            gui_logger.button('SET_Y_POSITION', f'refused: {y_pos!r}')
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 

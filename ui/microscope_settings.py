@@ -832,6 +832,12 @@ class MicroscopeSettings(BoxLayout):
         new_binning_size_str = self.ids['binning_spinner'].text
         new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
 
+        # The pick, before anything judges it. Recorded below the refusal, a
+        # rejected binning left the bundle with a warning and no line saying
+        # what the user had picked -- and the startup populate's declarations
+        # are still absorbed here, because this is the call select() consults.
+        gui_logger.select('BINNING', new_binning_size_str)
+
         # Reject a binning level this camera does not support and restore the
         # spinner to the camera's actual binning.
         if new_binning_size not in imaging.get_available_binning_sizes():
@@ -863,8 +869,6 @@ class MicroscopeSettings(BoxLayout):
         # the cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller).
         native = self._native_roi()
         self._store_native_roi(native)
-
-        gui_logger.select('BINNING', new_binning_size_str)
 
         # The displayed/captured size is native / binning, floored to the active
         # driver's DELIVERABLE granularity: get_pixel_alignment reports the

@@ -719,6 +719,16 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
+        # The click, before any of the four ways this returns without building
+        # anything. Every refusal below does notify, but the notification text
+        # is shared -- the file-writes gate says the same words for five
+        # different buttons, and the builder's refusal is shared by nine
+        # callers -- so without this line the bundle shows a refusal and no
+        # way to tell which button provoked it. Recorded once at the top
+        # rather than at each return: one line gives the attribution, and the
+        # reason arrives in the notification that follows.
+        gui_logger.button('NEW_PROTOCOL')
+
         if not require_file_writes_idle('create a new protocol'):
             return
 
