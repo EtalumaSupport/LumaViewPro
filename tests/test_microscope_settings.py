@@ -390,6 +390,16 @@ def _extract_ms_method(method_name: str) -> str:
     raise AssertionError(f'MicroscopeSettings.{method_name} not found')
 
 
+def _bind_write_frame_text(fake_self):
+    """Give a fake panel the REAL frame-box write funnel.
+
+    Stubbing it would hide the focus guard from every test that writes these
+    boxes, and the guard is the only reason the funnel exists.
+    """
+    fn = _compile_ms_method('_write_frame_text', {})
+    return lambda width, height: fn(fake_self, width, height)
+
+
 def _compile_ms_method(method_name: str, namespace: dict):
     fn_src = _extract_ms_method(method_name)
     ns = dict(namespace)
@@ -497,14 +507,15 @@ class TestFrameSizeMirrorChain:
             {'_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings))},
         )
         ids = {
-            'frame_width_id': SimpleNamespace(text=''),
-            'frame_height_id': SimpleNamespace(text=''),
+            'frame_width_id': SimpleNamespace(text='', focus=False),
+            'frame_height_id': SimpleNamespace(text='', focus=False),
         }
         fov_refreshes = []
         fake_self = SimpleNamespace(
             ids=ids,
             _refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
 
         fn(fake_self, {'width': 1896, 'height': 1900})
 
@@ -661,8 +672,8 @@ class TestSelectBinningSynchronousCommit:
         fake_self = SimpleNamespace(
             ids={
                 'binning_spinner': SimpleNamespace(text='2x2'),
-                'frame_width_id': SimpleNamespace(text='1920'),
-                'frame_height_id': SimpleNamespace(text='1200'),
+                'frame_width_id': SimpleNamespace(text='1920', focus=False),
+                'frame_height_id': SimpleNamespace(text='1200', focus=False),
             },
             _native_roi=lambda: {'width': 1920, 'height': 1200},
             _store_native_roi=lambda native: None,
@@ -670,6 +681,7 @@ class TestSelectBinningSynchronousCommit:
             _apply_displayed_frame=lambda frame: pushed_frames.append(frame),
             _on_binning_apply_outcome=lambda *a, **kw: None,
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
         return fn, fake_self, pushed_frames
 
     def test_initializing_commits_synchronously_without_iotask(self):
@@ -841,8 +853,8 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         records = []
         settings = {'frame': {'width': 768, 'height': 1200}}
         boxes = {
-            'frame_width_id': SimpleNamespace(text=width_text),
-            'frame_height_id': SimpleNamespace(text='1200'),
+            'frame_width_id': SimpleNamespace(text=width_text, focus=False),
+            'frame_height_id': SimpleNamespace(text='1200', focus=False),
         }
 
         def _typed():
@@ -881,6 +893,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
             _store_native_roi=lambda native: None,
             _apply_displayed_frame=lambda frame: applied.append(frame),
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
         return fn, fake_self, records, applied, settings, boxes
 
     def test_the_typed_width_is_recorded_before_the_apply(self):

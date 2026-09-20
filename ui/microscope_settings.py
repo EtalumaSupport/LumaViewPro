@@ -345,8 +345,7 @@ class MicroscopeSettings(BoxLayout):
             # native_to_displayed(native, binning). Multiplying by the binning
             # factor here contradicted all of that and would show a 2x2 user twice
             # the size the camera delivers.
-            self.ids['frame_width_id'].text = str(settings['frame']['width'])
-            self.ids['frame_height_id'].text = str(settings['frame']['height'])
+            self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # was applied by the Session's bring-up
@@ -894,8 +893,7 @@ class MicroscopeSettings(BoxLayout):
         }
         settings['binning']['size'] = new_binning_size_str
         self._refresh_binning_depth_hint()
-        self.ids['frame_width_id'].text = str(new_frame['width'])
-        self.ids['frame_height_id'].text = str(new_frame['height'])
+        self._write_frame_text(new_frame['width'], new_frame['height'])
 
         # During app init, scope.initialize() handles all hardware calls;
         # the mirrors just reflect the settings being loaded.
@@ -1082,6 +1080,31 @@ class MicroscopeSettings(BoxLayout):
         except Exception as e:
             raise ValueError('Invalid value for frame width/height') from e
 
+    def _write_frame_text(self, width, height) -> None:
+        """Write a frame read-back into the boxes, unless the user is typing.
+
+        The boxes commit on focus loss (`on_focus: if not self.focus:
+        root.frame_size(...)`), so a size written underneath a part-typed
+        entry is not merely displayed -- it is committed as a framing change
+        when the user clicks away. Each box is guarded on its OWN focus: they
+        are edited one at a time, and skipping both because one is focused
+        would leave the other showing a size no camera is at.
+
+        Every writer of these boxes goes through here so the guard cannot be
+        present at three sites and missing at the fourth.
+        """
+        for widget_id, value in (
+            ('frame_width_id', width),
+            ('frame_height_id', height),
+        ):
+            box = self.ids[widget_id]
+            if box.focus:
+                continue
+            new_text = str(value)
+            # Rewriting the same string churns the enclosing ScrollView.
+            if box.text != new_text:
+                box.text = new_text
+
     def frame_size(self, committed_id: str):
         """Apply a user edit of the frame width/height fields.
 
@@ -1119,8 +1142,7 @@ class MicroscopeSettings(BoxLayout):
             # happened while the box sat blank. Put both boxes back and stop.
             frame = ctx.settings['frame']
             gui_logger.text_input(f'{record}_APPLIED', frame[axis])
-            self.ids['frame_width_id'].text = str(frame['width'])
-            self.ids['frame_height_id'].text = str(frame['height'])
+            self._write_frame_text(frame['width'], frame['height'])
             return
 
         # The typed value is a displayed size at the UI binning, so reconstruct
@@ -1236,8 +1258,7 @@ class MicroscopeSettings(BoxLayout):
         height = int(delivered['height'])
         settings['frame']['width'] = width
         settings['frame']['height'] = height
-        self.ids['frame_width_id'].text = str(width)
-        self.ids['frame_height_id'].text = str(height)
+        self._write_frame_text(width, height)
         self._refresh_fov_labels()
 
     def _refresh_fov_labels(self) -> None:
