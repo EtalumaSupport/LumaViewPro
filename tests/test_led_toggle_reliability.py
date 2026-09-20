@@ -191,8 +191,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         handler-recursion feedback loop the `_initializing` flag was
         papering over.
 
-        LVP-A-6 (2026-05-04): the closure moved from
-        ``lumaviewpro.py:on_start`` into
+        The closure moved out of ``lumaviewpro.py:on_start`` into
         ``ui/listener_bridge.py:UIListenerBridge._on_camera_setting_changed``
         (with the inner ``_update_camera_ui`` closure). Scanning the new
         location.
