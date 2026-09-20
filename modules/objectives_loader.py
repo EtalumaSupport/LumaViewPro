@@ -150,10 +150,18 @@ class ObjectiveLoader:
                 logger.warning(
                     f'Exact match for objective ID {objective_id} not found, attmempting to use closest match'
                 )
-                for key in self._objectives:
-                    if key.startswith(objective_id):
-                        objective_info = self._objectives[key]
-                        break
+                # An empty or whitespace-only id is not a partial identifier,
+                # and it prefixes EVERY key -- so the fallback below answered
+                # it with whatever happens to be first in objectives.json,
+                # returning a real objective with a real focal length as a
+                # confident match for "no objective named at all". The
+                # fallback exists for a genuine partial id, so it is given a
+                # prefix that can actually narrow.
+                if objective_id.strip():
+                    for key in self._objectives:
+                        if key.startswith(objective_id):
+                            objective_info = self._objectives[key]
+                            break
 
                 if objective_info is None:
                     logger.error(f'No close match found for objective ID {objective_id}')

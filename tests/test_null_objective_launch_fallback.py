@@ -59,3 +59,38 @@ def test_unknown_but_valid_string_still_returns_none(loader):
     change with a different blast radius, so it is pinned here as-is.
     """
     assert loader.get_objective_info(objective_id='zzz-no-such-objective') is None
+
+
+def test_an_empty_id_resolves_to_no_objective_not_the_first_one(loader):
+    """An empty id used to answer with the smallest lens in the catalogue.
+
+    The lookup falls back to prefix matching when an id is not an exact hit,
+    and the empty string is a prefix of every key -- so `''` matched whatever
+    happens to be first in objectives.json and returned it as a confident
+    answer. On the shipped catalogue that is 1.25x Oly, a real objective with a
+    real focal length, so the caller got a plausible lens rather than a
+    refusal, and every scale derived from it was wrong by the ratio of the two
+    magnifications.
+
+    An empty string is an unknown-but-valid string, so it answers the way every
+    other unresolvable string already does.
+    """
+    assert loader.get_objective_info(objective_id='') is None
+
+
+def test_a_whitespace_id_resolves_to_no_objective(loader):
+    """The same hole with the same shape: a whitespace-only id is not an
+    identifier either, and no catalogue key begins with a space, so before the
+    prefix guard it fell through to the error return by accident rather than by
+    contract. Pinned so the emptiness test is about identifiers, not about the
+    particular string ''."""
+    assert loader.get_objective_info(objective_id='   ') is None
+
+
+def test_a_real_partial_id_still_resolves(loader):
+    """The prefix fallback is deliberate and stays: a genuine partial id
+    resolves to the objective it names. The fix narrows what counts as a
+    prefix, not whether prefixes work."""
+    info = loader.get_objective_info(objective_id='4x Oly')
+    assert info is not None
+    assert info['short_name'] == '4xOly'
