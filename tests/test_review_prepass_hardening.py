@@ -35,11 +35,13 @@ def _method_src(rel_path: str, class_name: str | None, func_name: str) -> str:
     return ast.unparse(fn)
 
 
-def _structured_metadata(missing: str | None = None) -> dict:
+def _structured_metadata(missing: str | None = None, missing_top: str | None = None) -> dict:
     """Build a structured-TIFF metadata dict matching write_tiff's shape.
 
-    If ``missing`` names a Plane key, omit it to simulate an incomplete
-    structured TIFF (older file / third-party producer).
+    ``missing`` omits a Plane key; ``missing_top`` omits a top-level key. Both
+    simulate an incomplete structured TIFF (older file / third-party producer),
+    but they are no longer the same case: every Plane field is optional, while
+    the top-level acquisition keys are the ones the reader cannot do without.
     """
     plane = {
         'PositionX': 1.0,
@@ -51,11 +53,14 @@ def _structured_metadata(missing: str | None = None) -> dict:
     }
     if missing is not None:
         plane.pop(missing, None)
-    return {
+    top = {
         'Plane': plane,
         'PhysicalSizeX': 0.5,
         'Channel': {'Name': ['Blue']},
     }
+    if missing_top is not None:
+        top.pop(missing_top, None)
+    return top
 
 
 class TestMetadataReadRobustness:
@@ -70,18 +75,43 @@ class TestMetadataReadRobustness:
         assert out['exposure_time_ms'] == 10.0
         assert out['channel'] == 'Blue'
 
-    def test_missing_plane_key_returns_none_not_keyerror(self, tmp_path):
+    def test_missing_acquisition_key_returns_none_not_keyerror(self, tmp_path):
         p = tmp_path / 'partial.tiff'
-        # PositionX is a REQUIRED plane key (ExposureTime/Gain became
-        # optional when the writer started omitting them for unknown
-        # values, and a plane missing only those now recovers).
+        # The original concern, on a key that is still required. Every PLANE
+        # field is optional now -- position last, when the writer started
+        # omitting it for captures that have no coordinate, as ExposureTime
+        # and Gain did before it for unknown camera reads. PhysicalSizeX is
+        # not: without a scale there is nothing to forward to a derived
+        # output, and inventing one would be the failure this whole contract
+        # exists to prevent.
         tf.imwrite(
             str(p),
             np.zeros((4, 4), dtype=np.uint16),
-            metadata=_structured_metadata(missing='PositionX'),
+            metadata=_structured_metadata(missing_top='PhysicalSizeX'),
         )
         # Must not raise; falls back to None so the postproc job uses defaults.
         assert image_utils.read_postproc_input_metadata(p) is None
+
+    def test_a_plane_missing_only_its_position_still_recovers(self, tmp_path):
+        """The reversal, and the reason for it: a capture with no coordinate
+        writes no Plane position, and discarding that file costs the five
+        acquisition facts it does state -- sending the caller to a fallback
+        that invents a position, an exposure, a gain, an illumination and a
+        pixel size of 1.0."""
+        p = tmp_path / 'no_position.tiff'
+        plane_without_position = _structured_metadata()
+        for key in ('PositionX', 'PositionY', 'PositionZ'):
+            plane_without_position['Plane'].pop(key)
+        tf.imwrite(str(p), np.zeros((4, 4), dtype=np.uint16), metadata=plane_without_position)
+
+        out = image_utils.read_postproc_input_metadata(p)
+
+        assert out is not None
+        assert out['pixel_size_um'] == 0.5
+        assert out['channel'] == 'Blue'
+        assert out['exposure_time_ms'] == 10.0
+        assert 'plate_pos_mm' not in out
+        assert 'z_pos_um' not in out
 
 
 class TestStitchMixedChannelGuard:

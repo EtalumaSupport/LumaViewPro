@@ -303,18 +303,28 @@ def generate_image_metadata(
     if scope.runtime_state.get_stage_offset() is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
-    if plate_x_mm is None:
-        plate_x_mm = 0
-    if plate_y_mm is None:
-        plate_y_mm = 0
-    if stage_z_um is None:
-        stage_z_um = 0
-
     well_label = scope.runtime_state.get_well_label()
 
-    px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
-    py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
-    z = round(stage_z_um, common_utils.max_decimal_precision('z'))
+    # A capture that has no position states none, the same way this function
+    # already declines to state a pixel size it cannot compute, a gain or
+    # exposure whose read failed, and a well label on labware that has no
+    # wells. Three of the four callers -- the manual live capture and both
+    # composite captures -- have no coordinate to pass, and the missing value
+    # used to be defaulted to zero and written, so those files carried a real
+    # point on the plate in a key whose siblings are all measurements.
+    #
+    # X and Y travel as a pair because half a plate coordinate is not one.
+    # Z is independent: a focus-only capture knows its depth and not its
+    # place.
+    _position_fields: dict = {}
+    if plate_x_mm is not None and plate_y_mm is not None:
+        px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
+        py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
+        _position_fields['plate_pos_mm'] = {'x': px, 'y': py}
+        _position_fields['x_pos'] = px
+        _position_fields['y_pos'] = py
+    if stage_z_um is not None:
+        _position_fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
@@ -431,10 +441,7 @@ def generate_image_metadata(
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
         'objective': objective,
         'focal_length': objective['focal_length'],
-        'plate_pos_mm': {'x': px, 'y': py},
-        'x_pos': px,
-        'y_pos': py,
-        'z_pos_um': z,
+        **_position_fields,
         **_frame_settings,
         # An LED that is off, never set, or on an absent board has no
         # drive current -- a normal state for dark and luminescence
