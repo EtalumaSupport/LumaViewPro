@@ -123,6 +123,14 @@ def test_the_hook_runs_the_guards_directory():
     assert any('git checkout-index' in ln for ln in lines), (
         'The gate judges the index (what will be committed), not the working tree.'
     )
+    pytest_at = next(i for i, ln in enumerate(lines) if ln.startswith('python3 -m pytest'))
+    assert any(
+        ln.startswith('unset ') and 'GIT_INDEX_FILE' in ln and 'GIT_DIR' in ln
+        for ln in lines[:pytest_at]
+    ), (
+        'The guard run must drop the git environment the hook inherits; a test running git in a '
+        'temporary repository otherwise operates on the repository being committed.'
+    )
 
 
 def test_every_skipped_stage_says_so():
