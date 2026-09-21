@@ -153,3 +153,64 @@ def test_axis_state_unknown_is_a_separate_failure():
     """The two refusals are distinct; neither should catch the other."""
     assert not issubclass(AxisStateUnknownError, PositionOutOfRangeError)
     assert not issubclass(PositionOutOfRangeError, AxisStateUnknownError)
+
+
+class _ReachedPreDriveOnTurretError(Exception):
+    """The turret slot bound let the command through.
+
+    ``_move_turret_impl``'s first statement after the bound is
+    ``_pre_drive('T')``, so catching this is how "the bound allowed this
+    slot" is observed without a driver or a position cache.
+    """
+
+
+@pytest.fixture
+def turret():
+    """The real ``_move_turret_impl``, stopped at its first side effect.
+
+    The bound has to be exercised on the production method: a check
+    rebuilt in the test would pass whether or not the wiring exists.
+    """
+    motion = MotionAPI.__new__(MotionAPI)
+
+    def _reached(axis, force=False):
+        raise _ReachedPreDriveOnTurretError(axis)
+
+    motion._pre_drive = _reached
+    # Never equal to a slot under test, so the same-position short-circuit
+    # cannot be what stops the call.
+    motion._last_turret_position = None
+    return motion
+
+
+@pytest.mark.parametrize('slot', [0, 5, 99, -1, 2.5, True, '3', None])
+def test_a_slot_the_turret_does_not_have_is_refused(turret, slot):
+    """The motor accepts 99 and drives 24.5 revolutions; the API must not.
+
+    ``_move_absolute_impl`` cannot catch this -- the turret publishes no
+    travel, which the case above pins -- so the refusal lives here.
+    """
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        turret._move_turret_impl(slot)
+
+    assert caught.value.axis == 'T'
+    assert caught.value.position == slot
+
+
+@pytest.mark.parametrize('slot', [1, 2, 3, 4])
+def test_every_real_slot_is_allowed(turret, slot):
+    """All four inclusive; refusing an endpoint would strand slot 1 or 4."""
+    with pytest.raises(_ReachedPreDriveOnTurretError):
+        turret._move_turret_impl(slot)
+
+
+def test_the_refusal_names_the_slot_range_and_not_a_travel_range(turret):
+    """Two bounds can refuse a move, and naming the wrong one sends the
+    user to a number that means nothing for a turret."""
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        turret._move_turret_impl(99)
+
+    text = str(caught.value)
+    assert 'turret slots' in text
+    assert '1 to 4' in text
+    assert 'travel range' not in text

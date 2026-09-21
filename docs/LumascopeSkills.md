@@ -682,7 +682,8 @@ scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, fo
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
-scope.motion.move_turret(2)                      # turret position 2
+scope.motion.move_turret(2)                      # turret position 1-4; any other slot raises
+                                                 # PositionOutOfRangeError rather than driving
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}

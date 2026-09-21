@@ -843,7 +843,21 @@ class MotionAPI:
 
         Raises:
             AxisStateUnknownError: The turret position is unknown.
+            PositionOutOfRangeError: The slot is not a whole number 1-4.
         """
+        # A slot is not a distance, so this axis publishes no travel and the
+        # generic range check inside _move_absolute_impl has nothing to refuse
+        # with -- only the coarse metre-scale safety ceiling applies, which
+        # accepts 99 and drives the turret 24.5 revolutions. The bound belongs
+        # at the command, where the number means a slot. Spelled to match the
+        # session's own slot contract: a bool would otherwise pass as slot 1,
+        # and a string would leave the comparison as a bare TypeError rather
+        # than the named refusal every other motion refusal uses.
+        if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
+            raise PositionOutOfRangeError(
+                'T', position, 1, 4, bound='turret slots', quantity='slot'
+            )
+
         # Refuse BEFORE the safety Z-retract below, not inside it. The
         # retract is real motion; gating only the inner turret move would
         # drop Z to 0 against an unknown reference and refuse afterwards.
