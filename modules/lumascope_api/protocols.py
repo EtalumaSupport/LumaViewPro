@@ -103,16 +103,26 @@ class ProtocolsAPI:
                 installation's labware catalogue does not have. Refused
                 here, by name, before any object exists: a protocol whose
                 plate the scope cannot be on must never be adopted.
+            ProtocolRunRefusedError: The file names glass this scope
+                cannot put in the light path, with the reason a run would
+                give for the same file. Refused for the same reason the
+                plate is: a caller must not be handed a protocol it can
+                edit, navigate and save but never perform.
         """
         from modules import labware_loader
         from modules.protocol import Protocol
 
-        return Protocol.from_file(
+        protocol = Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self.tiling_configs_path(),
             led_max_ma=self._scope.capabilities.led_max_ma,
             wellplate_loader=labware_loader.WellPlateLoader(source_path=self._source_path),
         )
+        # After the parse, so a file that is not a protocol at all is
+        # answered as that rather than as a turret problem, and before the
+        # return, so no caller ever holds an inadmissible protocol.
+        self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
+        return protocol
 
     def create_protocol(
         self,

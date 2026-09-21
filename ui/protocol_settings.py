@@ -7,12 +7,8 @@ import threading
 import time
 import typing
 
-import pandas as pd
-
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
 
 from kivy.uix.floatlayout import FloatLayout
 
@@ -846,22 +842,17 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = 'Cannot create new protocol. Not all objectives are in turret config.'
-            logger.error(error_msg)
-            Clock.schedule_once(
-                lambda dt: Popup(
-                    title='Protocol Creation Error',
-                    content=Label(text=error_msg),
-                    size_hint=(0.85, 0.85),
-                ),
-                0,
+        # The API owns the rule and delivers its own refusal, so there is
+        # nothing to decide or announce here: a protocol built from a
+        # selection the scope cannot address simply is not adopted.
+        try:
+            ctx.scope.protocols.refuse_unaddressable_objectives(
+                protocol.steps()['Objective'].to_list()
             )
-
+        except exceptions.ProtocolRunRefusedError:
             return
 
         self._protocol = protocol
-        ctx.protocol = protocol  # canonical owner is AppContext
 
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
@@ -901,21 +892,6 @@ class ProtocolSettings(FloatLayout):
         # property graph mid-dispatch. Marshal to the UI thread.
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
-    def _validate_objectives_in_protocol(self, protocol_df: pd.DataFrame) -> bool:
-        ctx = _app_ctx.ctx
-
-        # Validation for objectives with multi-objective protocol
-        protocol_objective_ids = set(protocol_df['Objective'].to_list())
-
-        # For single objective protocols, don't perform any objective validation (legacy)
-        if len(protocol_objective_ids) == 1:
-            return True
-
-        # Otherwise, check all the objectives used in the protocol and confirm
-        # they are all part of the current turret config
-        turret_objective_ids = set(ctx.lumaview.scope.runtime_state.get_turret_config().values())
-        return protocol_objective_ids.issubset(turret_objective_ids)
-
     # Load Protocol from File
     def load_protocol(self, filepath='./data/new_default_protocol.tsv', suppress_popup=False):
         gui_logger.protocol_action('LOAD', filepath)
@@ -932,6 +908,12 @@ class ProtocolSettings(FloatLayout):
         try:
             protocol = ctx.scope.protocols.load_protocol(file_path=filepath)
         except OSError:
+            return False
+
+        except exceptions.ProtocolRunRefusedError:
+            # Already logged and shown to the user by the API's funnel, in
+            # its own words. The blanket handler below would render str(e),
+            # which is the joined `reason: message` debugging form.
             return False
 
         except Exception as e:
@@ -955,16 +937,7 @@ class ProtocolSettings(FloatLayout):
             logger.error(f'Unable to load protocol at {filepath}')
             return
 
-        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = 'Cannot load protocol. Not all objectives are in turret config.'
-            logger.error(error_msg)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Protocol Loading Error', message=error_msg)
-            return False
-
         self._protocol = protocol
-        ctx.protocol = protocol  # canonical owner is AppContext
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
