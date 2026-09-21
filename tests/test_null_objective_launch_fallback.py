@@ -95,15 +95,18 @@ def test_a_partial_id_is_refused_not_guessed(loader):
     assert loader.get_objective_info(objective_id='10x Oly')['short_name'] == '10xOly'
 
 
-def test_both_identifiers_and_an_unknown_short_name_are_refused_with_the_same_type(loader):
-    """Every unusable request answers with the one type the launch path catches.
+def test_the_catalogue_key_is_the_only_way_to_name_an_objective(loader):
+    """The lookup takes one identifier, the catalogue key.
 
-    These two raised a bare Exception, which the recovery around session
-    composition does not catch, so a stored settings defect reaching either
-    path failed app start instead of republishing the template.
+    It used to take a short name as well, resolved through a reverse lookup
+    that no production code called: a second way to name an objective with
+    no consumer, kept only by habit. The short name is a filename token
+    derived from the key, not an identity (Eric, 2026-09-21: one way of
+    doing things).
     """
-    with pytest.raises(ConfigError):
-        loader.get_objective_info(objective_id='4x Oly', short_name='4xOly')
-    with pytest.raises(ConfigError, match='short name'):
-        loader.get_objective_info(short_name='zzz-no-such-short-name')
-    assert loader.get_objective_info(short_name='4xOly')['short_name'] == '4xOly'
+    import inspect
+
+    parameters = list(inspect.signature(loader.get_objective_info).parameters)
+    assert parameters == ['objective_id']
+    assert not hasattr(loader, 'find_objective_id_from_short_name')
+    assert loader.get_objective_info(objective_id='4x Oly')['short_name'] == '4xOly'

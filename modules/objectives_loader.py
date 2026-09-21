@@ -109,43 +109,27 @@ class ObjectiveLoader:
         if len(short_names_set) < len(short_names):
             raise Exception('Duplicate short names for objectives were generated')
 
-    def find_objective_id_from_short_name(self, short_name: str) -> str | None:
-        for k, v in self._objectives.items():
-            if v['short_name'] == short_name:
-                return k
-
-        return None
-
-    def get_objective_info(
-        self,
-        objective_id: str | None = None,
-        short_name: str | None = None,
-    ) -> dict:
+    def get_objective_info(self, objective_id: str | None) -> dict:
         """The catalogue entry for one objective, or a refusal naming why not.
 
+        The catalogue key is the objective's one identity everywhere inside
+        the program: the settings store, the turret slots, a protocol step
+        and the spinner all carry it. The short name is a filename token
+        derived from it and the magnification a button label; neither names
+        an objective here.
+
         Raises:
-            ConfigError: No identifier, both identifiers, a non-string
-                identifier, or an identifier the catalogue does not hold.
-                One type for every unusable id: the launch path recovers
-                from exactly this type by republishing the shipped
-                template, and an untyped raise escapes that recovery and
-                takes app start down with it.
+            ConfigError: A null identifier, a non-string, or a key the
+                catalogue does not hold. One type for every unusable id: the
+                launch path recovers from exactly this type by republishing
+                the shipped template, and an untyped raise escapes that
+                recovery and takes app start down with it.
         """
-        if (objective_id is None) and (short_name is None):
-            # A stored `objective_id` of null arrives here indistinguishable
-            # from "the caller passed no identifier": None is both this
-            # parameter's not-supplied sentinel and a legal value on disk. The
-            # settings shape gate passes null through deliberately, so this has
-            # to be the settings failure it actually is.
+        if objective_id is None:
+            # A stored `objective_id` of null is a legal value on disk: the
+            # settings shape gate passes null through deliberately, so this
+            # has to be the settings failure it actually is.
             raise ConfigError('no objective identifier supplied')
-
-        if (objective_id is not None) and (short_name is not None):
-            raise ConfigError('supply an objective id or a short name, not both')
-
-        if short_name is not None:
-            objective_id = self.find_objective_id_from_short_name(short_name=short_name)
-            if objective_id is None:
-                raise ConfigError(f'no objective has the short name {short_name!r}')
 
         # Exact key only. A prefix match used to stand in for a near miss, and
         # with '10x Oly' and '10x Phase' both in the catalogue an id of '10x'
