@@ -70,7 +70,10 @@ _api_log = _logging.getLogger('LVP.api')
 from modules.lumascope_api._constants import (
     AxisState,
     MOTOR_POSITION_LIMIT,
+    TURRET_SLOT_MAX,
+    TURRET_SLOT_MIN,
     _VALID_AXIS_NAMES,
+    is_turret_slot,
 )
 
 if TYPE_CHECKING:
@@ -845,17 +848,18 @@ class MotionAPI:
             AxisStateUnknownError: The turret position is unknown.
             PositionOutOfRangeError: The slot is not a whole number 1-4.
         """
-        # A slot is not a distance, so this axis publishes no travel and the
-        # generic range check inside _move_absolute_impl has nothing to refuse
-        # with -- only the coarse metre-scale safety ceiling applies, which
-        # accepts 99 and drives the turret 24.5 revolutions. The bound belongs
-        # at the command, where the number means a slot. Spelled to match the
-        # session's own slot contract: a bool would otherwise pass as slot 1,
-        # and a string would leave the comparison as a bare TypeError rather
-        # than the named refusal every other motion refusal uses.
-        if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
+        # Refused here as well as at the generic door below, and both are
+        # load-bearing: this one precedes the safety Z-retract and the
+        # same-position short-circuit, so a nonsense slot cannot drop Z or
+        # poison the position cache on its way to being refused.
+        if not is_turret_slot(position):
             raise PositionOutOfRangeError(
-                'T', position, 1, 4, bound='turret slots', quantity='slot'
+                'T',
+                position,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
             )
 
         # Refuse BEFORE the safety Z-retract below, not inside it. The
@@ -1595,20 +1599,44 @@ class MotionAPI:
         # travel images the wrong place and the log cannot tell that from a
         # step that went where it was told. Axes with no configured travel
         # return None here -- the turret, whose position is a slot rather
-        # than a distance -- and are not range-checked.
+        # than a distance -- so THIS check cannot refuse anything for them.
+        # That does not make them unbounded: the turret's own bound is
+        # checked below, against its slots.
         if not ignore_limits:
             limits = self.get_axis_limits(axis)
             if limits is not None and not (limits['min'] <= position <= limits['max']):
                 raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
 
-        # The coarse sanity ceiling, checked AFTER travel so that travel gets
-        # to answer first. For any axis that publishes travel, travel lies
-        # inside this bound, so reaching here means the axis has none -- the
-        # turret, whose position is a slot. Ordering it the other way gave a
-        # user two different answers for one mistake: a typed value a little
-        # past travel named the travel range, and a larger one named a 1 m
-        # ceiling that means nothing to them. Not gated on ignore_limits: that
-        # hatch is for driving outside TRAVEL deliberately, not for handing the
+        # The turret's bound, which the travel check above cannot express: a
+        # slot is not a distance, so get_axis_limits returns None for T and
+        # nothing there refuses anything. That left move_absolute('T', 99) an
+        # open door to 24.5 revolutions for any caller reaching the generic
+        # mover instead of move_turret. No production path takes it; an L2
+        # caller can, and the API is the whole product for one.
+        #
+        # Before the ceiling below for the same reason travel is: the bound
+        # that knows what the number MEANS answers first, so the turret gives
+        # one vocabulary for every bad slot rather than naming slots for 5 and
+        # a metre for 2000000.
+        if axis == 'T' and not is_turret_slot(position):
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
+            )
+
+        # The coarse sanity ceiling, checked AFTER the bounds above so the
+        # bound that knows the axis answers first. For any axis that publishes
+        # travel, travel lies inside this bound, and the turret is refused by
+        # slot above, so reaching here means no bound that understands this
+        # axis could speak for it. Ordering it the other way gave a user two
+        # different answers for one mistake: a typed value a little past
+        # travel named the travel range, and a larger one named a 1 m ceiling
+        # that means nothing to them. Not gated on ignore_limits: that hatch
+        # is for driving outside TRAVEL deliberately, not for handing the
         # motor an arbitrary number.
         if abs(position) > MOTOR_POSITION_LIMIT:
             raise PositionOutOfRangeError(

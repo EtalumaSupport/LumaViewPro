@@ -21,6 +21,28 @@ _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
 # travel limits are enforced by the motor board itself.
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
+# The turret's four positions. Unlike X/Y/Z this is not travel and not um:
+# the T axis publishes no limits, so the um-based range check cannot refuse
+# anything for it and the motor's answer to a nonsense slot is to drive
+# there -- 99 is 24.5 revolutions. Both refusal sites in motion.py read this
+# rather than spelling the range twice: they guard the same illegal state at
+# two depths of one call chain, and drifting apart would leave one door open.
+TURRET_SLOT_MIN = 1
+TURRET_SLOT_MAX = 4
+
+
+def is_turret_slot(position: object) -> bool:
+    """Whether ``position`` names a turret slot.
+
+    A bool is excluded explicitly: it is an int in Python, so ``True``
+    would otherwise pass as slot 1.
+    """
+    return (
+        isinstance(position, int)
+        and not isinstance(position, bool)
+        and TURRET_SLOT_MIN <= position <= TURRET_SLOT_MAX
+    )
+
 
 class AxisState:
     """Possible states for a motion axis."""

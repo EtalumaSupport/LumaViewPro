@@ -125,14 +125,35 @@ def test_in_travel_and_the_boundaries_are_allowed(api, axis, position):
         api._move_absolute_impl(axis, position)
 
 
-def test_an_axis_without_travel_is_not_range_checked(api):
-    """The turret's position is a slot; get_axis_limits returns None for it.
+def test_the_turret_is_checked_against_its_slots_not_against_travel(api):
+    """The turret publishes no travel, so the um range check above refuses
+    nothing for it -- but it does have a real bound, and this is the door.
 
-    Without this case the gate raises on every turret move.
+    A real slot must pass: without that the gate would raise on every
+    turret move. A slot that does not exist must be refused here and not
+    only at move_turret, because the generic mover is reachable directly
+    by an L2 caller and the motor's answer to slot 99 is to drive 24.5
+    revolutions. The refusal must also name SLOTS -- telling someone 99 is
+    outside a metre-scale safety limit points them at a number that means
+    nothing for a turret.
     """
-    for slot in (3, 99):
-        with pytest.raises(_ReachedPreDriveError):
-            api._move_absolute_impl('T', slot)
+    with pytest.raises(_ReachedPreDriveError):
+        api._move_absolute_impl('T', 3)
+
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        api._move_absolute_impl('T', 99)
+
+    assert caught.value.axis == 'T'
+    assert 'turret slots' in str(caught.value)
+    assert 'safety limit' not in str(caught.value)
+
+
+def test_ignore_limits_does_not_open_the_turret(api):
+    """The hatch is for driving outside TRAVEL deliberately, not for
+    handing the motor a slot the turret does not have -- the same reason
+    the coarse safety ceiling is not gated on it either."""
+    with pytest.raises(PositionOutOfRangeError):
+        api._move_absolute_impl('T', 99, ignore_limits=True)
 
 
 def test_ignore_limits_still_bypasses(api):

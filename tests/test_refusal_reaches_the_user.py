@@ -67,16 +67,23 @@ def test_one_mistake_gets_one_answer_whatever_its_magnitude(api, position):
     assert 'safety limit' not in str(caught.value)
 
 
-def test_the_ceiling_still_speaks_for_an_axis_with_no_travel(api):
-    """The turret publishes no limits, so nothing else can refuse it.
+def test_the_turret_answers_in_one_vocabulary_however_absurd_the_request(api):
+    """The turret publishes no travel, but it is not unbounded: it has four
+    slots, and that bound answers before the coarse ceiling.
 
-    This is the ceiling's only remaining job, and it is a guard against a
-    nonsense argument rather than something a user reaches by typing.
+    The ceiling used to be the only thing that could refuse this axis. It
+    is not any more, and it must not take the question back for large
+    values -- that would give a user two different answers for one
+    mistake, naming slots for 5 and a metre-scale limit for 2000000, which
+    is the same inconsistency the travel-before-ceiling order exists to
+    prevent for the axes that do publish travel.
     """
-    with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('T', MOTOR_POSITION_LIMIT + 1)
+    for absurd in (5, MOTOR_POSITION_LIMIT + 1):
+        with pytest.raises(PositionOutOfRangeError) as caught:
+            api._move_absolute_impl('T', absurd)
 
-    assert caught.value.bound == 'safety limit'
+        assert caught.value.bound == 'turret slots'
+        assert 'safety limit' not in str(caught.value)
 
 
 def test_an_in_range_move_on_a_limitless_axis_is_allowed(api):
