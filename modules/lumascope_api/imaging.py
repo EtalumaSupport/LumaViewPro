@@ -122,6 +122,50 @@ def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> fl
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
 
 
+@dataclasses.dataclass(frozen=True)
+class AppliedCameraSetting:
+    """What a stored camera setting actually becomes on the attached body.
+
+    A stored gain or exposure is the user's committed intent and outlives
+    whichever camera happens to be attached. A smaller body cannot reach it,
+    so the value written to hardware is the cap while the stored value is
+    left alone -- put a capable camera back and the intent applies again.
+
+    The three facts travel together because both consumers need all three:
+    the apply path writes ``applied``, and a display has to show ``stored``
+    while saying the camera is holding it down. Handing out a bare float
+    would make each consumer recompute ``capped`` for itself, which is the
+    second answerer this type exists to prevent.
+    """
+
+    stored: float
+    applied: float
+    capped: bool
+
+    def __post_init__(self) -> None:
+        # capped is not a caller's opinion: it is whether the write differs
+        # from the intent. A consumer that renders one while testing the
+        # other would report a limit that is not being applied.
+        if self.capped != (self.applied != self.stored):
+            raise ValueError(
+                f'AppliedCameraSetting: capped={self.capped!r} contradicts '
+                f'stored={self.stored!r} applied={self.applied!r}'
+            )
+
+
+def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
+    """Resolve a stored setting against a published maximum.
+
+    An unknown cap (no camera, or a driver that publishes none) narrows
+    nothing: a missing bound is not a bound of zero, and inventing one here
+    would apply a limit no hardware asked for.
+    """
+    value = float(stored)
+    if cap is None or value <= cap:
+        return AppliedCameraSetting(stored=value, applied=value, capped=False)
+    return AppliedCameraSetting(stored=value, applied=float(cap), capped=True)
+
+
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
     from drivers.camera import Camera
@@ -3499,6 +3543,24 @@ class ImagingAPI:
             return None
         return float(value)
 
+    def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
+        """What a stored gain becomes on the attached camera.
+
+        The one place the gain cap is applied. A caller that narrows a
+        stored value itself -- against this cap or against a widget's
+        range -- is a second answerer, and the store it writes back is
+        how a user's setting gets destroyed by connecting a smaller body.
+        """
+        return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
+
+    def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
+        """What a stored exposure becomes on the attached camera.
+
+        See ``applied_gain_db_for``; the same contract for the other
+        quantity, so both travel the same path to hardware and to display.
+        """
+        return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
+
     @property
     def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
@@ -3706,15 +3768,30 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
             return
-        self._set_gain_db_impl(gain_db)
-        self._set_exposure_ms_impl(exposure_ms)
+        # These arrive as the layer's STORED values, which a smaller camera
+        # need not be able to reach. Capping here is what lets the store keep
+        # the user's intent: the write below carries a value this body takes,
+        # so the chunk target and the cache record what the sensor is actually
+        # at, and no driver is asked for a value it would refuse (pylon) or
+        # silently self-clamp while reporting success (IDS, FX2) -- that
+        # divergence is why the cap cannot be left to the driver.
+        gain = self.applied_gain_db_for(gain_db)
+        exposure = self.applied_exposure_ms_for(exposure_ms)
+        self._set_gain_db_impl(gain.applied)
+        self._set_exposure_ms_impl(exposure.applied)
         if auto_gain_settings is not None:
             self._set_auto_gain_impl(
                 auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
+        # Both numbers when the camera held one down, so a bundle shows the
+        # intent that was stored next to the value the sensor took; one
+        # number would read as the user having chosen the lower one.
+        capped_note = ''
+        if gain.capped or exposure.capped:
+            capped_note = f' capped(stored gain={gain.stored}dB exp={exposure.stored}ms)'
         _api_log.info(
-            f'apply_layer_camera_settings layer={layer} gain={gain_db}dB '
-            f'exp={exposure_ms}ms auto_gain={auto_gain}'
+            f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
+            f'exp={exposure.applied}ms auto_gain={auto_gain}{capped_note}'
         )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:

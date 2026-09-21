@@ -458,21 +458,20 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
                 # Size the sliders to the camera caps BEFORE the values land
-                # (the Kivy slider clamps the displayed value to its max). The
-                # over-cap STORED value is reconciled + persisted by the single
-                # clamp_layer_settings_to_caps pass below, not a duplicate
-                # inline clamp here.
+                # (the Kivy slider clamps the displayed value to its max). A
+                # stored value above the cap stays in the store and is pinned
+                # on the slider; the box keeps the real number.
                 layer_obj.ids['gain_slider'].max = max_gain
                 layer_obj.ids['exp_slider'].max = max_exposure
 
-            # Reconcile any layer whose stored gain/exposure exceeds the new
-            # camera's cap down to it -- the single clamp owner, shared with the
-            # reconnect resync. Ordering: this runs BEFORE the widgets are
-            # filled, so no widget ever renders a value the camera cannot
-            # honor. Its explicit apply is a no-op here (the layers are still
-            # initializing from construction); the startup push to the camera
-            # is the open layer's, from complete_initialization.
-            ctx.image_settings.clamp_layer_settings_to_caps()
+            # Render and re-apply any layer the camera cannot fully reach --
+            # the single owner, shared with the capability resync. Ordering:
+            # this runs BEFORE the widgets are filled, so the pinned slider and
+            # the stored value agree the first time they are drawn. Its
+            # explicit apply is a no-op here (the layers are still initializing
+            # from construction); the startup push to the camera is the open
+            # layer's, from complete_initialization.
+            ctx.image_settings.reconcile_layers_to_camera_caps()
 
             for layer in common_utils.get_layers():
                 ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()

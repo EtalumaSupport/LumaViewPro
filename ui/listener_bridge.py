@@ -184,22 +184,28 @@ class UIListenerBridge:
                 return
 
             settings = ctx.settings
+            imaging = ctx.lumaview.scope.imaging
+            # A capped layer is left alone. Its box holds the user's stored
+            # intent while the camera runs at the most this body can do, so
+            # the two legitimately disagree and the camera's number is not
+            # this box's to show: writing it would both hide the intent and
+            # arm the text handler to commit the camera's value back over it
+            # on the next focus change. The remaining comparison is the one
+            # this guard was built for -- reject a report caused by ANOTHER
+            # layer (a composite, an autofocus restore), where the camera and
+            # this layer's own setting have no reason to agree.
             if p == 'gain':
                 rounded = round(v, 1)
-                # Only update if this layer's configured value matches
-                # what the camera reports. If another layer changed
-                # the camera (composite, AF restore), don't display
-                # its value in this layer's text field. (#610)
-                expected = settings[opened_layer]['gain_db']
-                if abs(rounded - expected) > 0.5:
+                expected = imaging.applied_gain_db_for(settings[opened_layer]['gain_db'])
+                if expected.capped or abs(rounded - expected.applied) > 0.5:
                     return
                 text = str(rounded)
                 if layer_obj.ids['gain_text'].text != text:
                     layer_obj.ids['gain_text'].text = text
             elif p == 'exposure':
                 rounded = round(v, 2)
-                expected = settings[opened_layer]['exposure_ms']
-                if abs(rounded - expected) > 0.5:
+                expected = imaging.applied_exposure_ms_for(settings[opened_layer]['exposure_ms'])
+                if expected.capped or abs(rounded - expected.applied) > 0.5:
                     return
                 text = str(rounded)
                 if layer_obj.ids['exp_text'].text != text:

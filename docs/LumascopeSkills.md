@@ -1005,6 +1005,22 @@ scope.imaging.max_gain_db_cached                      # dB, None if no camera co
 
 These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.1 dB gain / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
 
+### What a stored setting applies as
+
+A saved per-channel gain or exposure is the user's committed intent and outlives whichever camera is attached. A body that cannot reach the value is driven to its own maximum instead, and the stored value is left alone — reconnect a capable camera and the intent applies again. Ask the API what a stored value actually becomes rather than comparing against a cap yourself:
+
+```python
+applied = scope.imaging.applied_gain_db_for(48.0)     # stored=48.0 applied=20.0 capped=True
+applied = scope.imaging.applied_exposure_ms_for(500.0)
+applied.stored                                        # what the user set
+applied.applied                                       # what this camera is given
+applied.capped                                        # True when the body is holding it down
+```
+
+Both return an `AppliedCameraSetting`. An unknown cap (no camera, or a driver that publishes none) narrows nothing, so `applied == stored` and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends `applied` to the driver, so the value a caller reads back is what the sensor is actually at.
+
+Note the difference from `set_gain_db` / `set_exposure_ms`, which are **explicit requests** and keep raising `CameraSettingRejected` for a value the camera refuses. Capping belongs to re-applying something already stored; a direct request for an out-of-range value is an error, not something to silently narrow.
+
 ### Save / restore camera state
 
 ```python

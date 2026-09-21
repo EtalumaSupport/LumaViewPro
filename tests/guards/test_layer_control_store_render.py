@@ -326,10 +326,12 @@ class TestTheRendererRendersTheStore:
         )
 
 
-class TestTheClampReconcilesThenRenders:
-    def test_it_still_reconciles_both_stored_values(self):
-        fn = _func(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
-        clamped = {
+class TestTheReconcileRendersAndAppliesWithoutTouchingTheStore:
+    def test_it_writes_neither_stored_value(self):
+        # The store is the user's intent and outlives the attached camera;
+        # the cap belongs on what is written to hardware, which the API owns.
+        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        written = {
             t.slice.value
             for n in ast.walk(fn)
             if isinstance(n, ast.Assign)
@@ -338,13 +340,13 @@ class TestTheClampReconcilesThenRenders:
             and isinstance(t.slice, ast.Constant)
             and t.slice.value in ('gain_db', 'exposure_ms')
         }
-        assert clamped == {'gain_db', 'exposure_ms'}
+        assert written == set(), f'reconcile must not write the store; found {sorted(written)}'
 
     def test_it_renders_and_applies_explicitly(self):
-        fn = _func(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
-        assert _calls(fn, RENDERER), 'The clamp must re-render both widgets from the store.'
+        fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        assert _calls(fn, RENDERER), 'The reconcile must re-render both widgets from the store.'
         assert _calls(fn, 'apply_settings'), (
-            'The clamp must deliver the reconciled value to the camera itself. It used to '
+            'The reconcile must deliver to the camera itself. It used to '
             'arrive only as the debounced side effect of the slider write, which was the '
             'only apply on the reconnect path.'
         )
@@ -353,12 +355,12 @@ class TestTheClampReconcilesThenRenders:
         """Ordering invariant: a value the camera cannot honor must never be
         rendered as if it were a legitimate policy divergence."""
         fn = _func(MS_PATH, 'load_settings')
-        clamp_lines = [
+        reconcile_lines = [
             n.lineno
             for n in ast.walk(fn)
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'clamp_layer_settings_to_caps'
+            and n.func.attr == 'reconcile_layers_to_camera_caps'
         ]
         render_lines = [
             n.lineno
@@ -367,11 +369,11 @@ class TestTheClampReconcilesThenRenders:
             and isinstance(n.func, ast.Attribute)
             and n.func.attr in ('sync_widgets_from_settings', RENDERER)
         ]
-        assert clamp_lines, 'load_settings must still delegate to the clamp owner.'
+        assert reconcile_lines, 'load_settings must still delegate to the reconcile owner.'
         assert render_lines, 'load_settings must still fill the widgets.'
-        assert max(clamp_lines) < min(render_lines), (
-            'clamp_layer_settings_to_caps must run BEFORE the widgets are filled; '
-            f'clamp at {clamp_lines}, render at {render_lines}.'
+        assert max(reconcile_lines) < min(render_lines), (
+            'reconcile_layers_to_camera_caps must run BEFORE the widgets are filled; '
+            f'reconcile at {reconcile_lines}, render at {render_lines}.'
         )
 
 

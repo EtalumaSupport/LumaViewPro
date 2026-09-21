@@ -203,18 +203,19 @@ class LayerControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
+        # Read once and share: the refusal path below restores it, and the
+        # no-edit check needs it. Two traversals of the same path drift.
+        if settings_path:
+            val = settings[self.layer]
+            for p in settings_path.split('.'):
+                val = val[p]
+        else:
+            val = settings[self.layer][settings_key]
+
         try:
             raw = cast(typed_text)
         except (ValueError, TypeError):
             logger.debug(f'[LVP Main  ] Invalid {settings_key} input: {self.ids[text_id].text!r}')
-            # Reset to current valid value (M21)
-            if settings_path:
-                parts = settings_path.split('.')
-                val = settings[self.layer]
-                for p in parts:
-                    val = val[p]
-            else:
-                val = settings[self.layer][settings_key]
             self._initializing = True
             try:
                 self.ids[text_id].text = str(val)
@@ -227,6 +228,17 @@ class LayerControl(BoxLayout):
             # entry was refused rather than accepted.
             gui_logger.text_input(record_name, typed_text)
             gui_logger.text_input(f'{record_name}_APPLIED', val)
+            return False
+
+        # The kv fires this handler on focus LOSS, not on edit
+        # (`on_focus: if not self.focus: root.gain_text()`), so clicking into
+        # a box and out again arrives here with the untouched stored value.
+        # Clipping it would rewrite the store with the widget's bound: a layer
+        # whose stored value legitimately sits above this camera's cap -- the
+        # user's intent, kept on purpose -- would be destroyed by a stray
+        # click, and the periodic flush would persist the loss. No edit, no
+        # commit; the box already shows the stored value.
+        if raw == val:
             return False
 
         upper = slider.max if value_max is None else value_max
@@ -486,19 +498,13 @@ class LayerControl(BoxLayout):
             if gain_known:
                 settings[self.layer]['gain_db'] = round(gain, 1)
             if exp_known:
-                # The API decided the value (the achieved exposure floored
-                # to the class's usable floor); what is STORED is that value
-                # reconciled against the camera's own range, which is what
-                # this slider's bounds carry. The raw value reaches the user
-                # through the lock's state below.
-                stored = float(
-                    np.clip(
-                        lock.stored_exposure_ms,
-                        self.ids['exp_slider'].min,
-                        self.ids['exp_slider'].max,
-                    )
-                )
-                settings[self.layer]['exposure_ms'] = round(stored, 2)
+                # The API decided this value -- the achieved exposure floored
+                # to the class's usable floor -- so that a GUI and a REST
+                # caller store the same thing. Narrowing it again to this
+                # slider's range would make the widget a second answerer over
+                # the API's own answer, and a slider whose max sits below the
+                # achieved exposure would silently shrink what gets stored.
+                settings[self.layer]['exposure_ms'] = round(lock.stored_exposure_ms, 2)
             if gain_known or exp_known:
                 self.render_layer_values_from_settings()
 
