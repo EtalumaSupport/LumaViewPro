@@ -692,11 +692,22 @@ class ProtocolRunner:
     def current_step_color(self) -> 'str | None':
         return self._executor.current_step_color()
 
+    @property
     def video_drain_busy(self) -> bool:
-        return self._executor.video_drain_busy()
+        """True while a video step's write drain outlives the run.
 
+        Read, not called: the engine spells this as a property and so does
+        every reader of it (the app-close gate, the session's busy check),
+        and the facade keeps the engine's spelling for every member it
+        forwards. Calling the engine's property was the one way this
+        facade could raise on any use, and no caller had ever tried it.
+        """
+        return self._executor.video_drain_busy
+
+    @property
     def video_pending_writes(self) -> int:
-        return self._executor.video_pending_writes()
+        """Frames across the run's video steps not yet on disk; read, not called."""
+        return self._executor.video_pending_writes
 
     def discard_video_pending(self) -> None:
         self._executor.discard_video_pending()
