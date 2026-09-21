@@ -110,14 +110,21 @@ class RuntimeState:
         """
         return getattr(self, '_objective_id', None)
 
-    def get_objective_info(self, objective_id: str) -> dict:
+    def get_objective_info(self, objective_id: str | None) -> dict | None:
         """Get objective metadata by ID.
 
         Args:
             objective_id: Objective identifier (e.g. "4x", "10x", "20x").
 
         Returns:
-            dict: Objective info including focal_length, magnification, etc.
+            dict | None: Objective info including focal_length, magnification,
+            etc., or None when the catalogue has no entry for this id -- which
+            includes a stored objective id of null, indistinguishable here from
+            "no id supplied". The loader answers None rather than raising on
+            purpose: an untyped raise escapes the launch path's recovery, which
+            republishes the shipped template, and takes app start down with it.
+            A caller that needs the metadata checks for None; every caller must,
+            because this is the value a fresh or half-configured scope returns.
         """
         return self._objectives_loader.get_objective_info(objective_id=objective_id)
 
