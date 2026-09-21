@@ -1999,7 +1999,7 @@ class Protocol:
         *,
         led_max_ma: int | None = None,
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
-    ) -> 'Protocol | bool':
+    ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
         Raises ProtocolFormatError on format issues, and, when
@@ -2296,10 +2296,6 @@ class Protocol:
         # the app uses, so a z index can never render as 'Z3.0' in a name.
         protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
-        if len(protocol_df) == 0:
-            # Will create an empty protocol
-            return False
-
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
 
@@ -2384,24 +2380,39 @@ class Protocol:
                     )
                     return copy.deepcopy(default)
 
+        def _typed_column(values, dtype) -> pd.Series:
+            """A per-row column for the steps frame, typed explicitly.
+
+            A bare list assignment takes its dtype from its contents, and
+            DataFrame.apply(axis=1) invokes the function once on a phantom
+            all-NaN row to infer a result type. At zero rows the first
+            silently loses the column's type and the second logs errors for
+            a step that does not exist, so every per-row column is built
+            here: iterate the rows, then pin the dtype.
+            """
+            return pd.Series(list(values), dtype=dtype, index=protocol_df.index)
+
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = 'image'
             # Each row gets its own independent dict
-            protocol_df['Video Config'] = [
-                copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Video Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in protocol_df.index), object
+            )
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs.
             # Merge DEFAULT_VIDEO_CONFIG so legacy TSVs that only stored a
             # subset of fields (e.g. older saves with just 'duration') fall
             # back to defaults for missing keys instead of failing validation
             # on fps=0.
-            protocol_df['Video Config'] = protocol_df.apply(
-                lambda row: {
-                    **DEFAULT_VIDEO_CONFIG,
-                    **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
-                },
-                axis=1,
+            protocol_df['Video Config'] = _typed_column(
+                (
+                    {
+                        **DEFAULT_VIDEO_CONFIG,
+                        **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
+                    }
+                    for _, row in protocol_df.iterrows()
+                ),
+                object,
             )
 
         if (
@@ -2415,16 +2426,19 @@ class Protocol:
 
         if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
             # Each row gets its own independent dict
-            protocol_df['Stim_Config'] = [
-                copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Stim_Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in protocol_df.index), object
+            )
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs
-            protocol_df['Stim_Config'] = protocol_df.apply(
-                lambda row: _carry_stim_key_names(
-                    _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+            protocol_df['Stim_Config'] = _typed_column(
+                (
+                    _carry_stim_key_names(
+                        _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+                    )
+                    for _, row in protocol_df.iterrows()
                 ),
-                axis=1,
+                object,
             )
 
         if config['version'] in (2, 3, 4, 5):
@@ -2447,9 +2461,11 @@ class Protocol:
             # verbatim). Files that also predate the auto/user flag take the
             # flag from the same classification; a stored flag is kept as-is.
             recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
-            protocol_df['Label'] = [label for label, _ in recovered]
+            protocol_df['Label'] = _typed_column((label for label, _ in recovered), str)
             if 'Auto_Named' not in protocol_df.columns:
-                protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+                protocol_df['Auto_Named'] = _typed_column(
+                    (is_auto for _, is_auto in recovered), bool
+                )
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save
@@ -2472,10 +2488,13 @@ class Protocol:
         # so a stale or hand-edited Name cannot disagree with the fields it
         # encodes. For auto-named rows this reproduces the stored Name
         # byte-identically.
-        protocol_df['Name'] = [
-            common_utils.build_step_name(common_utils.step_components(row))
-            for _, row in protocol_df.iterrows()
-        ]
+        protocol_df['Name'] = _typed_column(
+            (
+                common_utils.build_step_name(common_utils.step_components(row))
+                for _, row in protocol_df.iterrows()
+            ),
+            str,
+        )
 
         # The in-memory steps now carry every current column; stamp the
         # current version so a save writes the format the file actually

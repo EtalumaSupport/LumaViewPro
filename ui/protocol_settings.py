@@ -972,17 +972,6 @@ class ProtocolSettings(FloatLayout):
                 show_notification_popup(title=error_title, message=error_msg)
             return False
 
-        if protocol is False:
-            error_title = 'Empty Protocol Steps'
-            error_msg = 'Warning: Selected protocol had no steps. Empty protocol loaded.'
-            protocol_config = get_sequenced_capture_config_from_ui()
-
-            protocol = ctx.scope.protocols.create_protocol(empty_config=protocol_config)
-
-        if protocol is None:
-            logger.error(f'Unable to load protocol at {filepath}')
-            return
-
         self._protocol = protocol
 
         settings['protocol']['filepath'] = filepath
