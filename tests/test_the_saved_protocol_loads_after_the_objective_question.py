@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import find_def
+from tests.ast_seams import find_def, parse_module
 
 
 class TestTheStartupOrder:
@@ -198,3 +198,69 @@ class TestARefusedStartupLoadKeepsThePath:
             'the refused-but-kept branch leaves the panel showing no filename '
             'while settings still hold the path'
         )
+
+
+class TestAdoptingIsNotNavigating:
+    """Adopting the saved protocol must not drive the stage.
+
+    The stage move used to be gated on ``ctx.initializing`` -- "am I still
+    booting?" -- which answered the same as "did a person ask for this?"
+    only while the load ran from the panel's constructor. Once the load
+    moved behind the objective question it ran after ``ready`` flips, so
+    the guard went on answering a question it could no longer see: a
+    protocol with steps drove X, Y and Z the instant the user confirmed an
+    objective, with Z travel nobody asked for.
+
+    The caller now states which kind of load this is, because that is the
+    fact the decision actually needs and the only one a future call site
+    cannot get wrong by accident.
+    """
+
+    @staticmethod
+    def _navigate_kwarg(fn):
+        """The ``navigate=`` value passed to the load_protocol call in ``fn``."""
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, 'attr', getattr(node.func, 'id', None))
+            if name != 'load_protocol':
+                continue
+            for kw in node.keywords:
+                if kw.arg == 'navigate':
+                    return ast.literal_eval(kw.value)
+            return 'ABSENT'
+        return 'NO CALL'
+
+    def test_the_startup_adoption_does_not_navigate(self):
+        fn = find_def(
+            'ui/protocol_settings.py', 'load_persisted_protocol', class_name='ProtocolSettings'
+        )
+        assert fn is not None
+
+        assert self._navigate_kwarg(fn) is False
+
+    def test_a_load_the_user_asked_for_does_navigate(self):
+        """The file dialog is a person asking; that behaviour is unchanged."""
+        assert self._navigate_kwarg(parse_module('ui/file_dialogs.py')) is True
+
+    def test_every_caller_must_say_which_kind_of_load_this_is(self):
+        """Keyword-only and undefaulted: a third call site has to decide
+        rather than inherit an answer nobody chose for it."""
+        fn = find_def('ui/protocol_settings.py', 'load_protocol', class_name='ProtocolSettings')
+
+        assert 'navigate' in [a.arg for a in fn.args.kwonlyargs], 'must be keyword-only'
+        index = [a.arg for a in fn.args.kwonlyargs].index('navigate')
+        assert fn.args.kw_defaults[index] is None, 'must have no default'
+
+    def test_the_decision_no_longer_asks_whether_the_app_is_booting(self):
+        """The proxy is gone, not merely bypassed -- leaving it would invite
+        the next reader to trust it again."""
+        fn = find_def('ui/protocol_settings.py', 'load_protocol', class_name='ProtocolSettings')
+
+        reads = [
+            node.attr
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Attribute) and node.attr == 'initializing'
+        ]
+
+        assert reads == []

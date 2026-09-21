@@ -901,7 +901,7 @@ class ProtocolSettings(FloatLayout):
         filepath = settings['protocol']['filepath']
 
         try:
-            loaded = self.load_protocol(filepath=filepath, suppress_popup=True)
+            loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
         except Exception:
             logger.exception('[LVP Main  ] Error loading protocol at startup')
             loaded = False
@@ -930,7 +930,16 @@ class ProtocolSettings(FloatLayout):
         self.update_step_ui()
 
     # Load Protocol from File
-    def load_protocol(self, filepath='./data/new_default_protocol.tsv', suppress_popup=False):
+    def load_protocol(
+        self, filepath='./data/new_default_protocol.tsv', suppress_popup=False, *, navigate
+    ):
+        """Adopt a protocol from disk and fill the panel.
+
+        ``navigate`` says whether a person asked for this load, and so
+        whether the stage may drive to the current step. Required rather
+        than defaulted: a default is what let the startup adoption inherit
+        an answer nobody chose for it.
+        """
         gui_logger.protocol_action('LOAD', filepath)
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
@@ -1063,10 +1072,14 @@ class ProtocolSettings(FloatLayout):
         )
 
         self.update_step_ui()
-        # During startup the persisted protocol loads before the user has
-        # asked for anything: no stage move, no LED change until their
-        # first explicit navigation.
-        if not ctx.initializing:
+        # Only a load a person asked for may drive the stage. The startup
+        # adoption happens before anyone has asked for anything, so it fills
+        # the panel and stops there -- no stage move, no LED change until
+        # their first explicit navigation. This used to read "am I still
+        # booting?", which answered the same way only while the load ran
+        # inside the constructor; once it moved behind the objective
+        # question it was answering a question it could no longer see.
+        if navigate:
             self.go_to_step(step_idx=self.curr_step, protocol=False)
 
         return True
