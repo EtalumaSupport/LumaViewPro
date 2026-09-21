@@ -271,6 +271,13 @@ class Protocol:
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
 
+        # Construction is a frame replacement like any other, so it takes
+        # the same path: a caller's empty or column-less frame becomes the
+        # canonical typed empty frame here, not at the first consumer that
+        # asks it for a column.
+        if 'steps' in self._config:
+            self._set_steps(self._config['steps'])
+
     @staticmethod
     def _build_z_height_map(values) -> dict:
         z_height_map = {}
