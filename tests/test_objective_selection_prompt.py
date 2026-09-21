@@ -314,3 +314,21 @@ def test_template_ships_the_unconfirmed_flag():
     # contract); no AST seam exists for a data file.
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
     assert template.get('objective_confirmed') is False
+
+
+def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
+    """The buttons' first render comes from the layout file, not from any
+    code path a test otherwise reaches.
+
+    An empty slot shows its position; an assigned one is overwritten with
+    the magnification. Left bare, the position collides with the catalogue
+    a user is reading it against -- 1 against 1.25x Oly, 2 against 2x Oly
+    and 2.5x Meiji, 4 against 4x Oly -- so an empty slot beside an assigned
+    one reads as glass the scope does not have. Only the reset path is
+    covered elsewhere, so without this the initial render could go back to
+    bare numbers with every test still green.
+    """
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+
+    for slot in (1, 2, 3, 4):
+        assert f"text: '<{slot}>'" in kv, f'turret button {slot} lost its bracketed position'
