@@ -673,6 +673,73 @@ _MODULES_WIDGET_READ_PIN = {
     'modules/config_ui_getters.py': 5,
 }
 
+
+# Proxy 7: TWO ANSWERERS for one question. The five proxies above all count
+# REACH -- who touches whom, in which direction. None of them can see the
+# failure that actually stalls the migration: the same question answered in
+# two places, one for the GUI and one for L2, so the GUI never goes through
+# the Session and the two answers are free to drift.
+#
+# The measurement is the shape, not the names: a `config_ui_getters`
+# function and a `ScopeSession` method that both forward to the SAME
+# `config_helpers` function are two routes to one answer. Moving logic out
+# of ui/ into a modules/ helper LOWERS proxies 1-3 and 5 while creating one
+# of these, which is how a commit can score on every instrument and still
+# leave the API not owning the answer.
+
+
+def _twin_answerer_names():
+    """{'<config_helpers function>': 1} for each one reached by BOTH a
+    `config_ui_getters` function and a `ScopeSession` method."""
+
+    def helper_calls_in(node):
+        return {
+            n.func.attr
+            for n in _ast.walk(node)
+            if isinstance(n, _ast.Call)
+            and isinstance(n.func, _ast.Attribute)
+            and isinstance(n.func.value, _ast.Name)
+            and n.func.value.id == 'config_helpers'
+        }
+
+    with open(os.path.join(REPO_ROOT, 'modules', 'config_ui_getters.py')) as fh:
+        gui_tree = _ast.parse(fh.read())
+    gui = set()
+    for node in gui_tree.body:
+        if isinstance(node, _ast.FunctionDef):
+            gui |= helper_calls_in(node)
+
+    with open(os.path.join(REPO_ROOT, 'modules', 'scope_session.py')) as fh:
+        session_tree = _ast.parse(fh.read())
+    session = set()
+    for cls in session_tree.body:
+        if isinstance(cls, _ast.ClassDef):
+            for node in cls.body:
+                if isinstance(node, _ast.FunctionDef):
+                    session |= helper_calls_in(node)
+
+    return dict.fromkeys(gui & session, 1)
+
+
+# Pinned at 0e4a609e. Every entry is one question with a GUI answerer and an
+# L2 answerer; the set may only shrink. Retire one by deleting the
+# `config_ui_getters` forwarder and routing its GUI callers at the
+# `ScopeSession` member -- never by adding a third.
+#
+# `get_sequenced_capture_config_from_settings` is the worked example: it
+# entered this set at `ee765db0` (pre-REST item 1), in the commit that added
+# `ScopeSession.get_sequenced_capture_config` beside the GUI's existing
+# `get_sequenced_capture_config_from_ui` rather than routing the GUI at it.
+# The set went 5 -> 6 there and no instrument in this file moved.
+_TWIN_ANSWERER_PIN = {
+    'get_auto_gain_settings': 1,
+    'get_enabled_stim_configs': 1,
+    'get_layer_configs': 1,
+    'get_selected_labware_from_settings': 1,
+    'get_sequenced_capture_config_from_settings': 1,
+    'get_stim_configs': 1,
+}
+
 # Empty, and empty is the achieved state: nothing under modules/ or
 # drivers/ imports ui/. The pin stays so the next one is a rise from zero.
 _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
@@ -681,6 +748,11 @@ _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
 _MODULES_REMEDY = (
     'The lower layer is reaching up into the GUI: take the value as an argument (Rule 2).'
+)
+_TWIN_REMEDY = (
+    'Two answerers for one question. Moving logic out of ui/ is only half the '
+    'migration -- it has to land ON the API. Route the GUI at the ScopeSession '
+    'member and delete the config_ui_getters forwarder (goal 1, Rule 35).'
 )
 
 
@@ -742,6 +814,12 @@ class TestGuiIsDisplayOnly:
         )
         assert report == [], '\n'.join(report)
 
+    def test_twin_answerers_match_the_pin(self):
+        report = _ratchet_report(
+            _TWIN_ANSWERER_PIN, _twin_answerer_names(), 'GUI+Session answerers', _TWIN_REMEDY
+        )
+        assert report == [], '\n'.join(report)
+
 
 # Announced at the end of every run (tests/ratchets.py).
 from tests import ratchets as _ratchets
@@ -780,5 +858,11 @@ _ratchets.register(
     'GUI: ui imports from modules/ and drivers/',
     lambda: sum(_lower_layer_ui_import_counts().values()),
     sum(_LOWER_LAYER_UI_IMPORT_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: questions with a GUI answerer and an L2 answerer',
+    lambda: sum(_twin_answerer_names().values()),
+    sum(_TWIN_ANSWERER_PIN.values()),
     'equal',
 )
