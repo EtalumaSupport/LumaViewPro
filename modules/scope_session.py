@@ -835,6 +835,36 @@ class ScopeSession:
             use_zstacking=use_zstacking,
         )
 
+    def add_step(
+        self,
+        protocol: 'Protocol',
+        *,
+        before_step: int | None = None,
+        after_step: int | None = None,
+    ) -> list[str]:
+        """Add a step to ``protocol`` from this session's settings and live position.
+
+        The entry point a caller with no GUI uses to do what Add Step
+        does: one step per layer whose ``acquire`` is set, at the current
+        plate position, with the current objective, in the settings'
+        channel order. The protocols API performs the add and refuses when
+        nothing would be added; this composes its inputs from the session
+        the same way the GUI's handler does.
+
+        Returns the inserted step names, in protocol order.
+        """
+        objective_id, _ = self.get_current_objective_info()
+        return self.scope.protocols.add_step(
+            protocol,
+            layer_configs=self.get_layer_configs(),
+            stim_configs=self.get_stim_configs(),
+            plate_position=self.get_current_plate_position(),
+            objective_id=objective_id,
+            channel_order=self.settings.get('step_channel_order', None),
+            before_step=before_step,
+            after_step=after_step,
+        )
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 

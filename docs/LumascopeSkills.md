@@ -521,6 +521,13 @@ Recovery is deliberate data loss: pending writes from the wedged run are discard
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
+**Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. It returns the inserted step names in protocol order. When no layer is set to acquire, or a turret scope's current slot names no objective, it raises `ProtocolRunRefusedError` (reason `no_acquiring_layer` / `turret_objective_unset`) after logging and notifying once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=..., channel_order=..., before_step=... | after_step=...)`.
+
+```python
+protocol = session.scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
+names = session.add_step(protocol, before_step=0)   # ['custom0000_BF', ...]
+```
+
 ### Video steps and recordings
 
 A protocol step with `Acquire` = `video` records through the session's recording engine for the step's configured duration. This is the supported video path for L2 / headless callers; the GUI's manual Record button is a GUI-hosted convenience on the same engine.

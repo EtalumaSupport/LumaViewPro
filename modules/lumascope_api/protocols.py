@@ -179,6 +179,124 @@ class ProtocolsAPI:
             config=config,
         )
 
+    def add_step(
+        self,
+        protocol: Protocol,
+        *,
+        layer_configs: dict,
+        stim_configs: dict,
+        plate_position: dict,
+        objective_id: str,
+        channel_order: list[str] | None = None,
+        before_step: int | None = None,
+        after_step: int | None = None,
+    ) -> list[str]:
+        """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
+
+        The GUI's Add Step and a script's add are this one call. A layer
+        whose ``acquire`` is None contributes no step, and when no layer
+        acquires the add is refused rather than silently doing nothing:
+        the click used to return bare, so the user saw nothing happen and
+        nothing said why. On a turret scope the current slot must name an
+        objective, or the step would record glass the scope cannot say it
+        has.
+
+        ``channel_order`` names the layers whose steps come first, in that
+        order; layers it does not name follow in the order given. Each
+        layer's step is placed after the previous layer's, so the protocol
+        reads in that order -- the composite path associates channels by
+        their step order.
+
+        Returns the inserted step names, in protocol order.
+
+        Raises:
+            ProtocolRunRefusedError: no layer acquires, or the turret's
+                current slot has no objective. Logged and notified once.
+            ProtocolError: an impossible ``before_step`` / ``after_step``
+                (raised by the protocol).
+        """
+        if self._scope.capabilities.has_turret and (
+            not self._scope.motion.is_current_turret_position_objective_set()
+        ):
+            self._refuse(
+                reason='turret_objective_unset',
+                title='Protocol Add Step Error',
+                message=(
+                    'Cannot add step to protocol. Please set objective for current turret position.'
+                ),
+            )
+        if not any(cfg['acquire'] is not None for cfg in layer_configs.values()):
+            self._refuse(
+                reason='no_acquiring_layer',
+                title='Protocol Add Step Error',
+                message=(
+                    'Cannot add step: no channel is set to acquire. '
+                    'Set a channel to Image or Video first.'
+                ),
+            )
+
+        ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
+        ordered += [layer for layer in layer_configs if layer not in ordered]
+        stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
+
+        names: list[str] = []
+        for layer in ordered:
+            layer_config = layer_configs[layer]
+            if layer_config['acquire'] is None:
+                continue
+            name = protocol.insert_step(
+                step_name=None,
+                layer=layer,
+                layer_config=layer_config,
+                stim_configs=stim_configs,
+                plate_position=plate_position,
+                objective_id=objective_id,
+                before_step=before_step,
+                after_step=after_step,
+            )
+            names.append(name)
+            # The next layer goes after this one. Handing every layer the
+            # same index puts each new step AT that index, which reads the
+            # channels back in reverse. The index is arithmetic, not a
+            # name lookup: a loaded file may carry duplicate names.
+            inserted_at = before_step if before_step is not None else after_step + 1
+            before_step, after_step = None, inserted_at
+        return names
+
+    @staticmethod
+    def _stim_configs_with_invalid_channels_disabled(stim_configs: dict) -> dict:
+        """Disable an enabled stim channel whose frequency or current is not positive.
+
+        Warned and disabled rather than refused: the stim feature is not
+        in use yet (Eric, 2026-09-21), so its range has no owner and a
+        refusal would be a rule for nobody. When it is used, the range is
+        refused at this boundary, never disabled.
+        """
+        for stim_color, sc in stim_configs.items():
+            if not isinstance(sc, dict) or not sc.get('enabled', False):
+                continue
+            freq = sc.get('frequency', 0)
+            if not isinstance(freq, (int, float)) or freq <= 0:
+                _api_log.warning(
+                    f'[API] Stim channel {stim_color}: frequency {freq} Hz is invalid '
+                    f'(must be > 0). Disabling channel.'
+                )
+                sc['enabled'] = False
+            exp = sc.get('exposure', 0)
+            if isinstance(exp, (int, float)) and exp == 0 and sc.get('enabled', False):
+                _api_log.warning(
+                    f'[API] Stim channel {stim_color}: exposure is 0. '
+                    f'This may produce no visible pulses.'
+                )
+            illum = sc.get('illumination_ma', 0)
+            if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
+                _api_log.warning(
+                    f'[API] Stim channel {stim_color}: illumination {illum} mA is invalid '
+                    f'(must be > 0). Disabling channel.'
+                )
+                sc['enabled'] = False
+        return stim_configs
+
     def refuse_unaddressable_objectives(self, objective_ids: Iterable[str]) -> None:
         """Refuse unless this scope can put every objective named here in the light path.
 

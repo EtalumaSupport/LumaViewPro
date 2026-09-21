@@ -1478,24 +1478,6 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             from ui.notification_popup import show_notification_popup
 
-            plate_position = ctx.session.get_current_plate_position()
-            objective_id, _ = ctx.session.get_current_objective_info()
-
-            if (ctx.lumaview.scope.capabilities.has_turret) and (
-                not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-            ):
-                error_msg = (
-                    'Cannot add step to protocol. Please set objective for current turret position.'
-                )
-                logger.error(error_msg)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Add Step Error', message=error_msg
-                    ),
-                    0,
-                )
-                return
-
             if after_current_step:
                 after_step = self.curr_step
                 before_step = None
@@ -1503,70 +1485,19 @@ class ProtocolSettings(FloatLayout):
                 after_step = None
                 before_step = self.curr_step
 
-            layer_configs = get_layer_configs()
-
-            # Early return if no channels have acquire enabled (#548)
-            if not any(lc['acquire'] is not None for lc in layer_configs.values()):
+            try:
+                names = ctx.session.add_step(
+                    self._protocol, before_step=before_step, after_step=after_step
+                )
+            except exceptions.ProtocolRunRefusedError:
+                # Already logged and shown to the user by the API's funnel,
+                # in its own words.
                 return
 
-            # Use custom channel order from settings if configured,
-            # otherwise fall back to default get_layers() order.
-            # This controls the order channels are added as protocol steps,
-            # which matters for composite imaging association.
-            settings = ctx.settings
-            channel_order = settings.get('step_channel_order', None)
-            if channel_order:
-                # Only include channels that are in layer_configs
-                ordered_layers = [ch for ch in channel_order if ch in layer_configs]
-                # Append any channels not in the custom order
-                for ch in layer_configs:
-                    if ch not in ordered_layers:
-                        ordered_layers.append(ch)
-            else:
-                ordered_layers = list(layer_configs.keys())
-
-            stim_configs = get_stim_configs()
-
-            # H5: Warn about invalid stim configs at insert time
-            for stim_color, sc in stim_configs.items():
-                if not isinstance(sc, dict) or not sc.get('enabled', False):
-                    continue
-                freq = sc.get('frequency', 0)
-                if not isinstance(freq, (int, float)) or freq <= 0:
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: frequency {freq} Hz is invalid (must be > 0). Disabling channel.'
-                    )
-                    sc['enabled'] = False
-                exp = sc.get('exposure', 0)
-                if isinstance(exp, (int, float)) and exp == 0 and sc.get('enabled', False):
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: exposure is 0. This may produce no visible pulses.'
-                    )
-                illum = sc.get('illumination_ma', 0)
-                if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: illumination {illum} mA is invalid (must be > 0). Disabling channel.'
-                    )
-                    sc['enabled'] = False
-
-            for layer in ordered_layers:
-                layer_config = layer_configs[layer]
-                if layer_config['acquire'] is None:
-                    continue
-
-                _ = self._protocol.insert_step(
-                    step_name=None,
-                    layer=layer,
-                    layer_config=layer_config,
-                    stim_configs=stim_configs,
-                    plate_position=plate_position,
-                    objective_id=objective_id,
-                    before_step=before_step,
-                    after_step=after_step,
-                )
-
-                if after_current_step or (self.curr_step < 0):
-                    self.curr_step += 1
+            if after_current_step:
+                self.curr_step += len(names)
+            elif self.curr_step < 0:
+                self.curr_step += 1
 
             # Validate after inserting and warn the user if there are errors
             errors = self._protocol.validate_steps()

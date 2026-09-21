@@ -616,6 +616,13 @@ RUNNER_REFUSAL_COVERAGE = {
     # unusable directory on disk rather than a patched probe -- the whole
     # point of the gate is which filesystem states it can see, and a
     # scenario that stubs the predicate would pin nothing about them.
+    # Raised by the protocols API's add-step, before any run exists: a
+    # click or a script call that would add nothing is refused where the
+    # layer set is known, and the GUI's Add Step handler no longer decides.
+    'no_acquiring_layer': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    'turret_objective_unset': (
+        'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
+    ),
     'capture_location_unusable': (
         'tests/test_a_run_cannot_start_where_it_cannot_save.py::TestTheEngineRefuses'
     ),
