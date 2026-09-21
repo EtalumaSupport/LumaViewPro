@@ -258,33 +258,19 @@ class ProtocolSettings(FloatLayout):
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
 
-        try:
-            filepath = settings['protocol']['filepath']
-            protocol_success = ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
-                filepath=filepath, suppress_popup=True
-            )
-
-            if not protocol_success:
-                logger.info(
-                    '[LVP Main  ] No saved protocol loaded at startup -- using empty protocol'
-                )
-                # If protocol file is missing or incomplete, file name and path are cleared from memory.
-                filepath = ''
-                settings['protocol']['filepath'] = ''
-
-                protocol_config = get_sequenced_capture_config_from_ui()
-                self._protocol = ctx.scope.protocols.create_protocol(
-                    empty_config=protocol_config,
-                )
-
-        except Exception:
-            logger.exception('[LVP Main  ] Error loading protocol at startup')
-            filepath = ''
-            settings['protocol']['filepath'] = ''
-            protocol_config = get_sequenced_capture_config_from_ui()
-            self._protocol = ctx.scope.protocols.create_protocol(
-                empty_config=protocol_config,
-            )
+        # The persisted protocol is NOT loaded here. Whether the scope can
+        # perform it depends on the turret, and on a turreted scope the
+        # objective at the current slot is not known until the startup
+        # question has been answered -- which happens later, in on_start.
+        # Loading first meant judging a protocol against a turret
+        # configuration that was about to change. The startup sequence
+        # calls load_persisted_protocol() once the question resolves.
+        #
+        # The panel still needs A protocol so nothing downstream reads
+        # None.
+        self._protocol = ctx.scope.protocols.create_protocol(
+            empty_config=get_sequenced_capture_config_from_ui(),
+        )
 
         # The panel applying the plate it already shows, so the scope is on it
         # even when no protocol loaded; not a user pick.
@@ -891,6 +877,57 @@ class ProtocolSettings(FloatLayout):
         # `popup.dismiss` on the worker thread and can corrupt the Kivy
         # property graph mid-dispatch. Marshal to the UI thread.
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
+
+    def load_persisted_protocol(self) -> None:
+        """Load the protocol the last session left behind, once, at startup.
+
+        Called by the startup sequence after the objective question has
+        been answered or found not to be owed, because the answer decides
+        what the turret carries and therefore whether the saved protocol
+        can be performed at all.
+
+        A refusal KEEPS the remembered path. The file is real and the user
+        chose it; what is wrong is the scope's turret, which they can fix
+        and then reload. Clearing it would answer "your protocol is gone"
+        to a problem that is not about the protocol. Only a path with no
+        file behind it is forgotten, because there is nothing left to
+        remember.
+
+        Non-navigating, as the startup load has always been: it adopts the
+        protocol and fills the panel without driving the stage.
+        """
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        filepath = settings['protocol']['filepath']
+
+        try:
+            loaded = self.load_protocol(filepath=filepath, suppress_popup=True)
+        except Exception:
+            logger.exception('[LVP Main  ] Error loading protocol at startup')
+            loaded = False
+
+        if loaded:
+            return
+
+        if not filepath or not pathlib.Path(filepath).exists():
+            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
+            settings['protocol']['filepath'] = ''
+        else:
+            # The file is still there and something about this scope
+            # refused it. Keep the name on screen as well as in settings:
+            # it is the only thing telling the user which protocol they
+            # need to come back to, and load_protocol only writes the
+            # label on the path where it succeeds.
+            self.ids['protocol_filename'].text = os.path.basename(filepath)
+            logger.info(
+                f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
+                'its path is kept so it can be reloaded once the scope can perform it'
+            )
+
+        self._protocol = ctx.scope.protocols.create_protocol(
+            empty_config=get_sequenced_capture_config_from_ui(),
+        )
+        self.update_step_ui()
 
     # Load Protocol from File
     def load_protocol(self, filepath='./data/new_default_protocol.tsv', suppress_popup=False):

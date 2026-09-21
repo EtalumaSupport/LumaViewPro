@@ -31,9 +31,10 @@ CHOICES = ('4x Oly', '10x Oly', '20x Oly')
 class _ScriptedSession:
     """The Session as the renderer sees it: a question, and an answer."""
 
-    def __init__(self, question=None, *, changed=True):
+    def __init__(self, question=None, *, changed=True, provisional=False):
         self.question = question
         self.changed = changed
+        self.provisional = provisional
         self.confirmed = []
         self.cleared = []
         self.is_protocol_running = False
@@ -42,6 +43,12 @@ class _ScriptedSession:
         if isinstance(self.question, Exception):
             raise self.question
         return self.question
+
+    def settings_are_provisional(self):
+        # The renderer asks this before running a startup continuation on a
+        # question that is not owed: while settings are provisional the host
+        # re-asks later, so nothing may be hung on this pass.
+        return self.provisional
 
     def confirm_objective(self, objective_id, turret_position=None):
         if isinstance(self.changed, Exception):
@@ -62,6 +69,9 @@ class _Stand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting on
+    # the objective runs, and a stub here would answer for that.
+    _resolve_objective = VerticalControl._resolve_objective
     reset_turret_objective = VerticalControl.reset_turret_objective
     _selected_turret_position = VerticalControl._selected_turret_position
 

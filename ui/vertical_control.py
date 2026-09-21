@@ -667,7 +667,7 @@ class VerticalControl(BoxLayout):
         # asks, and so does startup, so no position goes unasked before
         # its objective matters.
 
-    def prompt_if_objective_unknown(self):
+    def prompt_if_objective_unknown(self, on_resolved=None):
         """Ask the Session whether the objective needs confirming; render the answer.
 
         The decision is the Session's (first run, or an unassigned slot at
@@ -676,12 +676,26 @@ class VerticalControl(BoxLayout):
         the choice back. A raise anywhere on the path becomes a
         notification: this runs on Clock callbacks, where a raise exits
         the app.
+
+        Args:
+            on_resolved: Run once the objective is settled, however it
+                settles -- answered, not owed, or the question itself
+                failing. The startup sequence hangs the persisted protocol
+                load on it, because what the turret carries decides
+                whether that protocol can be performed at all. It is NOT
+                run while settings are provisional: the question is owed
+                but unanswerable, and the host re-asks when they resolve.
+                Hanging it only on the answer would strand the load behind
+                the two failure paths here, which report to the user and
+                return.
         """
         try:
             question = _app_ctx.ctx.session.objective_question()
             if question is None:
+                if not _app_ctx.ctx.session.settings_are_provisional():
+                    self._resolve_objective(on_resolved)
                 return
-            self._render_objective_question(question)
+            self._render_objective_question(question, on_resolved=on_resolved)
         except Exception as e:
             logger.error(f'[UI] objective question failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -693,8 +707,22 @@ class VerticalControl(BoxLayout):
                     f'recorded with captures may be wrong: {e}'
                 ),
             )
+            self._resolve_objective(on_resolved)
 
-    def _render_objective_question(self, question):
+    def _resolve_objective(self, on_resolved) -> None:
+        """Run the continuation, and never let it take the caller down.
+
+        This runs on a Clock callback and inside except branches, where a
+        raise exits the app or replaces one reported failure with another.
+        """
+        if on_resolved is None:
+            return
+        try:
+            on_resolved()
+        except Exception as e:
+            logger.error(f'[UI] post-objective startup step failed: {e}', exc_info=True)
+
+    def _render_objective_question(self, question, on_resolved=None):
         """The one popup for the objective question; the answer applies below."""
         if question.turret_position is not None:
             first_line = (
@@ -713,11 +741,11 @@ class VerticalControl(BoxLayout):
             objectives=list(question.choices),
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
-                chosen, question.turret_position
+                chosen, question.turret_position, on_resolved=on_resolved
             ),
         )
 
-    def _apply_objective_answer(self, chosen, turret_position):
+    def _apply_objective_answer(self, chosen, turret_position, on_resolved=None):
         """Hand the answer to the Session and render what it did."""
         try:
             ctx = _app_ctx.ctx
@@ -741,6 +769,11 @@ class VerticalControl(BoxLayout):
             from ui.notification_popup import show_notification_popup
 
             show_notification_popup(title='Error', message=str(e))
+        finally:
+            # Whatever the rendering above did, the objective question is
+            # answered and the Session has it. A startup step waiting on
+            # that must not be stranded by a widget write that failed.
+            self._resolve_objective(on_resolved)
 
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False, restore_z=True):

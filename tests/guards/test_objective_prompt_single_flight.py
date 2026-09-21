@@ -150,6 +150,9 @@ class _Stand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting
+    # on the objective runs at all.
+    _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': _FakeWidget(text='')}

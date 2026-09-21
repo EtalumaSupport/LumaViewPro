@@ -189,6 +189,9 @@ class _VerticalControlStand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting
+    # on the objective runs at all.
+    _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(values=list(CATALOGUE), text='')}
@@ -209,6 +212,17 @@ class _AppStand:
         self.re_asked = 0
         self.objective_prompts = 0
         self.stopped = 0
+        self.protocol_loads = 0
+        self._persisted_protocol_loaded = False
+
+    def _load_persisted_protocol_once(self):
+        # The real one is latched for the same reason: the objective
+        # question is asked from several places and only the first may
+        # load the saved protocol.
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        self.protocol_loads += 1
 
     def _ask_about_rejected_settings(self):
         self.re_asked += 1

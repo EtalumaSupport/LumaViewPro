@@ -438,6 +438,12 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
+    # The saved protocol is loaded once, after the startup objective
+    # question settles. A plain attribute rather than a kv property: no
+    # widget binds to it, and it exists only so the several paths that can
+    # ask the objective question cannot each re-load over the user's work.
+    _persisted_protocol_loaded = False
+
     # kv mirrors of the session's run-state derivations, published by
     # the ONE run-state listener below (worker-side truth lives on the
     # session; a kv binding cannot read it directly). run_lockout
@@ -700,9 +706,41 @@ class LumaViewProApp(TooltipMixin, App):
         again when the provisional-settings dialog resolves -- while
         settings were provisional the question was suppressed because
         its answer could not be kept.
+
+        The persisted protocol load is hung on the answer. Whether the
+        scope can perform that protocol depends on what the turret
+        carries, and on a turreted scope the slot at the current position
+        is only assigned once this question is answered -- so loading
+        first meant judging the protocol against a configuration that was
+        about to change.
         """
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
+        Clock.schedule_once(
+            lambda dt: vertical_control.prompt_if_objective_unknown(
+                on_resolved=self._load_persisted_protocol_once
+            ),
+            0,
+        )
+
+    def _load_persisted_protocol_once(self) -> None:
+        """Load the saved protocol, the first time the objective settles.
+
+        Latched because the objective question is asked from more than one
+        place: this startup path, the provisional-settings dialog
+        resolving, and the turret arriving at an unassigned slot. Each is
+        a legitimate reason to ask again; none is a reason to re-load the
+        saved protocol over whatever the user has done since, which a
+        naive continuation would do on every one of them.
+
+        The latch is set BEFORE the load rather than after, so a load that
+        raises does not leave the door open for the next question to try
+        again -- the panel reports its own failure and keeps an empty
+        protocol.
+        """
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        ctx.motion_settings.ids['protocol_settings_id'].load_persisted_protocol()
 
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.
