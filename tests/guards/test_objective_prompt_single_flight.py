@@ -132,6 +132,12 @@ def clear_single_flight(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def clear_folded_continuations(monkeypatch):
+    """No test inherits another's folded continuations."""
+    monkeypatch.setattr(notification_popup, '_objective_popup_folded', [], raising=False)
+
+
+@pytest.fixture(autouse=True)
 def settings_are_keepable(monkeypatch):
     """Default every test to non-provisional settings; D4 overrides it."""
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
@@ -467,3 +473,105 @@ class TestProvisionalResolutionReAsks:
         revert = find_def('lumaviewpro.py', '_revert', class_name='LumaViewProApp')
         assert revert is not None, 'the _revert closure inside _ask_about_rejected_settings is gone'
         assert '_prompt_objective_if_needed' in direct_call_names(revert)
+
+
+# ---------------------------------------------------------------------------
+# A request folded into the prompt already on screen is still answered
+# ---------------------------------------------------------------------------
+
+
+class TestTheFoldedRequestIsStillAnswered:
+    """Showing one dialog instead of two is correct; losing the second
+    caller's work is not.
+
+    On a turreted scope whose current slot is unassigned this was not a
+    race but the deterministic startup order: the blocking turret move
+    schedules its question first, so Kivy's FIFO Clock renders that one
+    and startup's own asker -- the one carrying the persisted-protocol
+    load -- reached a single-flight guard that returned, taking the
+    continuation with it. The saved protocol then silently never loaded,
+    on every startup, and no test could see it because the prompt and the
+    settings both looked exactly right afterwards.
+    """
+
+    def test_the_folded_caller_s_continuation_runs_on_the_one_answer(
+        self, monkeypatch, popups, session
+    ):
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        ran = []
+
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('startup'))
+
+        assert len(popups) == 1, 'still one dialog'
+        assert ran == [], 'and nothing runs before it is answered'
+
+        confirm(popups[0], '10x Oly')
+
+        assert ran == ['startup']
+
+    def test_the_folded_caller_gets_the_answer_the_user_gave(self, monkeypatch, popups, session):
+        """The continuation is a startup step that reads the objective;
+        running it before the answer landed would read the stale one."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        seen = []
+
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown(
+            on_resolved=lambda: seen.append(session.settings['objective_id'])
+        )
+        confirm(popups[0], '4x Oly')
+
+        assert seen == ['4x Oly']
+
+    def test_it_runs_once(self, monkeypatch, popups, session):
+        """A continuation that fires twice would load the saved protocol
+        twice, and the second load happens after the first has applied."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        ran = []
+
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('startup'))
+        confirm(popups[0], '10x Oly')
+
+        assert ran == ['startup']
+        assert session.settings['turret_objectives'][1] == '10x Oly'
+        assert session.settings['objective_confirmed'] is True
+
+    def test_folding_re_arms_like_any_other_answer(self, monkeypatch, popups, session):
+        """The fold must not leave the flag set: the next unknowable
+        objective still gets asked about."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown(on_resolved=lambda: None)
+        confirm(popups[0], '10x Oly')
+
+        session.clear_turret_objective(1)
+        stand.prompt_if_objective_unknown()
+
+        assert len(popups) == 2
+
+    def test_a_prompt_that_goes_away_unanswered_takes_its_folded_work_with_it(
+        self, monkeypatch, popups, session
+    ):
+        """A continuation left behind would fire on the NEXT prompt's
+        answer -- a startup step run against a question nobody asked it
+        about. Unreachable while the modal is cancel-less; pinned so that
+        adding a cancel path cannot quietly create it."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        ran = []
+
+        stand.prompt_if_objective_unknown()
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('startup'))
+        popups[0].dismiss()
+
+        stand.prompt_if_objective_unknown()
+        confirm(popups[1], '10x Oly')
+
+        assert ran == []

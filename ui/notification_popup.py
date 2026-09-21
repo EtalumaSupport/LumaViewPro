@@ -426,6 +426,10 @@ class _CappedDropDown(DropDown):
 # Cleared by the popup's own dismiss, which fires before the answer is
 # applied.
 _objective_popup_open = False
+# Continuations belonging to requests folded into the prompt already on
+# screen. Showing one dialog instead of two is right; losing the second
+# caller's work is not.
+_objective_popup_folded: list[typing.Callable[[str], None]] = []
 
 
 def show_objective_selection_popup(
@@ -453,9 +457,18 @@ def show_objective_selection_popup(
         current_objective_id: Pre-selected value (the proposed default).
         on_confirm: Called with the chosen objective id.
     """
-    global _objective_popup_open
+    global _objective_popup_open, _objective_popup_folded
     if _objective_popup_open:
-        logger.info('[Popup    ] objective prompt already open -- second request dropped')
+        # Every trigger asks the same question -- objective_question() takes
+        # no arguments and is a pure read of the store -- so the prompt on
+        # screen IS this caller's prompt, and a second cancel-less modal
+        # would stack a duplicate whose answer overwrites the first. The
+        # caller's continuation is a different matter: at startup the folded
+        # caller is the one carrying the persisted-protocol load, so simply
+        # returning meant the saved protocol silently never loaded, on every
+        # turreted scope whose current slot is unassigned.
+        logger.info('[Popup    ] objective prompt already open -- request folded into it')
+        _objective_popup_folded.append(on_confirm)
         return
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(_make_message_label(message))
@@ -497,13 +510,25 @@ def show_objective_selection_popup(
     )
 
     def _on_confirm(*_a):
-        _log_response(title, f'OBJECTIVE:{spinner.text}')
+        global _objective_popup_folded
+        chosen = spinner.text
+        _log_response(title, f'OBJECTIVE:{chosen}')
+        # Taken BEFORE the dismiss below, which clears the list: the answer
+        # is owed to every caller that asked it, the folded ones included.
+        folded, _objective_popup_folded = _objective_popup_folded, []
         popup.dismiss()
-        on_confirm(spinner.text)
+        on_confirm(chosen)
+        for continuation in folded:
+            continuation(chosen)
 
     def _on_dismiss(*_a):
-        global _objective_popup_open
+        global _objective_popup_open, _objective_popup_folded
         _objective_popup_open = False
+        # A prompt that goes away without being answered takes its folded
+        # continuations with it. Left behind, one would fire on the NEXT
+        # prompt's answer -- a startup step run against a question nobody
+        # asked it about.
+        _objective_popup_folded = []
 
     confirm_button.bind(on_release=_on_confirm)
     # Dismiss (which confirm fires before applying the answer) clears the
