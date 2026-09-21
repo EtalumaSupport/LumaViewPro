@@ -773,8 +773,9 @@ _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
 _ANSWERER_REMEDY = (
-    'The GUI answers this below the API. Route the caller at its ScopeSession '
-    'member and delete the call, rather than moving it to another helper '
+    'The GUI answers this below the API. Route the caller at the Lumascope '
+    'API or at its ScopeSession member -- CLAUDE.md allows the GUI either -- '
+    'and delete the call, rather than moving it to another helper '
     '(goal 1, Rule 35).'
 )
 _MODULES_REMEDY = (
