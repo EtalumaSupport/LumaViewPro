@@ -653,7 +653,7 @@ class VerticalControl(BoxLayout):
             return
 
         try:
-            self.ids[f'turret_pos_{selected_turret}_btn'].text = f'<{selected_turret}>'
+            self.ids[f'turret_pos_{selected_turret}_btn'].text = f'< {selected_turret} >'
             _app_ctx.ctx.session.clear_turret_objective(selected_turret)
         except Exception as e:
             logger.exception(f'ResetTurretObjective] Error: {e}')

@@ -389,7 +389,7 @@ class MicroscopeSettings(BoxLayout):
             # Load previous turret position objectives
             for turret_pos, objective_id in settings['turret_objectives'].items():
                 if objective_id is None:
-                    button_text = f'<{turret_pos}>'
+                    button_text = f'< {turret_pos} >'
                 else:
                     magnification = ctx.session.get_objective_info(objective_id=objective_id)[
                         'magnification'

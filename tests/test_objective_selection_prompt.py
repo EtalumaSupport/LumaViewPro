@@ -294,7 +294,7 @@ class TestResetLeavesTheSlotCleared:
         assert h.session.confirmed == []
         # A cleared slot shows its position, parenthesised so it cannot be
         # read as a magnification beside the assigned buttons' '20x'.
-        assert h.stand.ids['turret_pos_2_btn'].text == '<2>'
+        assert h.stand.ids['turret_pos_2_btn'].text == '< 2 >'
 
     def test_every_position_behaves_the_same(self, monkeypatch):
         for position in range(1, 5):
@@ -331,4 +331,4 @@ def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
     kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
 
     for slot in (1, 2, 3, 4):
-        assert f"text: '<{slot}>'" in kv, f'turret button {slot} lost its bracketed position'
+        assert f"text: '< {slot} >'" in kv, f'turret button {slot} lost its bracketed position'
