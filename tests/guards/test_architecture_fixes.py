@@ -384,11 +384,18 @@ class TestTinyFileConsolidation:
 # is the migration working: lower the pin in the same commit, so the number
 # can never quietly grow back to a stale ceiling.
 #
-# The import pin is a WEAK proxy for logic: a file keeps an import for its
-# rendering uses after the logic that also used it moves down, so a
-# migration commit may change the import count by nothing at all. It stops
-# growth; it does not measure the migration. Pins 3 and 4 below measure the
-# lifecycle class directly.
+# Proxy 1 counted `modules.*` IMPORTS from ui/ until 2026-09-21, and it was
+# measuring the wrong thing. Three facts retired it, all measured at
+# `ace7b184`: of the 160 imports it counted, ONE was the API and none was
+# the Session, while 135 were utility coupling (`notification_center`,
+# `app_context`, `common_utils`, `exceptions`), which the migration will
+# never remove; it counted the LEGAL direction, so it could not separate the
+# GUI reaching past its boundary from the GUI using it; and it moved the
+# WRONG WAY on a correct migration, since routing a widget at the Session
+# means importing the Session -- the pin below carried a hand-written
+# exemption for exactly that. Over the three months to 2026-09-21 it rose
+# 145 -> 160 while orchestration went 16 -> 0 and widget reads 30 -> 5.
+# History for any tree: `tools/ratchet_history.py`.
 #
 # None of these proxies sees a decision written in ui/ against widget state
 # and the public scope API alone; that class is caught at review, not here.
@@ -404,21 +411,48 @@ def _relpath(path):
     return os.path.relpath(path, REPO_ROOT)
 
 
-def _ui_modules_import_counts():
-    """{'ui/<file>.py': number of `modules.*` import statements} -- every
-    Import / ImportFrom node in the file, at any nesting depth."""
+# The answerer layer: the two modules that answer questions about the
+# instrument and its configuration for the GUI. Every call into them from
+# ui/ is a question the GUI answers below the API, and retiring one is the
+# unit of migration work -- route the caller at its `ScopeSession` member
+# and the call site goes away.
+_ANSWERER_MODULES = frozenset({'config_ui_getters', 'config_helpers'})
+
+
+def _ui_answerer_call_counts():
+    """{'<gui file>.py': calls into the answerer layer}, both spellings.
+
+    BOTH forms are counted together because counting either alone inverts
+    the trend. Between 2026-06-22 and 2026-09-21 the attribute form
+    (`config_helpers.get_x(...)`) rose 6 -> 24 while the imported-name form
+    (`from modules.config_ui_getters import get_x` then `get_x()`) fell
+    97 -> 70: a census of attribute calls alone would report a fourfold
+    regression where the total in fact fell 103 -> 94.
+    """
     counts = {}
-    for path in _ui_source_files():
+    for path in _gui_source_files():
         with open(path) as fh:
             tree = _ast.parse(fh.read())
+        imported = set()
+        for node in _ast.walk(tree):
+            if (
+                isinstance(node, _ast.ImportFrom)
+                and node.module
+                and any(mod in node.module for mod in _ANSWERER_MODULES)
+            ):
+                imported |= {alias.asname or alias.name for alias in node.names}
         n = 0
         for node in _ast.walk(tree):
-            if isinstance(node, _ast.ImportFrom):
-                if node.module and (node.module == 'modules' or node.module.startswith('modules.')):
-                    n += 1
-            elif isinstance(node, _ast.Import) and any(
-                a.name == 'modules' or a.name.startswith('modules.') for a in node.names
-            ):
+            if not isinstance(node, _ast.Call):
+                continue
+            func = node.func
+            attribute_form = (
+                isinstance(func, _ast.Attribute)
+                and isinstance(func.value, _ast.Name)
+                and func.value.id in _ANSWERER_MODULES
+            )
+            imported_name_form = isinstance(func, _ast.Name) and func.id in imported
+            if attribute_form or imported_name_form:
                 n += 1
         if n:
             counts[_relpath(path)] = n
@@ -450,34 +484,27 @@ def _ui_private_reach_counts():
     return counts
 
 
-# Pinned at 530b6093 (beta34). Lower a value in the same commit that moves
-# the logic down; never raise one. One key was added, not raised:
-# ui/listener_bridge.py arrived by a move out of modules/ in the commit that
-# emptied _LOWER_LAYER_UI_IMPORT_PIN; the program's GUI reach fell, the file's
-# home changed.
-_UI_MODULES_IMPORT_PIN = {
-    'ui/advanced_settings.py': 9,
-    'ui/composite_capture.py': 9,
-    'ui/file_dialogs.py': 8,
-    'ui/histogram.py': 1,
-    'ui/image_settings.py': 4,
-    'ui/image_utils_kivy.py': 1,
-    'ui/layer_control.py': 14,
-    'ui/listener_bridge.py': 1,
-    'ui/main_display.py': 6,
-    'ui/microscope_settings.py': 16,
-    'ui/motion_settings.py': 5,
-    'ui/notification_popup.py': 4,
-    'ui/post_processing.py': 15,
-    'ui/protocol_settings.py': 17,
-    'ui/scope_display.py': 11,
+# Pinned at 5779bc04. Every entry is a question the GUI answers below the
+# API. Lower a value in the same commit that routes its caller at the
+# `ScopeSession` member; never raise one. Unlike the import count this
+# replaced, this pin can only fall by the migration actually happening: a
+# call site disappears when, and only when, the GUI stops answering.
+_UI_ANSWERER_CALL_PIN = {
+    'lumaviewpro.py': 1,
+    'ui/advanced_settings.py': 3,
+    'ui/composite_capture.py': 2,
+    'ui/image_settings.py': 5,
+    'ui/layer_control.py': 6,
+    'ui/microscope_settings.py': 7,
+    'ui/motion_settings.py': 3,
+    'ui/post_processing.py': 1,
+    'ui/protocol_settings.py': 30,
+    'ui/scope_display.py': 2,
     'ui/shader.py': 3,
     'ui/stage.py': 5,
-    'ui/step_navigation.py': 5,
-    'ui/tooltip.py': 1,
-    'ui/ui_helpers.py': 6,
-    'ui/vertical_control.py': 10,
-    'ui/zstack.py': 9,
+    'ui/ui_helpers.py': 2,
+    'ui/vertical_control.py': 11,
+    'ui/zstack.py': 13,
 }
 
 _UI_PRIVATE_REACH_PIN = {
@@ -745,6 +772,11 @@ _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 
 
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
+_ANSWERER_REMEDY = (
+    'The GUI answers this below the API. Route the caller at its ScopeSession '
+    'member and delete the call, rather than moving it to another helper '
+    '(goal 1, Rule 35).'
+)
 _MODULES_REMEDY = (
     'The lower layer is reaching up into the GUI: take the value as an argument (Rule 2).'
 )
@@ -771,9 +803,12 @@ class TestGuiIsDisplayOnly:
     """Rule 2's migration ratchet: logic in ui/ does not grow, and the pin
     tracks every drop."""
 
-    def test_ui_modules_imports_match_the_pin(self):
+    def test_ui_answerer_calls_match_the_pin(self):
         report = _ratchet_report(
-            _UI_MODULES_IMPORT_PIN, _ui_modules_import_counts(), 'modules.* imports'
+            _UI_ANSWERER_CALL_PIN,
+            _ui_answerer_call_counts(),
+            'answerer calls',
+            _ANSWERER_REMEDY,
         )
         assert report == [], '\n'.join(report)
 
@@ -824,9 +859,9 @@ class TestGuiIsDisplayOnly:
 from tests import ratchets as _ratchets
 
 _ratchets.register(
-    'GUI: modules.* imports from ui/',
-    lambda: sum(_ui_modules_import_counts().values()),
-    sum(_UI_MODULES_IMPORT_PIN.values()),
+    'GUI: questions the GUI answers below the API',
+    lambda: sum(_ui_answerer_call_counts().values()),
+    sum(_UI_ANSWERER_CALL_PIN.values()),
     'equal',
 )
 _ratchets.register(

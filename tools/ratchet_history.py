@@ -53,7 +53,7 @@ from tests.guards import test_architecture_fixes as _guards
 
 # (column label, detector). Each returns a dict whose values are summed.
 DETECTORS = (
-    ('ui->modules imports', _guards._ui_modules_import_counts),
+    ('answers below API', _guards._ui_answerer_call_counts),
     ('private reaches', _guards._ui_private_reach_counts),
     ('orchestration', _guards._gui_orchestration_counts),
     ('_app_ctx reads', _guards._modules_context_read_counts),
