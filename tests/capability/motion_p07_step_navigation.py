@@ -4,7 +4,7 @@ GUI entry: ui/stage.py:147 on_touch_down, right-button branch ->
 ui/ui_helpers.py:133 find_nearest_step -> ui/step_navigation.py:24 go_to_step.
 """
 
-from harness import check, run
+from harness import check, run, void
 
 import modules.config_helpers as config_helpers
 
@@ -28,10 +28,11 @@ def body(s):
             if ('go_to' in n.lower() or 'goto' in n.lower() or 'nearest' in n.lower())
             and not n.startswith('_')
         ]
-    check(
-        'no interactive go-to-step member on Session / Lumascope / MotionAPI / ProtocolsAPI',
-        not names,
-        f'found: {names}' if names else 'none',
+    void(
+        'a script can go to a protocol step through one API member',
+        bool(names),
+        'ui/step_navigation.py go_to_step is the only implementation: it moves XYZ, '
+        'then applies the step turret, LED, gain and exposure',
     )
 
     # --- find_nearest_step IS a modules-level function, reachable headless ---
@@ -76,11 +77,6 @@ def body(s):
         abs(here['x'] - float(step['X'])) < 0.05 and abs(here['y'] - float(step['Y'])) < 0.05,
         f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here["x"]:.2f},{here["y"]:.2f},'
         f'{m.get_current_position("Z"):.1f})',
-    )
-    check(
-        'but the rest of go_to_step -- the step LED / gain / exposure / turret it applies -- '
-        'has no API member; ui/step_navigation.py:24 is the only implementation',
-        True,
     )
 
 

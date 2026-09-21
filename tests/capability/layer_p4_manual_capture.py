@@ -1,10 +1,13 @@
 """P4: manual single-frame capture -- can a script get ONE frame onto disk?
 
-Stage A: Session / lumascope_api surface only.
-Stage B: modules.image_save (the Module layer the GUI reaches into directly).
+Stage A: Session / lumascope_api surface only. The frame arrives; nothing on
+         the API writes it, which is the void.
+Stage B: modules.image_save (the Module layer the GUI reaches into directly)
+         writes the file, which is the check.
 """
 
 import pathlib
+import sys
 import traceback
 import harness
 
@@ -28,15 +31,23 @@ try:
             if attr.startswith('__'):
                 continue
             low = attr.lower()
+            # 'snapshot' is a settings read, not a frame: it matched 'snap'
+            # and reported an API save that does not exist.
+            if 'snapshot' in low:
+                continue
             if ('save' in low and 'image' in low) or 'snap' in low or 'save_frame' in low:
                 hits.append(f'{name}.{attr}')
     print('A: API attrs that could save an image:', hits or 'NONE')
 
     arr = scope.imaging.capture_and_wait(force_to_8bit=False, timeout_s=5.0)
     print('A: capture_and_wait ->', type(arr).__name__, getattr(arr, 'shape', None))
-    print(
-        'A: files written by the API path:',
-        sorted(p.name for p in live.rglob('*') if p.is_file()) or 'NONE',
+    harness.check('a script can get one frame from the API', arr is not None)
+    api_files = sorted(p.name for p in live.rglob('*') if p.is_file())
+    print('A: files written by the API path:', api_files or 'NONE')
+    harness.void(
+        'the API can put one live frame on disk',
+        bool(hits) or bool(api_files),
+        'the manual save lives in modules.image_save, reached by the GUI directly',
     )
 
     # --- Stage B: the module function the GUI calls, reached directly ---
@@ -61,15 +72,16 @@ try:
         save_encoding='right_aligned',
     )
     print('B: save_live_image ->', out)
+    written = out is not None and pathlib.Path(out).is_file()
     print(
-        'B: file exists:',
-        out is not None and pathlib.Path(out).is_file(),
-        'bytes:',
-        pathlib.Path(out).stat().st_size if out else None,
+        'B: file exists:', written, 'bytes:', pathlib.Path(out).stat().st_size if written else None
     )
+    harness.check('modules.image_save.save_live_image writes one frame to disk', written)
     scope.illumination.leds_off()
     harness.assert_no_ui()
 except Exception:
     traceback.print_exc()
+    harness.check('probe completed without an unexpected raise', False)
 finally:
     s.shutdown()
+sys.exit(harness.report())

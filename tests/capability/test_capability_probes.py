@@ -10,17 +10,16 @@ answer stays a measurement rather than a snapshot.
 Two kinds of probe live here, and the difference matters when reading a green
 run:
 
-  * **19 probes assert** (the motion and settings slices, plus the two
-    post-processing probes that declare a void). They call `harness.check` /
-    `harness.void` and fail this module when a check breaks or a void gets
-    filled.
-  * **27 probes are smoke** (the rest of the layer, post-processing and
+  * **22 probes assert** (the motion and settings slices, the two
+    post-processing probes that declare a void, and the manual-save and
+    stim-interlock probes). They call `harness.check` / `harness.void` and
+    fail this module when a check breaks or a void gets filled.
+  * **24 probes are smoke** (the rest of the layer, post-processing and
     protocol slices). They print a narrative and record nothing, so they
     prove only that the capability still runs without crashing -- which is
     real, because `lvp_logger`'s excepthook turns an uncaught raise into a
-    silent exit 1. Converting their prose verdicts into `check` / `void`
-    calls is follow-up work; until then a green run here is NOT 46
-    capabilities verified.
+    silent exit 1. They stay smoke: the census found no void in them worth a
+    pin, so a green run here is 22 capabilities verified, not 46.
 
 Why subprocesses: `tests/conftest.py` installs Kivy mocks at import time, and
 a probe's load-bearing assertion is that Kivy is ABSENT from `sys.modules`.
