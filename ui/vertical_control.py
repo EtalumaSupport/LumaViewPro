@@ -776,10 +776,31 @@ class VerticalControl(BoxLayout):
             self._resolve_objective(on_resolved)
 
     @debounce(0.5)
+    def turret_gesture(self, selected_position):
+        """A person pressed a turret position button.
+
+        Absorbing a double-press and recording a press are properties of
+        the GESTURE, not of the turret move, so they live here and not on
+        turret_select. While they sat on turret_select, the debounce keyed
+        on the instance plus the method name, which is ONE window shared by
+        these four buttons, the step-navigation path, the XY home and the
+        protocol lane: a click within half a second of a run's turret move
+        silently dropped the run's move while X, Y and Z went on to the
+        step's coordinates. The record had the matching fault in the other
+        direction, naming program-initiated moves as presses nobody made.
+        """
+        gui_logger.button(f'TURRET_POS_{selected_position}')
+        self.turret_select(selected_position)
+
     def turret_select(self, selected_position, protocol=False, restore_z=True):
+        """Drive the turret to a slot. ``protocol`` selects the lane only.
+
+        Every caller reaches this: the gesture above, step navigation, the
+        XY home and the protocol lane. It is therefore not debounced and
+        writes no interaction record -- a program-initiated move is neither
+        a double-press to absorb nor a press to report.
+        """
         try:
-            if not protocol:
-                gui_logger.button(f'TURRET_POS_{selected_position}')
             ctx = _app_ctx.ctx
             settings = ctx.settings
             if not ctx.lumaview.scope.motion.has_turret_homed():

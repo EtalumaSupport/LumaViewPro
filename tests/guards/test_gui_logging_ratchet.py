@@ -272,22 +272,22 @@ _ROSTER = {
     'VerticalControl.turret_pos_1_btn': (
         'OBJECTIVE',
         'TURRET_OBJECTIVE',
-        _D('turret_select'),
+        _D('turret_gesture'),
     ),
     'VerticalControl.turret_pos_2_btn': (
         'OBJECTIVE',
         'TURRET_OBJECTIVE',
-        _D('turret_select'),
+        _D('turret_gesture'),
     ),
     'VerticalControl.turret_pos_3_btn': (
         'OBJECTIVE',
         'TURRET_OBJECTIVE',
-        _D('turret_select'),
+        _D('turret_gesture'),
     ),
     'VerticalControl.turret_pos_4_btn': (
         'OBJECTIVE',
         'TURRET_OBJECTIVE',
-        _D('turret_select'),
+        _D('turret_gesture'),
     ),
     'VerticalControl.z_position_id': ('Z_POSITION',),
     'VideoCreationControls.FolderChooseBTN(choose:apply_video_gen_to_folder)': (
