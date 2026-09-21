@@ -11,13 +11,13 @@ whatever the user had chosen. It also read labware raw, skipping the
 fallback and the user-facing warning the GUI lane went through, and
 ignored the wellplate loader it declared.
 
-The GUI builder is now an adapter: it supplies the two authoring choices
-that live only in running widgets and delegates the rest.
+The GUI now reaches the builder through ScopeSession.get_sequenced_capture_config,
+stating the two authoring choices that live only in its widgets; the
+Session's own contract is pinned in test_l2_assembles_a_capture_config.
 """
 
 import json
 import pathlib
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -82,35 +82,3 @@ def test_unloadable_labware_falls_back_instead_of_reaching_the_config_bare():
 
     assert config['labware_id'] != ''
     assert config['labware_id'] != 'a plate that does not exist'
-
-
-def test_the_gui_adapter_and_the_builder_agree(monkeypatch):
-    """The anti-duplication pin: same inputs, same config.
-
-    Field-for-field, not spot-checked -- drift between the two lanes is
-    the defect this consolidation exists to remove, and it hid for as
-    long as it did because nothing compared them.
-    """
-    settings = _settings()
-
-    ctx = MagicMock()
-    ctx.settings = settings
-    ctx.objective_helper = ObjectiveLoader()
-    ctx.wellplate_loader = WellPlateLoader()
-    protocol_settings = MagicMock()
-    protocol_settings.ids = {
-        'tiling_size_spinner': MagicMock(text='2x2'),
-        'acquire_zstack_id': MagicMock(active=True),
-    }
-    ctx.motion_settings.ids = {'protocol_settings_id': protocol_settings}
-
-    import modules.app_context as app_context
-
-    monkeypatch.setattr(app_context, 'ctx', ctx)
-
-    from modules.config_ui_getters import get_sequenced_capture_config_from_ui
-
-    from_ui = get_sequenced_capture_config_from_ui()
-    from_settings = _build(settings, tiling='2x2', use_zstacking=True)
-
-    assert from_ui == from_settings

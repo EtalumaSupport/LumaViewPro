@@ -498,7 +498,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/microscope_settings.py': 7,
     'ui/motion_settings.py': 3,
     'ui/post_processing.py': 1,
-    'ui/protocol_settings.py': 29,
+    'ui/protocol_settings.py': 26,
     'ui/scope_display.py': 2,
     'ui/shader.py': 3,
     'ui/stage.py': 5,
@@ -633,7 +633,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 14,
+    'modules/config_ui_getters.py': 13,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 2,
@@ -697,7 +697,7 @@ def _lower_layer_ui_import_counts():
 # Pinned at 74153fad. Lower a value in the same commit that hands the value
 # in as an argument or moves the popup to the caller; never raise one.
 _MODULES_WIDGET_READ_PIN = {
-    'modules/config_ui_getters.py': 5,
+    'modules/config_ui_getters.py': 2,
 }
 
 
@@ -753,16 +753,17 @@ def _twin_answerer_names():
 # `config_ui_getters` forwarder and routing its GUI callers at the
 # `ScopeSession` member -- never by adding a third.
 #
-# `get_sequenced_capture_config_from_settings` is the worked example: it
-# entered this set at `ee765db0` (pre-REST item 1), in the commit that added
-# `ScopeSession.get_sequenced_capture_config` beside the GUI's existing
-# `get_sequenced_capture_config_from_ui` rather than routing the GUI at it.
-# The set went 5 -> 6 there and no instrument in this file moved.
+# `get_sequenced_capture_config_from_settings` is the worked example, both
+# ways: it entered this set at `ee765db0` (pre-REST item 1), in the commit
+# that added `ScopeSession.get_sequenced_capture_config` beside the GUI's
+# existing `get_sequenced_capture_config_from_ui` rather than routing the
+# GUI at it -- the set went 5 -> 6 there and no instrument in this file
+# moved -- and it left when the protocol panel was routed at the Session
+# member and the forwarder deleted, the remedy below applied as written.
 _TWIN_ANSWERER_PIN = {
     'get_auto_gain_settings': 1,
     'get_layer_configs': 1,
     'get_selected_labware_from_settings': 1,
-    'get_sequenced_capture_config_from_settings': 1,
     'get_stim_configs': 1,
 }
 

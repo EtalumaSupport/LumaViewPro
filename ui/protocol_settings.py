@@ -23,7 +23,6 @@ from modules.config_ui_getters import (
     get_layer_configs,
     get_protocol_time_params,
     get_selected_labware,
-    get_sequenced_capture_config_from_ui,
     get_stim_configs,
     get_zstack_params,
     is_image_saving_enabled,
@@ -269,7 +268,7 @@ class ProtocolSettings(FloatLayout):
         # The panel still needs A protocol so nothing downstream reads
         # None.
         self._protocol = ctx.scope.protocols.create_protocol(
-            empty_config=get_sequenced_capture_config_from_ui(),
+            empty_config=ctx.session.get_sequenced_capture_config(),
         )
 
         # The panel applying the plate it already shows, so the scope is on it
@@ -728,7 +727,14 @@ class ProtocolSettings(FloatLayout):
         if not require_file_writes_idle('create a new protocol'):
             return
 
-        config = get_sequenced_capture_config_from_ui()
+        # The two authoring choices live only in this panel's widgets, so
+        # the panel states them; the Session assembles everything else.
+        # Left to the member's defaults they read 1x1 and no z-stack, and
+        # the built protocol silently loses the user's choice.
+        config = ctx.session.get_sequenced_capture_config(
+            tiling=self.ids['tiling_size_spinner'].text,
+            use_zstacking=self.ids['acquire_zstack_id'].active,
+        )
 
         # New Protocol resets each step to its channel's saved focus baseline.
         # A per-(well, channel) Z carry-over from the prior in-memory protocol
@@ -925,7 +931,7 @@ class ProtocolSettings(FloatLayout):
             )
 
         self._protocol = ctx.scope.protocols.create_protocol(
-            empty_config=get_sequenced_capture_config_from_ui(),
+            empty_config=ctx.session.get_sequenced_capture_config(),
         )
         self.update_step_ui()
 

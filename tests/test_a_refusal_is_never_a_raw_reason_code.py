@@ -169,12 +169,15 @@ ZSTACK_NO_RANGE = ProtocolRunRefusedError(
 class _ProtocolSettingsStarter(ps.ProtocolSettings):
     """The real class, with nothing but construction bypassed.
 
-    ``new_protocol`` returns at the builder, so no widget id is reached
-    on this path; giving it none keeps the test honest about that.
+    ``new_protocol`` returns at the builder, so the only widgets it reaches
+    are the two authoring choices it hands the Session.
     """
 
     def __init__(self):
-        self.ids = {}
+        self.ids = {
+            'tiling_size_spinner': SimpleNamespace(text='1x1'),
+            'acquire_zstack_id': SimpleNamespace(active=False),
+        }
 
 
 class TestARefusedProtocolCreation:
@@ -182,9 +185,9 @@ class TestARefusedProtocolCreation:
         scope = SimpleNamespace(
             protocols=SimpleNamespace(create_protocol=MagicMock(side_effect=ZSTACK_NO_RANGE))
         )
-        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope))
+        session = SimpleNamespace(get_sequenced_capture_config=lambda **choices: {})
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
         monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
-        monkeypatch.setattr(ps, 'get_sequenced_capture_config_from_ui', lambda: {})
 
         _ProtocolSettingsStarter().new_protocol()
 

@@ -323,28 +323,6 @@ def get_image_capture_config_from_ui() -> ImageCaptureConfig:
     return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
 
 
-def get_sequenced_capture_config_from_ui() -> dict:
-    """The sequenced capture config for the running GUI.
-
-    A GUI adapter, not a second builder: it gathers the two choices that
-    live only in the running widgets and hands them to the one builder in
-    config_helpers. The pair used to be assembled here by hand alongside a
-    settings-reading twin, and the two drifted -- the twin could not express
-    tiling or z-stacking at all, so whichever lane a caller took decided
-    what it got.
-    """
-    ctx = _app_ctx.ctx
-    protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-
-    return config_helpers.get_sequenced_capture_config_from_settings(
-        ctx.settings,
-        objective_helper=ctx.objective_helper,
-        wellplate_loader=ctx.wellplate_loader,
-        tiling=protocol_settings.ids['tiling_size_spinner'].text,
-        use_zstacking=protocol_settings.ids['acquire_zstack_id'].active,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Auto gain / objective / protocol time
 # ---------------------------------------------------------------------------

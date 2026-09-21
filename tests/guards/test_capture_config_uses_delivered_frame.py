@@ -73,9 +73,15 @@ def test_config_carries_delivered_frame_not_typed_text(monkeypatch):
     """1024 typed and never applied; the camera is at 1900."""
     _patch_ctx(monkeypatch, typed='1024', settings=_settings())
 
-    from modules.config_ui_getters import get_sequenced_capture_config_from_ui
+    from modules.config_helpers import get_sequenced_capture_config_from_settings
+    from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
 
-    config = get_sequenced_capture_config_from_ui()
+    config = get_sequenced_capture_config_from_settings(
+        _settings(),
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+    )
 
     assert config['frame_dimensions'] == {'width': 1900, 'height': 1900}
 

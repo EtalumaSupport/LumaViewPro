@@ -28,7 +28,6 @@ import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
-CONFIG_UI_GETTERS_SRC = REPO / 'modules' / 'config_ui_getters.py'
 ADVANCED_SETTINGS_SRC = REPO / 'ui' / 'advanced_settings.py'
 
 
@@ -40,15 +39,6 @@ def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.get_source_segment(path.read_text(), child)
     raise AssertionError(f'{class_name}.{method_name} not found in {path}')
-
-
-def _function_source(path: pathlib.Path, func_name: str) -> str:
-    src = path.read_text()
-    tree = ast.parse(src)
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            return ast.get_source_segment(src, node)
-    raise AssertionError(f'{func_name} not found in {path}')
 
 
 def test_tiling_overlap_percent_in_settings_schema():
@@ -123,8 +113,9 @@ def test_scan_config_carries_the_persisted_overlap():
 
     assert config['tiling_overlap_percent'] == 25.0
 
-    for name in ('get_sequenced_capture_config_from_ui',):
-        source = _function_source(CONFIG_UI_GETTERS_SRC, name)
-        assert 'tiling_overlap_spinner' not in source, (
-            'overlap must never be read off the spinner widget at scan time'
-        )
+    # The panel is the one GUI caller that states its authoring choices
+    # (tiling, z-stacking) to the Session; overlap is not one of them.
+    source = _method_source(PROTOCOL_SETTINGS_SRC, 'ProtocolSettings', 'new_protocol')
+    assert 'tiling_overlap_spinner' not in source, (
+        'overlap must never be read off the spinner widget at scan time'
+    )

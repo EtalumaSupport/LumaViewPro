@@ -1627,9 +1627,9 @@ def get_sequenced_capture_config_from_settings(
 ) -> dict:
     """Build a sequenced capture config from settings (no UI needed).
 
-    The single builder for this config; the GUI reaches it through
-    config_ui_getters.get_sequenced_capture_config_from_ui(), which
-    supplies the two authoring choices below from its widgets.
+    The single builder for this config; every caller, the GUI included,
+    reaches it through ScopeSession.get_sequenced_capture_config, and the
+    GUI supplies the two authoring choices below from its widgets.
 
     tiling and use_zstacking are ARGUMENTS, not settings reads. They are
     authoring inputs with no settings home: tiling's store is the
