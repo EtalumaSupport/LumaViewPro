@@ -292,7 +292,9 @@ class TestResetLeavesTheSlotCleared:
         # The re-assignment the dead button performed went through
         # confirm_objective; nothing may reach it from a reset.
         assert h.session.confirmed == []
-        assert h.stand.ids['turret_pos_2_btn'].text == '2'
+        # A cleared slot shows its position, parenthesised so it cannot be
+        # read as a magnification beside the assigned buttons' '20x'.
+        assert h.stand.ids['turret_pos_2_btn'].text == '<2>'
 
     def test_every_position_behaves_the_same(self, monkeypatch):
         for position in range(1, 5):
