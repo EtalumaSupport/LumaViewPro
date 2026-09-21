@@ -36,19 +36,19 @@ class TestAdoptTurretSlot1Objective:
         session = _session_with_settings(
             _settings('40x w/collar', {1: '1.25x Oly', 2: '20x Oly', 3: None, 4: None})
         )
-        session.adopt_turret_slot1_objective(model_has_turret=True)
+        session.adopt_turret_slot1_objective(has_turret=True)
         assert session.settings['objective_id'] == '1.25x Oly'
 
     def test_matching_objective_is_untouched(self):
         session = _session_with_settings(_settings('20x Oly', {1: '20x Oly', 2: None}))
-        session.adopt_turret_slot1_objective(model_has_turret=True)
+        session.adopt_turret_slot1_objective(has_turret=True)
         assert session.settings['objective_id'] == '20x Oly'
 
     def test_unassigned_slot1_keeps_stored_objective(self):
         # Nothing assigned at the starting position: no invented
         # objective; the unassigned-slot prompt owns resolving this.
         session = _session_with_settings(_settings('40x w/collar', {1: None, 2: '20x Oly'}))
-        session.adopt_turret_slot1_objective(model_has_turret=True)
+        session.adopt_turret_slot1_objective(has_turret=True)
         assert session.settings['objective_id'] == '40x w/collar'
 
     def test_non_turret_model_is_a_no_op(self):
@@ -56,13 +56,13 @@ class TestAdoptTurretSlot1Objective:
         # even when stale slot assignments linger in settings from a
         # previous scope on the same machine.
         session = _session_with_settings(_settings('40x w/collar', {1: '20x Oly'}))
-        session.adopt_turret_slot1_objective(model_has_turret=False)
+        session.adopt_turret_slot1_objective(has_turret=False)
         assert session.settings['objective_id'] == '40x w/collar'
 
     def test_missing_or_null_turret_config_is_a_no_op(self):
         for turret_objectives in (None, {}):
             session = _session_with_settings(_settings('20x Oly', turret_objectives))
-            session.adopt_turret_slot1_objective(model_has_turret=True)
+            session.adopt_turret_slot1_objective(has_turret=True)
             assert session.settings['objective_id'] == '20x Oly'
 
 

@@ -933,9 +933,7 @@ class ScopeSession:
         # as unassigned and silently keeps the stored objective.
         settings_init._normalize_turret_slot_keys(self.settings)
         scope_config = scope_models.get(self.settings.get('microscope'))
-        self.adopt_turret_slot1_objective(
-            model_has_turret=config_helpers.model_has_turret(scope_models, self.settings)
-        )
+        self.adopt_turret_slot1_objective(has_turret=self.scope_has_turret())
         for helper, data_file in (
             (self.wellplate_loader, 'labware.json'),
             (self.objective_helper, 'objectives.json'),
@@ -965,7 +963,7 @@ class ScopeSession:
         info = self.objective_helper.get_objective_info(objective_id=objective_id)
         self._log_resolved_optics(objective_id, info['focal_length'])
 
-    def adopt_turret_slot1_objective(self, model_has_turret: bool) -> None:
+    def adopt_turret_slot1_objective(self, has_turret: bool) -> None:
         """Make position 1's assignment the session's starting objective.
 
         This method is not part of the L2 API surface: ``configure_scope``
@@ -982,15 +980,13 @@ class ScopeSession:
         call this before anything consumes settings.
 
         Args:
-            model_has_turret: The DECLARED model's turret flag
-                (scopes.json), not live capabilities -- a scope whose
-                motorboard is dead reports no axes, and that
-                broken-hardware case is exactly when the stale
-                objective would otherwise survive. No-op when False:
-                on non-turret models objective_id is the user's free
+            has_turret: Whether this scope has a turret, from
+                ``scope_has_turret()`` -- the board when it is connected,
+                the declared model when it is not. No-op when False: on a
+                scope with no turret, objective_id is the user's free
                 choice.
         """
-        if not model_has_turret:
+        if not has_turret:
             return
         turret_objectives = self.settings.get('turret_objectives') or {}
         slot1_objective = turret_objectives.get(1)
@@ -1125,6 +1121,36 @@ class ScopeSession:
                 f'under {self.source_path!r}'
             )
 
+    def scope_has_turret(self) -> bool:
+        """Does this scope have a turret, as well as it can be known?
+
+        The board when the board is talking; the declared model only when
+        it is not.
+
+        The declaration alone was wrong in the common direction. The
+        shipped template declares LS850, whose catalogue entry has no
+        turret, so a real LS850T running on shipped settings was never
+        asked for the objective at its current slot -- and whatever the
+        stored objective happened to be went on setting the image scale.
+
+        The declaration is still the answer for a motorboard that is not
+        connected, and that case is the reason it was chosen: a dead board
+        reports no axes, so believing it would say "no turret" and let a
+        stale stored objective be adopted with nobody asked. Between a
+        board that cannot speak and a file that can be wrong, the file is
+        the better witness.
+
+        A composition detail, not part of the L2 API surface: it exists so
+        the two startup questions below ask one question once, rather than
+        each reading the declaration and drifting apart.
+        """
+        if self.scope.motor_connected:
+            return bool(self.scope.capabilities.has_turret)
+        import modules.config_helpers as config_helpers
+        from modules import layer_record
+
+        return config_helpers.model_has_turret(layer_record.load_scope_models(), self.settings)
+
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.
 
@@ -1151,13 +1177,8 @@ class ScopeSession:
                 model catalogue cannot be read, or the stored
                 ``turret_position`` is not a whole number.
         """
-        import modules.config_helpers as config_helpers
-        from modules import layer_record
-
         self._require_objective_catalogue()
-        has_turret = config_helpers.model_has_turret(
-            layer_record.load_scope_models(), self.settings
-        )
+        has_turret = self.scope_has_turret()
         first_run = not self.settings.get('objective_confirmed', False)
         slots = self.settings.get('turret_objectives') or {}
         if has_turret:
