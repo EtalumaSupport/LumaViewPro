@@ -278,10 +278,6 @@ def get_stim_configs() -> dict:
     return config_helpers.get_stim_configs(_app_ctx.ctx.settings)
 
 
-def get_enabled_stim_configs() -> dict:
-    return config_helpers.get_enabled_stim_configs(_app_ctx.ctx.settings)
-
-
 # ---------------------------------------------------------------------------
 # Position / labware
 # ---------------------------------------------------------------------------

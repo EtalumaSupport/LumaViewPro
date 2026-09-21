@@ -606,7 +606,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 15,
+    'modules/config_ui_getters.py': 14,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 2,
@@ -733,7 +733,6 @@ def _twin_answerer_names():
 # The set went 5 -> 6 there and no instrument in this file moved.
 _TWIN_ANSWERER_PIN = {
     'get_auto_gain_settings': 1,
-    'get_enabled_stim_configs': 1,
     'get_layer_configs': 1,
     'get_selected_labware_from_settings': 1,
     'get_sequenced_capture_config_from_settings': 1,
