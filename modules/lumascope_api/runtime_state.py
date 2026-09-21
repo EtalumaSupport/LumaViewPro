@@ -97,8 +97,6 @@ class RuntimeState:
                 bad id can never leave the pair torn.
         """
         objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
-        if objective is None:
-            raise ConfigError(f'unknown objective {objective_id!r}; active objective unchanged')
         self._objective_id = objective_id
         self._objective = objective
 
@@ -110,21 +108,22 @@ class RuntimeState:
         """
         return getattr(self, '_objective_id', None)
 
-    def get_objective_info(self, objective_id: str | None) -> dict | None:
+    def get_objective_info(self, objective_id: str) -> dict:
         """Get objective metadata by ID.
 
         Args:
-            objective_id: Objective identifier (e.g. "4x", "10x", "20x").
+            objective_id: Objective identifier (e.g. "4x Oly", "10x Oly").
 
         Returns:
-            dict | None: Objective info including focal_length, magnification,
-            etc., or None when the catalogue has no entry for this id -- which
-            includes a stored objective id of null, indistinguishable here from
-            "no id supplied". The loader answers None rather than raising on
-            purpose: an untyped raise escapes the launch path's recovery, which
-            republishes the shipped template, and takes app start down with it.
-            A caller that needs the metadata checks for None; every caller must,
-            because this is the value a fresh or half-configured scope returns.
+            dict: Objective info including focal_length, magnification, etc.
+
+        Raises:
+            ConfigError: The catalogue holds no such id, or the id is null --
+                which is what a fresh or half-configured scope stores, and
+                what a protocol saved against another catalogue names.
+                Refused by name rather than answered with None: nearly every
+                caller subscripts the answer, so a None reached the user as
+                a bare attribute error naming nothing they could act on.
         """
         return self._objectives_loader.get_objective_info(objective_id=objective_id)
 
@@ -209,8 +208,6 @@ class RuntimeState:
         None and surface as a TypeError, which tells a user nothing they
         can act on and a REST caller nothing it can branch on.
         """
-        from modules.exceptions import ConfigError
-
         stage_offset = self.get_stage_offset()
         if stage_offset is None:
             raise ConfigError(

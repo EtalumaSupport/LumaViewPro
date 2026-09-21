@@ -162,21 +162,38 @@ class TestT8ObjectiveQuestion:
         assert any('provisional' in line for line in _lines()), _lines()
 
     def test_a_proposal_outside_the_catalogue_falls_back_to_the_first_choice(self, sessions):
-        # '4' rather than 'banana': the loader PREFIX-matches, so '4' is the
-        # only kind of non-catalogue id that survives bring-up and reaches
-        # the question as a stored proposal (an id with no close match makes
-        # `initialize` raise, so that state cannot be constructed at all).
+        # A stored objective_id outside the catalogue cannot survive bring-up
+        # (`initialize` refuses it by name), so the only non-catalogue
+        # proposal the question can meet is a turret slot's: slot values are
+        # stored as written, and the question proposes the slot at the
+        # current position before the stored id.
         session = sessions(
             **_turret_settings(
-                turret_objectives={'1': None, '2': None, '3': None, '4': None},
-                objective_id='4',
+                turret_position=2,
+                turret_objectives={'1': None, '2': 'banana', '3': None, '4': None},
+                objective_id='20x Oly',
             )
         )
-        assert session.settings['objective_id'] == '4'
-        assert '4' not in session.objective_helper.get_objectives_list()
+        assert session.settings['turret_objectives'][2] == 'banana'
+        assert 'banana' not in session.objective_helper.get_objectives_list()
         question = session.objective_question()
         assert question is not None
+        assert question.turret_position == 2
         assert question.proposed == question.choices[0]
+
+    def test_a_stored_id_outside_the_catalogue_is_refused_at_bring_up(self, sessions):
+        # '4' is a prefix of '4x Oly'. The catalogue loader used to bind a
+        # partial id to its first prefix match, so this state was
+        # constructible and the question had to cope with it; the loader now
+        # refuses anything but an exact key, so it is refused before any
+        # session exists.
+        with pytest.raises(ConfigError, match="unknown objective '4'"):
+            sessions(
+                **_turret_settings(
+                    turret_objectives={'1': None, '2': None, '3': None, '4': None},
+                    objective_id='4',
+                )
+            )
 
     def test_an_empty_catalogue_raises_at_the_api(self, sessions, monkeypatch):
         session = sessions(**_turret_settings())
@@ -301,9 +318,10 @@ class TestT10SelectObjective:
 
     @pytest.mark.parametrize('bad', ['4', '', 'banana'])
     def test_a_non_catalogue_id_is_refused_before_any_write(self, sessions, bad):
-        # '4' is a PREFIX of a catalogue key: the loader would bind it to the
-        # first match, and '' to the first entry, so the member checks for
-        # an exact key itself.
+        # '4' is a prefix of a catalogue key and '' a prefix of every key:
+        # the two shapes the loader once bound to a first match instead of
+        # refusing. The refusal is the loader's, and it lands before the
+        # member writes anything.
         session = sessions(**_turret_settings())
         before = (
             session.settings['objective_id'],
@@ -316,18 +334,22 @@ class TestT10SelectObjective:
             session.scope.runtime_state.get_current_objective_id(),
         ) == before
 
-    def test_the_held_id_is_refused_when_it_is_not_a_key(self, sessions):
-        # A prefix id survives bring-up (the loader matches it), so a stored
-        # non-key id is constructible; it must not read as "no change".
-        session = sessions(
-            **_turret_settings(
-                turret_objectives={'1': None, '2': None, '3': None, '4': None},
-                objective_id='4',
+    def test_the_held_id_is_always_a_key(self, sessions):
+        # This used to construct a session holding the prefix id '4' and
+        # assert that re-selecting it was refused rather than read as "no
+        # change". That state is no longer constructible: bring-up refuses a
+        # stored id that is not an exact key, so the "no change" branch can
+        # only ever compare a key against a key.
+        with pytest.raises(ConfigError, match="unknown objective '4'"):
+            sessions(
+                **_turret_settings(
+                    turret_objectives={'1': None, '2': None, '3': None, '4': None},
+                    objective_id='4',
+                )
             )
-        )
-        assert session.settings['objective_id'] == '4'
-        with pytest.raises(ConfigError):
-            session.select_objective('4')
+        session = sessions(**_turret_settings())
+        assert session.settings['objective_id'] in session.objective_helper.get_objectives_list()
+        assert session.select_objective(session.settings['objective_id']) is False
 
 
 class TestT10TurretWriters:

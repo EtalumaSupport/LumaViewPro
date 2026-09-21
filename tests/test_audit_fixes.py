@@ -1219,7 +1219,7 @@ class TestIssue602_AFExecutorLED:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event)
             assert not scope.illumination.get_led_state('BF')['enabled'], (
                 'aborted AF must leave its channel dark (#602)'
             )
@@ -1281,7 +1281,7 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event)
             calls = [tuple(c.args) for c in mock_set.call_args_list]
             assert ('Z', True) in calls, (
                 f'abort path must restore Z precision_mode=True; got calls {calls}'

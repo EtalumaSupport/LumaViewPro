@@ -51,46 +51,59 @@ def test_non_string_objective_ids_keep_raising_config_error(loader, unusable):
         loader.get_objective_info(objective_id=unusable)
 
 
-def test_unknown_but_valid_string_still_returns_none(loader):
-    """The OTHER contract, unchanged: an unknown id resolves to no objective.
+def test_an_unknown_string_is_refused_by_name(loader):
+    """An id the catalogue does not hold is refused with the same type as null.
 
-    `RuntimeState.set_objective` turns this None into its documented
-    ConfigError. Converting this return into a raise would be a different
-    change with a different blast radius, so it is pinned here as-is.
+    It used to answer None. Of the twelve production readers of this lookup,
+    nine subscript the answer, so the None reached the user as a bare
+    "'NoneType' object is not subscriptable" naming nothing they could act on;
+    the three that guarded it did so three different ways. One refusal, one
+    type, and the launch path already recovers from it.
     """
-    assert loader.get_objective_info(objective_id='zzz-no-such-objective') is None
+    with pytest.raises(ConfigError, match="unknown objective 'zzz-no-such-objective'"):
+        loader.get_objective_info(objective_id='zzz-no-such-objective')
 
 
-def test_an_empty_id_resolves_to_no_objective_not_the_first_one(loader):
+@pytest.mark.parametrize('not_an_identifier', ['', '   '])
+def test_an_empty_or_whitespace_id_is_refused_not_matched(loader, not_an_identifier):
     """An empty id used to answer with the smallest lens in the catalogue.
 
-    The lookup falls back to prefix matching when an id is not an exact hit,
+    The lookup fell back to prefix matching when an id was not an exact hit,
     and the empty string is a prefix of every key -- so `''` matched whatever
     happens to be first in objectives.json and returned it as a confident
     answer. On the shipped catalogue that is 1.25x Oly, a real objective with a
     real focal length, so the caller got a plausible lens rather than a
     refusal, and every scale derived from it was wrong by the ratio of the two
-    magnifications.
-
-    An empty string is an unknown-but-valid string, so it answers the way every
-    other unresolvable string already does.
+    magnifications. Neither is an identifier, so both are refused.
     """
-    assert loader.get_objective_info(objective_id='') is None
+    with pytest.raises(ConfigError):
+        loader.get_objective_info(objective_id=not_an_identifier)
 
 
-def test_a_whitespace_id_resolves_to_no_objective(loader):
-    """The same hole with the same shape: a whitespace-only id is not an
-    identifier either, and no catalogue key begins with a space, so before the
-    prefix guard it fell through to the error return by accident rather than by
-    contract. Pinned so the emptiness test is about identifiers, not about the
-    particular string ''."""
-    assert loader.get_objective_info(objective_id='   ') is None
+def test_a_partial_id_is_refused_not_guessed(loader):
+    """The prefix fallback is gone: a near miss names two lenses, not one.
+
+    The shipped catalogue holds both '10x Oly' and '10x Phase', so an id of
+    '10x' bound to whichever came first in the file and answered with its focal
+    length as if the match were exact. A partial id is refused so the file
+    that names it gets corrected; the exact key still resolves.
+    """
+    assert '10x Oly' in loader.get_objectives_list()
+    assert '10x Phase' in loader.get_objectives_list()
+    with pytest.raises(ConfigError, match="unknown objective '10x'"):
+        loader.get_objective_info(objective_id='10x')
+    assert loader.get_objective_info(objective_id='10x Oly')['short_name'] == '10xOly'
 
 
-def test_a_real_partial_id_still_resolves(loader):
-    """The prefix fallback is deliberate and stays: a genuine partial id
-    resolves to the objective it names. The fix narrows what counts as a
-    prefix, not whether prefixes work."""
-    info = loader.get_objective_info(objective_id='4x Oly')
-    assert info is not None
-    assert info['short_name'] == '4xOly'
+def test_both_identifiers_and_an_unknown_short_name_are_refused_with_the_same_type(loader):
+    """Every unusable request answers with the one type the launch path catches.
+
+    These two raised a bare Exception, which the recovery around session
+    composition does not catch, so a stored settings defect reaching either
+    path failed app start instead of republishing the template.
+    """
+    with pytest.raises(ConfigError):
+        loader.get_objective_info(objective_id='4x Oly', short_name='4xOly')
+    with pytest.raises(ConfigError, match='short name'):
+        loader.get_objective_info(short_name='zzz-no-such-short-name')
+    assert loader.get_objective_info(short_name='4xOly')['short_name'] == '4xOly'

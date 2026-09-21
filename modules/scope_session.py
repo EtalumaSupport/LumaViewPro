@@ -1252,15 +1252,13 @@ class ScopeSession:
         move, a settings load) is not a change.
 
         Raises:
-            ConfigError: ``objective_id`` is not exactly a catalogue key.
-                Refused before any write, for every id including the one
-                held: the catalogue loader matches prefixes, so a partial
-                id would otherwise bind silently to the first match, and
-                '' to the first entry.
+            ConfigError: ``objective_id`` is not exactly a catalogue key,
+                or the catalogue is unavailable. The refusal is the
+                loader's and lands before any write; the held id is
+                always a key, because bring-up refuses any other, so the
+                no-change comparison below can only match a key.
         """
         self._require_objective_catalogue()
-        if objective_id not in self.objective_helper.get_objectives_list():
-            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
         if objective_id == self.settings.get('objective_id'):
             return False
         info = self.objective_helper.get_objective_info(objective_id=objective_id)

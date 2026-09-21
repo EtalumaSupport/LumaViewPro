@@ -120,57 +120,42 @@ class ObjectiveLoader:
         self,
         objective_id: str | None = None,
         short_name: str | None = None,
-    ) -> dict | None:
+    ) -> dict:
+        """The catalogue entry for one objective, or a refusal naming why not.
 
+        Raises:
+            ConfigError: No identifier, both identifiers, a non-string
+                identifier, or an identifier the catalogue does not hold.
+                One type for every unusable id: the launch path recovers
+                from exactly this type by republishing the shipped
+                template, and an untyped raise escapes that recovery and
+                takes app start down with it.
+        """
         if (objective_id is None) and (short_name is None):
             # A stored `objective_id` of null arrives here indistinguishable
             # from "the caller passed no identifier": None is both this
             # parameter's not-supplied sentinel and a legal value on disk. The
             # settings shape gate passes null through deliberately, so this has
-            # to be the settings failure it actually is -- the launch path
-            # answers that by republishing the shipped template, and an untyped
-            # raise escapes that recovery and takes app start down with it.
-            # Every other unusable id here already answers with this type.
+            # to be the settings failure it actually is.
             raise ConfigError('no objective identifier supplied')
 
         if (objective_id is not None) and (short_name is not None):
-            raise Exception('Must supply objective ID or short name, but not both')
+            raise ConfigError('supply an objective id or a short name, not both')
 
         if short_name is not None:
             objective_id = self.find_objective_id_from_short_name(short_name=short_name)
+            if objective_id is None:
+                raise ConfigError(f'no objective has the short name {short_name!r}')
 
-            if objective_id not in self._objectives:
-                raise Exception(f'No objective found with short name {short_name}')
+        # Exact key only. A prefix match used to stand in for a near miss, and
+        # with '10x Oly' and '10x Phase' both in the catalogue an id of '10x'
+        # bound silently to whichever came first in the file -- a real
+        # objective with a real focal length answering for a name that fits
+        # two. A near miss is refused by name so the file naming it gets fixed.
+        if not isinstance(objective_id, str) or objective_id not in self._objectives:
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
 
-        try:
-            objective_info = None
-            if objective_id in self._objectives:
-                objective_info = self._objectives[objective_id]
-            else:
-                logger.warning(
-                    f'Exact match for objective ID {objective_id} not found, attmempting to use closest match'
-                )
-                # An empty or whitespace-only id is not a partial identifier,
-                # and it prefixes EVERY key -- so the fallback below answered
-                # it with whatever happens to be first in objectives.json,
-                # returning a real objective with a real focal length as a
-                # confident match for "no objective named at all". The
-                # fallback exists for a genuine partial id, so it is given a
-                # prefix that can actually narrow.
-                if objective_id.strip():
-                    for key in self._objectives:
-                        if key.startswith(objective_id):
-                            objective_info = self._objectives[key]
-                            break
-
-                if objective_info is None:
-                    logger.error(f'No close match found for objective ID {objective_id}')
-                    return None
-
-        except Exception as e:
-            raise ConfigError(f'Unable to retrieve information for objective {objective_id}') from e
-
-        return objective_info
+        return self._objectives[objective_id]
 
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())

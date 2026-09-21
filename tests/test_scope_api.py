@@ -73,7 +73,7 @@ def _make_settings(layers=None, with_stim=False):
         },
         'labware': 'test_plate',
     }
-    settings['objective_id'] = '4x'
+    settings['objective_id'] = '4x Oly'
     settings['stage_offset'] = {'x': 0, 'y': 0}
     settings['live_folder'] = '/tmp'
     return settings
@@ -311,9 +311,9 @@ class TestGetCurrentObjectiveInfo:
         helper = MagicMock()
         helper.get_objective_info.return_value = {'magnification': 4, 'focal_length': 10}
         obj_id, obj = config_helpers.get_current_objective_info(settings, helper)
-        assert obj_id == '4x'
+        assert obj_id == '4x Oly'
         assert obj['magnification'] == 4
-        helper.get_objective_info.assert_called_once_with(objective_id='4x')
+        helper.get_objective_info.assert_called_once_with(objective_id='4x Oly')
 
 
 class TestFindNearestStep:
@@ -675,7 +675,7 @@ class TestScopeSession:
         helper.get_objective_info.return_value = {'magnification': 10}
         session = self._make_session(objective_helper=helper)
         obj_id, obj = session.get_current_objective_info()
-        assert obj_id == '4x'
+        assert obj_id == '4x Oly'
         assert obj['magnification'] == 10
 
     def test_protocol_running_derives_from_the_claim(self):

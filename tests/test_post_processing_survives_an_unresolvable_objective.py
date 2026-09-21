@@ -1,21 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """One unresolvable objective id must not take down a whole post-processing run.
 
-The objective lookup answers an id it cannot resolve with None -- a documented
-return, and the only answer available for a protocol that names an objective
-the catalogue no longer holds (the catalogue was edited, or the install was
-downgraded, between the run and the post-processing of its files).
+The objective lookup refuses an id it cannot resolve with a `ConfigError`,
+and a protocol can name an objective the catalogue no longer holds (the
+catalogue was edited, or the install was downgraded, between the run and the
+post-processing of its files).
 
-The post-processing filename builder subscripted that return directly, so the
-None became `TypeError: 'NoneType' object is not subscriptable`. It is raised
-inside the loop that plans output names across every group, so a single bad id
-in a single well aborted the post-processing of the entire run -- stitches,
-composites, projections and stacks for every other well included.
-
-The capture lane, which asks the same question of the same loader for the same
-purpose, has always handled the None: it logs a warning naming the id and
-carries None as the short name. Two lanes, one loader, one return value, two
-different beliefs about what it can be. This pins them to the same one.
+Uncaught, that refusal is raised inside the loop that plans output names across
+every group, so a single bad id in a single well aborted the post-processing of
+the entire run -- stitches, composites, projections and stacks for every other
+well included. The files already exist and only their names are at stake, so
+this one caller catches the refusal and omits the objective from the name; the
+capture lane does not catch it, because a step naming an unknown objective is
+refused before any run starts.
 """
 
 import pandas as pd
