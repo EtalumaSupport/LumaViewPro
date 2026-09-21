@@ -138,7 +138,9 @@ def _protocol_with(led_max_ma, illumination) -> Protocol:
         'labware_id': '96 well microplate',
     }
     p._num_steps_cache = None
-    p._objective_loader = SimpleNamespace(get_objective_info=lambda **kw: {})
+    p._objective_loader = SimpleNamespace(
+        get_objective_info=lambda **kw: {}, get_objectives_list=lambda: ['4x']
+    )
     return p
 
 

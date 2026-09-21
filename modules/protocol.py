@@ -620,7 +620,7 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objectives_file: str | None = None) -> list:
+    def validate_steps(self) -> list:
         """Validate all step fields and return a list of error strings.
 
         Returns an empty list if all steps are valid.
@@ -630,13 +630,12 @@ class Protocol:
         if steps is None or len(steps) == 0:
             return errors
 
-        # Load valid objectives
-        valid_objectives = set()
-        try:
-            obj_loader = ObjectiveLoader()
-            valid_objectives = set(obj_loader.get_objectives_list())
-        except Exception:
-            pass  # skip objective validation if loader fails
+        # The protocol's own catalogue, the one every other objective read
+        # in this class consults. A second loader built here used to answer
+        # a failed load by skipping the objective check for every step, and
+        # an empty catalogue skipped it the same way -- so the one protocol
+        # that most needed refusing validated clean.
+        valid_objectives = set(self._objective_loader.get_objectives_list())
 
         for idx, step in steps.iterrows():
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
@@ -651,7 +650,7 @@ class Protocol:
 
             # Objective
             obj = step.get('Objective', '')
-            if valid_objectives and obj not in valid_objectives:
+            if obj not in valid_objectives:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
             # Exposure -- 0 is valid (blank/placeholder steps)
