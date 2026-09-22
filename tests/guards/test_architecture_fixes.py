@@ -459,28 +459,57 @@ def _ui_answerer_call_counts():
     return counts
 
 
+def _private_reaches_in_source(source, label):
+    """{(label, '_private_name'): count} -- one file's reaches into an API private.
+
+    A reach counts when EITHER the attribute chain written at the call site
+    passes through `scope`, OR a single-underscore name ending `_impl` is read
+    on a receiver that is not bare `self`.
+
+    The second clause is here because the first pins the CALLER's spelling,
+    which the caller owns and may change freely. Binding
+    `imaging = ctx.lumaview.scope.imaging` and reaching through `imaging` left
+    the chain without the word `scope`, which took two real reaches out of this
+    census with no migration behind it. A member's name is the API's, not the
+    caller's, and does not move when a local is renamed.
+
+    A UNION, never a replacement. The chain clause is the only one that sees a
+    reach into an API private that does not end `_impl` -- the LED-truth store
+    and the active-objective store among them -- and 177 of the package's
+    private members are of that kind.
+
+    A bare `self` receiver is excluded from the name clause because `ui/` owns
+    one `_impl` method of its own, `CompositeCapture._live_capture_impl`, bound
+    as `action=self._live_capture_impl`. Reaching one's own body is not a reach
+    into the API.
+    """
+    counts = {}
+    for node in _ast.walk(_ast.parse(source)):
+        if not isinstance(node, _ast.Attribute):
+            continue
+        if not node.attr.startswith('_') or node.attr.startswith('__'):
+            continue
+        chain = []
+        value = node.value
+        while isinstance(value, _ast.Attribute):
+            chain.append(value.attr)
+            value = value.value
+        if isinstance(value, _ast.Name):
+            chain.append(value.id)
+        reaches_own_body = isinstance(node.value, _ast.Name) and node.value.id == 'self'
+        if 'scope' in chain or (node.attr.endswith('_impl') and not reaches_own_body):
+            key = (label, node.attr)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def _ui_private_reach_counts():
-    """{('ui/<file>.py', '_private_name'): count} -- attribute reads of a
-    single-underscore name whose attribute chain passes through `scope`."""
+    """{('ui/<file>.py', '_private_name'): count} -- the GUI's reaches into an
+    API private. The rule is `_private_reaches_in_source`."""
     counts = {}
     for path in _ui_source_files():
         with open(path) as fh:
-            tree = _ast.parse(fh.read())
-        for node in _ast.walk(tree):
-            if not isinstance(node, _ast.Attribute):
-                continue
-            if not node.attr.startswith('_') or node.attr.startswith('__'):
-                continue
-            chain = []
-            value = node.value
-            while isinstance(value, _ast.Attribute):
-                chain.append(value.attr)
-                value = value.value
-            if isinstance(value, _ast.Name):
-                chain.append(value.id)
-            if 'scope' in chain:
-                key = (_relpath(path), node.attr)
-                counts[key] = counts.get(key, 0) + 1
+            counts.update(_private_reaches_in_source(fh.read(), _relpath(path)))
     return counts
 
 
@@ -507,13 +536,31 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/zstack.py': 13,
 }
 
+# Every entry is a hardware write the GUI makes through the API's undispatched
+# body, so the dispatcher's refusal, its typed error and its api.log line are
+# skipped for that write and a REST caller gets them where the GUI does not.
+# Lower a value in the same commit that routes its caller at a public member.
+# A rise means a new reach and needs the same scrutiny as any other regression.
+#
+# The 12 -> 14 rise on 2026-09-22 was NOT a regression: no GUI code changed.
+# The census keyed off the caller's spelling and could not see a reach written
+# through a local alias, so `ui/microscope_settings.py`'s pixel-format and
+# binning applies had never been counted. 12 and 14 are the same tree measured
+# by a blind instrument and then a seeing one.
+#
+# `tools/ratchet_history.py` is unaffected and needs no annotation: it imports
+# the detector by name and replays it over every past tree, so the whole series
+# is recomputed by whichever rule ships today and gains no discontinuity here.
+# `_private_reaches_in_source` carries the rule.
 _UI_PRIVATE_REACH_PIN = {
     ('ui/advanced_settings.py', '_set_conversion_gain_mode_impl'): 1,
     ('ui/advanced_settings.py', '_set_line_noise_reduction_impl'): 1,
     ('ui/composite_capture.py', '_capture_and_wait_impl'): 1,
     ('ui/composite_capture.py', '_last_turret_position'): 1,
     ('ui/layer_control.py', '_apply_layer_camera_settings_impl'): 1,
+    ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
+    ('ui/microscope_settings.py', '_set_pixel_format_impl'): 1,
     ('ui/ui_helpers.py', '_move_absolute_impl'): 1,
     ('ui/vertical_control.py', '_home_turret_impl'): 3,
     ('ui/vertical_control.py', '_move_turret_impl'): 2,
@@ -814,7 +861,7 @@ class TestGuiIsDisplayOnly:
         )
         assert report == [], '\n'.join(report)
 
-    def test_ui_private_reaches_into_scope_match_the_pin(self):
+    def test_ui_private_reaches_match_the_pin(self):
         report = _ratchet_report(
             _UI_PRIVATE_REACH_PIN, _ui_private_reach_counts(), 'private reaches'
         )
@@ -857,6 +904,58 @@ class TestGuiIsDisplayOnly:
         assert report == [], '\n'.join(report)
 
 
+class TestThePrivateReachCensusCountsReachesNotSpellings:
+    """A reach must not leave the census by being renamed.
+
+    The census keyed off the caller's spelling, asking whether the literal
+    word `scope` appeared in the attribute chain written at the call site.
+    Binding the sub-object to a local first took two real reaches out of the
+    count with no migration -- and one of them, `ui/microscope_settings.py`'s
+    binning apply, is the site whose own comment records the production
+    incident the whole cluster exists because of.
+    """
+
+    _LABEL = 'ui/fixture.py'
+    _DIRECT = 'def f(ctx):\n    ctx.lumaview.scope.imaging._set_pixel_format_impl(fmt)\n'
+    _ALIASED = (
+        'def f(ctx):\n'
+        '    imaging = ctx.lumaview.scope.imaging\n'
+        '    imaging._set_pixel_format_impl(fmt)\n'
+    )
+
+    def test_an_aliased_reach_counts_the_same_as_a_direct_one(self):
+        direct = _private_reaches_in_source(self._DIRECT, self._LABEL)
+        aliased = _private_reaches_in_source(self._ALIASED, self._LABEL)
+        # Asserted non-zero first: a census that counts nothing would satisfy
+        # the equality below while seeing neither reach.
+        assert sum(direct.values()) == 1, direct
+        assert aliased == direct, f'aliased {aliased} != direct {direct}'
+
+    def test_a_non_impl_api_private_still_counts(self):
+        """The clause that sees the stores, which the `_impl` clause cannot.
+
+        `_led_state` is the LED-truth store and `_objective_id` is the
+        active-objective store; neither ends in `_impl`. A later
+        simplification that drops the chain clause in favour of the name
+        clause alone would stop seeing both, so this pins the union.
+        """
+        for member in ('_led_state', '_objective_id'):
+            source = f'def f(ctx):\n    return ctx.scope.illumination.{member}\n'
+            counts = _private_reaches_in_source(source, self._LABEL)
+            assert counts == {(self._LABEL, member): 1}, counts
+
+    def test_a_widgets_own_impl_method_is_not_a_reach(self):
+        """`ui/` owns exactly one `_impl` method of its own.
+
+        `CompositeCapture._live_capture_impl`, bound as
+        `action=self._live_capture_impl`. Reaching one's own body is not
+        reaching into the API, so the name clause excludes a bare `self`
+        receiver.
+        """
+        source = 'def f(self):\n    return self._live_capture_impl\n'
+        assert _private_reaches_in_source(source, self._LABEL) == {}
+
+
 # Announced at the end of every run (tests/ratchets.py).
 from tests import ratchets as _ratchets
 
@@ -867,7 +966,7 @@ _ratchets.register(
     'equal',
 )
 _ratchets.register(
-    'GUI: private scope reaches from ui/',
+    'GUI: private API reaches from ui/',
     lambda: sum(_ui_private_reach_counts().values()),
     sum(_UI_PRIVATE_REACH_PIN.values()),
     'equal',
