@@ -1273,6 +1273,7 @@ class SequentialIOExecutor:
                     AxisStateUnknownError,
                     CaptureError,
                     ConfigError,
+                    MoveNotCompletedError,
                     PositionOutOfRangeError,
                     ProtocolError,
                 )
@@ -1287,6 +1288,7 @@ class SequentialIOExecutor:
                         HardwareError,
                         PositionOutOfRangeError,
                         AxisStateUnknownError,
+                        MoveNotCompletedError,
                     )
                 except ImportError:
                     typed = (
@@ -1295,6 +1297,7 @@ class SequentialIOExecutor:
                         ConfigError,
                         PositionOutOfRangeError,
                         AxisStateUnknownError,
+                        MoveNotCompletedError,
                     )
                 action_name = getattr(task.action, '__name__', str(task.action))
                 if isinstance(exception, typed) and str(exception):

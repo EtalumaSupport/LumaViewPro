@@ -41,6 +41,7 @@ from lvp_logger import logger
 from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
+    MoveNotCompletedError,
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
@@ -1576,6 +1577,8 @@ class MotionAPI:
                 ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
+            MoveNotCompletedError: ``wait_until_complete`` was set and the
+                axis did not arrive; see ``_await_arrival``.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
@@ -1703,8 +1706,39 @@ class MotionAPI:
         _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
+            self._await_arrival(axis)
+
+    def _await_arrival(self, axis: str) -> None:
+        """Return only once ``axis`` confirmably reached its target; raise otherwise.
+
+        Arrival is the motion monitor's verdict: it sets the axis IDLE when
+        the firmware reports the target reached, or UNKNOWN when it gives
+        the axis up (a stall, a lost board). Either one sets the arrival
+        event, so the wait returning says only that the axis STOPPED
+        moving, not that it arrived -- the state says which. Writing IDLE
+        here after the wait, whatever it returned, made a stalled move read
+        as arrived.
+
+        The wait watches every axis, so it can time out on one this move
+        never touched. That axis's outcome belongs to whatever moved it:
+        the monitor's own stall clock faults a MOVING axis, and a home
+        decides its own axis. Only this move's axis is judged here.
+
+        This axis's event is read only when the wait timed out. After a wait
+        that saw every axis stop, a cleared event means a later move on
+        this axis has started, and faulting it would fault that move.
+
+        Raises:
+            MoveNotCompletedError: The axis was faulted UNKNOWN during the
+                wait, or had not arrived when the wait's bound ran out; the
+                axis is UNKNOWN either way.
+        """
+        all_stopped = self.wait_until_finished_moving(timeout_s=self._MOTION_SETTLE_TIMEOUT_S)
+        if not all_stopped and not self._arrival_events[axis].is_set():
+            self._set_axis_state(axis, AxisState.UNKNOWN)
+            raise MoveNotCompletedError(axis, 'timed_out')
+        if self.get_axis_state(axis) == AxisState.UNKNOWN:
+            raise MoveNotCompletedError(axis, 'faulted')
 
     def _move_relative_impl(
         self,
@@ -1724,6 +1758,8 @@ class MotionAPI:
         Raises:
             ValueError: If axis is invalid or distance is not numeric / out of bounds.
             AxisStateUnknownError: The axis position is unknown.
+            MoveNotCompletedError: ``wait_until_complete`` was set and the
+                axis did not arrive; see ``_await_arrival``.
 
         There is deliberately no ``force`` hatch here. Every caller is a
         user jog or an autofocus sweep, and none of them is a recovery
@@ -1811,8 +1847,7 @@ class MotionAPI:
         _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
+            self._await_arrival(axis)
 
     # --- Public dispatch ---
     # These six are what an external caller reaches: an SDK script, a REST

@@ -5,6 +5,8 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+from typing import ClassVar
+
 
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
@@ -280,6 +282,39 @@ class AxisStateUnknownError(Exception):
             f'or pass force=True to move anyway'
         )
         self.axis = axis
+
+
+class MoveNotCompletedError(Exception):
+    """A waited move ended without its axis arriving at the target.
+
+    The move was driven, so this is a failure, not a refusal: the motor
+    may have travelled any part of the way, and the axis is left UNKNOWN.
+    A waited move that returns means the axis arrived; this move could not
+    say that, so it raises instead of reporting a position nobody reached.
+
+    Distinct from ``AxisStateUnknownError``, which refuses a move before
+    anything is driven and offers ``force=True`` -- advice that is wrong
+    for a move that already happened.
+
+    Attributes:
+        axis: The axis whose move did not complete.
+        reason: ``'faulted'`` -- the motion monitor gave the axis up during
+            the wait (a stall, or the board lost); ``'timed_out'`` -- the
+            wait's bound ran out before the axis arrived.
+    """
+
+    _CAUSES: ClassVar[dict[str, str]] = {
+        'faulted': 'it stalled or the board was lost during the move',
+        'timed_out': 'it did not arrive within the motion time limit',
+    }
+
+    def __init__(self, axis: str, reason: str):
+        super().__init__(
+            f'The {axis} move did not complete: {self._CAUSES[reason]}. The '
+            f'{axis} position is now unknown -- home the scope before moving it again.'
+        )
+        self.axis = axis
+        self.reason = reason
 
 
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
