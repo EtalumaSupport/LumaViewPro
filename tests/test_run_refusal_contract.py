@@ -68,7 +68,7 @@ from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import configure_turret_like_bringup, home_sim_scope
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
@@ -183,6 +183,8 @@ def _make_single_step_protocol(color='BF'):
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'A1_test',
+        'Auto_Named': False,
     }
     return _build_real_protocol([step])
 
@@ -347,10 +349,13 @@ class TestHeadlessRefusalDoesNotHang:
             },
         }
         session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        # A headless session does not home: an unhomed scope refuses every
+        # XY move, and the run would end on its three-strike ceiling instead.
+        home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
-            # First: a run that reaches a terminal ending, and so becomes
-            # the run wait_for_completion answers for.
+            # First: a valid run that completes, and so becomes the run
+            # wait_for_completion answers for.
             done = threading.Event()
             runner.run_single_scan(
                 protocol=_make_single_step_protocol(),
@@ -365,26 +370,25 @@ class TestHeadlessRefusalDoesNotHang:
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
             settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
-            # This harness's scan does not survive its three-strike ceiling,
-            # and never has -- run_complete receives 'failed' here too. That
-            # is a fixture fact, not the subject: what is pinned is that the
-            # LAST COMMITTED run's ending is what comes back, whatever the
-            # ending was. Asserting 'completed' here would couple this file
-            # to why the fixture's captures fail.
-            assert settled.reason == 'consecutive_scan_failures', (
+            assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'wait_for_completion must report the first run it committed; '
                 f'it reported {settled.status!r} ({settled.reason!r})'
             )
             assert wait_until_not_running(session)
+            # The completed run is still writing its files, and prepare()
+            # refuses a new run until they land -- a refusal this test is
+            # not about.
+            _wait_for_file_queue_drain(session)
 
             # A refused run raises out of run_single_scan; nothing waits.
-            with pytest.raises(ProtocolRunRefusedError):
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
                 runner.run_single_scan(
                     protocol=_build_real_protocol([]),
                     sequence_name='refusal_headless_refused',
                     parent_dir=str(tmp_path),
                     image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
+            assert excinfo.value.reason == 'empty_protocol'
             assert not session.is_protocol_running, (
                 'a refused run must not leave the session reporting a live run'
             )

@@ -232,6 +232,8 @@ class TestHeadlessProtocolExecution:
                 'Video Config': {'duration': 1, 'fps': 5},
                 'Stim_Config': {},
                 'Step Index': 0,
+                'Label': 'A1_BF',
+                'Auto_Named': False,
             }
         ]
         df = pd.DataFrame(rows)

@@ -42,6 +42,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
+from tests.scope_fakes import home_sim_scope
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
@@ -102,6 +103,8 @@ def _make_single_step_protocol():
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'A1_test',
+        'Auto_Named': False,
     }
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -123,6 +126,9 @@ class TestClaimRefusalLeavesNoState:
         session = ScopeSession.create_headless(
             settings=complete_settings(**_make_session_settings(tmp_path))
         )
+        # A headless session does not home: an unhomed scope refuses every
+        # XY move, and the run would end on its three-strike ceiling instead.
+        home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         claim_held = False
         try:
@@ -143,10 +149,7 @@ class TestClaimRefusalLeavesNoState:
             assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
             settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
-            # As in test_run_refusal_contract: this harness's scan fails its
-            # three-strike ceiling and always has. The subject is that the
-            # run's ending reached the caller at all, not which ending.
-            assert settled.reason == 'consecutive_scan_failures', (
+            assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
             )
             # run_complete fires during cleanup; the claim releases at
@@ -155,6 +158,12 @@ class TestClaimRefusalLeavesNoState:
             deadline = time.monotonic() + COMPLETION_TIMEOUT
             while session.activity_claim.owner is not None:
                 assert time.monotonic() < deadline, 'first run never released the claim'
+                time.sleep(0.02)
+            # The completed run is still writing its files, and prepare()
+            # refuses a new run until they land -- a refusal this test is
+            # not about.
+            while session.file_io_executor.is_protocol_queue_active():
+                assert time.monotonic() < deadline, 'first run never finished writing its files'
                 time.sleep(0.02)
 
             # A video recording holds the session's exclusive-activity

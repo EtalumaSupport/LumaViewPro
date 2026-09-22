@@ -94,6 +94,8 @@ def _make_af_step_protocol():
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'AF_test',
+        'Auto_Named': False,
     }
     config = {
         'version': Protocol.CURRENT_VERSION,

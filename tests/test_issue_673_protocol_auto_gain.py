@@ -96,6 +96,8 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Video Config': {'duration': 5, 'fps': 30},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': f'A1_{color}_AG',
+        'Auto_Named': False,
     }
 
     df = pd.DataFrame([step])

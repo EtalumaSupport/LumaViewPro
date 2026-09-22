@@ -109,6 +109,7 @@ def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1, 
         'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
+        'Auto_Named': True,
     }
 
 

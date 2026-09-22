@@ -901,9 +901,23 @@ class Protocol:
         the one place the frame is replaced, keeps a protocol with no steps
         a queryable protocol for every consumer instead of each one
         carrying its own guard.
+
+        A frame WITH rows must already carry every current column. Run code
+        indexes columns by name mid-scan (the capture path reads 'Label' for
+        the filename, tiling reads 'Auto_Named'), so a frame missing one
+        would pass construction and fail every scan as a bare KeyError that
+        the run loop cannot tell from a hardware fault. Extra columns are
+        allowed: the z-stack marking adds and removes its own.
+
+        Raises:
+            ProtocolError: a non-empty frame is missing current columns.
         """
         if df.empty:
             df = self._create_empty_steps_df()
+        else:
+            missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
+            if missing:
+                raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
         self._config['steps'] = df
         self._num_steps_cache = None
 
