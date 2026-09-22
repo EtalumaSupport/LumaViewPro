@@ -181,13 +181,17 @@ if [ -f "$VERSION_FILE" ]; then
 fi
 """
 
-# Refresh version.txt after a merge so lines 2 and 3 name the destination
-# branch rather than the branch merged in: a merge commit does not run
-# pre-commit, so without this every promotion fixed line 3 by hand. A
-# same-branch pull is a no-op because line 3 already matches. A detached
-# checkout exits too: the stamp would keep line 3 as it is, so there is
-# nothing to refresh, and refreshing there is what put HEAD on the trunk.
-# The refresh commit skips the hooks: it changes one generated file.
+# Refresh version.txt after a merge COMMIT so lines 2 and 3 name the
+# destination branch rather than the branch merged in: a merge commit does
+# not run pre-commit, so without this every promotion fixed line 3 by hand.
+# A fast-forward is not one: it merges nothing, the commits it brought in
+# were stamped by their own pre-commit, and line 3 names the checkout that
+# authored the last of them, which with every track committing to one
+# trunk is routinely another worktree or a short-lived branch. Restamping
+# after a fast-forward made a contentless commit on every peer's next pull.
+# A detached checkout exits too: the stamp would keep line 3 as it is, so
+# there is nothing to refresh, and refreshing there is what put HEAD on the
+# trunk. The refresh commit skips the hooks: it changes one generated file.
 _POST_MERGE_SCRIPT = f"""#!/usr/bin/env bash
 {_HOOK_MARKER}
 set -e
@@ -196,6 +200,7 @@ VERSION_FILE="$REPO_ROOT/version.txt"
 [ -f "$VERSION_FILE" ] || exit 0
 BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
 [ -z "$BRANCH" ] && exit 0
+git rev-parse -q --verify 'HEAD^2' >/dev/null 2>&1 || exit 0
 [ "$(sed -n '3p' "$VERSION_FILE")" = "$BRANCH" ] && exit 0
 {_STAMP_BLOCK}git commit -m "release: refresh version.txt after merge (branch=$BRANCH)" --no-verify
 """
@@ -259,7 +264,7 @@ def install() -> int:
         print(f'Installed {hook.name} hook at {hook}')
     print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
     print('  runs tests/guards on an export of the index, then stamps version.txt.')
-    print('  post-merge restamps version.txt when a merge changed the branch it names.')
+    print('  post-merge restamps version.txt when a merge commit changed the branch it names.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
     return 0

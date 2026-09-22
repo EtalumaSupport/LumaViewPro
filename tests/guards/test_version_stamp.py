@@ -86,3 +86,36 @@ def test_a_named_branch_stamps_its_own_name(tmp_path):
     lines = _run_stamp(repo)
     assert len(lines) == 4
     assert lines[2] == 'feature/y'
+
+
+def _run_post_merge(repo: Path) -> None:
+    subprocess.run(['bash', '-c', _POST_MERGE_SCRIPT], check=True, cwd=repo, env=_CLEAN_ENV)
+
+
+def test_a_fast_forward_pull_makes_no_commit(tmp_path):
+    # Under one trunk line 3 names the checkout that AUTHORED the last stamped
+    # commit, so after a fast-forward it routinely differs from this
+    # checkout's branch; that is not a merge to refresh.
+    repo = _repo_with_version_file(tmp_path, 'triage/short-lived')
+    before = _git(repo, 'rev-parse', 'HEAD')
+    _run_post_merge(repo)
+    assert _git(repo, 'rev-parse', 'HEAD') == before
+    assert (repo / 'version.txt').read_text().splitlines()[2] == 'triage/short-lived'
+
+
+def test_a_merge_commit_restamps_to_the_destination_branch(tmp_path):
+    repo = _repo_with_version_file(tmp_path, 'dev/x')
+    _git(repo, 'checkout', '-q', '-b', 'feature/y')
+    (repo / 'version.txt').write_text('1.0\n2000-01-01 00:00\nfeature/y\n11111111\n')
+    _git(repo, 'commit', '-q', '-am', 'on the feature')
+    _git(repo, 'checkout', '-q', 'dev/x')
+    (repo / 'other.txt').write_text('x\n')
+    _git(repo, 'add', 'other.txt')
+    _git(repo, 'commit', '-q', '-m', 'on the trunk')
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'feature/y')
+    merge = _git(repo, 'rev-parse', 'HEAD')
+    _run_post_merge(repo)
+    assert _git(repo, 'rev-parse', 'HEAD') != merge
+    lines = (repo / 'version.txt').read_text().splitlines()
+    assert len(lines) == 4
+    assert lines[2] == 'dev/x'
