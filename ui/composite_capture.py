@@ -126,13 +126,13 @@ class CompositeCapture(FloatLayout):
         # In engineering mode the name carries the turret position,
         # composed by the writer's own renderer so a manual capture
         # and a protocol step spell it the same way and a filename
-        # reader recognises it. A position the scope has not
-        # reported yet adds nothing.
+        # reader recognises it. A slot the scope does not know adds
+        # nothing.
         append = common_utils.build_step_name(
             common_utils.StepNameComponents(
                 custom_prefix=append,
                 turret_position=(
-                    ctx.scope.motion._last_turret_position if ctx.engineering_mode else None
+                    ctx.scope.motion.get_turret_slot() if ctx.engineering_mode else None
                 ),
             )
         )

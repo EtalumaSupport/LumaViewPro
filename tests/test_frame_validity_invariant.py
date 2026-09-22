@@ -179,7 +179,11 @@ class TestMotionValiditySources:
         the settle-check cleared before the turret physically arrived."""
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_absolute(axis, pos, wait_until_complete=True)
+            # The public door refuses T; the turret's own move is the body
+            # move_turret drives between its Z park and restore, whose Z
+            # moves would record 'z_move' beside the source under test.
+            mover = scope.motion._move_absolute_impl if axis == 'T' else scope.motion.move_absolute
+            mover(axis, pos, wait_until_complete=True)
             assert source in recorded, (
                 f'move_absolute({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )

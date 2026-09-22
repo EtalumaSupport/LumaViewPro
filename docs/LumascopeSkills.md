@@ -691,6 +691,13 @@ scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, fo
 scope.capabilities.has_turret                    # turret presence probe
 scope.motion.move_turret(2)                      # turret position 1-4; any other slot raises
                                                  # PositionOutOfRangeError rather than driving
+scope.motion.get_turret_slot()                   # slot in the light path, or None when not known
+# The turret has no encoder: the slot is the one the last move_turret or home
+# left it in, recorded only when that command returned without error and no
+# stop_motion landed on it. None before the first, while one runs, after one
+# fails (MoveNotCompletedError), and after the turret's position is lost.
+# move_absolute / move_relative (and their _async forms) refuse 'T' with
+# ValueError -- the turret moves only by slot, through move_turret.
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}

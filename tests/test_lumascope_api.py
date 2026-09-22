@@ -795,7 +795,10 @@ class TestPerAxisDictsFromDriver:
 
         scope.motion.move_absolute('X', 100)
         scope.motion.move_absolute('Y', 100)
-        scope.motion.move_absolute('T', 0)
+        # T is not an absent axis to no-op: the generic door refuses the
+        # turret on every scope, because the turret moves only by slot.
+        with pytest.raises(ValueError, match='move_turret'):
+            scope.motion.move_absolute('T', 0)
         assert 'X' not in scope.motion._pos_cache
         assert 'Y' not in scope.motion._pos_cache
         assert 'T' not in scope.motion._pos_cache

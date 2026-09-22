@@ -288,9 +288,9 @@ class MoveNotCompletedError(Exception):
     """A waited move ended without its axis arriving at the target.
 
     The move was driven, so this is a failure, not a refusal: the motor
-    may have travelled any part of the way, and the axis is left UNKNOWN.
-    A waited move that returns means the axis arrived; this move could not
-    say that, so it raises instead of reporting a position nobody reached.
+    may have travelled any part of the way. A waited move that returns
+    means the axis arrived; this move could not say that, so it raises
+    instead of reporting a position nobody reached.
 
     Distinct from ``AxisStateUnknownError``, which refuses a move before
     anything is driven and offers ``force=True`` -- advice that is wrong
@@ -300,18 +300,27 @@ class MoveNotCompletedError(Exception):
         axis: The axis whose move did not complete.
         reason: ``'faulted'`` -- the motion monitor gave the axis up during
             the wait (a stall, or the board lost); ``'timed_out'`` -- the
-            wait's bound ran out before the axis arrived.
+            wait's bound ran out before the axis arrived. Both leave the
+            axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
+            moved; the axis is where the stop left it, which its position
+            reports, and a turret is in no known slot.
     """
 
-    _CAUSES: ClassVar[dict[str, str]] = {
-        'faulted': 'it stalled or the board was lost during the move',
-        'timed_out': 'it did not arrive within the motion time limit',
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'faulted': (
+            'it stalled or the board was lost during the move. The {axis} position '
+            'is now unknown -- home the scope before moving it again.'
+        ),
+        'timed_out': (
+            'it did not arrive within the motion time limit. The {axis} position '
+            'is now unknown -- home the scope before moving it again.'
+        ),
+        'stopped': 'the motors were stopped before it arrived.',
     }
 
     def __init__(self, axis: str, reason: str):
         super().__init__(
-            f'The {axis} move did not complete: {self._CAUSES[reason]}. The '
-            f'{axis} position is now unknown -- home the scope before moving it again.'
+            f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
         )
         self.axis = axis
         self.reason = reason

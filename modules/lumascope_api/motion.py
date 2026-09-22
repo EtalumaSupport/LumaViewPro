@@ -176,10 +176,22 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
-        # Last turret position cache -- move_turret() short-circuits a same-
-        # position request to avoid a no-op move command. Defaults to None
-        # so the first move_turret() always goes through to the firmware.
+        # The turret slot in the light path: the slot last commanded by a
+        # turret command (the turret move, either home) that returned
+        # without error and with no stop issued while it ran. The turret
+        # has no encoder, so this is the only truth there is about it; the
+        # controller's step counter reports steps issued, not glass in the
+        # path, and is never read as a slot. None -- unknown -- from the
+        # moment a turret command starts until it succeeds, after any
+        # failure, and whenever T goes UNKNOWN (``_set_axis_state``).
         self._last_turret_position: int | None = None
+
+        # Bumped by every stop_motion. A STOP sets target = actual on every
+        # axis, so a move in flight then reports "reached" at a place
+        # nobody commanded; a waited move compares this against the value
+        # it saw before driving to tell a stop from an arrival.
+        self._stop_generation = 0
+        self._stop_lock = threading.Lock()
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
@@ -247,6 +259,9 @@ class MotionAPI:
         with self._axis_state_lock:
             for ax in self._axis_state:
                 self._axis_state[ax] = AxisState.UNKNOWN
+        # Written directly above rather than through _set_axis_state, so the
+        # slot that rule clears on an UNKNOWN turret is cleared here too.
+        self._last_turret_position = None
         for ev in self._arrival_events.values():
             ev.set()
 
@@ -318,6 +333,24 @@ class MotionAPI:
             f'The {axis} move did not complete. That axis position is now '
             f'unknown -- home the scope before moving it again.',
         )
+
+    @staticmethod
+    def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
+        """Refuse T at a public generic mover; the turret moves only by slot.
+
+        A turret moved by a generic door skips the Z park that keeps the
+        objective off the sample and never records a slot, so afterwards
+        nothing knows which objective is in the light path. ``move_turret``
+        is the one door that does both.
+
+        Raises:
+            ValueError: ``axis`` is ``'T'``.
+        """
+        if axis == 'T':
+            raise ValueError(
+                f'{member} does not move the turret: use move_turret(slot), which parks '
+                f'Z first and records the slot in the light path'
+            )
 
     def _pre_drive(self, axis: str, force: bool = False) -> None:
         """Refuse to drive an axis whose position is not known.
@@ -447,8 +480,9 @@ class MotionAPI:
         """Submit the absolute move to the io_executor; return immediately.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            position: Target position -- um for X/Y/Z; turret slot (1-4) for T.
+            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
+                ``move_turret``; "T" is refused here.
+            position: Target position, in um.
             wait_until_complete: If True, the WORKER blocks until the move
                 finishes; this call still returns immediately.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
@@ -457,6 +491,7 @@ class MotionAPI:
             frame: ``'stage'`` (um, the default) or ``'plate'`` (mm as the
                 user types them). See ``_move_absolute_impl``.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_absolute_async')
         self._submit_motion(
             self._move_absolute_impl,
             'move_absolute_async',
@@ -487,6 +522,14 @@ class MotionAPI:
         """
         if not self._scope.motor_connected:
             return
+        # The generation moves inside this lock, after the board answered,
+        # and a waited move reads it under the same lock: a move the STOP
+        # ended cannot read the generation before the bump, and a firmware
+        # that does not implement STOP (nothing stopped) never bumps it.
+        with self._stop_lock:
+            self._send_stop()
+
+    def _send_stop(self) -> None:
         try:
             # Route through MotorBoard.motor_stop so field firmware
             # (2024-09-10 EL-0940-02, no STOP command) silently no-ops
@@ -495,6 +538,7 @@ class MotionAPI:
             # False if firmware doesn't implement it (cached).
             stopped = self._driver.motor_stop()
             if stopped:
+                self._stop_generation += 1
                 logger.info('[SCOPE API ] stop_motion: motors stopped')
             else:
                 logger.debug(
@@ -502,6 +546,9 @@ class MotionAPI:
                     'implement STOP; motors will latch on disconnect'
                 )
         except Exception as e:
+            # The exchange may have failed after the board took the STOP,
+            # so a move in flight cannot be vouched for as arrived.
+            self._stop_generation += 1
             # Log + notify, but don't re-raise: stop_motion is called
             # from shutdown paths where the caller can't meaningfully
             # recover and a raised exception would leave disconnect()
@@ -532,9 +579,10 @@ class MotionAPI:
                situations where the current physical position is an
                artifact of the home routine (T zeros to 1), not user
                intent.
-            2. Current physical T position, if it matches objective_id.
-               Catches the case where the user has already rotated to a
-               matching slot in this session and no persisted hint exists.
+            2. The turret's current slot (``get_turret_slot``), if known and
+               it matches objective_id. Catches the case where the user has
+               already rotated to a matching slot in this session and no
+               persisted hint exists.
             3. First-match dict iteration (lowest position with the
                objective). Used when neither hint is available -- preserves
                today's fallback behavior.
@@ -556,12 +604,9 @@ class MotionAPI:
             return persisted_position
 
         if prefer_current:
-            try:
-                current_pos = self.get_current_position(axis='T')
-                if turret_config.get(current_pos) == objective_id:
-                    return current_pos
-            except Exception:
-                pass
+            current_slot = self.get_turret_slot()
+            if current_slot is not None and turret_config.get(current_slot) == objective_id:
+                return current_slot
 
         for (
             turret_position,
@@ -576,11 +621,15 @@ class MotionAPI:
         """Check whether the objective slot at the current turret position is set.
 
         Returns:
-            bool: True if the current turret position has a configured
-                objective ID; False if the slot is unconfigured.
+            bool: True if the turret's current slot is known and has a
+                configured objective ID; False if the slot is unconfigured
+                or not known -- an unknown slot has no objective anyone can
+                name.
         """
-        position = self.get_current_position(axis='T')
-        return self._scope.runtime_state.get_turret_config()[position] is not None
+        slot = self.get_turret_slot()
+        if slot is None:
+            return False
+        return self._scope.runtime_state.get_turret_config()[slot] is not None
 
     def get_axes_config(self) -> dict:
         """Get the axis configuration from the motion board.
@@ -648,6 +697,9 @@ class MotionAPI:
         _api_log.info('home START')
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
+        # A homing turret is in no known slot until the home succeeds.
+        self._last_turret_position = None
+        stop_generation = self._stop_generation
         if 'Z' in present_axes:
             self._scope.imaging.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
@@ -669,11 +721,12 @@ class MotionAPI:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
             self._refresh_position_cache()
-            # The firmware homes the turret to position 1, so seed the cache.
-            # Without this it stays None and a subsequent move_turret(1) -- e.g. the
-            # startup select-position-1 -- can't recognize the turret is
-            # already there, and runs a redundant Z-retract / rotate / restore.
-            if 'T' in present_axes:
+            # The firmware homes the turret to slot 1. Recording it also lets
+            # a following move_turret(1) -- e.g. the startup select-slot-1 --
+            # recognise the turret is already there instead of running a
+            # redundant Z-retract / rotate / restore. Not after a stop: a
+            # home the stop cut short did not reach slot 1.
+            if 'T' in present_axes and not self._stopped_since(stop_generation):
                 self._last_turret_position = 1
             return True
         except Exception:
@@ -771,6 +824,9 @@ class MotionAPI:
         # Setting T to HOMING clears its arrival event, which would block
         # wait_until_finished_moving() inside _safe_turret_move's Z move.
         _api_log.info('T home START')
+        # A homing turret is in no known slot until the home succeeds.
+        self._last_turret_position = None
+        stop_generation = self._stop_generation
         try:
             with self._reference_position_logger(), self._safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
@@ -797,10 +853,10 @@ class MotionAPI:
                 )
                 return False
             self._refresh_position_cache()
-            # Turret homes to position 1; seed the cache so a following
-            # move_turret(1) is a no-op rather than a redundant Z-retract / rotate /
-            # restore (see home() for the full rationale).
-            self._last_turret_position = 1
+            # Turret homes to slot 1 (see home() for why it is recorded). A
+            # home a stop cut short did not reach it.
+            if not self._stopped_since(stop_generation):
+                self._last_turret_position = 1
             _api_log.info('T home DONE')
             return True
         except Exception:
@@ -848,6 +904,9 @@ class MotionAPI:
         Raises:
             AxisStateUnknownError: The turret position is unknown.
             PositionOutOfRangeError: The slot is not a whole number 1-4.
+            MoveNotCompletedError: The Z park, the turret move or the Z
+                restore did not arrive, or was stopped. The slot is unknown
+                afterwards, whichever of the three it was.
         """
         # Refused here as well as at the generic door below, and both are
         # load-bearing: this one precedes the safety Z-retract and the
@@ -875,15 +934,35 @@ class MotionAPI:
         self._pre_drive('T')
 
         # Commanding a move of the T axis is slow, even if the move is to the current position.
-        # Use caching to determine if T is requested to move to it's current position, and bypass the
-        # move altogether if it is.
+        # A request for the slot the last successful turret command left the
+        # turret in is answered without moving.
         if self._last_turret_position == position:
             return
 
+        # Unknown from the start, and written only once the whole command --
+        # park, move, restore -- returned: a raise anywhere in it leaves the
+        # turret in no slot anyone can vouch for.
+        self._last_turret_position = None
         with self._safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self._move_absolute_impl('T', position, wait_until_complete=True)
-            self._last_turret_position = position
+        self._last_turret_position = int(position)
+
+    def get_turret_slot(self) -> int | None:
+        """The turret slot in the light path, or None when it is not known.
+
+        The slot the last turret command (``move_turret``, a home) left the
+        turret in, recorded only when that command returned without error
+        and no stop was issued while it ran. None before the first such
+        command, while one is in flight, after one failed, and whenever the
+        turret's position is lost. The turret has no encoder, so nothing
+        else can say which slot is in the light path; the controller's step
+        count is not a slot.
+
+        Returns:
+            int | None: The slot, 1-4, or None.
+        """
+        return self._last_turret_position
 
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
@@ -1077,24 +1156,26 @@ class MotionAPI:
 
     def move_relative_async(
         self,
-        axis,
-        distance,
+        axis: str,
+        distance: float,
         *,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        callback: Callable | None = None,
+        cb_kwargs: dict | None = None,
     ) -> None:
         """Submit ``move_relative`` to the io_executor.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            distance: Distance to move -- um for X/Y/Z; turret slots for T.
+            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
+                ``move_turret``; "T" is refused here.
+            distance: Distance to move, in um.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_relative_async')
         self._submit_motion(
             self._move_relative_impl,
             'move_relative_async',
@@ -1612,10 +1693,10 @@ class MotionAPI:
 
         # The turret's bound, which the travel check above cannot express: a
         # slot is not a distance, so get_axis_limits returns None for T and
-        # nothing there refuses anything. That left move_absolute('T', 99) an
-        # open door to 24.5 revolutions for any caller reaching the generic
-        # mover instead of move_turret. No production path takes it; an L2
-        # caller can, and the API is the whole product for one.
+        # nothing there refuses anything. Without this, a T target of 99 is
+        # 24.5 revolutions. The public generic doors refuse T outright; the
+        # caller that still reaches this body with T is move_turret, and the
+        # bound keeps that one honest too.
         #
         # Before the ceiling below for the same reason travel is: the bound
         # that knows what the number MEANS answers first, so the turret gives
@@ -1678,6 +1759,7 @@ class MotionAPI:
         # time the axis is marked MOVING the hardware XTARGET is already
         # the new value, so position_reached is reliably False and the
         # motion monitor polls until real arrival.
+        stop_generation = self._stop_generation
         try:
             self._driver.move_abs_pos(
                 axis, position, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
@@ -1706,9 +1788,9 @@ class MotionAPI:
         _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self._await_arrival(axis)
+            self._await_arrival(axis, stop_generation)
 
-    def _await_arrival(self, axis: str) -> None:
+    def _await_arrival(self, axis: str, stop_generation: int) -> None:
         """Return only once ``axis`` confirmably reached its target; raise otherwise.
 
         Arrival is the motion monitor's verdict: it sets the axis IDLE when
@@ -1728,10 +1810,20 @@ class MotionAPI:
         that saw every axis stop, a cleared event means a later move on
         this axis has started, and faulting it would fault that move.
 
+        A STOP sets target = actual on every axis, so the firmware then
+        reports the target reached wherever the axis halted and the monitor
+        sets it IDLE. ``stop_generation`` is what the generation was before
+        this move drove; a different one now means a stop landed on it.
+
+        Args:
+            axis: The axis this move drove.
+            stop_generation: ``_stop_generation`` read before the drive.
+
         Raises:
             MoveNotCompletedError: The axis was faulted UNKNOWN during the
-                wait, or had not arrived when the wait's bound ran out; the
-                axis is UNKNOWN either way.
+                wait, or had not arrived when the wait's bound ran out (the
+                axis is UNKNOWN either way), or a stop was issued while it
+                moved (the axis is where the stop left it).
         """
         all_stopped = self.wait_until_finished_moving(timeout_s=self._MOTION_SETTLE_TIMEOUT_S)
         if not all_stopped and not self._arrival_events[axis].is_set():
@@ -1739,6 +1831,18 @@ class MotionAPI:
             raise MoveNotCompletedError(axis, 'timed_out')
         if self.get_axis_state(axis) == AxisState.UNKNOWN:
             raise MoveNotCompletedError(axis, 'faulted')
+        if self._stopped_since(stop_generation):
+            raise MoveNotCompletedError(axis, 'stopped')
+
+    def _stopped_since(self, stop_generation: int) -> bool:
+        """Whether a stop landed after ``_stop_generation`` read ``stop_generation``.
+
+        Read under the lock stop_motion holds across its exchange, so a
+        caller whose motion that stop ended waits for the bump instead of
+        reading the value from before it.
+        """
+        with self._stop_lock:
+            return self._stop_generation != stop_generation
 
     def _move_relative_impl(
         self,
@@ -1821,6 +1925,7 @@ class MotionAPI:
 
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute (#618).
+        stop_generation = self._stop_generation
         try:
             self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
         except Exception:
@@ -1847,7 +1952,7 @@ class MotionAPI:
         _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self._await_arrival(axis)
+            self._await_arrival(axis, stop_generation)
 
     # --- Public dispatch ---
     # These six are what an external caller reaches: an SDK script, a REST
@@ -1921,13 +2026,14 @@ class MotionAPI:
         ignore_limits: bool = False,
         frame: str = 'stage',
     ) -> None:
-        """Move an axis to an absolute position (um for X/Y/Z; turret slot 1-4 for T).
+        """Move X, Y or Z to an absolute position, in um. The turret moves by slot: ``move_turret``.
 
         Waits for the command. See ``_move_absolute_impl`` for the argument contract and
         the errors it raises; this adds only the dispatch described on
         ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
         also covers the physical motion the body waits out.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_absolute')
         return self._dispatch_motion(
             self._move_absolute_impl,
             'move_absolute',
@@ -1949,10 +2055,11 @@ class MotionAPI:
         wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
-        """Move an axis by a relative distance (um for X/Y/Z; turret slots for T).
+        """Move X, Y or Z by a relative distance, in um. The turret moves by slot: ``move_turret``.
 
         Waits for the command. See ``_move_relative_impl`` for the argument contract.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_relative')
         return self._dispatch_motion(
             self._move_relative_impl,
             'move_relative',
@@ -2071,6 +2178,11 @@ class MotionAPI:
         with self._axis_state_lock:
             old_state = self._axis_state.get(axis, AxisState.UNKNOWN)
             self._axis_state[axis] = state
+            # One place for every route that loses the turret -- a fault, a
+            # failed home, a stall, a lost board: a turret whose position is
+            # unknown is in no known slot.
+            if axis == 'T' and state == AxisState.UNKNOWN:
+                self._last_turret_position = None
         if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
             profile_trace.trace(
                 'motion_trace.csv',

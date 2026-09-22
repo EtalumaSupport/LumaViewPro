@@ -50,6 +50,15 @@ def _add(scope, protocol, layer_configs, **kwargs):
     )
 
 
+@pytest.fixture
+def turret_in_a_known_slot(scope):
+    """A turreted scope knows its slot only after a turret command: home it,
+    as bring-up does, so the add is judged on what these tests are about."""
+    assert scope.motion._home_turret_impl()
+    return scope
+
+
+@pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiRefuses:
     def test_no_acquiring_layer_is_refused_once_and_adds_nothing(self, scope, monkeypatch):
         protocol = _empty_protocol_for_add()
@@ -78,6 +87,7 @@ class TestTheApiRefuses:
         assert protocol.num_steps() == 0
 
 
+@pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiAdds:
     def test_one_step_per_acquiring_layer_in_the_channel_order_given(self, scope):
         protocol = _empty_protocol_for_add()

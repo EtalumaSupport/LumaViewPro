@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,34 @@ from lvp_logger import log_dir, logger, version
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
+
+# Motor-board verbs that move a motor, stop one, or rewrite a position
+# register. Sent raw they change the hardware behind MotionAPI, which then
+# reports axes and a turret slot that are no longer true; each has a
+# MotionAPI member that does the same thing and keeps the record. Matched
+# as the firmware dispatches them: it upper-cases and strips the command,
+# compares the homes and STOP whole, and the shipping firmware finds
+# ACTUAL_W / TARGET_W / SPI anywhere in the command.
+_MOTOR_VERBS_WHOLE = frozenset({'HOME', 'CENTER', 'ZHOME', 'THOME', 'STOP'})
+_MOTOR_VERBS_ANYWHERE = ('ACTUAL_W', 'TARGET_W')
+# The one SPI form carried: an axis, a two-digit address below 0x80 (the
+# TMC5072 read half; bit 7 set is a register write) and a decimal payload.
+_SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
+
+
+def _refuse_motor_verb(command: str) -> None:
+    """Raise if ``command`` would move or stop a motor or rewrite a position."""
+    verb = command.strip().upper()
+    if (
+        verb in _MOTOR_VERBS_WHOLE
+        or any(v in verb for v in _MOTOR_VERBS_ANYWHERE)
+        or ('SPI' in verb and not _SPI_READ.fullmatch(verb))
+    ):
+        raise ValueError(
+            f'{command!r} moves, stops or repositions a motor and is not carried by '
+            f'the diagnostics channel: use the motion API (home, move_turret, '
+            f'move_absolute, stop_motion), which keeps the axis and turret record'
+        )
 
 
 class DiagnosticsAPI:
@@ -587,7 +616,13 @@ class DiagnosticsAPI:
             str: Response from the board, ``'Board not connected'`` if the
                 target board is None/inactive, or ``'Error: <msg>'`` if the
                 exchange raised.
+
+        Raises:
+            ValueError: A motor command that moves, stops or repositions a
+                motor; the motion API carries those.
         """
+        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
+            _refuse_motor_verb(command)
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
@@ -639,7 +674,13 @@ class DiagnosticsAPI:
         Returns:
             Response (driver-defined; typically str or list[str]),
             ``'Board not connected'``, or ``'Error: <msg>'``.
+
+        Raises:
+            ValueError: A motor command that moves, stops or repositions a
+                motor; the motion API carries those.
         """
+        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
+            _refuse_motor_verb(command)
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:

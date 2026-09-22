@@ -1330,7 +1330,7 @@ class FirmwareDiagnostics:
 
         return results
 
-    def run_homing_test(self):
+    def run_homing_test(self) -> dict:
         """Home all axes and verify positions match expected.
 
         Returns dict with per-axis results including final position
@@ -1341,8 +1341,17 @@ class FirmwareDiagnostics:
 
         results = {'axes': {}, 'passed': True}
 
+        # The homes go through the motion API, never as raw commands: a raw
+        # home moves the hardware behind MotionAPI, which then reports axis
+        # states and a turret slot that are no longer true -- and the turret
+        # home also parks Z first, which a raw THOME does not.
+        motion = self._scope.motion
+
+        def _home(axis):
+            return 'OK' if motion.move_home_and_wait(axis) else 'Error: home failed'
+
         # Home Z first (safety -- move Z up before XY)
-        zhome_resp = self._cmd(self.motor_board, 'ZHOME', timeout_s=60)
+        zhome_resp = _home('Z')
         results['axes']['Z'] = {
             'home_response': zhome_resp,
             'actual_after': self._cmd(self.motor_board, 'ACTUAL_RZ'),
@@ -1350,15 +1359,15 @@ class FirmwareDiagnostics:
         }
 
         # Home turret
-        thome_resp = self._cmd(self.motor_board, 'THOME', timeout_s=30)
+        thome_resp = _home('T')
         results['axes']['T'] = {
             'home_response': thome_resp,
             'actual_after': self._cmd(self.motor_board, 'ACTUAL_RT'),
             'target_after': self._cmd(self.motor_board, 'TARGET_RT'),
         }
 
-        # Home XY
-        home_resp = self._cmd(self.motor_board, 'HOME', timeout_s=60)
+        # Home XY (the firmware's full home, as the raw HOME was)
+        home_resp = _home('ALL')
         for ax in 'XY':
             results['axes'][ax] = {
                 'home_response': home_resp,

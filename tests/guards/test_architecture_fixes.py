@@ -556,7 +556,6 @@ _UI_PRIVATE_REACH_PIN = {
     ('ui/advanced_settings.py', '_set_conversion_gain_mode_impl'): 1,
     ('ui/advanced_settings.py', '_set_line_noise_reduction_impl'): 1,
     ('ui/composite_capture.py', '_capture_and_wait_impl'): 1,
-    ('ui/composite_capture.py', '_last_turret_position'): 1,
     ('ui/layer_control.py', '_apply_layer_camera_settings_impl'): 1,
     ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,

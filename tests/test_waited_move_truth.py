@@ -109,7 +109,7 @@ def test_a_later_move_on_the_same_axis_is_not_faulted_by_this_one(session, monke
 
     monkeypatch.setattr(motion, 'wait_until_finished_moving', _stopped_then_a_later_move_starts)
     try:
-        motion._await_arrival('Z')
+        motion._await_arrival('Z', motion._stop_generation)
         assert motion.get_axis_state('Z') == AxisState.MOVING
     finally:
         motion._set_axis_state('Z', AxisState.IDLE)

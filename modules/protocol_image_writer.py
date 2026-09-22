@@ -710,19 +710,12 @@ class ProtocolImageWriter:
             except Exception:
                 capture_root = ''
 
-            # In engineering mode, include turret position in filename.
+            # In engineering mode, include the turret slot in the filename --
+            # the slot in the light path, not the step counter, which reads a
+            # whole slot halfway between two. An unknown slot adds nothing.
             turret_pos = None
             if self._engineering_mode and self._scope.capabilities.has_turret:
-                try:
-                    turret_pos = int(self._scope.motion.get_current_position('T'))
-                except Exception as e:
-                    logger.debug(
-                        '[%s] get_current_position(T) failed; turret '
-                        'position omitted from filename: %s: %s',
-                        self.LOGGER_NAME,
-                        type(e).__name__,
-                        e,
-                    )
+                turret_pos = self._scope.motion.get_turret_slot()
 
             # The objective is stamped onto the saved filename here (the one
             # writer), separate from the step's identity Name. capture_root is

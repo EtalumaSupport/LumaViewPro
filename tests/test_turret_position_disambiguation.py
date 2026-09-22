@@ -35,15 +35,15 @@ def _make_scope_with_turret(turret_config, current_pos=None):
     # surface. driver=None is OK -- this lookup reads only scope-side
     # state, no driver calls.
     scope.motion = MotionAPI(scope, None)
-    if current_pos is not None:
-        # Bypass the full position-cache plumbing for the test.
-        scope.motion.get_current_position = lambda axis=None: current_pos
-    else:
+    # The turret's current position is the slot the last turret command
+    # left it in (None: not known), never the step counter -- which is made
+    # to raise, so a lookup that read it would fail here.
+    scope.motion._last_turret_position = current_pos
 
-        def _raise(*_a, **_kw):
-            raise RuntimeError('current pos unavailable in test')
+    def _raise(*_a, **_kw):
+        raise RuntimeError('the step counter is not a slot')
 
-        scope.motion.get_current_position = _raise
+    scope.motion.get_current_position = _raise
     return scope
 
 
