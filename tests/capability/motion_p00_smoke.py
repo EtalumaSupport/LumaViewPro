@@ -9,7 +9,7 @@ LIVE = tempfile.mkdtemp(prefix='probe_motion_', dir=str(harness.SCRATCH))
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
-s = ScopeSession.create_headless(settings=complete_settings(live_folder=LIVE))
+s = ScopeSession.create(complete_settings(live_folder=LIVE), simulate=True)
 try:
     m = s.scope.motion
     print('motor_connected:', s.scope.motor_connected)

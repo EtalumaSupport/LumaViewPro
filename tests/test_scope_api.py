@@ -622,13 +622,13 @@ class TestScopeSession:
         defaults.update(kwargs)
         return ScopeSession(**defaults)
 
-    def test_create_headless_releases_camera_start_gate(self):
+    def test_a_simulated_create_releases_camera_start_gate(self):
         # connect() leaves the camera configured but NOT grabbing (the
         # start gate); the headless factory is the whole bring-up for the
         # sessions it builds, so it must release the gate itself -- without
         # this, every headless capture times out with no error naming the
         # closed gate.
-        session = ScopeSession.create_headless(settings=complete_settings(**_make_settings()))
+        session = ScopeSession.create(complete_settings(**_make_settings()), simulate=True)
         try:
             assert session.scope._camera_driver.is_grabbing()
         finally:

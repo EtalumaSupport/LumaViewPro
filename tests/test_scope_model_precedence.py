@@ -57,9 +57,7 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         # The shipped template declares LS850. The session used to report
         # LS850T -- and a turret axis -- because the sim ignored the
         # declaration; now the declaration is what the scope is.
-        session = ScopeSession.create_headless(
-            settings=complete_settings(live_folder=str(tmp_path))
-        )
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.settings['microscope'] == 'LS850'
             assert session.scope.diagnostics.get_microscope_model() == 'LS850'
@@ -140,11 +138,11 @@ class TestTheBringUpAdoptsTheReportedModel:
             session.shutdown()
             scope.disconnect()
 
-    def test_a_declared_model_survives_create_headless(self, tmp_path):
+    def test_a_declared_model_survives_a_simulated_create(self, tmp_path):
         # A regression guard, green before and after: the sim reports the
         # declaration, so step 0 has nothing to correct.
-        session = ScopeSession.create_headless(
-            settings=complete_settings(live_folder=str(tmp_path), microscope='LS850')
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850'), simulate=True
         )
         try:
             assert session.settings['microscope'] == 'LS850'

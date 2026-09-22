@@ -51,8 +51,8 @@ def _restore_settings_globals():
     same globals for their model, so restore them after each run.
 
     The globals are also PINNED to the shipped template for the duration.
-    ``create_headless()`` resolves settings from the process globals when
-    it is passed none, and the unpinned source underneath them is
+    ``load_user_settings()`` resolves settings from the process globals
+    when they are loaded, and the unpinned source underneath them is
     ``data/current.json`` -- gitignored and per-machine. Without this pin
     an example's printed frame geometry, and whether it comes up at all,
     varies by whose checkout runs it. A customer SHOULD see their own

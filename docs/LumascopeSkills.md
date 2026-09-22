@@ -144,7 +144,7 @@ scope.refresh_layer_identity(override_model='LS850T')
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
 
-Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` / `create_headless` run `session.configure_scope()` before they return (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` or `objective_id` is missing; you can also construct one directly:
+Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` runs `session.configure_scope()` before it returns (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` or `objective_id` is missing; you can also construct one directly:
 
 ```python
 config = ScopeInitConfig(
@@ -284,7 +284,7 @@ session = ScopeSession.create(
 )
 ```
 
-`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset. `create_headless()` is `create(simulate=True)` with the settings resolved from disk when you pass none.
+`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
 
 If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself.
 
@@ -305,10 +305,10 @@ For **simulated** (no hardware needed, development / CI):
 ```python
 from modules.scope_session import ScopeSession
 
-session = ScopeSession.create_headless()
+session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
 ```
 
-`create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you, configures the scope from settings and releases the start gate, so the session it returns can capture and save. `source_path` defaults to the process CWD, which must be an LVP installation root (a `data/` directory with `settings.json`); otherwise it raises `ConfigError` naming the root. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason: a bare simulated scope reports the module-global model (`settings['microscope']` when settings are loaded, else `'LS850T'`) unless you pass `configured_model=` yourself, so the bring-up may adopt a model you did not intend.
+`simulate=` is the one choice between simulated and real hardware, the same for every host: `simulate=True` wires up simulated drivers, `simulate=False` (the default) finds the real ones. Either way the factory configures the scope from settings and releases the start gate, so the session it returns can capture and save. `ScopeSession.load_user_settings(source_path)` reads the user's configuration the way the GUI does (`current.json`, then the shipped template); `source_path` must be an LVP installation root (a `data/` directory with `settings.json`), otherwise it raises `ConfigError` naming the root. Settings are a required argument of `create`, never read from disk behind your back: pass `load_user_settings(...)` or your own dict. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason: a bare simulated scope reports the module-global model (`settings['microscope']` when settings are loaded, else `'LS850T'`) unless you pass `configured_model=` yourself, so the bring-up may adopt a model you did not intend.
 
 ### Application startup sequence
 
@@ -613,7 +613,7 @@ session.set_scope(new_scope)
 
 ```python
 # Full teardown of everything the session constructed. On a scope the FACTORY
-# built (create() with no scope=, or create_headless()): LEDs off, motion
+# built (create() with no scope=): LEDs off, motion
 # stopped, scope disconnected, executor lanes and their threads down. Reading
 # that scope afterwards: motor_connected is False, imaging.is_streaming() is False,
 # diagnostics.get_microscope_model() is None. A second shutdown() logs one
@@ -1656,7 +1656,7 @@ scope.illumination.leds_off()
 from modules.scope_session import ScopeSession
 from modules.protocol import Protocol
 
-session = ScopeSession.create_headless()    # simulated, configured, executors running; CWD must be an LVP root. create(settings=…) for hardware
+session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)    # simulated, configured, executors running; '.' must be an LVP root. simulate=False for hardware
 
 protocol = Protocol.from_file(
     file_path='./my_protocol.tsv',

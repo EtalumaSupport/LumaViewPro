@@ -753,31 +753,31 @@ from modules.protocol_runner import ProtocolRunner
 
 
 class TestHeadlessSession:
-    """Verify ScopeSession.create_headless() and ProtocolRunner work end-to-end."""
+    """Verify ScopeSession.create(simulate=True) and ProtocolRunner work end-to-end."""
 
-    def test_create_headless_returns_session(self):
-        """create_headless() should return a working ScopeSession."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+    def test_simulated_create_returns_session(self):
+        """create(simulate=True) should return a working ScopeSession."""
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session is not None
         assert session.scope is not None
         assert session.io_executor is not None
         assert session.camera_executor is not None
         assert session.settings is not None
 
-    def test_create_headless_scope_is_simulated(self):
+    def test_simulated_create_scope_is_simulated(self):
         """Headless session should use simulated hardware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.scope._simulated is True
 
-    def test_create_headless_with_custom_settings(self):
-        """create_headless() should accept custom settings."""
+    def test_simulated_create_with_custom_settings(self):
+        """create(simulate=True) should accept custom settings."""
         custom = {'BF': {'autofocus': False}, 'custom_key': 42}
-        session = ScopeSession.create_headless(settings=complete_settings(**custom))
+        session = ScopeSession.create(complete_settings(**custom), simulate=True)
         assert session.settings['custom_key'] == 42
 
     def test_headless_led_commands(self):
         """Headless session should support LED on/off via scope."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.start_executors()
         try:
             scope = session.scope
@@ -790,14 +790,14 @@ class TestHeadlessSession:
 
     def test_headless_motor_position(self):
         """Headless session should support motor position queries."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         scope = session.scope
         pos = scope.motion.get_current_position('Z')
         assert isinstance(pos, (int, float))
 
     def test_create_protocol_runner(self):
         """ScopeSession.create_protocol_runner() should return a ProtocolRunner."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         runner = session.create_protocol_runner()
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
@@ -807,7 +807,7 @@ class TestHeadlessSession:
         build a duplicate -- two executors on one disk target compete. The
         fallback previously constructed a second FILE executor on this path.
         """
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.file_io_executor is not None
         assert session.file_io_executor is session.executor_bundle.file_io_executor
         runner = session.create_protocol_runner()
@@ -834,7 +834,7 @@ class TestHeadlessSession:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        session = ScopeSession.create(complete_settings(**settings), simulate=True)
         try:
             runner = session.create_protocol_runner()
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
@@ -862,7 +862,7 @@ class TestHeadlessSession:
         """AFE has no Kivy Clock dependency (Rule 15). Under the
         thread-driven model the AF thread drives iterations directly;
         there are no Clock-schedule attributes to misconfigure."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         runner = session.create_protocol_runner()
         af = runner.sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
@@ -874,14 +874,14 @@ class TestRestAPIPrep:
 
     def test_get_pixel_format(self):
         """_get_pixel_format() should return format string from simulated camera."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         fmt = session.scope.imaging._get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
     def test_set_pixel_format(self):
         """set_pixel_format() should change the camera format."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         result = session.scope.imaging.set_pixel_format('Mono12')
         assert result is True
         assert session.scope.imaging._get_pixel_format() == 'Mono12'
@@ -892,13 +892,13 @@ class TestRestAPIPrep:
         rejected format for an applied one by dropping the return)."""
         from modules.exceptions import CameraSettingRejected
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         with pytest.raises(CameraSettingRejected):
             session.scope.imaging.set_pixel_format('InvalidFormat')
 
     def test_get_supported_pixel_formats(self):
         """get_supported_pixel_formats() should return tuple of format strings."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         formats = session.scope.imaging.get_supported_pixel_formats()
         assert isinstance(formats, tuple)
         assert len(formats) > 0
@@ -906,7 +906,7 @@ class TestRestAPIPrep:
 
     def test_pixel_format_inactive_camera(self):
         """Pixel format methods should handle inactive camera gracefully."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
         assert session.scope.imaging._get_pixel_format() is None
         assert session.scope.imaging.set_pixel_format('Mono8') is False
@@ -914,7 +914,7 @@ class TestRestAPIPrep:
 
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_motor_info()
         assert 'model' in info
         assert 'serial_number' in info
@@ -929,7 +929,7 @@ class TestRestAPIPrep:
         come from the FULLINFO response cached at connect; a wire query
         here would put a serial round-trip on every capture.
         """
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         driver = session.scope._motion_driver
         original_fullinfo = driver.fullinfo
         fullinfo_calls = []
@@ -951,21 +951,21 @@ class TestRestAPIPrep:
 
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_led_info()
         assert info['connected'] is True
         assert info['firmware_version'] is not None
 
     def test_get_camera_info(self):
         """get_camera_info() should return model and connection status."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_camera_info()
         assert info['connected'] is True
         assert info['model'] is not None
 
     def test_get_system_info(self):
         """get_system_info() should return consolidated info for all hardware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_system_info()
         assert 'motor' in info
         assert 'led' in info
@@ -977,7 +977,7 @@ class TestRestAPIPrep:
         """get_system_info() should handle missing hardware gracefully."""
         from drivers.null_motorboard import NullMotionBoard
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._motion_driver = NullMotionBoard()
         session.scope._led_driver = None
         session.scope._camera_driver = None
@@ -1035,7 +1035,7 @@ class TestRestAPIPrep:
 
     def test_get_available_objectives(self):
         """get_available_objectives() should return list of objective IDs."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         objectives = session.scope.runtime_state.get_available_objectives()
         assert isinstance(objectives, list)
         assert len(objectives) > 0
@@ -1056,7 +1056,7 @@ class TestRestAPIPrep:
 
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after set_objective()."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         objectives = session.scope.runtime_state.get_available_objectives()
         session.scope.runtime_state.set_objective(objectives[0])
         current = session.scope.runtime_state.get_current_objective()
@@ -1065,7 +1065,7 @@ class TestRestAPIPrep:
 
     def test_autofocus_runner_get_status_idle(self):
         """AutofocusRunner.get_status() should return idle state initially."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
@@ -1082,7 +1082,7 @@ class TestRestAPIPrep:
         """AutofocusThread.abort() should be safe when no run is in flight."""
         from modules.autofocus_thread import AutofocusThread
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.start_executors()
         try:
             runner = session.create_protocol_runner()
@@ -1103,7 +1103,7 @@ class TestRestAPIPrep:
         best focus position when AF completes."""
         from modules.autofocus_thread import AutofocusThread
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.start_executors()
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
@@ -1142,7 +1142,7 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
         from modules.exceptions import AutofocusAborted
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.start_executors()
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.

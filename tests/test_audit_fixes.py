@@ -442,7 +442,7 @@ class TestSettingsSnapshot:
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
-        return ScopeSession.create_headless(settings=complete_settings(**settings))
+        return ScopeSession.create(complete_settings(**settings), simulate=True)
 
     def test_snapshot_is_deep_copy(self):
         session = self._session({'display': {'brightness': 80}})
@@ -9731,7 +9731,7 @@ class TestRuntimeStateSetObjective:
     def test_set_objective_round_trip(self):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         available = session.scope.runtime_state.get_available_objectives()
         if not available:
             return  # no objectives loaded in this sim profile
@@ -10401,8 +10401,8 @@ class TestPreReleaseFutureWarning:
     banner, LumascopeSkills.md preface, and CHANGELOG note. Closes
     API audit F4.
 
-    Warning fires once-per-process: any of the three L2 entry points
-    (Lumascope(), ScopeSession.create, ScopeSession.create_headless)
+    Warning fires once-per-process: either L2 entry point
+    (Lumascope() and ScopeSession.create)
     trips it the first time it runs; subsequent entries are silent.
     """
 
@@ -10480,13 +10480,13 @@ class TestPreReleaseFutureWarning:
             f'warned exactly once; saw {len(future_warnings)}'
         )
 
-    def test_scope_session_create_headless_fires_warning(self):
+    def test_scope_session_simulated_create_fires_warning(self):
         import warnings
         from modules.scope_session import ScopeSession
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            ScopeSession.create_headless()
+            ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) >= 1
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
@@ -10971,54 +10971,54 @@ class TestLedEngineeringModeSymmetricReturnTypes:
 
 
 class TestScopeSessionBuildsFullExecutorBundle:
-    """Per API audit F11: ScopeSession.create_headless() was building only
+    """Per API audit F11: ScopeSession.create(simulate=True) was building only
     io_executor + camera_executor, skipping file_io_executor + worker_pool
     + protocol_thread + scope_display_thread. L2 callers using
     ScopeSession.create*() got a silently degraded topology where the
     file-IO IOTask path fell back to inline execution and the worker-pool
     priority lanes were unavailable.
 
-    The fix routes create_headless() through executor_registry.create_default
+    The fix routes create() through executor_registry.create_default
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_create_headless_registers_file_io_executor_on_scope(self):
+    def test_create_registers_file_io_executor_on_scope(self):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         assert session.scope._file_io_executor is not None, (
-            'ScopeSession.create_headless() must register a file_io_executor '
+            'ScopeSession.create(simulate=True) must register a file_io_executor '
             'on the scope; without it, protocol_image_writer + IOTask file-IO '
             'paths fall back to inline execution and pipelining is lost.'
         )
 
-    def test_create_headless_attaches_executor_bundle_to_scope(self):
+    def test_create_attaches_executor_bundle_to_scope(self):
         from modules.scope_session import ScopeSession
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         # register_executor_bundle stores the bundle on _executor_bundle.
         bundle = getattr(session.scope, '_executor_bundle', None)
         assert isinstance(bundle, ExecutorBundle), (
-            'ScopeSession.create_headless() must call register_executor_bundle '
+            'ScopeSession.create(simulate=True) must call register_executor_bundle '
             'so MetricsLogger snapshot() reports all 4 executor queue depths.'
         )
 
-    def test_create_headless_session_carries_bundle_reference(self):
+    def test_create_session_carries_bundle_reference(self):
         from modules.scope_session import ScopeSession
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         assert isinstance(session.executor_bundle, ExecutorBundle), (
-            'ScopeSession.create_headless() must store the bundle on the '
+            'ScopeSession.create(simulate=True) must store the bundle on the '
             'session itself so headless callers can shut down protocol_thread '
             '/ scope_display_thread cleanly.'
         )
 
-    def test_create_headless_bundle_has_all_four_executors(self):
+    def test_create_bundle_has_all_four_executors(self):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         bundle = session.executor_bundle
         # All four executors are required for full L2-caller pipelining.
         for attr_name in ('io_executor', 'camera_executor', 'file_io_executor', 'worker_pool'):
@@ -11056,7 +11056,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
 
 
 class TestHeadlessSettingsResolutionMatchesGui:
-    """Per Settings-SSOT audit HR-4: ScopeSession.create_headless()'s deepest
+    """Per Settings-SSOT audit HR-4: ScopeSession.load_user_settings's deepest
     settings fallback (the settings arg None AND settings_init.settings None)
     opened data/settings.json directly, skipping current.json + the resolver.
     In a headless/test context where current.json holds the live state, that
@@ -11070,7 +11070,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         return pathlib.Path('modules/scope_session.py').read_text()
 
     def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
-        """With no settings loaded, create_headless must resolve the same
+        """With no settings loaded, load_user_settings must resolve the same
         file the GUI reads -- current.json first -- so headless state
         matches the running app."""
         import importlib.util
@@ -11110,7 +11110,9 @@ class TestHeadlessSettingsResolutionMatchesGui:
         (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
         for name in ('objectives.json', 'labware.json'):
             shutil.copy(shipped.parent / name, tmp_path / 'data' / name)
-        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        session = ScopeSession.create(
+            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+        )
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '
             f'settings.json; got {session.settings}'
@@ -11119,7 +11121,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
     def test_headless_fallback_does_not_hardcode_settings_json_only(self):
         src = self._src()
         assert "os.path.join(source_path, 'data', 'settings.json')" not in src, (
-            'create_headless must not hardcode a settings.json-only open in the '
+            'load_user_settings must not hardcode a settings.json-only open in the '
             'headless fallback -- that bypasses current.json + the resolver.'
         )
 

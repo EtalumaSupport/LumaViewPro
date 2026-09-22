@@ -162,12 +162,14 @@ class TestBothHostsAgreeOnTheSlotKeyType:
             '"4": "60x w/collar", "3": "4x Oly", "2": "20x Oly", '
             '"1": "1.25x Oly"}}'
         )
-        # create_headless reuses these module globals when they are populated,
+        # load_user_settings reuses these module globals when they are populated,
         # and would then never read the file written above.
         monkeypatch.setattr(si, 'settings', None)
         monkeypatch.setattr(si, 'rejected_current_json', None)
 
-        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        session = ScopeSession.create(
+            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+        )
         # Last-wins already resolves slot 2 to '20x Oly', so assigning that
         # value would pass even with the save path gutted. This one changes it.
         session.assign_turret_objective(2, '4x Oly')

@@ -140,8 +140,8 @@ class TestCreateTakesTheHostInjections:
         # The preserved half: a caller that shipped separately is warned.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            session = ScopeSession.create_headless(
-                settings=complete_settings(live_folder=str(tmp_path))
+            session = ScopeSession.create(
+                complete_settings(live_folder=str(tmp_path)), simulate=True
             )
         try:
             assert [w.category for w in caught if w.category is FutureWarning] == [FutureWarning]
@@ -162,15 +162,6 @@ class TestScopeOwnershipIsConstructorState:
         session = ScopeSession.create(
             settings=self._settings(tmp_path), simulate=True, warn_pre_release=False
         )
-        try:
-            assert session._owns_scope is True
-            assert session._owns_executors is True
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
-
-    def test_create_headless_is_the_same_row(self, tmp_path):
-        session = ScopeSession.create_headless(settings=self._settings(tmp_path))
         try:
             assert session._owns_scope is True
             assert session._owns_executors is True
@@ -394,3 +385,45 @@ class TestTheGuiTakesTheFactory:
             isinstance(c.func, ast.Attribute) and c.func.attr == 'reconfigure_for_scope'
             for c in _calls(load)
         ), 'load_settings renders the model the Session wrote'
+
+
+# ===========================================================================
+# One factory: create(settings, ..., simulate=...) for every host. Reading
+# the user's configuration from disk is its own call, never a default of it
+# ===========================================================================
+class TestOneSessionFactory:
+    def test_there_is_no_second_factory(self):
+        # create_headless was create(simulate=True) plus a disk read behind
+        # a None default: a second way to build a session, and "headless"
+        # read as "simulated". Every host picks hardware with simulate=.
+        assert not hasattr(ScopeSession, 'create_headless')
+
+    def test_create_requires_settings(self):
+        # A default here would configure a caller that forgot its settings
+        # from whatever is on disk instead of refusing the call.
+        param = inspect.signature(ScopeSession.create).parameters['settings']
+        assert param.default is inspect.Parameter.empty
+
+    def test_load_user_settings_refuses_a_directory_that_is_not_an_installation(
+        self, monkeypatch, tmp_path
+    ):
+        import importlib.util
+        import sys
+
+        import modules.scope_session as scope_session_module
+        from modules.exceptions import ConfigError
+
+        # Some test modules install a MagicMock as modules.settings_init at
+        # import time; this test is about the real resolver, so it loads
+        # the real module and points both of the session's reads at it.
+        spec = importlib.util.spec_from_file_location(
+            'modules.settings_init', 'modules/settings_init.py'
+        )
+        real_settings_init = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(real_settings_init)
+        real_settings_init.settings = None
+        monkeypatch.setitem(sys.modules, 'modules.settings_init', real_settings_init)
+        monkeypatch.setattr(scope_session_module, 'settings_init', real_settings_init)
+
+        with pytest.raises(ConfigError, match='not an LVP installation root'):
+            ScopeSession.load_user_settings(str(tmp_path))

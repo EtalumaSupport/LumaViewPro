@@ -40,7 +40,7 @@ from modules.sequential_io_executor import IOTask
 @pytest.fixture
 def headless_session():
     """A real headless session, torn down whatever the test does."""
-    session = ScopeSession.create_headless()
+    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     try:
         yield session
     finally:
@@ -54,7 +54,7 @@ def headless_session():
 
 
 class TestCreateHeadlessComposesARealSession:
-    """`create_headless()` must return a session that can actually work.
+    """`create(simulate=True)` must return a session that can actually work.
 
     A factory that returns a half-wired object is the failure mode here:
     every field it forgets shows up much later as a None-deref or a

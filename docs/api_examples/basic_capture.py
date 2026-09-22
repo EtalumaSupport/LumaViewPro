@@ -26,7 +26,7 @@ from modules.scope_session import ScopeSession
 
 
 def main():
-    # create_headless() is the supported factory for a simulated session: it
+    # create(simulate=True) is the supported factory for a simulated session: it
     # wires the simulated drivers, configures the scope from settings and
     # releases the camera start gate, so there is no separate bring-up and no
     # start_streaming() call to make here.
@@ -37,7 +37,7 @@ def main():
     # lvp_logger is written to the log file and never to the terminal: this
     # message is the only thing that would tell you what went wrong.
     try:
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     except ConfigError as exc:
         print(f'Could not create a headless session: {exc}')
         print(

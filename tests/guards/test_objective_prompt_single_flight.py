@@ -176,14 +176,15 @@ class _Stand:
 @pytest.fixture
 def session():
     """A fresh install on a turret model: unconfirmed, slot 1 unassigned."""
-    built = ScopeSession.create_headless(
-        settings=complete_settings(
+    built = ScopeSession.create(
+        complete_settings(
             microscope='LS850T',
             objective_confirmed=False,
             turret_position=1,
             turret_objectives={'1': None, '2': None, '3': None, '4': None},
             objective_id='20x Oly',
-        )
+        ),
+        simulate=True,
     )
     yield built
     built.shutdown()
@@ -381,7 +382,9 @@ class TestProvisionalSettings:
             shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
         monkeypatch.setattr(settings_init, 'settings', None)
         monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        session = ScopeSession.create(
+            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+        )
         monkeypatch.setattr(
             session,
             'scope',

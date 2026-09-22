@@ -123,8 +123,8 @@ class TestClaimRefusalLeavesNoState:
     def test_recording_held_claim_refusal_strands_nothing(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless(
-            settings=complete_settings(**_make_session_settings(tmp_path))
+        session = ScopeSession.create(
+            complete_settings(**_make_session_settings(tmp_path)), simulate=True
         )
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
@@ -241,8 +241,8 @@ class TestTheHolderIsTheLiveRun:
     def test_the_claim_and_the_getter_name_the_run_while_it_holds_the_scope(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless(
-            settings=complete_settings(**_make_session_settings(tmp_path))
+        session = ScopeSession.create(
+            complete_settings(**_make_session_settings(tmp_path)), simulate=True
         )
         runner = session.create_protocol_runner()
         try:

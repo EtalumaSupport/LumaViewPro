@@ -28,7 +28,7 @@ from tests.settings_fixtures import complete_settings
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         home_sim_scope(s.scope)
         yield s

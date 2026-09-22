@@ -62,9 +62,8 @@ class ProtocolRunner:
         if session.protocol_thread is None:
             raise RuntimeError(
                 'ProtocolRunner requires a session composed with a protocol '
-                'thread; build the session via ScopeSession.create / '
-                'create_headless, or inject protocol_thread at session '
-                'construction.'
+                'thread; build the session via ScopeSession.create, or '
+                'inject protocol_thread at session construction.'
             )
         self.session = session
         self._protocol_thread = session.protocol_thread

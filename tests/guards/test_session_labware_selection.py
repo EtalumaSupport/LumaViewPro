@@ -43,7 +43,7 @@ def sessions():
         # put it at the top level where nothing reads it.
         settings = complete_settings(**overrides)
         settings.setdefault('protocol', {})['labware'] = labware
-        session = ScopeSession.create_headless(settings=settings)
+        session = ScopeSession.create(settings, simulate=True)
         built.append(session)
         return session
 

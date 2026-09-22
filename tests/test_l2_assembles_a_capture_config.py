@@ -19,7 +19,7 @@ from tests.settings_fixtures import complete_settings
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         yield s
     finally:
@@ -81,7 +81,7 @@ def test_a_missing_data_file_is_refused_by_name(tmp_path, monkeypatch):
 
     from modules.exceptions import ConfigError
 
-    session = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         for helper, data_file in (
             ('wellplate_loader', 'labware.json'),

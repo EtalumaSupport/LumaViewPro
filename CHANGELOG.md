@@ -2,6 +2,16 @@
 
 ## 4.0.0 (in development)
 
+- **One session factory: `ScopeSession.create_headless` is removed (SDK, breaking)**:
+  build every session with `ScopeSession.create(settings, ..., simulate=...)`. What
+  `create_headless()` did becomes `ScopeSession.create(ScopeSession.load_user_settings(root), simulate=True)`;
+  `create_headless(settings=s)` becomes `ScopeSession.create(s, simulate=True)`.
+  `load_user_settings(source_path)` is new: it reads the user's configuration the
+  way the GUI does and raises `ConfigError` when `source_path` is not an LVP
+  installation root. `settings` stays a required argument of `create`, so a
+  script cannot be configured from disk by omission; `simulate=False` builds the
+  same session on real hardware.
+
 - **`ScopeSession.create` takes the host's injections as keyword arguments (SDK)**:
   the factory signature is now
   `create(settings, source_path='.', scope=None, io_executor=None, camera_executor=None, *, simulate=False, ui_dispatcher=None, af_ui_update_func=None, settings_saved_hook=None, engineering_mode=False, display_ctx_provider=None)`.

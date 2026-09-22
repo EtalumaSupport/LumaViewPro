@@ -32,7 +32,7 @@ from modules.scope_session import ScopeSession
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create_headless()
+    s = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     yield s
     s.shutdown()
 

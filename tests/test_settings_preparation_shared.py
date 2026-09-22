@@ -91,10 +91,12 @@ def test_a_headless_session_gets_the_same_preparation(tmp_path, monkeypatch):
 
     data_dir = _data_dir(tmp_path)
     _legacy_current(data_dir)
-    # create_headless reads the file only when no settings are already loaded
+    # load_user_settings reads the file only when no settings are already loaded
     monkeypatch.setattr(settings_init, 'settings', None)
 
-    session = ScopeSession.create_headless(source_path=str(tmp_path))
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
     assert session.settings['image_output_format']['sequenced'] == 'OME-TIFF Hyperstack'
     assert 'manual_video' not in session.settings

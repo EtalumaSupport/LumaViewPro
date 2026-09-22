@@ -281,7 +281,9 @@ def session(tmp_path, monkeypatch):
         shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-    return ScopeSession.create_headless(source_path=str(tmp_path))
+    return ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
 
 def _current_json(tmp_path) -> str:
@@ -822,14 +824,15 @@ class TestTheDoubleDeferralFrame:
         # The decision to withhold the question is the Session's, so the
         # case runs a real one: a fresh install on a turret model, whose
         # question is owed and must still not be asked while provisional.
-        session = ScopeSession.create_headless(
-            settings=complete_settings(
+        session = ScopeSession.create(
+            complete_settings(
                 microscope='LS850T',
                 objective_confirmed=False,
                 turret_position=1,
                 turret_objectives={'1': None, '2': None, '3': None, '4': None},
                 objective_id='20x Oly',
-            )
+            ),
+            simulate=True,
         )
         request_shutdown = session.shutdown
         try:

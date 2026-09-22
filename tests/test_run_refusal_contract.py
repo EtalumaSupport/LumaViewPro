@@ -348,7 +348,7 @@ class TestHeadlessRefusalDoesNotHang:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        session = ScopeSession.create(complete_settings(**settings), simulate=True)
         # A headless session does not home: an unhomed scope refuses every
         # XY move, and the run would end on its three-strike ceiling instead.
         home_sim_scope(session.scope)

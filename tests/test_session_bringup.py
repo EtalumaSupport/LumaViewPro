@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A factory-built session is a configured session.
 
-`ScopeSession.create_headless` (and `create`, for a scope it builds) runs
+`ScopeSession.create`, for a scope it builds, runs
 the settings-to-scope bring-up before it returns: the turret slot keys
 normalized, the slot-1 objective adopted, the labware selected, the
 scope initialized, the camera start gate released. A session that came
@@ -30,7 +30,7 @@ def _wait_for_thread_count(target, deadline_s=2.0):
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         yield s
     finally:
@@ -76,15 +76,15 @@ class TestAFactorySessionIsConfigured:
 class TestSettingsThatCannotConfigureAScope:
     def test_missing_frame_refuses_by_key(self):
         with pytest.raises(ConfigError, match='frame'):
-            ScopeSession.create_headless(settings=complete_settings_without('frame'))
+            ScopeSession.create(complete_settings_without('frame'), simulate=True)
 
     def test_missing_objective_refuses_by_key(self):
         with pytest.raises(ConfigError, match='objective_id'):
-            ScopeSession.create_headless(settings=complete_settings_without('objective_id'))
+            ScopeSession.create(complete_settings_without('objective_id'), simulate=True)
 
     def test_an_unshipped_objective_refuses_by_value(self):
         with pytest.raises(ConfigError, match='banana'):
-            ScopeSession.create_headless(settings=complete_settings(objective_id='banana'))
+            ScopeSession.create(complete_settings(objective_id='banana'), simulate=True)
 
     def test_string_turret_keys_are_normalized_and_slot_one_is_adopted(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw
@@ -95,7 +95,7 @@ class TestSettingsThatCannotConfigureAScope:
             objective_id='20x Oly',
         )
         raw['turret_objectives'] = {'1': '10x Oly', '2': None, '3': None, '4': None}
-        s = ScopeSession.create_headless(settings=raw)
+        s = ScopeSession.create(raw, simulate=True)
         try:
             assert s.settings['objective_id'] == '10x Oly'
             assert s.scope.runtime_state.get_current_objective_id() == '10x Oly'
@@ -105,7 +105,11 @@ class TestSettingsThatCannotConfigureAScope:
 
     def test_a_root_without_a_template_refuses_by_root(self, tmp_path):
         with pytest.raises(ConfigError, match=r'settings\.json'):
-            ScopeSession.create_headless(source_path=str(tmp_path))
+            ScopeSession.create(
+                ScopeSession.load_user_settings(str(tmp_path)),
+                source_path=str(tmp_path),
+                simulate=True,
+            )
 
     def test_a_root_without_labware_refuses_by_file(self, tmp_path):
         import pathlib
@@ -117,14 +121,18 @@ class TestSettingsThatCannotConfigureAScope:
         shutil.copy(repo / 'data' / 'settings.json', data / 'settings.json')
         shutil.copy(repo / 'data' / 'objectives.json', data / 'objectives.json')
         with pytest.raises(ConfigError, match=r'labware\.json'):
-            ScopeSession.create_headless(source_path=str(tmp_path))
+            ScopeSession.create(
+                ScopeSession.load_user_settings(str(tmp_path)),
+                source_path=str(tmp_path),
+                simulate=True,
+            )
 
 
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):
         baseline = threading.active_count()
         with pytest.raises(ConfigError):
-            ScopeSession.create_headless(settings=complete_settings_without('frame'))
+            ScopeSession.create(complete_settings_without('frame'), simulate=True)
         # Other tests' threads may finish during the wait; what matters is
         # that the refusing factory left none of its own behind.
         assert _wait_for_thread_count(baseline) <= baseline

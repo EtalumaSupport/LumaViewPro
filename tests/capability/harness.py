@@ -154,8 +154,8 @@ def make_session(name='probe', *, home=False, **overrides):
     from tests.settings_fixtures import complete_settings
 
     live = live_dir(name)
-    session = ScopeSession.create_headless(
-        settings=complete_settings(live_folder=str(live), **overrides)
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(live), **overrides), simulate=True
     )
     if home:
         session.start_application_session()
@@ -206,7 +206,7 @@ def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
     overrides['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
     overrides.update(extra)
 
-    session = ScopeSession.create_headless(settings=complete_settings(**overrides))
+    session = ScopeSession.create(complete_settings(**overrides), simulate=True)
     scope = session.scope
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')

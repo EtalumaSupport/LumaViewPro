@@ -284,7 +284,7 @@ class TestShutdownOwnership:
         # (or a flipped default) would leak the bundle's threads on
         # every headless session, and nothing else in the suite
         # asserts this teardown.
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         bundle = session.executor_bundle
         session.shutdown()
 

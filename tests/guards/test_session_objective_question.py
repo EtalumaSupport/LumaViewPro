@@ -37,7 +37,7 @@ NON_TURRET_MODEL = 'LS850'  # complete_settings()'s own default, Turret:false
 
 def _session(**overrides):
     """A real sim Session on the settings the case needs."""
-    return ScopeSession.create_headless(settings=complete_settings(**overrides))
+    return ScopeSession.create(complete_settings(**overrides), simulate=True)
 
 
 @pytest.fixture
@@ -444,14 +444,14 @@ class TestT14OpticsRecord:
             '_log_resolved_optics',
             lambda self, objective_id, focal_length: seen.append((objective_id, focal_length)),
         )
-        session = ScopeSession.create_headless(settings=complete_settings(**_turret_settings()))
+        session = ScopeSession.create(complete_settings(**_turret_settings()), simulate=True)
         try:
             assert seen == [('4x Oly', session.get_objective_info('4x Oly')['focal_length'])]
         finally:
             session.shutdown()
 
     def test_the_bring_up_record_carries_a_real_scale(self):
-        session = ScopeSession.create_headless(settings=complete_settings(**_turret_settings()))
+        session = ScopeSession.create(complete_settings(**_turret_settings()), simulate=True)
         try:
             optics = [line for line in _lines() if line.startswith('[Optics')]
             assert len(optics) == 1, _lines()

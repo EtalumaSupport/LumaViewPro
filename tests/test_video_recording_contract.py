@@ -596,7 +596,7 @@ class TestSessionActivityClaim:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        session = ScopeSession.create(complete_settings(**settings), simulate=True)
         yield session
         session.shutdown()
 

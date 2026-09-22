@@ -17,9 +17,7 @@ def main():
     from tests.settings_fixtures import complete_settings
 
     live = tempfile.mkdtemp(prefix='probe_motion_', dir=SCRATCH)
-    s = ScopeSession.create_headless(
-        settings=complete_settings(live_folder=live, microscope='LS850T')
-    )
+    s = ScopeSession.create(complete_settings(live_folder=live, microscope='LS850T'), simulate=True)
     try:
         m = s.scope.motion
         caps = s.scope.capabilities

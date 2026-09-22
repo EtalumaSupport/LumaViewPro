@@ -586,7 +586,6 @@ _ORCHESTRATION_CONSTRUCTORS = frozenset(
         'AutofocusRunner',
         'AutofocusThread',
         'create_default',
-        'create_headless',
     }
 )
 

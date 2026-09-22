@@ -146,7 +146,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     if not isinstance(parsed, dict):
         raise SettingsFileError(f'{path}: expected a JSON object, got {type(parsed).__name__}')
     # Every reader lands here, which is why the key migration lives here and
-    # not in load_settings: the GUI bootstrap, ScopeSession.create_headless
+    # not in load_settings: the GUI bootstrap, ScopeSession.load_user_settings
     # (which reads the file itself and never calls load_settings), the
     # support-report generator and app_config all go through this function.
     # Running before the caller's validation also means validation never

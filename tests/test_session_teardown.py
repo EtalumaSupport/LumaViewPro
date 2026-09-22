@@ -74,9 +74,7 @@ def session_log(monkeypatch):
 class TestAFactoryBuiltScopeIsTornDown:
     def test_over_the_factorys_own_bundle(self, tmp_path, monkeypatch):
         unregistered = _record_unregister(monkeypatch)
-        session = ScopeSession.create_headless(
-            settings=complete_settings(live_folder=str(tmp_path))
-        )
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
         stop_motion = MagicMock(wraps=scope.motion.stop_motion)
         monkeypatch.setattr(scope.motion, 'stop_motion', stop_motion)
@@ -191,9 +189,7 @@ class TestAFactoryBuiltScopeIsTornDown:
             cam.shutdown()
 
     def test_a_pass_that_raised_can_be_retried(self, tmp_path, monkeypatch, session_log):
-        session = ScopeSession.create_headless(
-            settings=complete_settings(live_folder=str(tmp_path))
-        )
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
         monkeypatch.setattr(
             scope.motion, 'stop_motion', MagicMock(side_effect=RuntimeError('bus gone'))

@@ -12,8 +12,8 @@ Usage
     from modules.scope_session import ScopeSession
 
     session = ScopeSession.create(settings=settings, source_path=source_path)
-    # or, for headless / test use:
-    session = ScopeSession.create_headless(settings=settings)
+    # or, with no GUI, from the user's configuration on disk:
+    session = ScopeSession.create(ScopeSession.load_user_settings(source_path), simulate=True)
 """
 
 import copy
@@ -568,58 +568,49 @@ class ScopeSession:
             cls._bring_up(session)
         return session
 
-    @classmethod
-    def create_headless(
-        cls,
-        settings: dict | None = None,
-        source_path: str = '.',
-        engineering_mode: bool = False,
-    ) -> 'ScopeSession':
-        """Create a headless session with simulated hardware.
+    @staticmethod
+    def load_user_settings(source_path: str) -> dict:
+        """The user's configuration, as the GUI would configure a scope from it.
 
-        Convenience factory for REST API, CLI scripts, and tests.
-        Uses simulated drivers so no physical hardware is needed.
+        For a host with no GUI -- a script, a server -- to pass to
+        ``create``: ``create(ScopeSession.load_user_settings(root),
+        simulate=...)``. Reading is its own call rather than a default of
+        ``create`` so a caller that meant to pass settings and forgot is
+        refused for the missing argument instead of quietly configured
+        from whatever is on disk.
 
-        This is ``create(simulate=True)`` with the settings resolved from
-        disk when none are passed; the topology, the bring-up and the
-        teardown are ``create``'s.
+        Raises:
+            ConfigError: ``source_path`` holds no shipped template, or the
+                user's ``current.json`` is unusable.
         """
-        if settings is None:
-            from modules.settings_init import settings as default_settings
+        from modules.settings_init import settings as default_settings
 
-            if default_settings is not None:
-                settings = default_settings.copy()
-            else:
-                # Settings not loaded yet (e.g. headless/test usage) -- resolve
-                # the same file the GUI reads (current.json first, then
-                # settings.json) so headless state matches the running app,
-                # instead of hardcoding settings.json and ignoring live state.
-                # The same preparation the GUI runs -- shape check, folds,
-                # repairs, default merge -- not just the file read. Reading
-                # alone yields a dict that parses and is silently missing
-                # whatever newer releases added to the template.
-                #
-                # A directory with no shipped template is not an installation:
-                # a session configured from an empty dict would have no frame
-                # and no objective, so it refuses here, naming the root. An
-                # unusable current.json surfaces the same way: the GUI answers
-                # that by asking the user, and there is nobody to ask here.
-                try:
-                    settings, _rejected = settings_init.prepare_settings(
-                        logger, source_path, fall_back_to_template=False
-                    )
-                except FileNotFoundError as e:
-                    raise ConfigError(
-                        f'no data/settings.json under {source_path!r}: not an LVP '
-                        'installation root; pass source_path or run from one'
-                    ) from e
-
-        return cls.create(
-            settings,
-            source_path=source_path,
-            simulate=True,
-            engineering_mode=engineering_mode,
-        )
+        if default_settings is not None:
+            return default_settings.copy()
+        # Settings not loaded yet (e.g. headless/test usage) -- resolve
+        # the same file the GUI reads (current.json first, then
+        # settings.json) so headless state matches the running app,
+        # instead of hardcoding settings.json and ignoring live state.
+        # The same preparation the GUI runs -- shape check, folds,
+        # repairs, default merge -- not just the file read. Reading
+        # alone yields a dict that parses and is silently missing
+        # whatever newer releases added to the template.
+        #
+        # A directory with no shipped template is not an installation:
+        # a session configured from an empty dict would have no frame
+        # and no objective, so it refuses here, naming the root. An
+        # unusable current.json surfaces the same way: the GUI answers
+        # that by asking the user, and there is nobody to ask here.
+        try:
+            settings, _rejected = settings_init.prepare_settings(
+                logger, source_path, fall_back_to_template=False
+            )
+        except FileNotFoundError as e:
+            raise ConfigError(
+                f'no data/settings.json under {source_path!r}: not an LVP '
+                'installation root; pass source_path or run from one'
+            ) from e
+        return settings
 
     @staticmethod
     def _build_helpers(source_path: str) -> tuple:

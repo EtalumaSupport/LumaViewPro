@@ -33,7 +33,9 @@ def session(tmp_path, monkeypatch):
         shutil.copy(os.path.join(os.path.dirname(SHIPPED_TEMPLATE), name), data / name)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-    return ScopeSession.create_headless(source_path=str(tmp_path))
+    return ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
 
 def _disconnect(session, monkeypatch):

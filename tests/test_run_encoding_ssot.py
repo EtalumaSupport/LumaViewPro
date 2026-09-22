@@ -527,7 +527,7 @@ class TestNoSilentHeadlessDefault:
     def test_configless_run_raises_before_anything_starts(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         try:
             runner = session.create_protocol_runner()
             with pytest.raises(ConfigError, match='image_mode'):

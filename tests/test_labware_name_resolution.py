@@ -156,7 +156,7 @@ class TestTheReader:
 
 @pytest.fixture
 def session():
-    built = ScopeSession.create_headless(settings=complete_settings())
+    built = ScopeSession.create(complete_settings(), simulate=True)
     yield built
     try:
         built.shutdown()

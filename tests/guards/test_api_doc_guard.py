@@ -181,7 +181,7 @@ def live_objects():
     from modules.scope_session import ScopeSession
 
     scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
-    session = ScopeSession.create_headless()
+    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     yield {
         'scope': scope,
         'session': session,

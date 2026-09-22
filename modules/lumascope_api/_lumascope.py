@@ -81,8 +81,8 @@ _PRE_RELEASE_WARNING_TEXT = (
 def _fire_pre_release_warning(stacklevel: int = 3) -> None:
     """Fire the PRE-RELEASE runtime FutureWarning once per process.
 
-    Called from `Lumascope.__init__` and from `ScopeSession.create` /
-    `create_headless` so any L2 entry point trips the warning, even
+    Called from `Lumascope.__init__` and from `ScopeSession.create`
+    so any L2 entry point trips the warning, even
     callers that bypass `Lumascope` directly (e.g. tests that mock
     the scope).
 
