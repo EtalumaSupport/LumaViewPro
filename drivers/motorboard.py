@@ -7,12 +7,13 @@ import pathlib
 import threading
 import time
 from typing import ClassVar
+from collections.abc import Mapping
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
 from drivers.registry import motor_registry
 from drivers.exceptions import ConfigReadError, HardwareError
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 
 
 class _LegacyAccelProbeFilter(logging.Filter):
@@ -158,30 +159,32 @@ class MotorBoard(SerialBoard):
         causing PermissionError on Windows. (#610)
         """
         self.backlash = self.motorconfig.antibacklash_um('Z')
-        self.axes_config = {
-            'Z': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('Z'),
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('Z'),
+                    },
+                    'move_func': self.z_um2ustep,
                 },
-                'move_func': self.z_um2ustep,
-            },
-            'X': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('X'),
+                'X': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('X'),
+                    },
+                    'move_func': self.xy_um2ustep,
                 },
-                'move_func': self.xy_um2ustep,
-            },
-            'Y': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('Y'),
+                'Y': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('Y'),
+                    },
+                    'move_func': self.xy_um2ustep,
                 },
-                'move_func': self.xy_um2ustep,
-            },
-            'T': {'move_func': self.t_pos2ustep},
-        }
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
     def _initial_connect(self):
         """Called once from __init__ to establish the first connection."""
@@ -1596,7 +1599,7 @@ class MotorBoard(SerialBoard):
             return
         return response
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -1606,7 +1609,7 @@ class MotorBoard(SerialBoard):
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:

@@ -33,7 +33,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
 from drivers.exceptions import HardwareError
 from lib import profile_trace
@@ -620,11 +620,12 @@ class MotionAPI:
             return False
         return self._scope.runtime_state.get_turret_config()[slot] is not None
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Get the axis configuration from the motion board.
 
         Returns:
-            dict: Axis configuration (axes present, limits, etc.).
+            Mapping: Axis configuration (axes present, limits, etc.),
+            read-only: an edit raises ``TypeError``.
         """
         return self._driver.get_axes_config()
 
@@ -1374,16 +1375,18 @@ class MotionAPI:
         with self._axis_state_lock:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Get the travel limits for an axis, in um.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
 
         Returns:
-            dict with 'min' and 'max' positions in um, or ``None`` if
-            the axis has no configured limits (typical for the turret
-            T axis). Callers must handle the None case.
+            A read-only mapping with 'min' and 'max' positions in um
+            (an edit raises ``TypeError``: it is the bound moves are
+            refused against), or ``None`` if the axis has no configured
+            limits (typical for the turret T axis). Callers must handle
+            the None case.
         """
         return self._driver.get_axis_limits(axis=axis)
 

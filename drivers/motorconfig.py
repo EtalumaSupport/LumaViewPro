@@ -9,10 +9,34 @@ for any missing keys.
 
 import json
 import pathlib
+import types
+from collections.abc import Mapping
 from typing import ClassVar
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
+
+
+def read_only_axes_config(axes_config: dict) -> Mapping:
+    """Freeze a motion driver's per-axis config, every level of it.
+
+    The travel limits in here are the bound a move is refused against, and
+    every read of them hands out this object. A plain dict let a caller
+    that edited what it read move the bound itself, and the stage was then
+    driven past its physical travel with nothing refusing it. Read-only,
+    the edit raises TypeError at the line that tries it.
+    """
+    return types.MappingProxyType(
+        {
+            axis: types.MappingProxyType(
+                {
+                    key: types.MappingProxyType(dict(value)) if isinstance(value, dict) else value
+                    for key, value in config.items()
+                }
+            )
+            for axis, config in axes_config.items()
+        }
+    )
 
 
 class MotorConfig:

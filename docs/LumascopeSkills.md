@@ -722,15 +722,18 @@ scope.motion.get_preferred_turret_slot()         # the slot the last move_turret
 # then the lowest-numbered -- a run and step navigation choose alike.
 
 # Stage
-scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
-scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
+scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}, read-only
+scope.motion.get_axes_config()                   # per-axis config: limits + ustep-conversion funcs (motion-driver shape), read-only
 ```
+
+Both are read-only mappings: they are the bound a move is refused against,
+so an edit raises `TypeError`. Take `dict(...)` of one for a working copy.
 
 **Axes: two different questions, two different surfaces.** Asking *what
 axes does this scope have* uses `scope.capabilities.axes` (tuple of
 names; immutable identity). Asking *what is the per-axis runtime config*
 (travel limits, ustep-per-mm conversion functions) uses
-`scope.motion.get_axes_config()` (dict of dicts; driver-level config).
+`scope.motion.get_axes_config()` (read-only mapping of mappings; driver-level config).
 The first is frozen at boot and answers UI-gating questions; the second
 exposes the motor-board's per-axis configuration for tiling /
 coordinate-transform work. They are not redundant.

@@ -20,9 +20,10 @@ import pathlib
 import threading
 import time
 from typing import ClassVar
+from collections.abc import Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
@@ -127,21 +128,23 @@ class SimulatedMotorBoard:
         # Re-apply timing mode after all state is initialized
         self.set_timing_mode(timing)
 
-        self.axes_config = {
-            'Z': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
-                'move_func': self.z_um2ustep,
-            },
-            'X': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
-                'move_func': self.xy_um2ustep,
-            },
-            'Y': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
-                'move_func': self.xy_um2ustep,
-            },
-            'T': {'move_func': self.t_pos2ustep},
-        }
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
+                    'move_func': self.z_um2ustep,
+                },
+                'X': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'Y': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -1122,7 +1125,7 @@ class SimulatedMotorBoard:
         """
         return f'Etaluma Motor Controller {self._fullinfo["model"]} Firmware: SIMULATED'
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -1130,7 +1133,7 @@ class SimulatedMotorBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
