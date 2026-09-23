@@ -709,11 +709,14 @@ class VerticalControl(BoxLayout):
             logger.error(f'[UI] objective question failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
+            # An objective that cannot be confirmed is unknown, and captures
+            # refuse while it is: no file is written with a guessed scale.
             show_notification_popup(
                 title='Objective not confirmed',
                 message=(
-                    'The installed objective could not be confirmed, so the image scale '
-                    f'recorded with captures may be wrong: {e}'
+                    f'The installed objective could not be confirmed: {e}\n'
+                    'Captures are refused until the objective, and so the image scale, '
+                    'is known.'
                 ),
             )
             self._resolve_objective(on_resolved)

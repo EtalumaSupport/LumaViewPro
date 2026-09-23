@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
@@ -356,3 +358,43 @@ def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
 
     for slot in (1, 2, 3, 4):
         assert f"text: '< {slot} >'" in kv, f'turret button {slot} lost its bracketed position'
+
+
+class TestAnUnknownSlotSaysWhatHappensNext:
+    """With the turret in no known slot there is no slot to ask about. The
+    popup names why and says captures are refused -- which they are: an
+    unknown objective is never stamped as a guessed scale."""
+
+    def test_the_popup_names_the_reason_and_the_refusal_is_real(self, monkeypatch, tmp_path):
+        from modules.exceptions import ObjectiveUnknownError
+        from modules.image_save import save_live_image
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        )
+        try:
+            # Bring-up alone leaves the slot unknown, and nothing is confirmed.
+            monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
+            monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
+            h = _Harness(monkeypatch, session)
+            h.prompt()
+
+            assert h.popups == []
+            assert len(h.error_popups) == 1
+            message = h.error_popups[0]['message']
+            assert 'home the turret' in message
+            assert 'Captures are refused' in message
+            assert 'may be wrong' not in message
+
+            with pytest.raises(ObjectiveUnknownError):
+                save_live_image(
+                    session.scope,
+                    save_folder=str(tmp_path),
+                    channel='BF',
+                    false_color_on=False,
+                    save_encoding='8bit',
+                )
+        finally:
+            session.shutdown()
