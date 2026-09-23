@@ -34,6 +34,7 @@ from ui.ui_helpers import (
     reset_with_refusal_boundary,
     run_with_refusal_boundary,
     show_jog_refusal,
+    unknown_position_refused,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -226,6 +227,8 @@ class VerticalControl(BoxLayout):
 
     def ex_set_bookmark(self):
         ctx = _app_ctx.ctx
+        if unknown_position_refused(('Z',), recording=True, then='save the bookmark'):
+            return
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             ctx.settings['bookmark']['z'] = height
@@ -238,6 +241,9 @@ class VerticalControl(BoxLayout):
 
     def ex_set_all_bookmarks(self):
         ctx = _app_ctx.ctx
+        # This one also writes every layer's focus from the Z.
+        if unknown_position_refused(('Z',), recording=True, then='save the bookmarks'):
+            return
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             settings = ctx.settings

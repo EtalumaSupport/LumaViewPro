@@ -21,6 +21,7 @@ from modules.config_ui_getters import (
 )
 from modules.exceptions import ProtocolError
 from modules.sequential_io_executor import IOTask
+from ui.ui_helpers import unknown_position_refused
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -807,6 +808,10 @@ class LayerControl(BoxLayout):
         # `project_lumaviewclassic_repo.md` in auto-memory.
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        # A Z that lost its reference keeps answering the last number it
+        # reported; saved, it would become every future step's focus.
+        if unknown_position_refused(('Z',), recording=True, then='save the focus'):
+            return
         try:
             pos = ctx.scope.motion.get_current_position('Z')
             with ctx.settings_lock:
@@ -898,6 +903,10 @@ class LayerControl(BoxLayout):
         # See execute_save_focus comment for the pattern rationale.
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        # As Save Focus, and this one writes the Z into every step of the
+        # channel.
+        if unknown_position_refused(('Z',), recording=True, then='apply the focus'):
+            return
         try:
             pos = ctx.scope.motion.get_current_position('Z')
             with ctx.settings_lock:

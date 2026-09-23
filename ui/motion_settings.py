@@ -13,7 +13,13 @@ from modules.debounce import debounce
 from modules.exceptions import ObjectiveUnknownError
 from modules.sequential_io_executor import IOTask
 from ui.image_settings import AccordionItemXyStageControl
-from ui.ui_helpers import move_absolute, move_home, move_relative, show_jog_refusal
+from ui.ui_helpers import (
+    move_absolute,
+    move_home,
+    move_relative,
+    show_jog_refusal,
+    unknown_position_refused,
+)
 
 logger = logging.getLogger('LVP.ui.motion_settings')
 
@@ -527,6 +533,9 @@ class XYStageControl(BoxLayout):
     def ex_set_xbookmark(self):
         ctx = _app_ctx.ctx
 
+        if unknown_position_refused(('X',), recording=True, then='save the bookmark'):
+            return
+
         # Get current stage x-position in um
         x_pos = ctx.lumaview.scope.motion.get_current_position('X')
 
@@ -549,6 +558,8 @@ class XYStageControl(BoxLayout):
 
     def ex_set_ybookmark(self):
         ctx = _app_ctx.ctx
+        if unknown_position_refused(('Y',), recording=True, then='save the bookmark'):
+            return
         y_pos = ctx.lumaview.scope.motion.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings
