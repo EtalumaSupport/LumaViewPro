@@ -164,6 +164,7 @@ class TestARefusingFactoryLeavesNothingBehind:
             with pytest.raises(ConfigError):
                 ScopeSession.create(
                     settings=complete_settings_without('frame'),
+                    simulate=True,
                     io_executor=io,
                     camera_executor=cam,
                 )

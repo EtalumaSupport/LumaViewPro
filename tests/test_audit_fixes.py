@@ -731,14 +731,14 @@ class TestSerialRateLimiting:
         """Default _min_command_interval should be 0 (no limit)."""
         from drivers.serialboard import SerialBoard
 
-        board = SerialBoard(vid=0, pid=0, label='TEST')
+        board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert board._min_command_interval == 0.0
 
     def test_rate_limit_attributes_exist(self):
         """Rate limit attributes should be set in __init__."""
         from drivers.serialboard import SerialBoard
 
-        board = SerialBoard(vid=0, pid=0, label='TEST')
+        board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert hasattr(board, '_min_command_interval')
         assert hasattr(board, '_last_command_time')
 
@@ -9840,30 +9840,18 @@ class TestCreateDiagnosticSharesInitMinimal:
         finally:
             scope.disconnect()
 
-    def test_create_diagnostic_sets_all_shared_slots(self):
-        from modules.lumascope_api import Lumascope
+    def test_create_diagnostic_sets_all_shared_slots(self, diagnostic_scope):
+        for slot in self.REQUIRED_SHARED_SLOTS:
+            assert hasattr(diagnostic_scope, slot), (
+                f'create_diagnostic must set {slot} (via _init_minimal) per audit #35.'
+            )
 
-        instance = Lumascope.create_diagnostic()
-        try:
-            for slot in self.REQUIRED_SHARED_SLOTS:
-                assert hasattr(instance, slot), (
-                    f'create_diagnostic must set {slot} (via _init_minimal) per audit #35.'
-                )
-        finally:
-            instance.disconnect()
-
-    def test_create_diagnostic_camera_driver_is_none(self):
+    def test_create_diagnostic_camera_driver_is_none(self, diagnostic_scope):
         """The diagnostic path leaves _camera_driver=None (the
         _init_minimal default); camera_connected returns False without
         the getattr-default belt-and-suspenders firing."""
-        from modules.lumascope_api import Lumascope
-
-        instance = Lumascope.create_diagnostic()
-        try:
-            assert instance._camera_driver is None
-            assert instance.camera_connected is False
-        finally:
-            instance.disconnect()
+        assert diagnostic_scope._camera_driver is None
+        assert diagnostic_scope.camera_connected is False
 
 
 class TestLedSentinelReturnsAreNone:
@@ -10868,6 +10856,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
         try:
             session = ScopeSession.create(
                 settings=complete_settings(),
+                simulate=True,
                 io_executor=io,
                 camera_executor=cam,
             )

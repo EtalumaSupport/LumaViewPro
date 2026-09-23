@@ -39,7 +39,7 @@ def test_command_after_failed_connect_does_not_reattempt():
     """A command right after a failed connect must NOT re-run connect (no
     duplicate failure) while the backoff window is open; after it expires it
     must reconnect again."""
-    board = sb.SerialBoard(vid=0x1234, pid=0x5678, label='[Test]')
+    board = sb.SerialBoard(vid=0x1234, pid=0x5678, label='[Test]', port='test-port')
 
     open_calls = {'n': 0}
 

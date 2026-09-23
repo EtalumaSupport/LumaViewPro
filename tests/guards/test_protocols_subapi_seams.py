@@ -112,14 +112,8 @@ class TestSubApiRoster:
             scope.disconnect()
         assert not missing, f'__init__ did not wire: {missing}'
 
-    def test_diagnostic_path_wires_every_sub_api(self):
-        from modules.lumascope_api import Lumascope
-
-        instance = Lumascope.create_diagnostic()
-        try:
-            missing = [name for name in _SUB_APIS if not hasattr(instance, name)]
-        finally:
-            instance.disconnect()
+    def test_diagnostic_path_wires_every_sub_api(self, diagnostic_scope):
+        missing = [name for name in _SUB_APIS if not hasattr(diagnostic_scope, name)]
         assert not missing, (
             f'create_diagnostic did not wire: {missing}. The two constructor '
             f'paths wire sub-APIs separately; both must be updated together.'

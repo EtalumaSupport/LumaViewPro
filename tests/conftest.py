@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import psutil
 import pytest
@@ -225,6 +225,83 @@ install_mock_deps()
 
 
 # ---------------------------------------------------------------------------
+# A real serial port is unreachable from a test
+# ---------------------------------------------------------------------------
+# Both boards connect inside their constructors: SerialBoard enumerates with
+# list_ports.comports and opens the match with serial.Serial. A test that
+# reaches a real board therefore opens the bench's port when a scope is
+# attached (two concurrent full-suite runs held both boards' ports and
+# interrupted the motor firmware) and passes quietly through the no-port
+# path when none is, so the suite behaved differently by what was plugged
+# in. Unless --run-hardware is set, enumeration finds nothing and the open
+# raises, and the TOUCH fails the test at its end: the driver registry's
+# auto mode and create_diagnostic both swallow a failed constructor into a
+# null driver, so an exception alone would let the test go green on a null
+# board, which is the quiet pass again.
+SERIAL_REFUSAL_BANNER = 'REAL SERIAL PORT REACHED'
+_serial_touches: list[tuple[str, str]] = []
+
+
+def _install_serial_refusers():
+    import serial
+    import serial.tools.list_ports as list_ports
+
+    real_serial = serial.Serial
+
+    def refused_comports(*args, **kwargs):
+        _serial_touches.append(('enumerate', 'serial.tools.list_ports.comports'))
+        return []
+
+    class RefusedSerial(real_serial):
+        # A subclass, so a Mock(spec=serial.Serial) keeps the real methods;
+        # only the open is intercepted.
+        def __init__(self, *args, **kwargs):
+            port = kwargs.get('port') or (args[0] if args else '?')
+            _serial_touches.append(('open', str(port)))
+            raise serial.SerialException(f'{SERIAL_REFUSAL_BANNER}: {port} (no --run-hardware)')
+
+    list_ports.comports = refused_comports
+    serial.Serial = RefusedSerial
+
+
+if not _flag_in_argv('--run-hardware'):
+    _install_serial_refusers()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if not _serial_touches:
+        return
+    touches = list(_serial_touches)
+    _serial_touches.clear()
+    kind, detail = touches[0]
+    report = outcome.get_result()
+    report.outcome = 'failed'
+    report.longrepr = (
+        f'{SERIAL_REFUSAL_BANNER}: {item.nodeid} reached the real serial layer during '
+        f'{call.when} ({len(touches)} touch(es); first: {kind} {detail}). Build the scope '
+        'with simulate=True or a simulated driver, or give a bare SerialBoard a port; '
+        'a real port is opened only under --run-hardware.'
+    )
+
+
+@pytest.fixture
+def diagnostic_scope():
+    """Lumascope.create_diagnostic() with each board connect answered by its
+    null driver, as on a machine with no scope. The diagnostic path's own
+    wiring is what a test reads; the real boards are unreachable from a test."""
+    from modules.lumascope_api import _lumascope
+
+    with patch.object(_lumascope, '_try_connect_board', lambda label, ctor, null_ctor: null_ctor()):
+        instance = _lumascope.Lumascope.create_diagnostic()
+    try:
+        yield instance
+    finally:
+        instance.disconnect()
+
+
+# ---------------------------------------------------------------------------
 # Memory cap
 # ---------------------------------------------------------------------------
 # A test that loops or accumulates when a run it expects to start is refused
@@ -286,6 +363,7 @@ def _memcap_reports_since(report_dir, started):
 
 def pytest_runtest_logstart(nodeid, location):
     _memcap_running['nodeid'] = nodeid
+    _serial_touches.clear()
 
 
 def pytest_runtest_logfinish(nodeid, location):
