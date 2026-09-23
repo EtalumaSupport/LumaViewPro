@@ -264,7 +264,25 @@ class HardwareCommandRefusedError(Exception):
         self.member = member
 
 
-class PositionOutOfRangeError(ValueError):
+class Refusal:
+    """A request the scope declined: nothing broke, and the person who asked can act on it.
+
+    Mixed into an exception whose message is written for that person. The
+    background executor shows a refusal as a warning under ``title``, in the
+    exception's own words, and logs one line for it with no traceback: an
+    ERROR and a traceback say something went wrong, and a refusal is a
+    designed outcome. Unmarked, a refusal raised inside a background task
+    read as a crash -- "Background operation failed" over its message, and a
+    traceback in the errors log.
+
+    Attributes:
+        title: The heading the person reads above the message.
+    """
+
+    title: str
+
+
+class PositionOutOfRangeError(Refusal, ValueError):
     """An absolute move was commanded beyond the axis's travel.
 
     The driver's own response to an out-of-travel target is to clamp it
@@ -290,6 +308,8 @@ class PositionOutOfRangeError(ValueError):
     optional argument each rather than a second exception class: the
     refusal is the same event, and only the sentence differs.
     """
+
+    title = 'Position Out of Range'
 
     def __init__(
         self,
@@ -370,7 +390,7 @@ def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
     return f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.'
 
 
-class AxisStateUnknownError(Exception):
+class AxisStateUnknownError(Refusal, Exception):
     """An axis whose position is not known was asked to move, or to be recorded.
 
     Raised by the motion pre-drive gate when the target axis is UNKNOWN:
@@ -399,6 +419,8 @@ class AxisStateUnknownError(Exception):
         axis: The first of them, for callers that map a refusal to a
             response by a single axis (REST status codes, SDK branches).
     """
+
+    title = 'Scope Not Homed'
 
     def __init__(self, axes: dict[str, str], then: str = 'move it'):
         """Build the refusal for ``axes``.

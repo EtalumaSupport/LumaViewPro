@@ -112,16 +112,36 @@ def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(api):
     assert 'distance' in str(caught.value)
 
 
-def test_both_safety_refusals_are_in_the_executors_user_facing_set():
-    """Pinned from the consumer side: the tuple is rebuilt per failure
-    inside the handler, so an import-time check would not see it."""
-    import inspect
+@pytest.mark.parametrize('bound', ['travel range', 'safety limit'])
+def test_both_safety_refusals_reach_the_user_in_their_own_words(bound):
+    """Driven through the real executor: a refusal raised in a background
+    task is shown with its own message, whichever limit refused it."""
+    import modules.sequential_io_executor as sio
+    from modules.notification_center import NotificationCenter, Severity
+    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
-    from modules import sequential_io_executor
+    error = PositionOutOfRangeError('Y', 1e30, 0.0, 80000.0, bound=bound)
 
-    src = inspect.getsource(sequential_io_executor)
+    def _move_absolute_impl():
+        raise error
 
-    assert src.count('PositionOutOfRangeError') >= 3
+    centre = NotificationCenter(dedup_window_s=10.0)
+    seen = []
+    centre.add_listener(seen.append, min_severity=Severity.INFO)
+    original = sio.notifications
+    try:
+        sio.notifications = centre
+        executor = SequentialIOExecutor(name='TEST')
+        task = IOTask(_move_absolute_impl)
+        task.set_name(executor.executor_name)
+        executor.queue.put(task)
+        executor.queue.get()
+        result, exception = task.run()
+        executor._on_task_done(task, result, exception)
+    finally:
+        sio.notifications = original
+
+    assert [n.message for n in seen] == [str(error)]
 
 
 def test_distinct_failures_do_not_suppress_each_other():

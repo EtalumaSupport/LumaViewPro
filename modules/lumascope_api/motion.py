@@ -467,7 +467,7 @@ class MotionAPI:
         # while a run is in flight.
         notifications.warning(
             'Motion',
-            'Scope Not Homed',
+            error.title,
             str(error),
             solicited=True,
             operation_key=REFUSAL_OPERATION_KEY,

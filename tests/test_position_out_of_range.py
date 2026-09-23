@@ -70,28 +70,6 @@ def test_the_message_names_the_axis_the_request_and_the_range():
     assert err.position == 200000.0
 
 
-def test_the_executor_shows_its_message_rather_than_a_generic_one():
-    """A refusal a user can act on must not be flattened to 'action failed'.
-
-    Pins membership from the consumer side: the tuple is rebuilt per
-    failure inside the handler, so an import-time check would not see
-    what the handler actually uses. Both arms matter -- the fallback runs
-    when drivers.exceptions is unavailable.
-    """
-    import inspect
-
-    from modules import sequential_io_executor
-
-    src = inspect.getsource(sequential_io_executor)
-
-    assert src.count('PositionOutOfRangeError') >= 3, (
-        'must be imported and present in BOTH typed tuples'
-    )
-    assert src.count('AxisStateUnknownError') >= 3, (
-        'must be imported and present in BOTH typed tuples'
-    )
-
-
 @pytest.mark.parametrize(
     'axis,position',
     [

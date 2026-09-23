@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 from lvp_logger import logger
 from lib import profile_trace
 from modules.notification_center import notifications
+from modules.exceptions import Refusal
 import threading
 import time
 
@@ -351,9 +352,17 @@ class IOTask:
             # duplicate it. This is the record that names the SYMBOL -- the
             # user-facing one deliberately does not.
             action_name = getattr(self.action, '__name__', str(self.action))
-            logger.error(
-                f'[IOTask    ] {action_name} raised {type(e).__name__}: {e}', exc_info=True
-            )
+            if isinstance(e, Refusal):
+                # A declined request, not a fault: no traceback, and not
+                # ERROR. Logged here whatever the task -- fire-and-forget,
+                # waited, or run inline on a scope with no executor, where
+                # no notification is ever posted and this line is the only
+                # record.
+                logger.warning(f'[IOTask    ] {action_name} refused ({type(e).__name__}): {e}')
+            else:
+                logger.error(
+                    f'[IOTask    ] {action_name} raised {type(e).__name__}: {e}', exc_info=True
+                )
             return None, e
 
     def set_callback(self, callback, cb_args, cb_kwargs):
@@ -1279,6 +1288,11 @@ class SequentialIOExecutor:
                 # where per-failure popups would stack
                 # (see protocol_image_writer.execute_step).
                 pass
+            elif isinstance(exception, Refusal):
+                # Its own title and words, as a warning: the person asked
+                # for something the scope declined, and nothing failed.
+                action_name = getattr(task.action, '__name__', str(task.action))
+                notifications.warning(f'Task:{action_name}', exception.title, str(exception))
             else:
                 # Typed exceptions (CaptureError / ProtocolError / etc.)
                 # carry a user-friendly message in str(exception); show
@@ -1286,11 +1300,9 @@ class SequentialIOExecutor:
                 # so the popup doesn't leak raw Python class names; the
                 # full trace is already in the log via _run_task above.
                 from modules.exceptions import (
-                    AxisStateUnknownError,
                     CaptureError,
                     ConfigError,
                     MoveNotCompletedError,
-                    PositionOutOfRangeError,
                     ProtocolError,
                 )
 
@@ -1302,8 +1314,6 @@ class SequentialIOExecutor:
                         ProtocolError,
                         ConfigError,
                         HardwareError,
-                        PositionOutOfRangeError,
-                        AxisStateUnknownError,
                         MoveNotCompletedError,
                     )
                 except ImportError:
@@ -1311,8 +1321,6 @@ class SequentialIOExecutor:
                         CaptureError,
                         ProtocolError,
                         ConfigError,
-                        PositionOutOfRangeError,
-                        AxisStateUnknownError,
                         MoveNotCompletedError,
                     )
                 action_name = getattr(task.action, '__name__', str(task.action))
