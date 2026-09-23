@@ -46,3 +46,18 @@ def test_bullseye_bands():
         [0, 0, 0],
         [255, 0, 0],
     ]
+
+
+def test_the_live_view_draws_the_bullseye_the_file_saves():
+    """The screen and a saved overlay read one table; the live view fills a
+    reused buffer instead of allocating per frame."""
+    import types
+
+    from ui.scope_display import ScopeDisplay
+
+    display = types.SimpleNamespace(_bullseye_rgb_buf=None, _bullseye_buf_shape=None)
+    frame = np.arange(256, dtype=np.uint8).reshape(16, 16)
+
+    shown = ScopeDisplay.transform_to_bullseye_prealloc(display, frame)
+
+    assert np.array_equal(shown, capture_overlays.transform_to_bullseye(frame))
