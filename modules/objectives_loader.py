@@ -11,6 +11,11 @@ from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
+# The objective the objective question proposes when nothing names the glass
+# in the light path: a fresh install, or a turret slot with no assignment. A
+# proposal only -- the person answering confirms or changes it.
+DEFAULT_PROPOSED_OBJECTIVE_ID = '20x w/collar'
+
 
 _REQUIRED_OBJECTIVE_FIELDS = {
     'description': str,
@@ -67,6 +72,11 @@ class ObjectiveLoader:
             ) from e
 
         _validate_objectives(self._objectives, filepath)
+        if DEFAULT_PROPOSED_OBJECTIVE_ID not in self._objectives:
+            raise ConfigError(
+                f'objectives.json at {filepath} has no {DEFAULT_PROPOSED_OBJECTIVE_ID!r}, '
+                'the objective the objective question proposes by default'
+            )
         self._generate_short_names()
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
 

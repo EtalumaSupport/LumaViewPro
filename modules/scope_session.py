@@ -1251,11 +1251,15 @@ class ScopeSession:
             raise ConfigError(
                 'the objective catalogue is empty; cannot ask which objective is installed'
             )
-        # On a turret model only the slot's own assignment is a proposal; the
-        # stored objective_id is a turretless selection and names nothing here.
-        proposed = slots.get(position) if has_turret else self.settings.get('objective_id')
+        # Only the slot's own assignment names glass anyone has confirmed. The
+        # stored objective_id does not: the question is owed on a turretless
+        # scope only before anyone has confirmed one, when it is the shipped
+        # template's value. Everything else gets the catalogue's default.
+        proposed = slots.get(position) if has_turret else None
         if proposed not in choices:
-            proposed = choices[0]
+            from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
+
+            proposed = DEFAULT_PROPOSED_OBJECTIVE_ID
         return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
 
     def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:

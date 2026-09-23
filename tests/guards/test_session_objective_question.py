@@ -23,6 +23,7 @@ import pytest
 from modules import settings_init
 from modules.exceptions import ConfigError
 from modules.lumascope_api.motion import AxisState
+from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module, writers_of_settings_keys
@@ -128,7 +129,9 @@ class TestT8ObjectiveQuestion:
         question = session.objective_question()
         assert question is not None
         assert question.turret_position is None
-        assert question.proposed == '10x Oly'
+        # Owed only before anyone confirmed one, so the stored id is the
+        # shipped template's, not glass anyone saw: the default is proposed.
+        assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
 
     def test_confirmed_and_assigned_asks_nothing(self, sessions):
         session = _at_slot(sessions(**_turret_settings(objective_confirmed=True)), 1)
@@ -253,10 +256,10 @@ class TestT8ObjectiveQuestion:
         assert session.objective_question() is None
         assert any('provisional' in line for line in _lines()), _lines()
 
-    def test_a_proposal_outside_the_catalogue_falls_back_to_the_first_choice(self, sessions):
+    def test_a_proposal_outside_the_catalogue_falls_back_to_the_default(self, sessions):
         # Slot values are stored as written, so a slot can name something
         # outside the catalogue; the question proposes only the live slot's
-        # assignment, and falls back to the first choice.
+        # assignment, and falls back to the catalogue's default.
         session = sessions(
             **_turret_settings(
                 turret_position=2,
@@ -270,7 +273,7 @@ class TestT8ObjectiveQuestion:
         question = session.objective_question()
         assert question is not None
         assert question.turret_position == 2
-        assert question.proposed == question.choices[0]
+        assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
 
     def test_a_stored_id_outside_the_catalogue_is_refused_at_bring_up(self, sessions):
         # '4' is a prefix of '4x Oly'. The catalogue loader used to bind a
@@ -307,8 +310,8 @@ class TestT8ObjectiveQuestion:
 
     def test_the_proposal_never_comes_from_the_stored_id(self, sessions):
         # On a turret model the stored objective_id is a turretless
-        # selection left in the file; an unassigned slot proposes the first
-        # choice, not that leftover.
+        # selection left in the file; an unassigned slot proposes the
+        # catalogue's default, not that leftover.
         session = sessions(
             **_turret_settings(
                 turret_objectives={'1': None, '2': None, '3': None, '4': None},
@@ -318,7 +321,7 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 1)
         question = session.objective_question()
         assert question is not None
-        assert question.proposed == question.choices[0]
+        assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
         assert question.proposed != '20x Oly'
 
     def test_a_session_without_a_catalogue_raises(self, sessions):
