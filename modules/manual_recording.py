@@ -847,9 +847,10 @@ def _recording_position(scope) -> dict | None:
     converted here. None when any axis does not know its position -- an
     axis that lost its reference keeps answering the last number it
     reported -- and the recording is still made, without a position, and
-    says so once. An axis the scope does not have is left out.
+    says so once. An axis the scope does not have is left out. The turret
+    is not part of the position, so an unknown turret does not drop it.
     """
-    if scope.motion.axes_without_position():
+    if {'X', 'Y', 'Z'} & set(scope.motion.axes_without_position()):
         logger.warning('[ManualRecord] Recording without a position: an axis is unknown')
         notifications.warning(
             'Recording',

@@ -1076,3 +1076,14 @@ class TestTheRecordedPosition:
         assert captured['df']['X'].isna().all()
         assert captured['df']['Z'].isna().all()
         assert shown.count('Position Not Recorded') == 1
+
+    def test_an_unknown_turret_does_not_drop_the_stage_position(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'T': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 1.5]
