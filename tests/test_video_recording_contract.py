@@ -176,6 +176,48 @@ class TestRateContract:
         assert result.aborted is False
 
 
+class TestNoRateLimit:
+    """A recording with no rate limit keeps every frame the camera delivers."""
+
+    def test_no_budget_without_a_rate(self, tmp_path):
+        assert make_config(tmp_path, fps=None, duration_s=2).frame_budget is None
+
+    def test_every_delivered_frame_is_kept(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=None, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=69, duration_s=1)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.frames_selected == 69
+        assert result.configured_fps is None
+        assert result.measured_fps == pytest.approx(69.0)
+
+    def test_duration_elapsed_closes_selection(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        # 1.025 s sits between the 20th frame (1.00 s) and the 21st
+        # (1.05 s), so float accumulation in the feed cannot move the edge.
+        engine.start(make_config(tmp_path, fps=None, duration_s=1.025))
+        # Deliver well past the duration with no stop(): with no budget,
+        # the duration itself must end selection.
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=3)
+        assert not engine.is_recording
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.end_reason == 'duration_elapsed'
+        assert result.frames_selected == 20
+
+    def test_manifest_records_no_configured_rate(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=None, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        manifest = json.loads(engine.result().manifest_path.read_text())
+        assert manifest['configured_fps'] is None
+        assert manifest['frames_selected'] == 10
+
+
 class TestEnqueueIsUnconditional:
     def test_lagging_writer_never_causes_capture_drop(self, tmp_path):
         writer = WriterStub(tmp_path, blocked=True)

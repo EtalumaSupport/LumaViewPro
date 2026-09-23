@@ -25,7 +25,7 @@ class VideoWriter:
     def __init__(
         self,
         output_path: pathlib.Path,
-        fps: float,
+        fps: float | None,
         width: int | None = None,
         height: int | None = None,
         *,
@@ -43,7 +43,10 @@ class VideoWriter:
         Args:
             output_path: Destination video file (H.264 via PyAV).
             fps: Frames per second. In VFR mode this is the container's
-                nominal rate only; real timing rides per-frame pts.
+                nominal rate only; real timing rides per-frame pts, and
+                None (a recording with no rate limit) leaves the stream
+                without one. Required outside VFR mode, where it IS the
+                timing.
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
             color: Layer name ('Red', 'Green', 'Blue', 'Lumi', ...) for
@@ -55,7 +58,14 @@ class VideoWriter:
                 time comes from its real capture timestamp, so a delivery
                 stall plays at its true duration. Every ``add_frame`` call
                 must then supply ``timestamp``.
+
+        Raises:
+            ValueError: If ``fps`` is None outside VFR mode.
         """
+        if fps is None and not vfr:
+            raise ValueError(
+                'fps is required unless vfr=True: a constant-rate video has no other timing'
+            )
         self._output_path = pathlib.Path(output_path)
         self._fps = fps
         self._color = color
@@ -152,8 +162,12 @@ class VideoWriter:
             return timestamp.timestamp()
         return float(timestamp)
 
-    def _encoder_rate(self) -> Fraction:
+    def _encoder_rate(self) -> Fraction | None:
         """Canonical encoder frame rate for every writer-init path.
+
+        None for a VFR recording with no rate limit: the per-frame pts
+        carry all the timing, and the only thing a nominal rate still
+        decides is how long the final frame displays.
 
         A slow recording (timelapse / long-exposure) captures fewer frames than
         the seconds elapsed, so its true rate is below 1 fps. Flooring such a
@@ -164,6 +178,8 @@ class VideoWriter:
         limit_denominator trims the binary-float artifacts of a value like 0.3
         to an exact ratio.
         """
+        if self._fps is None:
+            return None
         return Fraction(self._fps).limit_denominator()
 
     def _init_pyav(self, width, height, is_color):
@@ -207,9 +223,8 @@ class VideoWriter:
             self._stream.codec_context.time_base = VFR_TIME_BASE
         self._stream.options = options
         self._is_color = is_color
-        logger.info(
-            f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {float(self._fps):g}fps)'
-        )
+        rate = 'camera rate' if self._fps is None else f'{float(self._fps):g}fps'
+        logger.info(f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {rate})')
 
     def _is_correct_image_shape(self, image):
         if image.ndim == 3:

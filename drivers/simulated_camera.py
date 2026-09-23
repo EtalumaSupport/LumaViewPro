@@ -41,6 +41,12 @@ class SimulatedCamera(Camera):
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
+    # Free-run delivery ceiling in frames per second. A real camera's
+    # sensor readout and link bandwidth bound its frame rate however
+    # short the exposure; without a ceiling the simulator free-runs at
+    # 1/exposure (1000 fps at 1 ms), which no camera delivers.
+    _MAX_DELIVERY_FPS = 40.0
+
     def __init__(
         self,
         width: int = 1920,
@@ -416,18 +422,28 @@ class SimulatedCamera(Camera):
         self._pump_thread = None
 
     def _callback_pump_loop(self) -> None:
-        """Fire registered callbacks at ``1 / exposure_s`` while grabbing.
+        """Fire registered callbacks while grabbing, one per frame interval.
+
+        The interval is the exposure, never shorter than the delivery
+        ceiling's period (``_MAX_DELIVERY_FPS``). Frames are due on a
+        fixed schedule, so the host time spent generating and delivering
+        a frame comes out of the interval rather than adding to it -- a
+        real camera's frame period does not include host work. A pump
+        that falls behind (generation slower than the interval) delivers
+        the next frame at once and re-anchors, never bursting to catch up.
 
         Generates a fresh image per tick so the callback gets a unique
         ``(image, ts, chunks=None)`` triple. SimulatedCamera has no
         chunk surface, so chunks is always None -- recording callers
         already treat None as "skip chunk-derived metadata."
         """
+        next_due = time.monotonic()
         while not self._pump_stop.is_set():
             if not self._grabbing:
                 # Pump only delivers while grabbing; cheap idle loop.
                 if self._pump_stop.wait(0.05):
                     return
+                next_due = time.monotonic()
                 continue
             with self._frame_callback_lock:
                 cbs = list(self._registered_frame_callbacks)
@@ -440,9 +456,11 @@ class SimulatedCamera(Camera):
                     cb(image, ts, None)
                 except Exception as e:
                     logger.exception(f'[CAM Sim   ] frame callback raised: {e}')
-            # Honor the configured exposure as the inter-frame interval.
-            interval_s = max(self._exposure_us / 1_000_000.0, 0.001)
-            if self._pump_stop.wait(interval_s):
+            # Honor the configured exposure as the inter-frame interval,
+            # bounded below by the delivery ceiling.
+            interval_s = max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+            next_due = max(next_due + interval_s, time.monotonic())
+            if self._pump_stop.wait(next_due - time.monotonic()):
                 return
 
     # ------------------------------------------------------------------

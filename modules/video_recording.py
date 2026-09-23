@@ -91,7 +91,8 @@ class RecordingConfig:
     """Immutable per-recording snapshot; baked at record start.
 
     Attributes:
-        fps: Effective recording rate in frames per second (post-clamp).
+        fps: The rate limit selection samples at, in frames per second,
+            or None to keep every frame the camera delivers.
         duration_s: Maximum recording duration in seconds; Stop may end
             the recording earlier.
         width: Frame width in pixels. Any resolution is legal; frames are
@@ -118,7 +119,7 @@ class RecordingConfig:
             Per-recording folders keep the default.
     """
 
-    fps: float
+    fps: float | None
     duration_s: float
     width: int
     height: int
@@ -130,8 +131,14 @@ class RecordingConfig:
     manifest_filename: str | None = MANIFEST_FILENAME
 
     @property
-    def frame_budget(self) -> int:
-        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation."""
+    def frame_budget(self) -> int | None:
+        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation.
+
+        None with no rate limit: without a rate there is no count to
+        derive, and the recording ends at ``duration_s`` in time instead.
+        """
+        if self.fps is None:
+            return None
         return frame_budget(self.fps, self.duration_s)
 
 
@@ -151,7 +158,8 @@ class RecordingResult:
             or was discarded before drain completed.
         abort_reason: Human-readable cause when ``aborted``; empty string
             otherwise.
-        configured_fps: The snapshot rate, for comparison against measured.
+        configured_fps: The snapshot rate limit, for comparison against
+            measured; None when every delivered frame was kept.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
         timestamp_grade: ``'camera'`` when hardware chunk timestamps
@@ -173,7 +181,7 @@ class RecordingResult:
     write_failures: int
     aborted: bool
     abort_reason: str
-    configured_fps: float
+    configured_fps: float | None
     measured_fps: float
     measured_duration_s: float
     timestamp_grade: str
@@ -364,11 +372,15 @@ class VideoRecordingEngine:
         ):
             if not self._recording:
                 return
-            # No separate duration cutoff: the frame budget
-            # (ceil(fps * duration)) IS the duration boundary, and the
-            # selector's catch-up semantics require late frames to
-            # claim outstanding slots -- an independent wall-clock
-            # close would truncate exactly that catch-up.
+            # A rate-limited recording has no separate duration cutoff:
+            # the frame budget (ceil(fps * duration)) IS the duration
+            # boundary, and the selector's catch-up semantics require
+            # late frames to claim outstanding slots -- an independent
+            # time close would truncate exactly that catch-up. With no
+            # limit there is no budget, so the duration is the boundary.
+            if self._config.fps is None and timestamp_s - self._start_ts >= self._config.duration_s:
+                self._close_selection_locked('duration_elapsed')
+                return
             if not self._selector.slot_open(timestamp_s):
                 return
             self._selector.reserve()

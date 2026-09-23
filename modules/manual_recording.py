@@ -278,14 +278,14 @@ class ManualRecordingController:
         exposure = scope.imaging.exposure_ms_cached
         # The exposure cache seeds 0.0 and keeps the prior value when a
         # read fails, so a camera whose exposure was never successfully
-        # read reports 0 here; the recording rate derives from it, so
-        # refuse loudly instead of fabricating a rate.
+        # read reports 0 here; the dead-feed bound derives from it, so
+        # refuse loudly instead of fabricating one.
         if exposure is None or exposure <= 0:
             raise RecordingRefusedError(
                 reason='camera_exposure_unknown',
                 title='Camera Exposure Unavailable',
                 message='The camera has not reported its exposure time, so the '
-                'recording rate cannot be set. Reconnect the camera and try again.',
+                'recording cannot be started. Reconnect the camera and try again.',
             )
         exposure_fps = 1000.0 / exposure
 
@@ -300,12 +300,10 @@ class ManualRecordingController:
                 f'Recording will run at {exposure_fps:.1f} FPS instead. '
                 'Reduce exposure to hit the requested rate.',
             )
-        # The effective-rate clamp: exposure bounds what the sensor can
-        # produce, the user's cap applies when set, and the delivery
-        # bound caps an uncapped fast-exposure config -- the frame budget
-        # must reflect a rate the camera can actually deliver, never a
-        # bare 1/exposure.
-        effective_fps = effective_recording_fps(exposure_fps, max_fps)
+        # Manual recording asks for no rate of its own: it records every
+        # frame the camera delivers, limited only by the user's setting
+        # when one is set.
+        effective_fps = effective_recording_fps(None, max_fps)
 
         duration_s = get_manual_video_max_duration(settings)
         video_as_frames = settings['video_as_frames']
@@ -486,8 +484,11 @@ class ManualRecordingController:
             # write_frame callable and can never close it.
             self._unwind_failed_start(engine, writer)
             raise
+        rate = (
+            'every delivered frame' if effective_fps is None else f'{effective_fps:.2f} fps limit'
+        )
         logger.info(
-            f'[ManualRecord] Recording started: {effective_fps:.2f} fps, '
+            f'[ManualRecord] Recording started: {rate}, '
             f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
             f'-> {save_folder}'
         )

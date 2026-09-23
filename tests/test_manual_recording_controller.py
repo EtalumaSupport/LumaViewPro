@@ -20,7 +20,6 @@ import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
-from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
 from tests.video_engine_harness import ClaimStub, FakeClock, ManualFireScheduler, NotifyRecorder
 
 TICK_HZ = 1_000_000_000
@@ -212,11 +211,11 @@ class TestStartRefusals:
         assert not controller.is_recording and not controller.is_draining
 
 
-class TestRateClamp:
-    def test_exposure_bounds_the_rate(self, tmp_path):
-        controller, _, _ = make_controller(tmp_path)  # 100 ms -> 10 fps
+class TestRateLimit:
+    def test_no_limit_asks_for_no_rate(self, tmp_path):
+        controller, _, _ = make_controller(tmp_path)  # max_fps 0
         controller.start()
-        assert controller._config.fps == pytest.approx(10.0)
+        assert controller._config.fps is None
         controller.stop()
         finish(controller)
 
@@ -227,13 +226,30 @@ class TestRateClamp:
         controller.stop()
         finish(controller)
 
-    def test_uncapped_fast_exposure_bounded_by_delivery_constant(self, tmp_path):
-        scope = _FakeScope(exposure_ms=1.0)  # 1000 fps by exposure alone
-        controller, _, _ = make_controller(tmp_path, scope=scope)
+    def test_no_limit_records_every_frame_a_fast_camera_delivers(self, tmp_path):
+        # The camera's maximum is whatever it delivers: a fast camera at a
+        # short exposure must not be sampled down to any fixed rate.
+        scope = _FakeScope(exposure_ms=1.0)
+        controller, scope, clock = make_controller(tmp_path, scope=scope)
         controller.start()
-        assert controller._config.fps == pytest.approx(INTERIM_DELIVERY_BOUND_FPS)
+        feed_frames(scope, clock, 69, fps=69.0)
         controller.stop()
         finish(controller)
+        result = controller._engine.result()
+        assert result.frames_selected == 69
+        assert result.configured_fps is None
+        assert result.measured_fps == pytest.approx(69.0)
+
+    def test_user_limit_samples_a_faster_camera_down(self, tmp_path):
+        scope = _FakeScope(exposure_ms=1.0)
+        controller, scope, clock = make_controller(tmp_path, scope=scope, max_fps=25)
+        controller.start()
+        feed_frames(scope, clock, 69, fps=69.0)
+        controller.stop()
+        finish(controller)
+        result = controller._engine.result()
+        assert result.configured_fps == pytest.approx(25.0)
+        assert result.frames_selected == 25
 
     def test_uncapped_never_fires_fps_budget_warning(self, tmp_path, monkeypatch):
         # max_fps == 0 means uncapped: a fresh install must not see the
