@@ -32,7 +32,6 @@ try:
     print('status:', status, f'{before} -> {p.num_steps()} steps')
     print('Z-Slice column:', p.steps()['Z-Slice'].tolist())
     print('Z column      :', p.steps()['Z'].tolist())
-    print('has_zstacks   :', p.has_zstacks())
     print('ASSERT expanded:', 'PASS' if p.num_steps() > before else 'FAIL')
 
     banner('the zero-extent refusal the GUI owns (ui/protocol_settings.py:653-675)')

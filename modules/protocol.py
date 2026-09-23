@@ -378,23 +378,6 @@ class Protocol:
             logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
         return out
 
-    def set_layer_settings(self, layer_settings: dict) -> None:
-        """Store per-layer UI settings for inclusion in the next to_file().
-
-        Caller (typically ui/protocol_settings.py:save_protocol) gathers
-        current settings[layer][*] from the UI and passes them here
-        right before calling to_file(). Stored on the Protocol instance
-        so to_file's signature stays clean for non-UI callers (REST,
-        headless tests).
-        """
-        if layer_settings is None:
-            self._config.pop('layer_settings', None)
-            return
-        # Defensive copy: don't keep a live reference to the UI's dict.
-        self._config['layer_settings'] = {
-            k: dict(v) for k, v in layer_settings.items() if isinstance(v, dict)
-        }
-
     def copy_for_execution(self):
         """Lightweight copy for protocol execution.
 
@@ -413,7 +396,7 @@ class Protocol:
         new._num_steps_cache = None
         return new
 
-    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None):
+    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None) -> str | None:
         """Write the protocol to a TSV file.
 
         Args:
@@ -423,8 +406,7 @@ class Protocol:
                 Auto_Gain, Exposure, False_Color, Sum, Stim_Enabled).
                 Only layers whose Acquire is 'image' or 'video' are
                 written. When None, falls back to any layer_settings
-                stored on the Protocol (set by load + the
-                set_layer_settings() helper); when both are absent
+                stored on the Protocol (set by load); when both are absent
                 the file is written without a 'Layer Settings'
                 block (channel-enable state will be inferred from
                 steps on reload, matching the v5 fallback path).
@@ -2578,29 +2560,6 @@ class Protocol:
             config=config,
             led_max_ma=led_max_ma,
         )
-
-    def mark_zstack_starts_and_ends(self) -> None:
-        df = self.steps().copy()
-        df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: x == 0)
-        df['Last Z'] = (
-            df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
-            == df['Z-Stack Group Index']
-        )
-        df = df.drop(columns=['Z-Stack Group Index'])
-        self._set_steps(df)
-
-    def remove_zstack_starts_and_ends(self) -> None:
-        df = self.steps()
-        df = df.drop(columns=['First Z', 'Last Z'])
-        self._set_steps(df)
-
-    def has_zstacks(self) -> bool:
-        max_group_id = self.steps()['Z-Stack Group ID'].max()
-        # bool(), not the bare comparison: a pandas reduction returns
-        # np.bool_, and the annotation above promises a Python bool to
-        # every caller that stores or forwards this.
-        return bool(max_group_id > -1)
 
 
 if __name__ == '__main__':

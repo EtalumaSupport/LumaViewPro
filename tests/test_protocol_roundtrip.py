@@ -1841,23 +1841,6 @@ class TestProtocolNumStepsCache:
         assert copy.num_steps() == 2
         assert proto.num_steps() == 3
 
-    def test_cache_invalidated_after_zstack_marker_round_trip(self):
-        """mark_zstack_starts_and_ends / remove_zstack_starts_and_ends add and
-        drop columns only (row count unchanged), but they go through _set_steps
-        so the cache is cleared. Verify both paths leave num_steps correct."""
-        proto = _build_protocol(
-            [
-                _make_step(name='s0', zstack_group_id=0, z=4900.0),
-                _make_step(name='s1', zstack_group_id=0, z=5000.0),
-                _make_step(name='s2', zstack_group_id=0, z=5100.0),
-            ]
-        )
-        assert proto.num_steps() == 3
-        proto.mark_zstack_starts_and_ends()
-        assert proto.num_steps() == 3
-        proto.remove_zstack_starts_and_ends()
-        assert proto.num_steps() == 3
-
     def test_cache_attribute_exists_on_new_instances(self):
         """Both __init__ and copy_for_execution must set _num_steps_cache.
         A missing attribute would AttributeError on first num_steps() call."""
