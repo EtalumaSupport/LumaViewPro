@@ -1466,6 +1466,33 @@ class MotionAPI:
             return False
         return all(self._position_known(state) for state in stage_states)
 
+    def axes_without_position(self) -> dict[str, str]:
+        """Which of this scope's axes do not know their position, and why.
+
+        The question a run asks before it starts and before each capture:
+        every run moves every axis the scope has, and an image taken where
+        an axis is not known is saved with a position that is not true.
+        Each axis is answered with its own state because the two causes
+        need different words -- a HOMING axis is about to know, and its
+        user should wait; an UNKNOWN one has lost its reference, and its
+        user must home.
+
+        Unlike ``has_homed``, a scope with no axes answers nothing: it has
+        no position to lose, so nothing about it is unknown.
+
+        Returns:
+            dict[str, str]: Axis name to its state (``AxisState.UNKNOWN``
+                or ``AxisState.HOMING``) for every axis whose position is
+                not known, in the scope's axis order. Empty when every
+                axis knows its position.
+        """
+        with self._axis_state_lock:
+            return {
+                axis: state
+                for axis, state in self._axis_state.items()
+                if not self._position_known(state)
+            }
+
     def _refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
 

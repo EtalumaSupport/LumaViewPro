@@ -24,7 +24,11 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
-from modules.exceptions import AutofocusAborted, HardwareCommandRefusedError
+from modules.exceptions import (
+    AutofocusAborted,
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+)
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
     LedEndPolicy,
@@ -124,11 +128,13 @@ class ProtocolStepRunner:
             # The autofocus thread is the sole owner of recording the fault with
             # a full traceback: it logs every non-abort exception before setting
             # it on the future, but at that altitude it has no idea which protocol
-            # step or well the run belonged to. AFE has restored a usable Z, so an
-            # AF fault mid-protocol is non-fatal -- the step still captures here at
-            # that fallback Z and the run continues (no halt, no modal). That
-            # fallback capture may be out of focus, so emit one step-correlated
-            # warning that ties a possibly-blurry frame back to its step and well.
+            # step or well the run belonged to. When AFE restored its pre-sweep Z,
+            # an AF fault mid-protocol is non-fatal -- the step still captures at
+            # that fallback Z and the run continues (no halt, no modal). When the
+            # restore itself failed, Z is unknown, and the position check before
+            # the capture ends the run instead. A fallback capture may be out of
+            # focus, so emit one step-correlated warning that ties a
+            # possibly-blurry frame back to its step and well.
             # It is complementary to the AF thread's traceback (which it does not
             # repeat), and the one-shot latch keeps it to a single line per fault
             # rather than one per ~1 kHz settle poll. An intentional abort is not a
@@ -381,6 +387,17 @@ class ProtocolStepRunner:
             # Return after arming; the next tick falls through to capture, where
             # the auto_gain settle drain runs against the now-lit scene.
             return
+
+        # The step commits from here on: its autofocus result is written into
+        # the protocol and its frame is saved with this position. Neither may
+        # happen where an axis position is not known -- the image would carry
+        # a position that is not true. Asked here, once, rather than at each
+        # path that can lose a position on the way (a failed autofocus
+        # restore reaches this point without raising). The raise ends the run
+        # through the run loop's classification.
+        lost_axes = p._scope.motion.axes_without_position()
+        if lost_axes:
+            raise AxisStateUnknownError(next(iter(lost_axes)))
 
         # Update Z position with autofocus results
         if wants_af:

@@ -834,6 +834,9 @@ class TestHeadlessSession:
             },
         }
         session = ScopeSession.create(complete_settings(**settings), simulate=True)
+        # A headless session does not home, and a run is refused while any
+        # axis position is unknown.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])

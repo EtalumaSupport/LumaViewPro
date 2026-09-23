@@ -595,6 +595,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'validation_crashed': _FUNNEL_LOOP,
     'hardware_state_unknown': _FUNNEL_LOOP,
     'hardware_disconnected': _FUNNEL_LOOP,
+    'position_unknown': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
@@ -709,6 +710,12 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(scope, 'are_all_connected', lambda: False)
             return _make_single_step_protocol()
 
+        def position_unknown(mp):
+            # Stated rather than inherited from the fixture's un-homed scope,
+            # so the scenario still refuses if the fixture ever homes.
+            mp.setattr(scope.motion, 'axes_without_position', lambda: {'X': 'unknown'})
+            return _make_single_step_protocol()
+
         def autofocus_running(mp):
             # A live interactive autofocus owns Z and the LED lease; a run
             # prepared under it must be refused before any commitment.
@@ -744,6 +751,7 @@ class TestRefusalNotifyOnceFunnel:
             ('validation_crashed', validation_crashed),
             ('hardware_state_unknown', hardware_state_unknown),
             ('hardware_disconnected', hardware_disconnected),
+            ('position_unknown', position_unknown),
         ]
 
     def test_each_refusal_reason_notifies_once_with_matching_reason(

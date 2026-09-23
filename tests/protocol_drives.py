@@ -108,6 +108,12 @@ def bare_capture_runner(**overrides):
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)
+    if 'scope' not in overrides:
+        # A run is refused, and a capture raises, while any axis position is
+        # unknown; a bare mock answers that question with a truthy mock, so
+        # the default scope states the homed answer. A test about position
+        # passes its own scope.
+        kwargs['scope'].motion.axes_without_position.return_value = {}
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
     # The real executor returns an int drop count (0 on a clean run); the mock

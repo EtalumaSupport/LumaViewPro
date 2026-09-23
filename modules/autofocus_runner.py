@@ -473,18 +473,29 @@ class AutofocusRunner:
                             'may be left at the last AF search position',
                             exc_info=True,
                         )
+                        # Which of two things the user must do depends on how the
+                        # restore failed: a move that faulted has lost Z, and no
+                        # move is accepted on it until a home; a refused target
+                        # left Z known, where the sweep parked it.
+                        z_lost = 'Z' in self._scope.motion.axes_without_position()
                         notifications.warning(
                             'Autofocus',
                             'Z Position Not Restored',
                             'Could not restore Z position after autofocus stopped. '
-                            'Move Z manually if needed.',
+                            + (
+                                'The Z position is now unknown -- home the scope before moving it.'
+                                if z_lost
+                                else 'Z was left at the last autofocus search position.'
+                            ),
                         )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
-                # pre-AF snapshot. Hold only on success -- on abort or error the
-                # capture never runs, so inheriting would leave the LED lit with no
-                # owner to turn it off (overnight sample damage); a non-success
-                # exit always restores. The authority's diff is idempotent (a
+                # pre-AF snapshot. Hold only on success -- after an abort or error
+                # the capture is not this sweep's to light for (it may not run at
+                # all, and the step re-lights its own channel if it does), so
+                # inheriting could leave the LED lit with no owner to turn it off
+                # (overnight sample damage); a non-success exit always restores.
+                # The authority's diff is idempotent (a
                 # channel already at its target is left untouched, so no off->on
                 # blink) and offs whatever is lit but not in the target.
                 keep_for_capture = self._keep_led_on and completed_successfully

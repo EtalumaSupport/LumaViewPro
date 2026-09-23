@@ -18,7 +18,7 @@ from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
-from modules.lumascope_api import Lumascope
+from modules.lumascope_api import AxisState, Lumascope
 
 import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
@@ -30,7 +30,12 @@ from modules.exceptions import ProtocolRunRefusedError, RunStartError
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from modules.run_outcome import (
+    EndingLatch,
+    PendingRunOutcome,
+    RunEnding,
+    describe_unknown_positions,
+)
 
 from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
@@ -825,8 +830,9 @@ class SequencedCaptureRunner:
         Raises:
             ProtocolRunRefusedError: The run cannot start (already
                 running, files still writing, empty protocol, validation
-                errors, hardware not connected). The user has already
-                been notified once when this raises.
+                errors, hardware not connected, an axis position not
+                known). The user has already been notified once when
+                this raises.
             ValueError: leds_state_at_end is not a supported literal --
                 a programming error at the call site, not a refusal.
             TypeError: image_capture_config is not an ImageCaptureConfig
@@ -1034,6 +1040,29 @@ class SequencedCaptureRunner:
                 title='Hardware Disconnected',
                 message=(
                     'Not all hardware components are connected. Check connections and try again.'
+                ),
+                severity='error',
+            )
+
+        # Every run mode moves every axis this scope has, and each move on
+        # an axis whose position is not known is refused -- so a run
+        # admitted here would fail every scan and end in a disconnect's
+        # words. After the connection gate: a board that dropped reports
+        # its axes unknown as a consequence, and the disconnect is the
+        # cause the user must act on.
+        unknown_axes = self._scope.motion.axes_without_position()
+        if unknown_axes:
+            waiting = all(state == AxisState.HOMING for state in unknown_axes.values())
+            self._refuse(
+                reason='position_unknown',
+                title='Scope Not Homed',
+                message=(
+                    f'Cannot start the run: {describe_unknown_positions(unknown_axes)}. '
+                    + (
+                        'Wait for the home to finish, then start the run.'
+                        if waiting
+                        else 'Home the scope, then start the run.'
+                    )
                 ),
                 severity='error',
             )

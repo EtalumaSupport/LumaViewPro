@@ -52,6 +52,7 @@ import threading
 import uuid
 
 from lvp_logger import logger
+from modules.lumascope_api._constants import AxisState
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,9 +61,10 @@ class RunEnding:
 
     Attributes:
         status: One of 'completed', 'aborted', 'failed',
-            'failed_at_start'. 'aborted' is an ending the user or a
-            policy ceiling asked for; 'failed' is one the instrument
-            imposed.
+            'failed_at_start'. 'aborted' is an ending someone asked
+            for (a Stop, or the application tearing the run down);
+            'failed' is one the instrument imposed, including the
+            strike ceiling for scans that kept failing.
         reason: Machine-readable cause, stable enough for a caller to
             branch on ('motion_timeout', 'disk_space_critical',
             'stopped', ...).
@@ -76,6 +78,40 @@ class RunEnding:
     reason: str
     title: str
     message: str
+
+
+def describe_unknown_positions(axes: dict[str, str]) -> str:
+    """Say which axes do not know their position, in the words a user acts on.
+
+    One wording for the run's start refusal and its mid-run ending, so the
+    two never describe the same state differently. A homing axis is named
+    apart from a lost one because the user does different things about
+    them: wait for the one, home the other.
+
+    Args:
+        axes: Axis name to state, as ``MotionAPI.axes_without_position``
+            answers it. Must not be empty.
+
+    Returns:
+        str: A clause such as "Z is still homing; the X and Y positions
+            are unknown", with no leading capital or closing full stop, so
+            each caller ends it with the action its own situation needs.
+    """
+
+    def _names(names: list[str]) -> str:
+        return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
+
+    homing = [axis for axis, state in axes.items() if state == AxisState.HOMING]
+    lost = [axis for axis, state in axes.items() if state != AxisState.HOMING]
+    parts = []
+    if homing:
+        parts.append(f'{_names(homing)} {"is" if len(homing) == 1 else "are"} still homing')
+    if lost:
+        parts.append(
+            f'the {_names(lost)} position{"" if len(lost) == 1 else "s"} '
+            f'{"is" if len(lost) == 1 else "are"} unknown'
+        )
+    return '; '.join(parts)
 
 
 class EndingLatch:

@@ -244,6 +244,9 @@ class TestTheHolderIsTheLiveRun:
         session = ScopeSession.create(
             complete_settings(**_make_session_settings(tmp_path)), simulate=True
         )
+        # A headless session does not home, and a run is refused while any
+        # axis position is unknown.
+        home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
             # Read from inside the run: run_complete fires during

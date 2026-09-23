@@ -86,6 +86,7 @@ COVERAGE = {
     'disk_space_critical',
     'video_writer_died',
     'motion_timeout',
+    'position_lost',
     'hardware_disconnected',
     'consecutive_scan_failures',
     'run_loop_crashed',

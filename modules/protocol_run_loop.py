@@ -17,7 +17,7 @@ from lvp_logger import logger
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
-from modules.run_outcome import RunEnding
+from modules.run_outcome import RunEnding, describe_unknown_positions
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -134,15 +134,19 @@ class ProtocolRunLoop:
         Pure stage move only -- not go_to_step, which would also power the first
         step's LED during the idle wait. No-op on the final scan, so the stage
         is left where the last scan ended.
+
+        A failure propagates to the run loop's classification like any scan
+        failure. Caught here, a move that lost its axis position would leave
+        the run waiting out a whole period before the next scan found it --
+        and this move queues behind the end-of-scan grease routine on the
+        same lane, so it is also where a position the grease lost is first
+        seen.
         """
         p = self._p
         if not self._inter_scan_wait_follows():
             return
-        try:
-            first_step = p._protocol.step(idx=0)
-            p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
-        except Exception as ex:
-            logger.warning(f'[PROTOCOL] Inter-scan return-to-first-step move failed: {ex}')
+        first_step = p._protocol.step(idx=0)
+        p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
     def _run_loop_inner(self):
         """Inner run loop body."""
@@ -303,6 +307,10 @@ class ProtocolRunLoop:
                     p._start_t = p._scan_first_capture_t
 
                 new_count = p.advance_scan_count()
+                # A scan that ran clears the strike count here, before the
+                # between-scan move below: that move can now fail into the
+                # classification, and a scan that captured is not a strike.
+                consecutive_scan_failures = 0
                 logger.debug(
                     f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} '
                     f'{"aborted" if scan_aborted else "completed"}'
@@ -319,7 +327,6 @@ class ProtocolRunLoop:
                 # period wait -- one of the two entries into the idle.
                 self._enter_inter_scan_idle()
                 self._return_to_first_step_between_scans()
-                consecutive_scan_failures = 0
 
             except Exception as ex:
                 # Classify: hardware disconnected = fatal (abort +
@@ -359,6 +366,38 @@ class ProtocolRunLoop:
                         'Check the USB cable and power connections, save '
                         'the protocol, then restart LumaViewPro and the '
                         'protocol.',
+                    )
+                    if p._state not in (
+                        ProtocolState.COMPLETING,
+                        ProtocolState.IDLE,
+                        ProtocolState.ERROR,
+                    ):
+                        try:
+                            p._set_state(ProtocolState.ERROR)
+                        except ValueError:
+                            pass
+                    p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                    p._cleanup(ending)
+                    break
+
+                # A lost axis position is not transient: nothing in a run
+                # re-homes, so every retry is refused the same way, and the
+                # strike ceiling would end it three periods later in a
+                # disconnect's words. Asked of the axis state rather than the
+                # exception, because the fault arrives as the move's own
+                # error first and as the position refusal only after.
+                lost_axes = p._scope.motion.axes_without_position()
+                if lost_axes:
+                    logger.error(
+                        f'[Protocol] Axis position lost during scan: {ex}',
+                        exc_info=True,
+                    )
+                    ending = RunEnding(
+                        'failed',
+                        'position_lost',
+                        'Protocol Aborted -- Position Lost',
+                        f'The run stopped: {describe_unknown_positions(lost_axes)}. '
+                        'Home the scope before running the protocol again.',
                     )
                     if p._state not in (
                         ProtocolState.COMPLETING,
