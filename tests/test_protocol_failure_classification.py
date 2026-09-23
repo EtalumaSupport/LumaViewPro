@@ -152,7 +152,7 @@ class TestRunLoopInnerClassifiesByConnection:
             f'the funnel posts the disconnect popup; a site posting its own too '
             f'would show the user two dialogs for one fault. Got {captured}'
         )
-        assert runner.protocol_state == ProtocolState.ERROR, (
+        assert runner._state == ProtocolState.ERROR, (
             'a disconnect mid-scan must land the run in ERROR'
         )
         assert runner._protocol.step.call_count == 1, (

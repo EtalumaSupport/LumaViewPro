@@ -280,12 +280,6 @@ class SequencedCaptureRunner:
             validate_transition(self._state, new_state, self.LOGGER_NAME)
             self._state = new_state
 
-    @property
-    def protocol_state(self) -> ProtocolState:
-        """Current protocol state (read-only). Thread-safe."""
-        with self._protocol_state_lock:
-            return self._state
-
     def _reset_scan_state(self) -> None:
         """Reset the per-scan state at each scan start.
 

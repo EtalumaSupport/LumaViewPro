@@ -68,7 +68,7 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
     with pytest.raises(RuntimeError, match='cleanup tail raised'):
         runner._cleanup(_ABORTED)
 
-    assert runner.protocol_state is ProtocolState.IDLE, (
+    assert runner._state is ProtocolState.IDLE, (
         'cleanup raised and left the run stranded outside IDLE'
     )
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
@@ -96,9 +96,7 @@ def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypat
     with pytest.raises(RuntimeError, match='drain wait raised'):
         runner._cleanup(_ABORTED)
 
-    assert runner.protocol_state is ProtocolState.IDLE, (
-        'a run that stopped at RUNNING did not end idle'
-    )
+    assert runner._state is ProtocolState.IDLE, 'a run that stopped at RUNNING did not end idle'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
     runner.start(runner.prepare(**scr_run_kwargs()))
     assert runner.run_in_progress(), 'the next run did not start after a raising cleanup'
@@ -149,7 +147,7 @@ def test_a_run_that_died_still_ends_idle():
 
     runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'))
 
-    assert runner.protocol_state is ProtocolState.IDLE, 'a failed run never became idle again'
+    assert runner._state is ProtocolState.IDLE, 'a failed run never became idle again'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
 
 
@@ -181,7 +179,7 @@ def test_the_cleanup_tail_refuses_the_next_run_by_name():
     assert refusals[0].reason == 'already_running', (
         f'the cleanup tail refused by the wrong name: {refusals[0].reason}'
     )
-    assert runner.protocol_state is ProtocolState.IDLE, 'the tail never ended the run'
+    assert runner._state is ProtocolState.IDLE, 'the tail never ended the run'
 
 
 def test_a_cleanup_whose_steps_fail_still_ends_the_run():
@@ -194,7 +192,7 @@ def test_a_cleanup_whose_steps_fail_still_ends_the_run():
 
     runner._cleanup(_ABORTED)
 
-    assert runner.protocol_state is ProtocolState.IDLE, (
+    assert runner._state is ProtocolState.IDLE, (
         'a cleanup with a failing step left the run un-ended'
     )
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'

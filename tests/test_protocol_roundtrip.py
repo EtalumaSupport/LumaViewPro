@@ -1981,7 +1981,7 @@ class TestExecutorEdgeCases:
         import time
 
         time.sleep(0.5)
-        assert real_executor.protocol_state == ProtocolState.IDLE
+        assert real_executor._state == ProtocolState.IDLE
 
     def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
         """All LEDs are off after protocol completes (real motion path)."""
