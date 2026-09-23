@@ -526,7 +526,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/microscope_settings.py': 6,
     'ui/motion_settings.py': 3,
     'ui/post_processing.py': 1,
-    'ui/protocol_settings.py': 24,
+    'ui/protocol_settings.py': 22,
     'ui/scope_display.py': 2,
     'ui/shader.py': 3,
     'ui/stage.py': 5,

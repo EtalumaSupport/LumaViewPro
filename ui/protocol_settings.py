@@ -23,7 +23,6 @@ from modules.config_ui_getters import (
     get_layer_configs,
     get_protocol_time_params,
     get_selected_labware,
-    get_stim_configs,
     get_zstack_params,
     is_image_saving_enabled,
 )
@@ -1373,41 +1372,9 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             from ui.notification_popup import show_notification_popup
 
-            active_layer, active_layer_config = get_active_layer_config(
+            active_layer, _ = get_active_layer_config(
                 common_utils.get_opened_layer(ctx.image_settings)
             )
-
-            if (
-                'stim_config' in active_layer_config
-                and active_layer_config['stim_config'] is not None
-                and active_layer_config['stim_config']['enabled']
-            ):
-                # We want to keep the same acquire channel when we are only modifying the stim config.
-                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
-                active_layer = true_step_layer
-                active_layer_config = get_layer_configs()[active_layer]
-
-            plate_position = ctx.session.get_current_plate_position()
-            objective_id, _ = ctx.session.scope.runtime_state.resolve_current_objective()
-
-            # logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
-
-            if (ctx.lumaview.scope.capabilities.has_turret) and (
-                not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-            ):
-                error_msg = (
-                    'Cannot modify protocol step. Please set objective for current turret position.'
-                )
-                logger.error(error_msg)
-                # Runs on the io_executor worker; Kivy widgets must be
-                # built on the main thread, so marshal via Clock.
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Step Modification Error', message=error_msg
-                    ),
-                    0,
-                )
-                return
 
             # A non-blank name field is a user rename; blank keeps the step's
             # existing label and auto/user flag. The rendered Name re-derives
@@ -1418,19 +1385,18 @@ class ProtocolSettings(FloatLayout):
                 self.ids['step_name_input'].text, Protocol.sanitize_step_name
             )
 
-            self._protocol.modify_step(
-                step_idx=self.curr_step,
-                label=label,
-                layer=active_layer,
-                layer_config=active_layer_config,
-                stim_configs=get_stim_configs(),
-                plate_position=plate_position,
-                objective_id=objective_id,
-            )
+            try:
+                name = ctx.session.update_step(
+                    self._protocol, self.curr_step, layer=active_layer, label=label
+                )
+            except exceptions.ProtocolRunRefusedError:
+                # Already logged and shown to the user by the API's funnel,
+                # in its own words.
+                return
             logger.info(
                 "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-                active_layer,
-                self._protocol.step(idx=self.curr_step)['Name'],
+                self._protocol.step(idx=self.curr_step)['Color'],
+                name,
             )
 
             # Validate the modified step and warn the user if there are errors.

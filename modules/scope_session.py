@@ -887,6 +887,38 @@ class ScopeSession:
             after_step=after_step,
         )
 
+    def update_step(
+        self,
+        protocol: 'Protocol',
+        step_idx: int,
+        *,
+        layer: str,
+        label: str | None = None,
+    ) -> str:
+        """Rewrite a step of ``protocol`` from this session's settings and live position.
+
+        The entry point a caller with no GUI uses to do what Update Step
+        does: step ``step_idx`` takes ``layer``'s settings, the current
+        plate position and the current objective. The protocols API
+        performs the update and refuses it when the position or the
+        objective is unknown; this composes its inputs from the session
+        the same way ``add_step`` does.
+
+        Returns the step's name after the update.
+        """
+        # None when unknown: the protocols API refuses that by name, notified.
+        objective_id = self.scope.runtime_state.get_current_objective_id()
+        return self.scope.protocols.update_step(
+            protocol,
+            step_idx,
+            layer=layer,
+            layer_configs=self.get_layer_configs(),
+            stim_configs=self.get_stim_configs(),
+            plate_position=self.get_current_plate_position(),
+            objective_id=objective_id,
+            label=label,
+        )
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 

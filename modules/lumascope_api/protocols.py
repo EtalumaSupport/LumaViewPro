@@ -220,43 +220,7 @@ class ProtocolsAPI:
             ProtocolError: an impossible ``before_step`` / ``after_step``
                 (raised by the protocol).
         """
-        # First, because a step is a saved position and ``plate_position``
-        # is only as good as the axes it was read from: an axis that lost
-        # its reference keeps answering the last number it reported, so the
-        # step would save a real-looking place the scope no longer vouches
-        # for. Every axis, Z and T included, even when the step's Z comes
-        # from the layer's saved focus -- a step is where the scope will be
-        # sent. And ahead of the turret check, whose advice (set the slot's
-        # objective) is wrong when the slot itself is what is unknown.
-        unknown_axes = self._scope.motion.axes_without_position()
-        if unknown_axes:
-            self._refuse(
-                reason='step_position_unknown',
-                title='Protocol Add Step Error',
-                message=(
-                    'Cannot add the step. '
-                    + unknown_positions_sentence(unknown_axes, then='add the step')
-                ),
-            )
-        if self._scope.capabilities.has_turret and (
-            not self._scope.motion.is_current_turret_position_objective_set()
-        ):
-            self._refuse(
-                reason='turret_objective_unset',
-                title='Protocol Add Step Error',
-                message=(
-                    'Cannot add step to protocol. Please set objective for current turret position.'
-                ),
-            )
-        if objective_id is None:
-            self._refuse(
-                reason='objective_unknown',
-                title='Protocol Add Step Error',
-                message=(
-                    'Cannot add step: the objective in the light path is unknown, so the '
-                    'step could not say which objective it was taken with.'
-                ),
-            )
+        self._refuse_unrecordable_step(verb='add', objective_id=objective_id)
         if not any(cfg['acquire'] is not None for cfg in layer_configs.values()):
             self._refuse(
                 reason='no_acquiring_layer',
@@ -294,6 +258,102 @@ class ProtocolsAPI:
             inserted_at = before_step if before_step is not None else after_step + 1
             before_step, after_step = None, inserted_at
         return names
+
+    def update_step(
+        self,
+        protocol: Protocol,
+        step_idx: int,
+        *,
+        layer: str,
+        layer_configs: dict,
+        stim_configs: dict,
+        plate_position: dict,
+        objective_id: str | None,
+        label: str | None = None,
+    ) -> str:
+        """Rewrite step ``step_idx`` of ``protocol`` from ``layer`` at ``plate_position``.
+
+        The GUI's Update Step and a script's update are this one call, and
+        it is refused for the same reasons an add is: a step is a saved
+        position and the objective it was taken with, whichever button
+        saved it.
+
+        ``layer`` is the channel the caller is editing. When that layer's
+        stim config is enabled the edit is a stim edit, not a channel
+        change, so the step keeps the channel it already acquires.
+        ``label`` renames the step; None keeps its label.
+
+        Returns the step's name after the update.
+
+        Raises:
+            ProtocolRunRefusedError: an axis does not know its position, the
+                turret's current slot has no objective, or the active
+                objective is unknown. Logged and notified once.
+            ProtocolError: ``step_idx`` is not a step of ``protocol``
+                (raised by the protocol).
+        """
+        self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
+
+        stim_config = layer_configs[layer].get('stim_config')
+        if stim_config is not None and stim_config['enabled']:
+            layer = protocol.step(idx=step_idx)['Color']
+
+        protocol.modify_step(
+            step_idx=step_idx,
+            label=label,
+            layer=layer,
+            layer_config=layer_configs[layer],
+            stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
+            plate_position=plate_position,
+            objective_id=objective_id,
+        )
+        return protocol.step(idx=step_idx)['Name']
+
+    def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
+        """Refuse to save a step the scope cannot vouch for.
+
+        The one rule behind adding and updating a step, so the two cannot
+        drift apart: a step records where the scope is and which objective
+        it is looking through, and either can be unknown.
+        """
+        title = f'Protocol {verb.capitalize()} Step Error'
+        # First, because a step is a saved position and ``plate_position``
+        # is only as good as the axes it was read from: an axis that lost
+        # its reference keeps answering the last number it reported, so the
+        # step would save a real-looking place the scope no longer vouches
+        # for. Every axis, Z and T included, even when the step's Z comes
+        # from the layer's saved focus -- a step is where the scope will be
+        # sent. And ahead of the turret check, whose advice (set the slot's
+        # objective) is wrong when the slot itself is what is unknown.
+        unknown_axes = self._scope.motion.axes_without_position()
+        if unknown_axes:
+            self._refuse(
+                reason='step_position_unknown',
+                title=title,
+                message=(
+                    f'Cannot {verb} the step. '
+                    + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')
+                ),
+            )
+        if self._scope.capabilities.has_turret and (
+            not self._scope.motion.is_current_turret_position_objective_set()
+        ):
+            self._refuse(
+                reason='turret_objective_unset',
+                title=title,
+                message=(
+                    f'Cannot {verb} the step. Please set objective for current turret position.'
+                ),
+            )
+        if objective_id is None:
+            self._refuse(
+                reason='objective_unknown',
+                title=title,
+                message=(
+                    f'Cannot {verb} the step: the objective in the light path is unknown, so '
+                    'the step could not say which objective it was taken with.'
+                ),
+            )
 
     @staticmethod
     def _stim_configs_with_invalid_channels_disabled(stim_configs: dict) -> dict:
