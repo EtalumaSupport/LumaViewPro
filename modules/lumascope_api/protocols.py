@@ -33,7 +33,7 @@ import typing
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, unknown_positions_sentence
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -214,12 +214,30 @@ class ProtocolsAPI:
         Returns the inserted step names, in protocol order.
 
         Raises:
-            ProtocolRunRefusedError: no layer acquires, the turret's current
-                slot has no objective, or the active objective is unknown.
-                Logged and notified once.
+            ProtocolRunRefusedError: an axis does not know its position, no
+                layer acquires, the turret's current slot has no objective,
+                or the active objective is unknown. Logged and notified once.
             ProtocolError: an impossible ``before_step`` / ``after_step``
                 (raised by the protocol).
         """
+        # First, because a step is a saved position and ``plate_position``
+        # is only as good as the axes it was read from: an axis that lost
+        # its reference keeps answering the last number it reported, so the
+        # step would save a real-looking place the scope no longer vouches
+        # for. Every axis, Z and T included, even when the step's Z comes
+        # from the layer's saved focus -- a step is where the scope will be
+        # sent. And ahead of the turret check, whose advice (set the slot's
+        # objective) is wrong when the slot itself is what is unknown.
+        unknown_axes = self._scope.motion.axes_without_position()
+        if unknown_axes:
+            self._refuse(
+                reason='step_position_unknown',
+                title='Protocol Add Step Error',
+                message=(
+                    'Cannot add the step. '
+                    + unknown_positions_sentence(unknown_axes, then='add the step')
+                ),
+            )
         if self._scope.capabilities.has_turret and (
             not self._scope.motion.is_current_turret_position_objective_set()
         ):

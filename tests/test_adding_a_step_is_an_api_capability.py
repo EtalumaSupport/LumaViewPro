@@ -21,8 +21,10 @@ import pytest
 
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
+from modules.lumascope_api import AxisState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import home_sim_scope
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
@@ -100,6 +102,29 @@ class TestTheApiRefuses:
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 
+    def test_an_unknown_axis_position_is_refused_before_anything_else(self, scope, monkeypatch):
+        # An axis that lost its reference keeps answering the last number it
+        # reported, so the position handed in looks real and is not. Asked
+        # ahead of the turret check, whose advice is wrong when the slot
+        # itself is what is unknown.
+        protocol = _empty_protocol_for_add()
+        with scope.motion._axis_state_lock:
+            scope.motion._axis_state['Y'] = AxisState.UNKNOWN
+            scope.motion._axis_state['Z'] = AxisState.HOMING
+        monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
+        captured = _capture_notifications(monkeypatch)
+
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
+
+        assert excinfo.value.reason == 'step_position_unknown'
+        assert excinfo.value.message == (
+            'Cannot add the step. Z is still homing; the Y position is unknown. '
+            'Home the scope, then add the step.'
+        )
+        assert len(captured) == 1
+        assert protocol.num_steps() == 0
+
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiAdds:
@@ -137,7 +162,10 @@ class TestTheApiAdds:
 
 @pytest.fixture
 def session():
+    # Homed, as the application homes at startup: a step is a saved
+    # position, and an un-homed scope has none to save.
     built = ScopeSession.create(complete_settings(), simulate=True)
+    home_sim_scope(built.scope)
     yield built
     try:
         built.shutdown()

@@ -630,6 +630,9 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
     ),
     'objective_unknown': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    'step_position_unknown': (
+        'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
+    ),
     'capture_location_unusable': (
         'tests/test_a_run_cannot_start_where_it_cannot_save.py::TestTheEngineRefuses'
     ),

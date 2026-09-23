@@ -350,6 +350,26 @@ def describe_unknown_positions(axes: dict[str, str]) -> str:
     return '; '.join(parts)
 
 
+def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
+    """The whole refusal a user reads: what is unknown, and what to do about it.
+
+    Args:
+        axes: Axis name to state, as ``MotionAPI.axes_without_position``
+            answers it. Must not be empty.
+        then: What the user does once the scope knows its position, ending
+            the sentence (e.g. ``'move it'``, ``'add the step'``).
+
+    Returns:
+        str: e.g. "The X and Y positions are unknown. Home the scope, then
+            move it." -- or, when every axis named is still homing, "Wait
+            for the home to finish" in place of "Home the scope".
+    """
+    clause = describe_unknown_positions(axes)
+    waiting = all(state == _AXIS_HOMING for state in axes.values())
+    remedy = 'Wait for the home to finish' if waiting else 'Home the scope'
+    return f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.'
+
+
 class AxisStateUnknownError(Exception):
     """An axis whose position is not known was asked to move, or to be recorded.
 
@@ -390,10 +410,7 @@ class AxisStateUnknownError(Exception):
                 ending the sentence (e.g. ``'move it'``, ``'save the
                 focus'``).
         """
-        clause = describe_unknown_positions(axes)
-        waiting = all(state == _AXIS_HOMING for state in axes.values())
-        remedy = 'Wait for the home to finish' if waiting else 'Home the scope'
-        super().__init__(f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.')
+        super().__init__(unknown_positions_sentence(axes, then))
         self.axes = dict(axes)
         self.axis = next(iter(axes))
 
