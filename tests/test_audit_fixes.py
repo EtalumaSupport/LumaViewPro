@@ -9401,7 +9401,7 @@ class TestSessionLedOnArgNameIsMa:
         color = sim_scope.illumination.ch2color(0)
         for method_name in ('led_on', 'led_on_async'):
             getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
-            assert sim_scope.illumination.get_led_ma(color) == 42.0, (
+            assert sim_scope.illumination.get_led_state(color)['illumination_ma'] == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
             sim_scope.illumination.leds_off()
@@ -10032,7 +10032,7 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_ma('Blue') is None
+            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         finally:
             scope.disconnect()
 
@@ -10040,16 +10040,16 @@ class TestLedSentinelReturnsAreNone:
         """After led_off, the channel entry is popped from _led_state;
         get_led_ma returns None (was -1.0)."""
         # No prior led_on -- Blue starts in the never-set state.
-        assert sim_scope.illumination.get_led_ma('Blue') is None
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         # Force a known sequence: on, then off.
         sim_scope.illumination._led_state['Blue'] = {
             'enabled': True,
             'illumination_ma': 50.0,
             'owner': '',
         }
-        assert sim_scope.illumination.get_led_ma('Blue') == 50.0
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] == 50.0
         sim_scope.illumination._led_state.pop('Blue', None)
-        assert sim_scope.illumination.get_led_ma('Blue') is None
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
 
 
 class TestGetterSetterSymmetry:

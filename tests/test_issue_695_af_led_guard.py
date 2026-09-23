@@ -41,7 +41,7 @@ def scope():
 
 def _lit(scope, ch):
     color = scope.illumination.ch2color(ch)
-    return scope.illumination.led_enabled(color)
+    return scope.illumination.get_led_state(color)['enabled']
 
 
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):

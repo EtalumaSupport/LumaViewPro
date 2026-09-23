@@ -64,7 +64,9 @@ def _metadata_scope(chunks, chunk_reads=None):
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
             get_camera_info=lambda: {'model': 'simcam'},
         ),
-        illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        illumination=SimpleNamespace(
+            get_led_state=lambda channel: {'enabled': True, 'illumination_ma': 100.0, 'owner': ''}
+        ),
         # The real Lumascope always carries a resolved identity snapshot;
         # UNRESOLVED is its worst case, and these tests are about frame
         # settings, not spectral fields.

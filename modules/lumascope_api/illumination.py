@@ -528,7 +528,7 @@ class IlluminationAPI:
         # LED state -- API-level source of truth. The API was always
         # supposed to own LED state, but the implementation initially
         # only got as far as ownership + observers + save/restore.
-        # State queries (get_led_ma, led_enabled, etc.) still delegated
+        # State queries (get_led_state and its kin) still delegated
         # to the driver -- which worked for LEDBoard (has an internal
         # led_ma dict) but broke for FX2LEDController (thin translator,
         # returns sentinels). This dict is the primary store, analogous
@@ -620,14 +620,14 @@ class IlluminationAPI:
         # Skip redundant command if channel is already on at the same current
         color_name = self.state_ch2color(channel)
         if color_name:
-            current_ma = self.get_led_ma(color_name)
+            current_ma = self.get_led_state(color_name)['illumination_ma']
             # _led_state cache-equality trace for the slider > ~150 mA
             # silent-fail bench investigation. Gated by
             # fx2_debug_wire_enabled in settings.json to match
             # drivers/fx2driver.py.
             if _FX2_WIRE_SETTING:
                 cached_entry = self._led_state.get(color_name)
-                is_enabled = self.led_enabled(color_name)
+                is_enabled = self.get_led_state(color_name)['enabled']
                 try:
                     delta = (
                         None
@@ -652,7 +652,7 @@ class IlluminationAPI:
             if (
                 current_ma is not None
                 and abs(float(illumination_ma) - float(current_ma)) < 0.01
-                and self.led_enabled(color_name)
+                and self.get_led_state(color_name)['enabled']
             ):
                 return
 
@@ -721,7 +721,7 @@ class IlluminationAPI:
         # for FX2 always returned False -- making led_off a complete
         # no-op.
         color_name = self.state_ch2color(channel)
-        if color_name and not self.led_enabled(color_name):
+        if color_name and not self.get_led_state(color_name)['enabled']:
             return
 
         # Check ownership -- if caller specifies an owner, only allow if it matches
@@ -1089,46 +1089,6 @@ class IlluminationAPI:
         )
 
     # --- State ---
-    def get_led_ma(self, channel: str) -> float | None:
-        """Get the current illumination level for an LED channel.
-
-        Reads from the API-level _led_state cache. Does NOT delegate
-        to the driver -- the API layer is the single source of truth.
-
-        Args:
-            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
-
-        Returns:
-            Illumination in milliamps when the channel has an active
-            value set; None when the LED board is absent or the channel
-            is off / never set. Use ``led_enabled(channel)`` to distinguish
-            "off but reachable" from "no LED board."
-        """
-        if not self._driver:
-            return None
-        with self._led_owner_lock:
-            entry = self._led_state.get(channel)
-            return entry['illumination_ma'] if entry else None
-
-    def led_enabled(self, channel: str) -> bool:
-        """Whether a specific LED channel is currently on.
-
-        Reads from the API-level _led_state cache. Prior behavior
-        delegated to the driver's get_led_state, which for
-        FX2LEDController always returned False -- making led_off a
-        complete no-op on FX2 cameras.
-
-        Args:
-            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
-
-        Returns:
-            True if the channel is currently on.
-        """
-        if not self._driver:
-            return False
-        with self._led_owner_lock:
-            return self._led_state.get(channel) is not None
-
     def get_led_state(self, channel: str) -> dict:
         """Get the on/off state, illumination, and owner for an LED channel.
 
@@ -1139,8 +1099,7 @@ class IlluminationAPI:
 
         Returns:
             {'enabled': bool, 'illumination_ma': float | None, 'owner': str}.
-            illumination_ma is None when off / no LED board (matches the
-            None sentinel contract on get_led_ma).
+            illumination_ma is None when off / no LED board.
             owner is '' when off / no LED board.
         """
         if not self._driver:
@@ -1240,7 +1199,7 @@ class IlluminationAPI:
                     self._led_off_impl(channel=color, owner=owner)
         else:
             for color in list(self.get_led_states()):
-                if color not in target_on and self.led_enabled(color):
+                if color not in target_on and self.get_led_state(color)['enabled']:
                     self._led_off_impl(channel=color, _lease_owner=owner)
 
         # Re-assert the target channels; led_on self-skips channels already at

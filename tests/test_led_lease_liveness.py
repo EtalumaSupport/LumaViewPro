@@ -197,6 +197,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     # AF channel was never lit.
     assert holder.held
     assert ill.led_lease_owner == 'protocol'
-    assert ill.led_enabled('Blue'), "the holder's lit channel must survive the refused AF"
-    assert not ill.led_enabled('Green'), 'the refused AF must not light its channel'
+    assert ill.get_led_state('Blue')['enabled'], (
+        "the holder's lit channel must survive the refused AF"
+    )
+    assert not ill.get_led_state('Green')['enabled'], 'the refused AF must not light its channel'
     holder.release(leave_on=False)

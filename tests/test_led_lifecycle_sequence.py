@@ -568,8 +568,8 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0, owner='')  # refused by lease
     ill.led_off(channel=ill.color2ch('Green'), owner='')  # refused by lease
 
-    assert ill.led_enabled('Green'), 'protocol channel was disturbed by a live write'
-    assert not ill.led_enabled('Red'), 'live write lit a channel despite the lease'
+    assert ill.get_led_state('Green')['enabled'], 'protocol channel was disturbed by a live write'
+    assert not ill.get_led_state('Red')['enabled'], 'live write lit a channel despite the lease'
     # Exactly one command reached the driver (the protocol's Green on): the two
     # refused writes emitted nothing -- no Red blink, no Green off.
     assert sub.on_events() == [('Green', 250.0)], sub.render()
@@ -623,7 +623,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 
     # Preview to a Green step.
     _preview('Green', 250.0)
-    assert ill.led_enabled('Green')
+    assert ill.get_led_state('Green')['enabled']
     assert sub.lit_transitions('Green') == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.
@@ -891,7 +891,7 @@ def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_
         LedTransition.AF_ENTER,
         LedTransitionCtx(channel=ill.color2ch('Green'), illumination_ma=250.0),
     )
-    assert ill.led_enabled('Green'), "the holder's apply must still drive the LEDs"
+    assert ill.get_led_state('Green')['enabled'], "the holder's apply must still drive the LEDs"
     af_lease.release(leave_on=False)
 
 

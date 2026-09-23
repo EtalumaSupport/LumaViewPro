@@ -43,7 +43,7 @@ def test_restore_does_not_blink_channel_already_at_target(scope):
     scope.illumination.restore_led_state(snapshot, owner='autofocus')
 
     assert events == [], f'restore blinked a channel already at target: {events}'
-    assert scope.illumination.led_enabled(_color(scope, 0))
+    assert scope.illumination.get_led_state(_color(scope, 0))['enabled']
 
 
 def test_restore_still_relights_a_channel_that_was_turned_off(scope):
@@ -52,10 +52,10 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
     scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
     snapshot = scope.illumination.save_led_state('autofocus')
     scope.illumination.leds_off_owned('autofocus')
-    assert not scope.illumination.led_enabled(_color(scope, 0))
+    assert not scope.illumination.get_led_state(_color(scope, 0))['enabled']
 
     scope.illumination.restore_led_state(snapshot, owner='autofocus')
-    assert scope.illumination.led_enabled(_color(scope, 0))
+    assert scope.illumination.get_led_state(_color(scope, 0))['enabled']
 
 
 def test_restore_owner_scoped_leaves_other_channels_alone(scope):
@@ -67,8 +67,8 @@ def test_restore_owner_scoped_leaves_other_channels_alone(scope):
     scope.illumination.leds_off_owned('autofocus')
 
     scope.illumination.restore_led_state(snapshot, owner='autofocus')
-    assert scope.illumination.led_enabled(_color(scope, 0))  # ui's channel untouched
-    assert scope.illumination.led_enabled(_color(scope, 1))  # autofocus's restored
+    assert scope.illumination.get_led_state(_color(scope, 0))['enabled']  # ui's channel untouched
+    assert scope.illumination.get_led_state(_color(scope, 1))['enabled']  # autofocus's restored
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_manual_preview_async_skips_already_lit_channel(scope_io):
     _preview(scope_io, 3, 200)
 
     assert events == [], f'already-lit channel was re-commanded (flicker): {events}'
-    assert scope_io.illumination.led_enabled(_color(scope_io, 3))
+    assert scope_io.illumination.get_led_state(_color(scope_io, 3))['enabled']
 
 
 def test_manual_preview_async_turns_off_other_channels(scope_io):
@@ -120,5 +120,5 @@ def test_manual_preview_async_turns_off_other_channels(scope_io):
     scope_io.illumination.led_on(channel=0, illumination_ma=100, owner='ui')
     _preview(scope_io, 3, 200)
 
-    assert not scope_io.illumination.led_enabled(_color(scope_io, 0))
-    assert scope_io.illumination.led_enabled(_color(scope_io, 3))
+    assert not scope_io.illumination.get_led_state(_color(scope_io, 0))['enabled']
+    assert scope_io.illumination.get_led_state(_color(scope_io, 3))['enabled']

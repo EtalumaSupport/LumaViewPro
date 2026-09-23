@@ -456,7 +456,7 @@ def generate_image_metadata(
         # exposure/gain omissions above, which indicate a failed read).
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
-            if (_ma := scope.illumination.get_led_ma(channel=channel)) is not None
+            if (_ma := scope.illumination.get_led_state(channel)['illumination_ma']) is not None
             else {}
         ),
         'binning_size': scope.imaging._binning_size,

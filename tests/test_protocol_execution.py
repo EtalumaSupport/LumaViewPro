@@ -383,7 +383,9 @@ class TestSingleScanBasicImage:
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on after protocol'
+            assert not scope.illumination.get_led_state(color)['enabled'], (
+                f'LED {color} still on after protocol'
+            )
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -777,7 +779,7 @@ class TestLedStateAtEnd:
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on'
+            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
@@ -2150,7 +2152,9 @@ class TestCleanupCorrectness:
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on after abort'
+            assert not scope.illumination.get_led_state(color)['enabled'], (
+                f'LED {color} still on after abort'
+            )
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
@@ -2195,7 +2199,7 @@ class TestProtocolLedNoFlash:
         # different color when the user pressed Scan).
         stray = scope.illumination.color2ch('Red')
         scope.illumination.led_on(channel=stray, illumination_ma=80, owner='ui')
-        assert scope.illumination.led_enabled('Red')
+        assert scope.illumination.get_led_state('Red')['enabled']
 
         events = []
         scope.illumination.add_led_listener(
@@ -2224,7 +2228,7 @@ class TestProtocolLedNoFlash:
         scope.illumination.led_on(
             channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma, owner='ui'
         )
-        assert scope.illumination.led_enabled(color)
+        assert scope.illumination.get_led_state(color)['enabled']
 
         events = []
         scope.illumination.add_led_listener(

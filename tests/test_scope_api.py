@@ -492,7 +492,7 @@ class TestLumascopeLedAPI:
         scope.illumination.led_on(channel=1, illumination_ma=75)
         assert len(io_ex.submitted) == 1
         color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_ma(color) == 75.0
+        assert scope.illumination.get_led_state(color)['illumination_ma'] == 75.0
 
     def test_led_on_skips_when_no_led(self):
         # Nothing is queued AND nothing is recorded as lit. The second half
@@ -516,9 +516,9 @@ class TestLumascopeLedAPI:
         try:
             scope.illumination.led_on_async(channel=0, illumination_ma=30)
             color = scope.illumination.ch2color(0)
-            assert scope.illumination.get_led_ma(color) == 30.0
+            assert scope.illumination.get_led_state(color)['illumination_ma'] == 30.0
             scope.illumination.leds_off_async()
-            assert scope.illumination.get_led_ma(color) in (None, 0.0)
+            assert scope.illumination.get_led_state(color)['illumination_ma'] in (None, 0.0)
         finally:
             scope.disconnect()
 

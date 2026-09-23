@@ -532,7 +532,9 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
             get_camera_info=lambda: {'model': 'simcam'},
         ),
-        illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        illumination=SimpleNamespace(
+            get_led_state=lambda channel: {'enabled': True, 'illumination_ma': 100.0, 'owner': ''}
+        ),
         layer_identity=layer_record.UNRESOLVED,
         _camera_driver=driver,
     )

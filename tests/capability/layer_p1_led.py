@@ -14,11 +14,16 @@ try:
     # change current while on
     ill.led_on('Blue', 45.0, block=True)
     print('after led_on(Blue,45):', ill.get_led_state('Blue'))
-    assert ill.get_led_ma('Blue') == 45.0
+    assert ill.get_led_state('Blue')['illumination_ma'] == 45.0
     # off
     ill.led_off('Blue')
-    print('after led_off(Blue):', ill.get_led_state('Blue'), 'enabled=', ill.led_enabled('Blue'))
-    assert not ill.led_enabled('Blue')
+    print(
+        'after led_off(Blue):',
+        ill.get_led_state('Blue'),
+        'enabled=',
+        ill.get_led_state('Blue')['enabled'],
+    )
+    assert not ill.get_led_state('Blue')['enabled']
     # out-of-range refusal?
     try:
         ill.led_on('Blue', 99999.0, block=True)

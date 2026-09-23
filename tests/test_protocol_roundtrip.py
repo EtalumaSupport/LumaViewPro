@@ -2327,9 +2327,9 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.led_enabled('Blue')
+        assert scope.illumination.get_led_state('Blue')['enabled']
         scope.illumination.led_off(channel=0)
-        assert not scope.illumination.led_enabled('Blue')
+        assert not scope.illumination.get_led_state('Blue')['enabled']
 
     def test_led_on_by_color_name(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)

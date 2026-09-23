@@ -31,7 +31,7 @@ def scope():
 def _lit(scope, ch):
     """Whether the channel at *ch* is currently lit (API source of truth)."""
     color = scope.illumination.ch2color(ch)
-    return scope.illumination.led_enabled(color)
+    return scope.illumination.get_led_state(color)['enabled']
 
 
 def test_acquire_when_unleased_returns_token(scope):

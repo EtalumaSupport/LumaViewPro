@@ -387,7 +387,7 @@ def test_apply_step_light_lights_exclusively_and_holds_idempotently(scope):
     lease = ill.acquire_led_lease('protocol', alive=lambda: True)
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
-    assert ill.led_enabled('Green')
+    assert ill.get_led_state('Green')['enabled']
     assert sub.on_events() == [('Green', GREEN_MA)], sub.render()
 
     # Re-apply the identical target: idempotent, no off-then-on blink.
@@ -418,7 +418,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, 'Green', GREEN_MA, same_zstack_group=True),
     )
     assert sub.lit_transitions('Green') == [True], sub.render()
-    assert ill.led_enabled('Green')
+    assert ill.get_led_state('Green')['enabled']
 
     # Plain boundary, opt-in off: extinguish.
     lease.apply(
@@ -426,7 +426,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, 'Green', GREEN_MA, same_color=True, keep_led_across_moves=False),
     )
     assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert not ill.led_enabled('Green')
+    assert not ill.get_led_state('Green')['enabled']
 
     lease.release(leave_on=False)
 
@@ -479,7 +479,7 @@ def test_apply_on_released_lease_is_a_noop(scope):
     ill.add_led_listener(sub)
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Red', RED_MA))
     assert sub.events == [], sub.render()
-    assert not ill.led_enabled('Red')
+    assert not ill.get_led_state('Red')['enabled']
 
 
 def test_apply_reclaims_top_from_orphaned_child(scope):
@@ -511,8 +511,8 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     protocol.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
     assert ill.led_lease_owner == 'protocol'
     assert sub.final_lit() == set(), sub.render()
-    assert not ill.led_enabled('Red')
-    assert not ill.led_enabled('Green')
+    assert not ill.get_led_state('Red')['enabled']
+    assert not ill.get_led_state('Green')['enabled']
 
     protocol.release(leave_on=False)
 
@@ -532,7 +532,7 @@ def test_apply_transition_manual_preview_lights_holds_and_switches(scope):
     ill.add_led_listener(sub)
 
     ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Green', GREEN_MA, preview_on=True))
-    assert ill.led_enabled('Green')
+    assert ill.get_led_state('Green')['enabled']
     assert sub.on_events() == [('Green', GREEN_MA)], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no off-then-on blink.
@@ -558,8 +558,8 @@ def test_apply_transition_refused_while_leased(scope):
     # An unleased manual-nav preview arrives mid-run: refused, no LED touched.
     ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
     assert sub.events == [], sub.render()
-    assert ill.led_enabled('Green'), 'run channel disturbed by a refused UI write'
-    assert not ill.led_enabled('Red')
+    assert ill.get_led_state('Green')['enabled'], 'run channel disturbed by a refused UI write'
+    assert not ill.get_led_state('Red')['enabled']
 
     lease.release(leave_on=False)
 
