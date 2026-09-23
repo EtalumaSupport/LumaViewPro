@@ -31,7 +31,12 @@ import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.common_utils import CustomJSONizer
-from modules.exceptions import ConfigError, ObjectiveUnknownError, SettingsSaveRefusedError
+from modules.exceptions import (
+    ConfigError,
+    HardwareCommandRefusedError,
+    ObjectiveUnknownError,
+    SettingsSaveRefusedError,
+)
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.run_outcome import RunEnding
@@ -1311,12 +1316,15 @@ class ScopeSession:
                 any write.
             ObjectiveUnknownError: On a turreted scope, the slot in the
                 light path is unknown, so there is no slot to assign.
+            HardwareCommandRefusedError: A run holds the scope
+                (``exclusive_activity_running``). Nothing is written.
         """
         self._require_objective_catalogue()
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
         # Refuses an id that is not a catalogue key, before any write.
         self.objective_helper.get_objective_info(objective_id=objective_id)
+        self._refuse_objective_change_during_run('select_objective')
         if self.scope.runtime_state.is_turreted():
             slot = self.scope.motion.get_turret_slot()
             if slot is None:
@@ -1397,14 +1405,21 @@ class ScopeSession:
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
 
+        Binding the objective the slot already holds is a no-op.
+
         Raises:
             ValueError: ``position`` is not a slot number 1-4.
             ConfigError: ``objective_id`` is not exactly a catalogue key.
+            HardwareCommandRefusedError: A run holds the scope
+                (``exclusive_activity_running``). Nothing is written.
         """
         self._require_objective_catalogue()
         self._check_turret_slot(position)
         if objective_id not in self.objective_helper.get_objectives_list():
             raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        if self.settings['turret_objectives'].get(position) == objective_id:
+            return
+        self._refuse_objective_change_during_run('assign_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = objective_id
         self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
@@ -1418,8 +1433,13 @@ class ScopeSession:
 
         Raises:
             ValueError: ``position`` is not a slot number 1-4.
+            HardwareCommandRefusedError: A run holds the scope and the slot
+                has an assignment (``exclusive_activity_running``). Nothing
+                is written.
         """
         self._check_turret_slot(position)
+        if self.settings['turret_objectives'].get(position) is not None:
+            self._refuse_objective_change_during_run('clear_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = None
         self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
@@ -1427,6 +1447,13 @@ class ScopeSession:
             f'[Session  ] Turret position {position} cleared; the active objective is now '
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
+
+    def _refuse_objective_change_during_run(self, member: str) -> None:
+        # A run reads the active objective at every capture, so a change
+        # mid-run would stamp a different scale into the rest of the run's
+        # files than the objective its steps were built for.
+        if self.is_protocol_running:
+            raise HardwareCommandRefusedError('exclusive_activity_running', member)
 
     @staticmethod
     def _check_turret_slot(position) -> None:

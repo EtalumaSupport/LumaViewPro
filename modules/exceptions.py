@@ -247,6 +247,11 @@ class HardwareCommandRefusedError(Exception):
     be dropped silently, which is how a fenced write reaches no hardware and
     reports success.
 
+    The Session's objective writers (select, slot assign and slot clear)
+    raise it too while a run holds the scope, with the same reason: the run
+    stamps the active objective's scale into each capture, so a change
+    mid-run is a command against the run's hardware state.
+
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
             to responses (REST status codes, SDK branches).
