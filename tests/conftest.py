@@ -17,12 +17,17 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 `pylon_hardware`) -- see `pytest_collection_modifyitems` below.
 """
 
+import faulthandler
 import os
 import sys
 import tempfile
+import threading
+import time
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import psutil
 import pytest
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
@@ -220,6 +225,74 @@ install_mock_deps()
 
 
 # ---------------------------------------------------------------------------
+# Memory cap
+# ---------------------------------------------------------------------------
+# A test that loops or accumulates when a run it expects to start is refused
+# can grow one xdist worker past the machine's RAM while its state stays R
+# and its output stays quiet; three such workers reached about 114 GB on a
+# 48 GB machine before a person killed them, and the run that followed
+# reported a tainted result as if it were one. macOS refuses every rlimit
+# form (RLIMIT_AS and RLIMIT_DATA raise, `ulimit -v` fails), so the cap is
+# a watchdog: every pytest process, controller or worker, polls its own
+# resident size once a second and, over the cap, writes the running test
+# and every thread's stack, then exits with a status nothing reads as
+# success. 5 GiB: a normal worker measures about 75 MB.
+MEMORY_CAP_BYTES = 5 * 1024**3
+MEMORY_CAP_EXIT_STATUS = 3
+MEMORY_CAP_BANNER = 'MEMORY CAP EXCEEDED'
+# Bound at import so a test that swaps psutil in sys.modules cannot blind
+# the watchdog.
+_MEMCAP_PROCESS = psutil.Process()
+_memcap_running = {'nodeid': None}
+
+
+def _memcap_watch(cap_bytes, report_dir, capman):
+    while True:
+        time.sleep(1.0)
+        rss = _MEMCAP_PROCESS.memory_info().rss
+        if rss > cap_bytes:
+            _memcap_fail(rss, cap_bytes, report_dir, capman)
+
+
+def _memcap_fail(rss, cap_bytes, report_dir, capman):
+    line = (
+        f'{MEMORY_CAP_BANNER}: pid {os.getpid()} resident {rss / 2**30:.2f} GiB, '
+        f'cap {cap_bytes / 2**30:.2f} GiB, while running {_memcap_running["nodeid"]}'
+    )
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f'memcap_{os.getpid()}.txt'
+    with open(path, 'w') as fh:
+        fh.write(line + '\n\n')
+        faulthandler.dump_traceback(file=fh, all_threads=True)
+    # pytest's fd capture owns stderr during a test; the write goes to the
+    # real one or it is lost with the process.
+    if capman is not None:
+        with capman.global_and_fixture_disabled():
+            sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+            sys.stderr.flush()
+    else:
+        sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+        sys.stderr.flush()
+    os._exit(MEMORY_CAP_EXIT_STATUS)
+
+
+def _memcap_reports_since(report_dir, started):
+    if not report_dir.is_dir():
+        return []
+    return sorted(
+        path for path in report_dir.glob('memcap_*.txt') if path.stat().st_mtime >= started
+    )
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _memcap_running['nodeid'] = nodeid
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    _memcap_running['nodeid'] = None
+
+
+# ---------------------------------------------------------------------------
 # Pytest hooks
 # ---------------------------------------------------------------------------
 
@@ -264,6 +337,15 @@ def pytest_addoption(parser):
         help='Run wall-clock timing-sensitive tests (can be flaky under load)',
     )
     _safe(
+        '--memory-cap-bytes',
+        type=int,
+        default=MEMORY_CAP_BYTES,
+        help='Resident-memory cap per pytest process (controller and each xdist '
+        'worker); over it the process writes the running test and every '
+        f"thread's stack to build/memcap_<pid>.txt and exits {MEMORY_CAP_EXIT_STATUS}. "
+        'Lowered only by the guard test that proves the cap fires.',
+    )
+    _safe(
         '--driver-log',
         action='store_true',
         default=False,
@@ -300,6 +382,19 @@ def pytest_configure(config):
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
+
+    config._memcap_started = time.time()
+    config._memcap_report_dir = Path(config.rootpath) / 'build'
+    threading.Thread(
+        target=_memcap_watch,
+        args=(
+            config.getoption('--memory-cap-bytes'),
+            config._memcap_report_dir,
+            config.pluginmanager.getplugin('capturemanager'),
+        ),
+        name='memory-cap',
+        daemon=True,
+    ).start()
 
 
 def _enable_driver_logging(config):
@@ -368,6 +463,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     of each migration. Registry: tests/ratchets.py.
     """
     from tests import ratchets
+
+    # A worker the cap killed is reported by xdist as a crash; this names the
+    # cap and the test so the log cannot read as an ordinary failure.
+    reports = _memcap_reports_since(config._memcap_report_dir, config._memcap_started)
+    if reports:
+        terminalreporter.section(MEMORY_CAP_BANNER, sep='!', red=True)
+        for path in reports:
+            with open(path) as fh:
+                terminalreporter.line(fh.readline().rstrip())
+            terminalreporter.line(f'thread stacks: {path}')
 
     lines = ratchets.summary_lines()
     if not lines:
