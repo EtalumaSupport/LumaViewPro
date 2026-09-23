@@ -9710,19 +9710,27 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 class TestRuntimeStateSetObjective:
     """The Session hardware forwarders are retired; the one public
     objective-selection path is the runtime_state member on the
-    composition root the Session exposes. This pins its round trip."""
+    composition root the Session exposes. This pins its round trip.
+
+    Built from the fixture, not from the checkout's saved settings: those
+    are whatever scope a developer last ran, and a turreted one refuses a
+    selected objective by design, so the test's answer depended on the
+    machine it ran on."""
 
     def test_set_objective_round_trip(self):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
-        available = session.scope.runtime_state.get_available_objectives()
-        if not available:
-            return  # no objectives loaded in this sim profile
-        target = available[0] if isinstance(available, list) else next(iter(available))
+        session = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            available = session.scope.runtime_state.get_available_objectives()
+            assert available, 'the fixture scope loaded no objectives'
+            target = available[0]
 
-        session.scope.runtime_state.set_objective(target)
-        assert session.scope.runtime_state.get_current_objective_id() == target
+            session.scope.runtime_state.set_objective(target)
+            assert session.scope.runtime_state.get_current_objective_id() == target
+        finally:
+            session.shutdown()
 
 
 class TestAxisTravelLimitsOnCapabilities:
