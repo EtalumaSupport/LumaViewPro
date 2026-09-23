@@ -9080,7 +9080,23 @@ class TestSequencedCaptureRunnerRunDirCollision:
         name = exc._run_dir.name
         assert len(name.split('_')) == 2, f'first call must use bare timestamp name; got {name!r}'
 
-    def test_same_second_collision_uses_suffix(self, tmp_path):
+    def test_same_second_collision_uses_suffix(self, tmp_path, monkeypatch):
+        import datetime
+        import types
+
+        import modules.sequenced_capture_runner as scr
+
+        # The collision is three runs inside one second. Read from the real
+        # clock, a second boundary can fall between the calls on a loaded
+        # machine and the third run gets a new timestamp instead of _002 --
+        # the test then fails with nothing wrong. The clock is fixed so the
+        # three calls share a second by construction.
+        class _OneSecond(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 23, 15, 54, 57)
+
+        monkeypatch.setattr(scr, 'datetime', types.SimpleNamespace(datetime=_OneSecond))
         exc = self._make_executor(tmp_path)
         r1 = exc._create_run_dir()
         r2 = exc._create_run_dir()
@@ -9089,10 +9105,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             assert r['status'] is True, f'unexpected failure: {r}'
         # All three directories exist and are distinct.
         dirs = sorted(p.name for p in tmp_path.iterdir())
-        assert len(dirs) == 3
-        # The first is unsuffixed; the next two carry _001 and _002.
-        assert dirs[1].endswith('_001'), dirs
-        assert dirs[2].endswith('_002'), dirs
+        assert dirs == ['20260923_155457', '20260923_155457_001', '20260923_155457_002'], dirs
 
     def test_collision_retries_dont_overwrite(self, tmp_path):
         exc = self._make_executor(tmp_path)
