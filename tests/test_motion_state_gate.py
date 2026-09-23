@@ -188,7 +188,7 @@ def test_turret_home_recovers_from_unknown_z(scope):
 
 
 # ---------------------------------------------------------------------------
-# B2: one state store. The driver's has_turret_homed() flag clears only on physical
+# B2: one state store. The driver's turret-homed flag clears only on physical
 # disconnect, so a stall or disconnect fault mid-turret-move leaves it True
 # while _axis_state says UNKNOWN -- and turret_select's safety check reads the
 # flag. That is a live bypass: the turret drives against an unknown reference.
@@ -196,19 +196,19 @@ def test_turret_home_recovers_from_unknown_z(scope):
 
 
 def test_turret_fault_revokes_homed_state(scope):
-    """A fault that makes T UNKNOWN must revoke has_turret_homed().
+    """A fault that makes T UNKNOWN must revoke the turret's known position.
 
     This is the state the stall fault and the disconnect fault leave
     behind: the board answered the home, then the move faulted. The
     driver flag alone cannot see that.
     """
     assert scope.motion._home_impl() is True
-    assert scope.motion.has_turret_homed() is True, 'precondition: a good home homes the turret'
+    assert scope.motion.position_is_known('T') is True, 'precondition: a good home homes the turret'
 
     scope.motion._set_axis_state('T', AxisState.UNKNOWN)
 
-    assert scope.motion.has_turret_homed() is False, (
-        'has_turret_homed() must follow the axis state, not a driver flag that '
+    assert scope.motion.position_is_known('T') is False, (
+        "position_is_known('T') must follow the axis state, not a driver flag that "
         'clears only on physical disconnect'
     )
     with pytest.raises(AxisStateUnknownError):

@@ -858,26 +858,6 @@ class MotionAPI:
             _api_log.info('T home DONE')
             return False
 
-    def has_turret_homed(self) -> bool:
-        """Whether the turret has a known reference position.
-
-        Answers from the axis state rather than the driver's homing
-        latch. The latch records only that a THOME once succeeded and
-        clears only on physical disconnect, so a stall or a mid-move
-        board dropout leaves it True while the turret's real reference
-        is gone -- and the caller that asks this question asks it to
-        decide whether driving the turret is safe.
-
-        Returns:
-            bool: True if the turret position is known. On a board with
-                no turret there is nothing to home, so this follows the
-                stage answer, matching what the driver latch reported.
-        """
-        if 'T' not in self._axis_state:
-            return self.has_homed()
-        with self._axis_state_lock:
-            return self._position_known(self._axis_state['T'])
-
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
@@ -1446,7 +1426,7 @@ class MotionAPI:
         """Whether the stage / focus axes have a known reference position.
 
         Answers from the axis state rather than the driver's homing
-        latch, for the same reason as ``has_turret_homed``: the latch survives
+        latch: the latch survives
         every fault short of a physical disconnect, so it keeps
         reporting "homed" after a stall or a dropout has already
         invalidated the reference frame.

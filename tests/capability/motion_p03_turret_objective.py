@@ -35,7 +35,7 @@ def main():
 
         m.home('ALL')
         check('turret homes', m.home('T') is True)
-        check('has_turret_homed after home', m.has_turret_homed())
+        check('turret position known after home', m.position_is_known('T'))
         m.move_turret(1, restore_z=True)
 
         # --- objective selection (the spinner): assigns the slot in the light path ---

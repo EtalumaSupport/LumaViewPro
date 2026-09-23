@@ -5,7 +5,7 @@ The L2 surface converged on one word per fact:
 
     LED drive current   mA        -> illumination_ma
     turret move         tmove     -> move_turret
-    turret homed query  has_thomed -> has_turret_homed
+    turret homed query  has_thomed -> position_is_known('T')
 
 Drivers deliberately keep the old vocabulary -- `mA` mirrors the board
 command format and `thome` / `has_thomed` are the motor board's own
@@ -37,7 +37,7 @@ RETIRED = {
     'mA': 'illumination_ma',
     'tmove': 'move_turret',
     '_tmove_impl': '_move_turret_impl',
-    'has_thomed': 'has_turret_homed',
+    'has_thomed': "position_is_known('T')",
     '_thome_impl': '_home_turret_impl',
 }
 

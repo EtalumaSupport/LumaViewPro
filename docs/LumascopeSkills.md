@@ -653,7 +653,7 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
 scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
-scope.motion.has_turret_homed()                  # turret-specific
+scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known
 
 # Homing is REQUIRED, not advisory. A commanded move on an axis whose
@@ -666,7 +666,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 #   if not scope.motion.move_home_and_wait('ALL'):
 #       ...  # do not command moves; the reference frame is not established
 #
-# has_homed() / has_turret_homed() answer from that same live state, so they
+# has_homed() / position_is_known(axis) answer from that same live state, so they
 # report False after a fault revokes a reference that was previously
 # good -- not merely "a home once succeeded".
 
