@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 
 
 class RuntimeState:
-    """Mutable runtime state on a Lumascope -- firmware versions, feature flags,
-    user-config runtime state (labware / objective / turret / stage).
+    """Mutable runtime state on a Lumascope -- the user-config runtime state
+    (labware / objective / turret / stage).
 
     Fields land per design doc sec 2.5 as the underlying firmware +
     driver hooks ship.
@@ -49,17 +49,6 @@ class RuntimeState:
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
-        self.firmware_versions: dict[str, str] = {}
-        """Per-board firmware version. Populated when reflash-aware
-        hooks ship; until then, callers query via
-        `scope.diagnostics.get_motor_info()` etc."""
-
-        self.firmware_features: dict[str, frozenset[str]] = {}
-        """Per-subsystem capability set declared by current firmware.
-        Empty default; callers treat empty as 'feature unknown' per
-        Rule 8 corollary. Populated when FW4.0's `INFO.features` block
-        ships."""
-
         self._labware: Any | None = None
         # The selected objective: the live store on a scope with no turret.
         # On a turreted scope nothing is stored -- the objective is the one
