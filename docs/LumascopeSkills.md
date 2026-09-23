@@ -181,7 +181,7 @@ scope.disconnect()
 
 The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. On a scope with a turret, the active objective is the one assigned to the slot in the light path, derived on every read: a turret move changes it, and no copy of it is stored beside the slot map. With no turret, it is the selected objective, and `select_objective` moves the settings store and the scope's runtime state together. Every writer refuses an id that is not exactly a catalogue key with `ConfigError`, before any write. The resolved optics (`[Optics   ] objective=... -> N um/px`) are recorded in the log once each time the active objective changes -- after a selection, an assignment or a turret move -- the next time it is read, so before any capture stamps it.
 
-When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `session.get_current_objective_info()` and `scope.runtime_state.resolve_current_objective()` then raise `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, `'none_selected'` or `'turret_undecided'` -- a bare `Lumascope` before `initialize()` has recorded whether it has a turret, and `.slot` is the slot in the light path or `None`), and `get_current_objective_id()` / `get_current_objective()` return `None`.
+When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `scope.runtime_state.resolve_current_objective()` then raises `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, `'none_selected'` or `'turret_undecided'` -- a bare `Lumascope` before `initialize()` has recorded whether it has a turret, and `.slot` is the slot in the light path or `None`), and `get_current_objective_id()` / `get_current_objective()` return `None`.
 
 The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses with `ConfigError` -- before either store is written -- a name that is not a string, a name the labware catalogue cannot resolve, and settings with no usable `protocol` block to hold the selection. Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
 
@@ -573,7 +573,7 @@ session.protocol_files_draining  # run files still writing after a run finished
 session.exclusive_activity       # None | 'protocol' | 'recording'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
-session.recording_capturing     # a manual recording is LIVE (not its file drain)
+session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
 
 def on_run_state():              # called on EVERY run-state transition;
@@ -586,7 +586,7 @@ session.notify_run_state()       # force a level-sync of all listeners
 
 ```python
 session.get_layer_configs()              # all layer settings
-session.get_current_objective_info()     # (id, info) of the active objective; ObjectiveUnknownError when unknown
+session.scope.runtime_state.resolve_current_objective()  # (id, info) of the active objective; ObjectiveUnknownError when unknown
 session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
 session.get_current_plate_position()     # current XY in plate coords

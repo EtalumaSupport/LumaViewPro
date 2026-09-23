@@ -651,7 +651,6 @@ class TestScopeSession:
         assert session.io_executor is io
         assert session.camera_executor is cam
         assert session.source_path == '/test'
-        assert session.focus_round == 0
         assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):
@@ -672,7 +671,7 @@ class TestScopeSession:
         assert 'max_duration' in result
         assert isinstance(result['max_duration'], datetime.timedelta)
 
-    def test_get_current_objective_info_delegates(self):
+    def test_the_current_objective_is_the_runtime_states(self):
         # The answer is the runtime state's, not the settings dict's: on
         # this turret scope, the assignment of the slot in the light path.
         from tests.scope_fakes import home_sim_scope
@@ -681,16 +680,16 @@ class TestScopeSession:
         session.scope.runtime_state.set_turret_config({1: '10x Oly', 2: None, 3: None, 4: None})
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(1)
-        obj_id, obj = session.get_current_objective_info()
+        obj_id, obj = session.scope.runtime_state.resolve_current_objective()
         assert obj_id == '10x Oly'
         assert obj == session.scope.runtime_state.get_objective_info('10x Oly')
 
-    def test_get_current_objective_info_raises_when_nothing_is_known(self):
+    def test_the_current_objective_raises_when_nothing_is_known(self):
         from modules.exceptions import ObjectiveUnknownError
 
         session = self._make_session()
         with pytest.raises(ObjectiveUnknownError):
-            session.get_current_objective_info()
+            session.scope.runtime_state.resolve_current_objective()
 
     def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()

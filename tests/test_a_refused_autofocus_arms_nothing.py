@@ -93,7 +93,7 @@ def af_ctx(monkeypatch, runner, tmp_path):
     session = MagicMock()
     session.controls_locked = False
     session.get_current_plate_position.return_value = {'x': 0.0, 'y': 0.0, 'z': 0.0}
-    session.get_current_objective_info.return_value = ('objective', {})
+    session.scope.runtime_state.resolve_current_objective.return_value = ('objective', {})
     monkeypatch.setattr(
         _app_ctx,
         'ctx',

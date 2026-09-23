@@ -20,6 +20,6 @@ try:
     print('limits Z:', m.get_axis_limits('Z'))
     print('current:', m.get_current_position())
     print('plate position:', s.get_current_plate_position())
-    print('objective:', s.get_current_objective_info()[0])
+    print('objective:', s.scope.runtime_state.resolve_current_objective()[0])
 finally:
     s.shutdown()

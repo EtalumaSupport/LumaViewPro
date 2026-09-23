@@ -465,7 +465,7 @@ class LumaViewProApp(TooltipMixin, App):
     # getattr, which is how one of them eventually forgets.
     _drain_close_watch = None
 
-    def publish_run_state(self, dt=0):
+    def publish_run_state(self, dt: float = 0) -> None:
         """Write the three kv mirrors from the session derivations.
 
         One closure writes all three, in fail-safe order: Kivy
@@ -476,7 +476,9 @@ class LumaViewProApp(TooltipMixin, App):
         """
         session = ctx.session
         run_lockout = session.run_lockout
-        recording = session.exclusive_activity == 'recording' and session.recording_capturing
+        recording = (
+            session.exclusive_activity == 'recording' and session.manual_recording.is_recording
+        )
         locked = session.controls_locked
         if locked:
             self.controls_locked = True
@@ -1250,7 +1252,7 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        if ctx.session.recording_capturing:
+        if ctx.session.manual_recording.is_recording:
             # Still capturing, so the rest of the take is what closing
             # costs -- stopping is irreversible and there is no resume.
             # Read BEFORE the drain check below: a live recording is also

@@ -28,7 +28,7 @@ def main():
         from modules.exceptions import ObjectiveUnknownError
 
         try:
-            s.get_current_objective_info()
+            s.scope.runtime_state.resolve_current_objective()
             check('the objective is unknown before any turret command', False, 'NO RAISE')
         except ObjectiveUnknownError as e:
             check('the objective is unknown before any turret command', True, e.reason)
@@ -43,7 +43,7 @@ def main():
         first, other = objectives[0], objectives[1]
         s.select_objective(first)
         changed = s.select_objective(other)
-        now_id, info = s.get_current_objective_info()
+        now_id, info = s.scope.runtime_state.resolve_current_objective()
         check(
             'select_objective changes the live objective by assigning the slot',
             changed and now_id == other and s.settings['turret_objectives'][1] == other,
@@ -64,10 +64,10 @@ def main():
         # --- rotate the turret (what the 4 turret buttons do) ---
         m.move_turret(2, restore_z=True)
         t2 = m.get_current_position('T')
-        at2 = s.get_current_objective_info()[0]
+        at2 = s.scope.runtime_state.resolve_current_objective()[0]
         m.move_turret(3, restore_z=True)
         t3 = m.get_current_position('T')
-        at3 = s.get_current_objective_info()[0]
+        at3 = s.scope.runtime_state.resolve_current_objective()[0]
         check('turret position changes on move_turret', t2 != t3, f'slot2={t2} slot3={t3}')
         check(
             'the active objective follows the slot',

@@ -285,7 +285,9 @@ void main (void) {
                             get_selected_labware,
                         )
 
-                        _, objective = _app_ctx.ctx.session.get_current_objective_info()
+                        _, objective = (
+                            _app_ctx.ctx.session.scope.runtime_state.resolve_current_objective()
+                        )
                         pixel_size_um = config_ui_getters.get_pixel_size(
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),

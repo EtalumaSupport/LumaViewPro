@@ -191,7 +191,6 @@ class ScopeSession:
         # protocol fence cannot reach an inline task).
         self._register_scope_services(scope)
 
-        self.focus_round = 0
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, file-drain
         # exit, scope rebind). They fire on the TRANSITIONING thread,
@@ -368,11 +367,6 @@ class ScopeSession:
         return self.activity_claim.owner
 
     @property
-    def recording_capturing(self) -> bool:
-        """True while a manual recording is live (not its drain)."""
-        return self.manual_recording.is_recording
-
-    @property
     def close_drain_pending(self) -> bool:
         """True while either video drain still holds queued frames.
 
@@ -383,7 +377,7 @@ class ScopeSession:
 
         True for a LIVE recording too, since its frames are also
         outstanding -- a caller that needs "still capturing" specifically
-        wants ``recording_capturing``, which is the narrower fact.
+        wants ``manual_recording.is_recording``, which is the narrower fact.
         """
         return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
 
@@ -409,7 +403,7 @@ class ScopeSession:
         or a LIVE manual recording (a draining recording frees the
         controls while its claim still refuses new runs)."""
         return self.run_lockout or (
-            self.activity_claim.owner == 'recording' and self.recording_capturing
+            self.activity_claim.owner == 'recording' and self.manual_recording.is_recording
         )
 
     @property
@@ -1128,31 +1122,18 @@ class ScopeSession:
             except Exception:
                 logger.exception('[Session  ] save_settings: saved-hook failed')
 
-    def get_current_objective_info(self) -> 'tuple[str, dict]':
-        """The active objective's id and catalogue entry.
-
-        On a turreted scope, the objective assigned to the slot in the light
-        path; with no turret, the selected one. Never a stored guess.
-
-        Raises:
-            ObjectiveUnknownError: No one can say which objective is in the
-                light path; the error says why (the slot is unknown, it has
-                no assignment, or its assignment is not in the catalogue).
-        """
-        return self.scope.runtime_state.resolve_current_objective()
-
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
         ``get_settings_snapshot`` with ``objective_id`` set to the active
-        objective (``get_current_objective_info``), which on a turreted scope
+        objective (``runtime_state.resolve_current_objective``), which on a turreted scope
         the stored settings do not carry. Not for saving: a turreted scope
         persists no objective_id of its own.
 
         Raises:
             ObjectiveUnknownError: The active objective is unknown.
         """
-        objective_id, _ = self.get_current_objective_info()
+        objective_id, _ = self.scope.runtime_state.resolve_current_objective()
         snapshot = self.get_settings_snapshot()
         snapshot['objective_id'] = objective_id
         return snapshot

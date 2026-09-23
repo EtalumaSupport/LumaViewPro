@@ -27,7 +27,7 @@ try:
 
     banner('ADD a step (insert_step)')
     pos = session.get_current_plate_position()
-    obj_id, _ = session.get_current_objective_info()
+    obj_id, _ = session.scope.runtime_state.resolve_current_objective()
     lc = config_helpers.get_layer_configs(settings, specific_layers=['BF'])['BF']
     lc['acquire'] = 'image'
     idx = p.insert_step(

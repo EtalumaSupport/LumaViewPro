@@ -159,7 +159,7 @@ class TestAScriptAddsAStepThroughTheSession:
         assert len(names) == 1
         step = protocol.step(idx=0)
         assert step['Color'] == 'BF'
-        assert step['Objective'] == session.get_current_objective_info()[0]
+        assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
     def test_the_session_forwards_the_refusal(self, session, monkeypatch):
         for layer in config_helpers.get_layer_configs(session.settings):

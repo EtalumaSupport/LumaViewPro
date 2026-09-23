@@ -50,7 +50,7 @@ try:
     labware_id, _lw = config_helpers.get_selected_labware_from_settings(
         settings, session.wellplate_loader
     )
-    objective_id, _ = session.get_current_objective_info()
+    objective_id, _ = session.scope.runtime_state.resolve_current_objective()
     zstack_params = config_helpers.get_zstack_params_from_settings(settings)
     zc = ZStackConfig(
         range=zstack_params['range'],

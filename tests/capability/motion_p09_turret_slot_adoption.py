@@ -26,11 +26,15 @@ try:
     m.home('ALL')
     m.home('T')
     m.move_turret(1)
-    check('starting objective is slot 1s', s.get_current_objective_info()[0] == a, f'{a}')
+    check(
+        'starting objective is slot 1s',
+        s.scope.runtime_state.resolve_current_objective()[0] == a,
+        f'{a}',
+    )
 
     # move to slot 2, whose objective is DIFFERENT
     m.move_turret(2)
-    after_move = s.get_current_objective_info()[0]
+    after_move = s.scope.runtime_state.resolve_current_objective()[0]
     check(
         'move_turret alone makes the slot objective active',
         after_move == b,
@@ -55,7 +59,7 @@ try:
             'confirm_objective assigns the slot, clears the question, and is active',
             s.get_settings_snapshot()['turret_objectives'][3] == b
             and s.objective_question() is None
-            and s.get_current_objective_info()[0] == b,
+            and s.scope.runtime_state.resolve_current_objective()[0] == b,
             str(s.get_settings_snapshot()['turret_objectives']),
         )
 except BaseException:

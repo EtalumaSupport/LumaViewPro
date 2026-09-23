@@ -53,7 +53,10 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
         'microscope_settings_id': _frame_fields(typed),
         'protocol_settings_id': protocol_settings,
     }
-    ctx.session.get_current_objective_info.return_value = ('4x', {'focal_length': 45.0})
+    ctx.session.scope.runtime_state.resolve_current_objective.return_value = (
+        '4x',
+        {'focal_length': 45.0},
+    )
 
     import modules.app_context as app_context
 

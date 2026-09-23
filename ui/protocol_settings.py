@@ -1388,7 +1388,7 @@ class ProtocolSettings(FloatLayout):
                 active_layer_config = get_layer_configs()[active_layer]
 
             plate_position = ctx.session.get_current_plate_position()
-            objective_id, _ = ctx.session.get_current_objective_info()
+            objective_id, _ = ctx.session.scope.runtime_state.resolve_current_objective()
 
             # logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
