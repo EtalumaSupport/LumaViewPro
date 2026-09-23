@@ -36,19 +36,12 @@ try:
         after_move == b,
         f'after move_turret(2) objective is {after_move!r}, slot 2 holds {b!r}',
     )
-    s.set_turret_position(2)
-    check(
-        'set_turret_position records the slot and leaves the objective as the slot says',
-        s.get_current_objective_info()[0] == b,
-        f'{s.get_current_objective_info()[0]!r}',
-    )
 
     # --- the objective question: API-backed, GUI renders it ---
     check('session.objective_question() exists', callable(s.objective_question))
     check('session.confirm_objective() exists', callable(s.confirm_objective))
     s.clear_turret_objective(3)
     m.move_turret(3)
-    s.set_turret_position(3)
     q = s.objective_question()
     print('objective_question on an unassigned slot ->', q, flush=True)
     check(

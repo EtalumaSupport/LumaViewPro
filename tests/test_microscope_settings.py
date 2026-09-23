@@ -513,7 +513,7 @@ class TestFrameSizeMirrorChain:
         fov_refreshes = []
         fake_self = SimpleNamespace(
             ids=ids,
-            _refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
+            refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
         )
         fake_self._write_frame_text = _bind_write_frame_text(fake_self)
 
@@ -546,7 +546,7 @@ class TestFrameSizeMirrorChain:
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
-            '_refresh_fov_labels',
+            'refresh_fov_labels',
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'common_utils': common_utils_real,
@@ -561,7 +561,7 @@ class TestFrameSizeMirrorChain:
         fn(SimpleNamespace(ids=ids))
         return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+    def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
         import modules.common_utils as common_utils_real
 
         objective = {'focal_length': 9.0}

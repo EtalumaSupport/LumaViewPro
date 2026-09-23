@@ -524,7 +524,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/composite_capture.py': 2,
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 6,
-    'ui/microscope_settings.py': 7,
+    'ui/microscope_settings.py': 6,
     'ui/motion_settings.py': 3,
     'ui/post_processing.py': 1,
     'ui/protocol_settings.py': 24,
@@ -532,7 +532,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/shader.py': 3,
     'ui/stage.py': 5,
     'ui/ui_helpers.py': 2,
-    'ui/vertical_control.py': 11,
+    'ui/vertical_control.py': 9,
     'ui/zstack.py': 13,
 }
 
@@ -560,9 +560,7 @@ _UI_PRIVATE_REACH_PIN = {
     ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_pixel_format_impl'): 1,
-    ('ui/ui_helpers.py', '_move_absolute_impl'): 1,
-    ('ui/vertical_control.py', '_home_turret_impl'): 3,
-    ('ui/vertical_control.py', '_move_turret_impl'): 2,
+    ('ui/vertical_control.py', '_move_turret_impl'): 1,
 }
 
 

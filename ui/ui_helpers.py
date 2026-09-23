@@ -17,15 +17,8 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
-from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
-
-# A turret move can carry a turret home in front of it (the widget homes
-# first when the turret reference is unknown), then a Z-retract, the
-# rotation, and a Z-restore. Sized for that whole chain rather than the
-# rotation alone, so a waiting caller does not give up mid-sequence.
-_TURRET_MOVE_TIMEOUT_S = 180.0
 
 
 def run_with_refusal_boundary(
@@ -180,9 +173,13 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
         ctx.motion_settings.update_xy_stage_control_gui()
     elif axis == 'T':
         # A run's turret move: show the slot and objective the API reports.
-        ctx.motion_settings.ids['verticalcontrol_id']._show_turret_outcome(
-            ctx.scope.motion.get_turret_slot(), protocol=True
-        )
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+    elif axis == 'ALL':
+        # A full home moves every axis the scope has, the turret included.
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.update_xy_stage_control_gui()
+        if ctx.scope.capabilities.has_turret:
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
 
 def _handle_autofocus_ui(pos: float):
@@ -212,25 +209,17 @@ def _user_motion_locked(axis: str) -> bool:
     return True
 
 
-# Wrapper to move and update the UI position. `protocol=False` (UI
-# thread) dispatches via the API's async path. `protocol=True` runs on
-# protocol_thread -- a DIFFERENT thread from the io_executor worker --
-# so the move is queued through io_executor.protocol_put and awaited,
-# keeping it ordered behind the step's leds_off/led_on on the single
-# worker. A direct call would race them and leave the prior step's LED
-# lit through the move. Awaiting is deadlock-free: the caller is
-# protocol_thread, not the worker.
 def move_absolute(
     axis: str,
     position: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
-    protocol: bool = False,
-    vertical_control: bool = False,
-    restore_z: bool = True,
     frame: str = 'stage',
 ):
-    """Move an axis, keeping the gesture lock and the lane split in one place.
+    """Move an axis for a person's gesture, keeping the gesture lock in one place.
+
+    A turret slot goes to the turret widget, which asks the API to move and
+    then shows where the API says the turret is.
 
     ``frame='plate'`` hands the API the number a user typed, in plate mm,
     instead of converting first. The conversion and its bound then happen
@@ -240,64 +229,23 @@ def move_absolute(
     """
     ctx = _app_ctx.ctx
 
-    if not protocol and _user_motion_locked(axis):
+    if _user_motion_locked(axis):
         return
 
     if axis == 'T':
-        # Turret moves go through the GUI widget which manages homing and objective settings
-        if not protocol:
-            # wait_until_complete has to be honored here, not just accepted.
-            # Startup asks for it so the turret is in position before the
-            # first capture; submitting fire-and-forget returned control
-            # immediately and let the caller proceed mid-rotation.
-            waiter = ctx.io_executor.put(
-                IOTask(
-                    action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                    kwargs={'selected_position': position},
-                    callback=_handle_ui_update_for_axis,
-                    cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-                ),
-                return_future=wait_until_complete,
-            )
-            # `waiter` only holds a waiter when wait_until_complete asked for
-            # one; otherwise it is the ENQUEUED sentinel, which has no
-            # .result(). The first conjunct is what keeps that unreachable, so
-            # it must stay ahead of the None check rather than be folded into it.
-            if wait_until_complete and waiter is not None:
-                waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
-        else:
-            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=position, protocol=True, restore_z=restore_z
-            )
-    else:
-        if not protocol:
-            ctx.scope.motion.move_absolute_async(
-                axis,
-                position,
-                wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled,
-                callback=_handle_ui_update_for_axis,
-                cb_kwargs={'axis': axis},
-                frame=frame,
-            )
-        else:
-            fut = ctx.io_executor.protocol_put(
-                IOTask(
-                    action=ctx.scope.motion._move_absolute_impl,
-                    kwargs={
-                        'axis': axis,
-                        'position': position,
-                        'wait_until_complete': wait_until_complete,
-                        'overshoot_enabled': overshoot_enabled,
-                        'frame': frame,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                fut.result(timeout=60)
+        ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
+        return
 
-        _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
+    ctx.scope.motion.move_absolute_async(
+        axis,
+        position,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled,
+        callback=_handle_ui_update_for_axis,
+        cb_kwargs={'axis': axis},
+        frame=frame,
+    )
+    _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
 def show_jog_refusal(label: str, error: Exception) -> None:

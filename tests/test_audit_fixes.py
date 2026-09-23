@@ -2410,18 +2410,6 @@ class TestF7_ProtocolHomingInterlock:
             'goto_bookmark() must check the exclusive-activity lock (F7)'
         )
 
-    def test_turret_home_checks_protocol_running(self):
-        """vertical_control turret_home() must check protocol_running."""
-        import pathlib
-
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        idx = source.find('def turret_home(self):')
-        assert idx != -1
-        method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
-            'turret_home() must check the exclusive-activity lock (F7)'
-        )
-
     def test_xy_home_checks_protocol_running(self):
         """motion_settings home() must check protocol_running."""
         import pathlib

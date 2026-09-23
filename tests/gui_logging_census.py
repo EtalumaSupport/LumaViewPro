@@ -49,6 +49,9 @@ USER_EVENTS = (
     'on_text_validate',
     'on_focus',
     'on_state',
+    # PickSpinner's: raised only by a person choosing from the dropdown,
+    # never by a write to the spinner's text.
+    'on_pick',
 )
 
 EMITTERS = (

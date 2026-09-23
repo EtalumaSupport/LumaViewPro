@@ -61,8 +61,8 @@ class _ScriptedSession:
     def get_objective_info(self, objective_id):
         return {'magnification': 10, 'focal_length': 18.0}
 
-    def clear_turret_objective(self, position):
-        self.cleared.append(position)
+    def clear_current_turret_objective(self):
+        self.cleared.append('current')
 
 
 class _Stand:
@@ -75,22 +75,14 @@ class _Stand:
     # the objective runs, and a stub here would answer for that.
     _resolve_objective = VerticalControl._resolve_objective
     reset_turret_objective = VerticalControl.reset_turret_objective
-    _selected_turret_position = VerticalControl._selected_turret_position
 
     def __init__(self):
-        self.ids = {'objective_spinner2': SimpleNamespace(text='')}
-        for position in range(1, 5):
-            self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(
-                text=str(position), state='normal'
-            )
-        self.fov_refreshes = []
-        self.turret_states = []
+        self.shown = []
 
-    def _refresh_fov(self, objective_id):
-        self.fov_refreshes.append(objective_id)
-
-    def update_all_turret_btn_states(self, position):
-        self.turret_states.append(position)
+    def show_turret_state(self, prompt=True):
+        # The display is the API's answer; its own tests run it against a
+        # real session. Here only that the widget hands over to it.
+        self.shown.append(prompt)
 
 
 class _ImmediateClock:
@@ -188,34 +180,35 @@ class TestTheAnswerReachesTheSession:
         h.prompt()
         h.answer('20x Oly')
         assert session.confirmed == [('20x Oly', 2)]
-        assert h.stand.ids['objective_spinner2'].text == '20x Oly'
-        assert h.stand.turret_states == [2]
-        assert h.stand.ids['turret_pos_2_btn'].text == '10x'
+        # The display follows the Session's answer, once. It may ask again
+        # -- the Session decides -- if the objective is still unknown: the
+        # turret moved to an unassigned slot while this question was shown.
+        assert h.stand.shown == [True]
 
-    def test_a_changed_objective_logs_and_refreshes(self, monkeypatch):
+    def test_the_answer_is_recorded_once_by_the_popup_not_again_here(self, monkeypatch):
+        # The popup's response line is the interaction record. A second
+        # record here, and the spinner write that used to reach the Session
+        # a second time, made one answer read as two in the bundle.
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=True))
         h.prompt()
         h.answer('20x Oly')
-        assert ('SELECT', 'OBJECTIVE', '20x Oly') in h.gui_log
-        assert ('SELECT', 'TURRET_OBJECTIVE', '20x Oly') in h.gui_log
+        assert h.gui_log == []
         assert any('select_objective()' in line for line in h.info_lines())
-        assert h.stand.fov_refreshes == ['20x Oly']
 
-    def test_an_unchanged_objective_binds_the_slot_and_nothing_else(self, monkeypatch):
+    def test_an_unchanged_objective_logs_no_change(self, monkeypatch):
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=False))
         h.prompt()
         h.answer('10x Oly')
-        assert ('SELECT', 'OBJECTIVE', '10x Oly') not in h.gui_log
-        assert ('SELECT', 'TURRET_OBJECTIVE', '10x Oly') in h.gui_log
         assert not any('select_objective()' in line for line in h.info_lines())
-        assert h.stand.fov_refreshes == []
+        assert h.stand.shown == [True]
 
-    def test_no_position_means_no_slot_rendering(self, monkeypatch):
-        h = _Harness(monkeypatch, _ScriptedSession(self._question(position=None)))
+    def test_no_position_hands_the_answer_over_without_one(self, monkeypatch):
+        session = _ScriptedSession(self._question(position=None))
+        h = _Harness(monkeypatch, session)
         h.prompt()
         h.answer('20x Oly')
-        assert h.stand.turret_states == []
-        assert not any(kind == 'TURRET_OBJECTIVE' for _, kind, _ in h.gui_log)
+        assert session.confirmed == [('20x Oly', None)]
+        assert h.stand.shown == [True]
 
     def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch):
         session = _ScriptedSession(self._question(), changed=ConfigError("unknown objective 'x'"))
@@ -252,8 +245,8 @@ class TestUnknownObjectiveEventsReachThePrompt:
     cannot quietly drop a trigger)."""
 
     def test_turret_select_wires_the_prompt(self):
-        # One hop: the move hands its outcome to _show_turret_outcome (as the
-        # IO callback outside a run, scheduled inside one), and that asks.
+        # One hop: the move hands its outcome to show_turret_state as the IO
+        # callback, which runs on success and on failure alike, and that asks.
         module = parse_module('ui/vertical_control.py')
         cls = next(
             node
@@ -272,11 +265,8 @@ class TestUnknownObjectiveEventsReachThePrompt:
             for kw in node.keywords
             if kw.arg == 'callback' and isinstance(kw.value, ast.Attribute)
         ]
-        assert '_show_turret_outcome' in callbacks
-        assert '_show_turret_outcome' in _method_calls(
-            'ui/vertical_control.py', 'VerticalControl', 'turret_select'
-        )
-        outcome = _method_calls('ui/vertical_control.py', 'VerticalControl', '_show_turret_outcome')
+        assert callbacks == ['show_turret_state']
+        outcome = _method_calls('ui/vertical_control.py', 'VerticalControl', 'show_turret_state')
         assert 'prompt_if_objective_unknown' in outcome
 
     def test_reset_turret_objective_does_not_wire_the_prompt(self):
@@ -299,18 +289,19 @@ class TestResetLeavesTheSlotCleared:
 
     def _reset_at(self, monkeypatch, position, question):
         h = _Harness(monkeypatch, _ScriptedSession(question))
-        h.stand.ids[f'turret_pos_{position}_btn'].state = 'down'
         h.stand.reset_turret_objective()
         return h
 
-    def test_a_reset_clears_the_slot_and_opens_no_popup(self, monkeypatch):
+    def test_a_reset_clears_the_current_slot_and_opens_no_popup(self, monkeypatch):
         # The session has a question to ask -- hardware present, settings
         # resolved -- which is exactly when the old trigger fired.
         question = ObjectiveQuestion(turret_position=3, proposed='10x Oly', choices=CHOICES)
         h = self._reset_at(monkeypatch, 3, question)
-        assert h.session.cleared == [3]
+        # The slot is the API's; the widget names none.
+        assert h.session.cleared == ['current']
         assert h.popups == []
         assert h.session.confirmed == []
+        assert h.stand.shown == [False]
 
     def test_the_cleared_slot_is_not_re_assigned(self, monkeypatch):
         question = ObjectiveQuestion(turret_position=2, proposed='4x Oly', choices=CHOICES)
@@ -318,18 +309,21 @@ class TestResetLeavesTheSlotCleared:
         # The re-assignment the dead button performed went through
         # confirm_objective; nothing may reach it from a reset.
         assert h.session.confirmed == []
-        # A cleared slot shows its position, parenthesised so it cannot be
-        # read as a magnification beside the assigned buttons' '20x'.
-        assert h.stand.ids['turret_pos_2_btn'].text == '< 2 >'
 
-    def test_every_position_behaves_the_same(self, monkeypatch):
-        for position in range(1, 5):
-            question = ObjectiveQuestion(
-                turret_position=position, proposed='10x Oly', choices=CHOICES
-            )
-            h = self._reset_at(monkeypatch, position, question)
-            assert h.session.cleared == [position]
-            assert h.popups == []
+    def test_a_refused_reset_is_shown_and_the_display_still_follows(self, monkeypatch):
+        from modules.exceptions import ObjectiveUnknownError
+
+        session = _ScriptedSession(None)
+
+        def _refuse():
+            raise ObjectiveUnknownError('slot_unknown')
+
+        session.clear_current_turret_objective = _refuse
+        h = _Harness(monkeypatch, session)
+        h.stand.reset_turret_objective()
+        assert len(h.error_popups) == 1
+        assert 'home the turret' in h.error_popups[0]['message']
+        assert h.stand.shown == [False]
 
 
 def test_template_ships_the_unconfirmed_flag():

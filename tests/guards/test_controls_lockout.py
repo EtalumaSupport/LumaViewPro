@@ -301,8 +301,8 @@ class TestGestureMotionFunnel:
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]
             assert '_user_motion_locked(' in body, f'{mover} must enforce the lock'
-        # The protocol leg stays open: the protocol's own moves are not
-        # user gestures.
+        # No protocol leg to leave open: a run moves the scope through its
+        # own step runner, never through these gesture movers.
         idx = src.find('def move_absolute(')
-        body = src[idx : src.find('\ndef ', idx + 1)]
-        assert 'if not protocol and _user_motion_locked(' in body
+        signature = src[idx : src.find(':\n', idx)]
+        assert 'protocol' not in signature

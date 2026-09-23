@@ -1459,6 +1459,26 @@ class ScopeSession:
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
 
+    def clear_current_turret_objective(self) -> None:
+        """Leave the turret slot in the light path unassigned.
+
+        The counterpart of ``select_objective`` on a turreted scope: that
+        says which objective is installed in the current slot, this says
+        none is known to be. The slot is the API's, never the caller's
+        guess of it.
+
+        Raises:
+            ObjectiveUnknownError: The slot in the light path is unknown,
+                so there is no slot to clear (``slot_unknown``).
+            HardwareCommandRefusedError: A run holds the scope and the slot
+                has an assignment (``exclusive_activity_running``). Nothing
+                is written.
+        """
+        slot = self.scope.motion.get_turret_slot()
+        if slot is None:
+            raise ObjectiveUnknownError('slot_unknown')
+        self.clear_turret_objective(slot)
+
     def _refuse_objective_change_during_run(self, member: str) -> None:
         # A run reads the active objective at every capture, so a change
         # mid-run would stamp a different scale into the rest of the run's
@@ -1470,33 +1490,6 @@ class ScopeSession:
     def _check_turret_slot(position) -> None:
         if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
             raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
-
-    def set_turret_position(self, position: int) -> None:
-        """Record the slot the turret landed on.
-
-        Records, never refuses: the position is a fact of the motion that
-        already happened, and a slot key outside 1-4 is constructible from
-        a hand-edited settings file, so refusing here would only turn a
-        landed move into an error. Recording the position the turret is
-        already on is a no-op. A change onto a slot with no assignment is
-        logged as a warning on a scope with a live turret: the objective
-        there is unknown until someone assigns it, and ``objective_question``
-        owes the question.
-
-        Raises:
-            TypeError: ``position`` is not an int.
-        """
-        if not isinstance(position, int) or isinstance(position, bool):
-            raise TypeError(f'turret position must be an int, got {position!r}')
-        if position == self.settings.get('turret_position'):
-            return
-        with self.settings_lock:
-            self.settings['turret_position'] = position
-        if (
-            self.scope.capabilities.has_turret
-            and (self.settings.get('turret_objectives') or {}).get(position) is None
-        ):
-            logger.warning(f'[Session  ] turret at position {position} with no objective assigned')
 
     def get_current_plate_position(self) -> dict:
         import modules.config_helpers as config_helpers
@@ -1750,12 +1743,12 @@ class ScopeSession:
            reports the missing axes.
 
         2. (when ``self.scope.capabilities.has_turret`` is True) move T
-           to position 1 and record it in ``settings['turret_position']``;
-           the active objective is then slot 1's assignment.
+           to position 1; the active objective is then slot 1's
+           assignment.
 
         ``disable_homing=True`` skips BOTH steps: no startup motion on
         any axis. The turret is left where it is, like the stage axes,
-        and no turret position is recorded -- positioning it without a
+        in no known slot -- positioning it without a
         home would be an absolute move against a reference the caller
         asked us not to establish. The skip is the requested behaviour,
         so it is logged, not signalled.
@@ -1774,14 +1767,11 @@ class ScopeSession:
         The two motion callables are injected the same way the metrics
         scheduler is: the hosting environment supplies its own, and the
         API default is what everything else gets. The Kivy app passes
-        the ``ui_helpers`` wrappers, which drive the turret through the
-        widget that also reconciles the objective, spinner and button
-        state -- policy that lives in the UI and has no API equivalent
-        yet. Defaulting to the API instead of importing the UI is what
-        lets a headless caller run this at all: the widget path reaches
-        ``ctx.motion_settings``, which is None until a widget tree
-        exists, so before injection this method could not run outside
-        the GUI despite the docstring above promising it could.
+        its home wrapper, which sets the window title during the home,
+        and takes the API's turret move. Defaulting to the API instead
+        of importing the UI is what lets a headless caller run this at
+        all: a widget path reaches ``ctx.motion_settings``, which is
+        None until a widget tree exists.
         """
         if disable_homing:
             logger.info('startup motion skipped: homing disabled; the turret is left where it is')
@@ -1808,10 +1798,8 @@ class ScopeSession:
         if self.scope.capabilities.has_turret:
             # Every session starts at position 1, the slot the firmware's
             # home leaves the turret on. After a real home this move is a
-            # physical no-op, but it still must be issued -- it is the only
-            # startup path that highlights the turret button.
+            # physical no-op.
             START_POSITION = 1
-            self.set_turret_position(START_POSITION)
             turret_fn(START_POSITION)
 
         # After the home, not instead of it: the simulator homes to the

@@ -429,7 +429,7 @@ _objective_popup_open = False
 # Continuations belonging to requests folded into the prompt already on
 # screen. Showing one dialog instead of two is right; losing the second
 # caller's work is not.
-_objective_popup_folded: list[typing.Callable[[str], None]] = []
+_objective_popup_folded: list[typing.Callable[[], None]] = []
 
 
 def show_objective_selection_popup(
@@ -438,6 +438,7 @@ def show_objective_selection_popup(
     objectives: list[str],
     current_objective_id: str,
     on_confirm: typing.Callable[[str], None],
+    on_folded: typing.Callable[[], None],
 ):
     """Modal prompt asking the user which objective is in the light path.
 
@@ -455,7 +456,13 @@ def show_objective_selection_popup(
         message: What happened + what confirming commits to.
         objectives: Selectable objective ids, in display order.
         current_objective_id: Pre-selected value (the proposed default).
-        on_confirm: Called with the chosen objective id.
+        on_confirm: Called with the chosen objective id: applies the answer.
+        on_folded: This request's continuation, run instead of ``on_confirm``
+            when the request is folded into a prompt already on screen.
+            The answer is applied once, by the prompt on screen, to the
+            question it shows; applying it again for a folded request
+            wrote one answer into two slots when the turret had moved
+            between the two requests.
     """
     global _objective_popup_open, _objective_popup_folded
     if _objective_popup_open:
@@ -468,7 +475,7 @@ def show_objective_selection_popup(
         # returning meant the saved protocol silently never loaded, on every
         # turreted scope whose current slot is unassigned.
         logger.info('[Popup    ] objective prompt already open -- request folded into it')
-        _objective_popup_folded.append(on_confirm)
+        _objective_popup_folded.append(on_folded)
         return
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(_make_message_label(message))
@@ -513,13 +520,14 @@ def show_objective_selection_popup(
         global _objective_popup_folded
         chosen = spinner.text
         _log_response(title, f'OBJECTIVE:{chosen}')
-        # Taken BEFORE the dismiss below, which clears the list: the answer
-        # is owed to every caller that asked it, the folded ones included.
+        # Taken BEFORE the dismiss below, which clears the list: every
+        # caller that asked is owed its continuation, the folded ones
+        # included -- after the answer has been applied, once.
         folded, _objective_popup_folded = _objective_popup_folded, []
         popup.dismiss()
         on_confirm(chosen)
         for continuation in folded:
-            continuation(chosen)
+            continuation()
 
     def _on_dismiss(*_a):
         global _objective_popup_open, _objective_popup_folded

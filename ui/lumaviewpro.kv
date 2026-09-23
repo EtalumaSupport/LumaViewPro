@@ -561,7 +561,6 @@
 			id: turret_pos_1_btn
 			text: '< 1 >'
 			tooltip_text: 'Select turret position 1'
-			state: 'down'
             on_release: root.turret_gesture(1)
 		RoundedToggleButton:
 			id: turret_pos_2_btn
@@ -589,28 +588,20 @@
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
-	    Spinner:
+	    PickSpinner:
 			id: objective_spinner2
 			sync_height: True
-	        text: 'Select'
+	        text: 'Unknown'
 			font_size:'12sp'
 			option_cls: "SpinnerOption0"
 			# #631: text_autoupdate: True caused .values reassignment to reset
 			# .text to the alphabetically-first option, firing on_text with the
 			# wrong objective_id and tripping the misleading turret warning.
-			# Text shows the active objective the API derives; a write that
-			# equals it is a no-op in select_objective.
+			# Text shows the active objective the API derives, and only that:
+			# a person's pick arrives as on_pick and reaches the Session, and
+			# the display follows the Session's answer.
 	        on_release: root.load_objectives()
-	        on_text: root.select_objective()
-
-	RoundedButton:
-		id: set_turret_objective_btn
-		text: 'Set Turret Objective'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.controls_locked
-        on_release: root.set_turret_objective()
+	        on_pick: root.pick_objective(args[1])
 
 	RoundedButton:
 		id: reset_turret_objective_btn

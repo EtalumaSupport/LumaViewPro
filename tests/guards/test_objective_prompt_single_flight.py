@@ -165,13 +165,11 @@ class _Stand:
         self.ids = {'objective_spinner2': _FakeWidget(text='')}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = _FakeWidget(text=str(position))
-        self.turret_states = []
+        self.shown = []
 
-    def _refresh_fov(self, objective_id):
-        pass
-
-    def update_all_turret_btn_states(self, position):
-        self.turret_states.append(position)
+    def show_turret_state(self, prompt=True):
+        # The display after an answer; its own tests run it for real.
+        self.shown.append(prompt)
 
 
 @pytest.fixture
@@ -532,6 +530,28 @@ class TestTheFoldedRequestIsStillAnswered:
         confirm(popups[0], '4x Oly')
 
         assert seen == ['4x Oly']
+
+    def test_one_answer_writes_one_slot_when_the_turret_moved_between_requests(
+        self, monkeypatch, popups, session
+    ):
+        """The question on screen names slot 1. The turret then lands on
+        slot 2, also unassigned, and that asks too -- folded into the prompt
+        on screen. The answer is about slot 1 and is applied once; applying
+        it again for the folded request wrote it into slot 2 as well, glass
+        nobody had said was there."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+
+        stand.prompt_if_objective_unknown()
+        session.scope.motion.move_turret(2)
+        stand.prompt_if_objective_unknown()
+        assert len(popups) == 1
+        confirm(popups[0], '10x Oly')
+
+        assert session.settings['turret_objectives'][1] == '10x Oly'
+        assert session.settings['turret_objectives'][2] is None
+        # And the display follows, free to ask about slot 2 now.
+        assert stand.shown == [True]
 
     def test_it_runs_once(self, monkeypatch, popups, session):
         """A continuation that fires twice would load the saved protocol

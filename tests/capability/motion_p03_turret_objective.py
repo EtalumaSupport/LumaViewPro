@@ -75,18 +75,15 @@ def main():
             f'slot2={at2} slot3={at3}',
         )
 
-        # --- session-level slot setter: records the landed slot. The
-        # objective does not come from it: p09 settles that the move does.
-        s.set_turret_position(3)
+        # --- the slot a person last turned to is the preferred slot, which
+        # the one slot lookup reads first; nothing else records it.
         check(
-            'set_turret_position records the slot',
-            s.get_settings_snapshot()['turret_position'] == 3,
-            str(s.get_settings_snapshot()['turret_position']),
+            'the last turret move is the preferred slot',
+            m.get_preferred_turret_slot() == 3,
+            str(m.get_preferred_turret_slot()),
         )
 
-        # --- out-of-range slot: the MOVE must refuse. set_turret_position is
-        # documented as a recorder ("records, never refuses") so it is not the
-        # gate; motion.move_turret is.
+        # --- out-of-range slot: the MOVE must refuse.
         for bad in (0, 5, 99):
             try:
                 m.move_turret(bad)

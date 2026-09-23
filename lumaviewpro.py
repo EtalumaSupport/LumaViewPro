@@ -290,6 +290,10 @@ if __name__ == '__main__':
     # that adds a close (X) button to every popup app-wide.
     import ui.popup_close  # registers the Etaluma popup-close button on every Popup
 
+    # Imported for its side effect: defining the class registers PickSpinner
+    # with Kivy's Factory, which the kv rules name it through.
+    import ui.pick_spinner
+
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton
@@ -645,20 +649,18 @@ class LumaViewProApp(TooltipMixin, App):
 
         # ScopeSession owns startup orchestration so REST API, headless tools and
         # the GUI all hit the same path.
-        # The GUI drives motion through the ui_helpers wrappers: they set the
-        # window title during the home, and the turret one goes through the
-        # widget that also reconciles the objective, spinner and button state.
-        # The Session's own defaults are the bare API calls, which is what a
-        # headless caller gets.
-        from ui.ui_helpers import move_home, move_absolute
+        # The GUI homes through the ui_helpers wrapper, which sets the window
+        # title during the home. The turret move is the Session's own API
+        # call, the same one a headless caller gets; the turret display then
+        # shows where the API says the turret is, including nowhere known
+        # when homing was skipped or failed.
+        from ui.ui_helpers import move_home
 
         ctx.session.start_application_session(
             disable_homing=disable_homing,
             home_fn=lambda axis: move_home(axis, wait=True),
-            turret_fn=lambda position: move_absolute(
-                axis='T', position=position, wait_until_complete=True
-            ),
         )
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
         # Both startup questions may only fire once the session is up and
         # the frame has rendered; each helper owns its own deferral. The

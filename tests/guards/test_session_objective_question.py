@@ -495,61 +495,9 @@ class TestT10TurretWriters:
 
 
 class TestT10TurretPosition:
-    def test_setting_a_position_onto_an_empty_slot_warns(self, sessions):
-        session = sessions(**_turret_settings())
-        _clear_log()
-        session.set_turret_position(3)
-        assert session.settings['turret_position'] == 3
-        assert any('no objective assigned' in line for line in _lines()), _lines()
-
-    def test_recording_the_current_position_again_is_silent(self, sessions):
-        session = sessions(**_turret_settings())
-        session.set_turret_position(3)
-        _clear_log()
-        session.set_turret_position(3)
-        assert session.settings['turret_position'] == 3
-        assert not any('no objective assigned' in line for line in _lines()), _lines()
-
-    def test_a_string_position_raises_type_error(self, sessions):
-        session = sessions(**_turret_settings())
-        with pytest.raises(TypeError):
-            session.set_turret_position('3')
-
-    def test_a_slot_key_outside_the_turret_is_recorded_and_silent(self, sessions):
-        # No layer refuses a slot key outside 1-4 from a hand-edited file,
-        # and a position that reaches this member through the objective
-        # lookup names a slot that holds an objective; the member records
-        # what the motion landed on rather than turning it into an error.
-        session = sessions(
-            **_turret_settings(
-                turret_objectives={'1': '4x Oly', '2': None, '3': None, '4': None, '9': '10x Oly'}
-            )
-        )
-        _clear_log()
-        session.set_turret_position(9)
-        assert session.settings['turret_position'] == 9
-        assert not any('no objective assigned' in line for line in _lines()), _lines()
-
-    def test_start_application_session_writes_the_position_through_the_member(
-        self, sessions, monkeypatch
-    ):
-        session = sessions(**_turret_settings())
-        seen = []
-        monkeypatch.setattr(
-            type(session), 'set_turret_position', lambda self, position: seen.append(position)
-        )
-        session.start_application_session(
-            disable_homing=False,
-            home_fn=lambda axis: True,
-            turret_fn=lambda position: None,
-        )
-        assert seen == [1]
-
-
-class TestTheSavedTurretPositionIsThePreferredSlot:
     """The saved turret position is the slot a person last turned to -- a
     preference between slots carrying one objective, seeded at bring-up and
-    written at save."""
+    written at save. Nothing records it live beside the API's own slot."""
 
     def test_bring_up_seeds_the_preference_from_the_saved_position(self, sessions):
         session = sessions(**_turret_settings(turret_position=3))
@@ -571,6 +519,15 @@ class TestTheSavedTurretPositionIsThePreferredSlot:
         saved = tmp_path / 'current.json'
         session.save_settings(str(saved))
         assert json.loads(saved.read_text())['turret_position'] == 3
+
+    def test_start_application_session_records_no_position(self, sessions):
+        session = sessions(**_turret_settings(turret_position=2))
+        session.start_application_session(
+            disable_homing=False,
+            home_fn=lambda axis: True,
+            turret_fn=lambda position: None,
+        )
+        assert session.settings['turret_position'] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +629,6 @@ _ALLOWED_WRITERS = {
     ('modules/scope_session.py', 'ScopeSession.select_objective'),
     ('modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
     ('modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
-    ('modules/scope_session.py', 'ScopeSession.set_turret_position'),
     ('modules/scope_session.py', 'ScopeSession.confirm_objective'),
     # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.

@@ -11,6 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
+from modules.exceptions import ObjectiveUnknownError
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -146,16 +147,15 @@ void main (void) {
                 if ctx.session.controls_locked:
                     return
 
+                # The step scales with the objective, so an unknown one
+                # refuses, visibly, exactly as the jog buttons do.
                 try:
-                    _, objective = ctx.session.get_current_objective_info()
-                except Exception:
-                    logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
-                    return
+                    step_um = ctx.scope.motion.jog_step('Z', coarse='shift' in Window.modifiers)
+                except ObjectiveUnknownError as e:
+                    from ui.ui_helpers import show_jog_refusal
 
-                if 'shift' in Window.modifiers:
-                    step_um = objective['z_coarse']
-                else:
-                    step_um = objective['z_fine']
+                    show_jog_refusal('SCROLL_TO_FOCUS', e)
+                    return
 
                 # Inertial scaling: faster scrolling = larger steps
                 now = time.monotonic()

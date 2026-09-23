@@ -262,18 +262,17 @@ _ROSTER = {
     'VerticalControl.obj_position': ('Z_POSITION',),
     'VerticalControl.objective_spinner2': ('OBJECTIVE',),
     # Narrowed to its own record: the reset no longer reaches the
-    # objective prompt, so it can no longer write that prompt's OBJECTIVE
-    # or the confirm path's TURRET_OBJECTIVE. Widening this again would
-    # mean the button had been given back a second responsibility.
+    # objective prompt, so it can no longer write that prompt's OBJECTIVE.
+    # Widening this again would mean the button had been given back a
+    # second responsibility.
     'VerticalControl.reset_turret_objective_btn': ('RESET_TURRET_OBJECTIVE',),
-    'VerticalControl.set_turret_objective_btn': ('TURRET_OBJECTIVE',),
     'VerticalControl.slow_down': (_D('fine_down'),),
     'VerticalControl.slow_up': (_D('fine_up'),),
     # Narrowed to the gesture: a turret press no longer selects an objective
     # (the objective is derived from the slot). When the slot's objective is
-    # unknown, the move's IO callback (_show_turret_outcome) asks, and the
-    # answer writes OBJECTIVE / TURRET_OBJECTIVE from the prompt itself --
-    # a callback reference this walk does not follow.
+    # unknown, the move's IO callback (show_turret_state) asks, and the
+    # popup records the answer itself -- a callback reference this walk
+    # does not follow.
     'VerticalControl.turret_pos_1_btn': (_D('turret_gesture'),),
     'VerticalControl.turret_pos_2_btn': (_D('turret_gesture'),),
     'VerticalControl.turret_pos_3_btn': (_D('turret_gesture'),),

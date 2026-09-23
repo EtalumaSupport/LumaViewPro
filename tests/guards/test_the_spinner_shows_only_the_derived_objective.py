@@ -1,14 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every write to the objective spinner is the objective the API derives.
+"""The objective spinner is written in one place, with the API's answer.
 
-The spinner's on_text calls select_objective, which on a turret scope
-assigns the objective to the slot in the light path. So a write of anything
-but the derived objective reassigns a slot: step navigation used to write
-the step's objective before its turret move had landed, and a win of that
-race put 10x on a slot holding 4x glass. The writers below each write the
-derived objective (or, for the question's answer, the objective just
-assigned to the live slot); a new writer must be one of those, and is
-reviewed here before it can reassign a slot.
+The spinner used to call select_objective from on_text, so any write to it
+reassigned the slot in the light path: step navigation wrote the step's
+objective before its turret move had landed, and a win of that race put 10x
+on a slot holding 4x glass. A pick now arrives as on_pick and the text is
+display only, written by show_turret_state from the active objective the
+API derives. A second writer would be a second display of it.
 """
 
 import ast
@@ -16,9 +14,7 @@ import ast
 from tests.ast_seams import iter_package_modules, walk_defs
 
 _ALLOWED = {
-    ('ui/microscope_settings.py', 'MicroscopeSettings.load_settings'),
-    ('ui/vertical_control.py', 'VerticalControl._apply_objective_answer'),
-    ('ui/vertical_control.py', 'VerticalControl._show_turret_outcome'),
+    ('ui/vertical_control.py', 'VerticalControl.show_turret_state'),
 }
 
 
@@ -53,3 +49,16 @@ def test_only_the_reviewed_sites_write_the_spinner():
 
 def test_the_racing_step_navigation_writer_is_gone():
     assert all('update_turret_gui' not in qualname for _, qualname in _writers())
+
+
+def test_a_programmatic_write_reaches_no_session_member():
+    """The kv binds the spinner's pick, not its text: a write to the text
+    -- the display refreshing -- can assign nothing."""
+    from tests.ast_seams import REPO_ROOT
+
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    block = kv[kv.index('id: objective_spinner2') :]
+    block = block[: block.index('RoundedButton:')]
+    bindings = [line.strip() for line in block.splitlines() if not line.strip().startswith('#')]
+    assert not any(line.startswith('on_text:') for line in bindings)
+    assert 'on_pick: root.pick_objective(args[1])' in block

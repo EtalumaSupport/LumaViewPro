@@ -241,7 +241,7 @@ class TestWheelDirectionIsConsistent:
             _scroll_z_trigger=lambda *a: None,
         )
 
-    def _scroll_live_image(self, monkeypatch, token, ctrl_held, scale=1.0):
+    def _scroll_live_image(self, monkeypatch, token, ctrl_held, scale=1.0, jog_step=None):
         import types
 
         from ui import shader
@@ -255,12 +255,13 @@ class TestWheelDirectionIsConsistent:
             types.SimpleNamespace(
                 image_settings=panel,
                 motion_settings=panel,
-                session=types.SimpleNamespace(
-                    controls_locked=False,
-                    get_current_objective_info=lambda: (
-                        None,
-                        {'z_fine': 10.0, 'z_coarse': 100.0},
-                    ),
+                session=types.SimpleNamespace(controls_locked=False),
+                # The step comes from the API's jog step, as the jog
+                # buttons' does.
+                scope=types.SimpleNamespace(
+                    motion=types.SimpleNamespace(
+                        jog_step=jog_step or (lambda axis, coarse: 100.0 if coarse else 10.0)
+                    )
                 ),
             ),
         )
@@ -283,6 +284,26 @@ class TestWheelDirectionIsConsistent:
             'objective travels. It must match the Z slider.'
         )
         assert down._scroll_z_pending < 0, 'ctrl + wheel down must lower the objective.'
+
+    def test_focus_with_the_objective_unknown_is_refused_visibly(self, monkeypatch):
+        """The step scales with the objective. With none known nothing
+        moves, and the refusal is shown as the jog buttons show theirs --
+        not a debug line nobody sees."""
+        from modules.exceptions import ObjectiveUnknownError
+        from ui import ui_helpers
+
+        def _unknown(axis, coarse):
+            raise ObjectiveUnknownError('slot_unknown')
+
+        refused = []
+        monkeypatch.setattr(
+            ui_helpers, 'show_jog_refusal', lambda label, error: refused.append((label, error))
+        )
+        viewer = self._scroll_live_image(
+            monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=True, jog_step=_unknown
+        )
+        assert viewer._scroll_z_pending == 0.0
+        assert [label for label, _ in refused] == ['SCROLL_TO_FOCUS']
 
     def test_wheel_up_zooms_in(self, monkeypatch):
         up = self._scroll_live_image(monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=False)

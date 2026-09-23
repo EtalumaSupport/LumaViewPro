@@ -295,8 +295,6 @@ class MotionSettings(BoxLayout):
         for turret_id in ('turret_selection_label', 'turret_btn_box'):
             vert_control.ids[turret_id].visible = visible
 
-        vert_control.ids['set_turret_objective_btn'].disabled = not visible
-        vert_control.ids['set_turret_objective_btn'].opacity = 1 if visible else 0
         vert_control.ids['reset_turret_objective_btn'].disabled = not visible
         vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
 
@@ -611,11 +609,9 @@ class XYStageControl(BoxLayout):
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
+                # The home's display shows every axis, the turret included:
+                # the firmware's home returns the turret to position 1.
                 move_home(axis='ALL')
-
-                # Firmware seems to move the turret back to position 1 when performing XY homing
-                # Use this command to make sure the UI is in-sync
-                ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
 
             else:
                 logger.warning('[LVP Main  ] Motion controller not available.')

@@ -198,10 +198,7 @@ class _VerticalControlStand:
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
 
-    def _refresh_fov(self, objective_id):
-        pass
-
-    def update_all_turret_btn_states(self, position):
+    def show_turret_state(self, prompt=True):
         pass
 
 

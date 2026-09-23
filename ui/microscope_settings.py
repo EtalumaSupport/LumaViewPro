@@ -335,7 +335,6 @@ class MicroscopeSettings(BoxLayout):
 
             # Set Frame Size UI
             binning_size_str = settings['binning']['size']
-            binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
             # settings['frame'] holds the DISPLAYED (post-binning) size, and the
             # box shows that size unscaled -- the unbinned ROI is carried
@@ -362,40 +361,12 @@ class MicroscopeSettings(BoxLayout):
 
             # The settings-to-scope bring-up ran in the Session before this
             # widget existed: the labware selected, scope.initialize()
-            # applied. The objective shown is the API's answer -- on a
-            # turreted scope the slot's assignment, unknown until the turret
-            # is in a known slot, in which case nothing is shown yet.
-            objective_id = ctx.scope.runtime_state.get_current_objective_id()
-
-            vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
-            if objective_id is not None:
-                vertical_control_id.ids['objective_spinner2'].text = objective_id
-
-                objective = ctx.session.get_objective_info(objective_id=objective_id)
-
-                # Populate FOV fields at startup; otherwise the fields stay
-                # blank until the user clicks Frame Size or selects an
-                # objective (both have their own FOV-recalc handlers).
-                fov_size = config_ui_getters.get_field_of_view(
-                    focal_length=objective['focal_length'],
-                    frame_size=settings['frame'],
-                    binning_size=binning_size,
-                )
-                fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
-                self.ids['field_of_view_width_id'].text = fov_w_text
-                self.ids['field_of_view_height_id'].text = fov_h_text
-
-            # Load previous turret position objectives
-            for turret_pos, objective_id in settings['turret_objectives'].items():
-                if objective_id is None:
-                    button_text = f'< {turret_pos} >'
-                else:
-                    magnification = ctx.session.get_objective_info(objective_id=objective_id)[
-                        'magnification'
-                    ]
-                    button_text = f'{magnification}x'
-
-                vertical_control_id.ids[f'turret_pos_{turret_pos}_btn'].text = button_text
+            # applied. The turret, its assignments and the objective shown
+            # are the API's answers -- on a turreted scope the objective is
+            # unknown until the turret is in a known slot. The startup
+            # sequence owns the objective question, so this display asks
+            # nothing.
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
             if settings['scale_bar']['enabled']:
                 self.ids['enable_scale_bar_btn'].state = 'down'
@@ -1219,7 +1190,7 @@ class MicroscopeSettings(BoxLayout):
         # and the binning committed synchronously. Refreshing now covers
         # the dedupe-absorbed case (binning changed, same displayed size:
         # no push, no delivered callback, but the FOV still halves).
-        self._refresh_fov_labels()
+        self.refresh_fov_labels()
 
     def _push_frame_size(self, wh):
         """Camera-executor side of a frame-size apply: push to the camera
@@ -1257,9 +1228,9 @@ class MicroscopeSettings(BoxLayout):
         settings['frame']['width'] = width
         settings['frame']['height'] = height
         self._write_frame_text(width, height)
-        self._refresh_fov_labels()
+        self.refresh_fov_labels()
 
-    def _refresh_fov_labels(self) -> None:
+    def refresh_fov_labels(self) -> None:
         """Recompute the FOV readout from the current delivered-sourced
         frame settings and the UI binning. With no known objective there is
         no field of view to show, so the readout is blank."""

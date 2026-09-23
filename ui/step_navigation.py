@@ -106,24 +106,15 @@ def go_to_step(
                     'configuration. The rule and the slot lookup have disagreed.'
                 )
 
-        # Move into position
+        # Move into position. A run moves the scope itself and calls this
+        # with include_move=False, so only a person's navigation gets here.
         if ctx.scope.motor_connected:
-            if not called_from_protocol:
-                if turret_pos is not None:
-                    # turret_select shows the outcome once the move has landed.
-                    move_absolute(axis='T', position=turret_pos, protocol=False)
-                move_absolute(axis='X', position=plate_x, protocol=False, frame='plate')
-                move_absolute(axis='Y', position=plate_y, protocol=False, frame='plate')
-                move_absolute(axis='Z', position=step['Z'], protocol=False)
-            else:
-                if turret_pos is not None:
-                    # restore_z=False -- the Z move below overwrites Z with
-                    # step['Z'] immediately, so _safe_turret_move's default
-                    # Z-restore-after-T-move would be wasted motion (#524).
-                    move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
-                move_absolute('X', plate_x, protocol=True, frame='plate')
-                move_absolute('Y', plate_y, protocol=True, frame='plate')
-                move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)
+            if turret_pos is not None:
+                # turret_select shows the outcome once the move has landed.
+                move_absolute(axis='T', position=turret_pos)
+            move_absolute(axis='X', position=plate_x, frame='plate')
+            move_absolute(axis='Y', position=plate_y, frame='plate')
+            move_absolute(axis='Z', position=step['Z'])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
