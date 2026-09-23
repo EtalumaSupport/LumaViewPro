@@ -37,6 +37,7 @@ from modules.exceptions import (
     ObjectiveUnknownError,
     SettingsSaveRefusedError,
 )
+from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.run_outcome import RunEnding
@@ -214,6 +215,14 @@ class ScopeSession:
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
         )
+        # Manual stills: one at a time, on the camera lane, which already
+        # refuses them while a run holds the camera. No activity claim -- a
+        # still must not refuse Record, a run or a reconnect.
+        self.manual_capture = ManualCaptureController(
+            scope=scope,
+            settings_snapshot=self.get_settings_snapshot,
+            engineering_mode=self.engineering_mode,
+        )
         if self.file_io_executor is not None:
             self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
@@ -315,6 +324,7 @@ class ScopeSession:
         # the caller's to disconnect too: shutdown() tears down neither.
         self._owns_scope = False
         self.manual_recording.set_scope(scope)
+        self.manual_capture.set_scope(scope)
         self.sequenced_capture_runner.set_scope(scope)
         if self.autofocus_runner is not None:
             self.autofocus_runner.set_scope(scope)
