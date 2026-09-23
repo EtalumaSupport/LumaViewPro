@@ -847,7 +847,12 @@ class TestMotorBoardConversions:
 
 
 class TestMotorBoardMovement:
-    """Verify move_abs_pos limit clamping and overshoot logic."""
+    """Verify move_abs_pos drives the target it is given, and overshoot logic.
+
+    Travel is refused by the motion API before it reaches the driver; a
+    driver that clamped instead made a refused move look like one that
+    succeeded and stopped short.
+    """
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
@@ -880,33 +885,27 @@ class TestMotorBoardMovement:
         }
         return board
 
-    def test_z_clamped_to_max(self):
-        """move_abs_pos('Z', 99999) should clamp to Z max (14000um)."""
+    def test_z_above_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', 99999) writes 99999, not the 14000um max."""
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(14000)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_z_clamped_to_min(self):
-        """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
-        board = self._make_board()
-        board.move_abs_pos('Z', -100, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(0)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_x_clamped_to_max(self):
-        """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
-        board = self._make_board()
-        board.move_abs_pos('X', 200000, overshoot_enabled=False)
-        expected_ustep = board.xy_um2ustep(120000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
-
-    def test_ignore_limits(self):
-        """move_abs_pos with ignore_limits=True should not clamp."""
-        board = self._make_board()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
         expected_ustep = board.z_um2ustep(99999)
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
+
+    def test_z_below_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', -100) writes -100, not the 0um min."""
+        board = self._make_board()
+        board.move_abs_pos('Z', -100, overshoot_enabled=False)
+        # A negative target goes to the firmware in two's complement.
+        expected_ustep = board.z_um2ustep(-100) + 0x100000000
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
+
+    def test_x_above_travel_is_driven_not_clamped(self):
+        """move_abs_pos('X', 200000) writes 200000, not the 120000um max."""
+        board = self._make_board()
+        board.move_abs_pos('X', 200000, overshoot_enabled=False)
+        expected_ustep = board.xy_um2ustep(200000)
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""

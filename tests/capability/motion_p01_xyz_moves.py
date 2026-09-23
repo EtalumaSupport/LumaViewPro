@@ -7,7 +7,7 @@ GUI capabilities covered: Home XY (motion_settings.py:605), Home Z
 XY coarse/fine jog (motion_settings.py:452-480).
 """
 
-from harness import check, run, void
+from harness import check, run
 
 from modules.exceptions import PositionOutOfRangeError, AxisStateUnknownError
 
@@ -82,9 +82,9 @@ def body(s):
 
     try:
         m.move_relative('Z', 99999.0, wait_until_complete=True)
-        void('Z relative out-of-range raises', False, 'accepted without raising')
+        check('Z relative out-of-range raises', False, 'accepted without raising')
     except PositionOutOfRangeError:
-        void('Z relative out-of-range raises', True, 'it raises now')
+        check('Z relative out-of-range raises', True)
 
     try:
         m.move_absolute('X', 9999.0, frame='plate', wait_until_complete=True)

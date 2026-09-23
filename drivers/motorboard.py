@@ -1091,9 +1091,7 @@ class MotorBoard(SerialBoard):
             return None
 
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(
-        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
-    ) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Move an axis to an absolute position in user units.
 
         For Z, when ``overshoot_enabled`` is True the move first travels
@@ -1107,9 +1105,10 @@ class MotorBoard(SerialBoard):
             overshoot_enabled: When True, apply Z backlash compensation
                 if the target is sufficiently below the current
                 position. Ignored for non-Z axes.
-            ignore_limits: When True, skip the configured min/max
-                clamping. Use only when caller has explicit knowledge
-                that the bare hardware limits are safe.
+
+        Travel is not checked here: the motion API refuses a target
+        outside travel before it calls this. Clamping here instead made a
+        refused move look like a successful one that stopped short.
 
         Raises:
             HardwareError: ``axis`` is not in ``axes_config``.
@@ -1121,11 +1120,6 @@ class MotorBoard(SerialBoard):
             raise HardwareError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
-
-        if ('limits' in axis_config) and (not ignore_limits):
-            axis_limits = axis_config['limits']
-            pos = max(pos, axis_limits['min'])
-            pos = min(pos, axis_limits['max'])
 
         steps = axis_config['move_func'](pos)
 

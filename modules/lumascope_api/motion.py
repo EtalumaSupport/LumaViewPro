@@ -1728,9 +1728,9 @@ class MotionAPI:
         elif frame != 'stage':
             raise ValueError(f"frame must be 'stage' or 'plate', got {frame!r}")
 
-        # Refuse a target beyond the axis's travel rather than letting the
-        # driver clamp it. A clamped move reports success at a position
-        # nobody asked for, so a protocol step saved beyond this scope's
+        # Refuse a target beyond the axis's travel; this is the only travel
+        # check, the drivers have none. A move stopped short at a limit
+        # reports success at a position nobody asked for, so a protocol step saved beyond this scope's
         # travel images the wrong place and the log cannot tell that from a
         # step that went where it was told. Axes with no configured travel
         # return None here -- the turret, whose position is a slot rather
@@ -1812,9 +1812,7 @@ class MotionAPI:
         # motion monitor polls until real arrival.
         stop_generation = self._stop_generation
         try:
-            self._driver.move_abs_pos(
-                axis, position, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
-            )
+            self._driver.move_abs_pos(axis, position, overshoot_enabled=overshoot_enabled)
         except Exception:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fault_axis(axis)
@@ -1969,6 +1967,16 @@ class MotionAPI:
             with self._pos_cache_lock:
                 start_pos = self._pos_cache.get(axis, 0.0)
         target_pos = start_pos + float(distance)
+
+        # The same travel refusal as the absolute path, against the target
+        # this move is about to publish. Without it the driver turned the
+        # offset into an absolute move beyond travel and nothing refused it,
+        # so a jog past a limit reported success from wherever the stage
+        # stopped.
+        limits = self.get_axis_limits(axis)
+        if limits is not None and not (limits['min'] <= target_pos <= limits['max']):
+            raise PositionOutOfRangeError(axis, target_pos, limits['min'], limits['max'])
+
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:

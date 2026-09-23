@@ -5,7 +5,7 @@ The GUI's coarse/fine Z and XY jogs are all relative moves
 _xy_jog -> move_relative).
 """
 
-from harness import check, run, void
+from harness import check, run
 from modules.exceptions import PositionOutOfRangeError
 from modules.lumascope_api.motion import MOTOR_POSITION_LIMIT
 
@@ -32,12 +32,12 @@ def body(s):
         f'relative jog of {over - 2000.0} um from 2000: outcome={outcome} landed={landed}',
         flush=True,
     )
-    void(
+    check(
         'relative jog past the travel ceiling is refused (raises)',
         outcome != 'accepted',
         f'outcome={outcome} landed={landed}',
     )
-    void(
+    check(
         'relative jog is refused rather than silently clamped to the ceiling',
         not (outcome == 'accepted' and abs(landed - zmax) < 1.0),
         f'landed={landed} ceiling={zmax}',

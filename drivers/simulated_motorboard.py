@@ -861,9 +861,7 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def move_abs_pos(
-        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
-    ) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Move an axis to an absolute position in user units.
 
         Mirrors the production ``MotorBoard.move_abs_pos`` contract,
@@ -875,8 +873,9 @@ class SimulatedMotorBoard:
                 position for T.
             overshoot_enabled: When True, apply Z backlash compensation
                 if the target is sufficiently below the current position.
-            ignore_limits: When True, skip the configured min/max
-                clamping.
+
+        Travel is not checked here, as in production: the motion API
+        refuses a target outside travel before it calls this.
 
         Raises:
             Exception: ``axis`` is not in ``axes_config``.
@@ -885,11 +884,6 @@ class SimulatedMotorBoard:
             raise Exception(f'Unsupported axis ({axis})')
 
         axis_config = self.axes_config[axis]
-        if 'limits' in axis_config and not ignore_limits:
-            limits = axis_config['limits']
-            pos = max(pos, limits['min'])
-            pos = min(pos, limits['max'])
-
         steps = axis_config['move_func'](pos)
 
         if overshoot_enabled and axis == 'Z':

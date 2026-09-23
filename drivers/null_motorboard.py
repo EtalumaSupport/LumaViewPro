@@ -100,7 +100,7 @@ class NullMotionBoard:
         """Null implementation: no-op."""
         pass
 
-    def move_abs_pos(self, axis, pos, overshoot_enabled=True, ignore_limits=False) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Null implementation: no-op."""
         pass
 

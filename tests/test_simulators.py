@@ -149,17 +149,13 @@ class TestSimulatedMotorBoard:
         board.move_rel_pos('X', 10000)
         assert abs(board.current_pos('X') - 60000) < 1
 
-    def test_limits_enforced(self):
+    def test_a_target_past_travel_is_driven_not_clamped(self):
+        """Travel is the motion API's refusal, as on the real board; a
+        driver that clamped made a refused move look like one that
+        succeeded and stopped short."""
         board = SimulatedMotorBoard()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
-        pos = board.current_pos('Z')
-        assert pos <= 14000 + 1  # Z max is 14000
-
-    def test_limits_ignored(self):
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
-        pos = board.current_pos('Z')
-        assert pos > 14000
+        assert abs(board.current_pos('Z') - 99999) < 1
 
     def test_target_status(self):
         board = SimulatedMotorBoard()
