@@ -694,9 +694,10 @@ class TestScopeSession:
     def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()
         assert session.is_protocol_running is False
-        assert session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol')
+        assert held
         assert session.is_protocol_running is True
-        session.activity_claim.release('protocol')
+        held.release()
         assert session.is_protocol_running is False
 
     # This asserts only shutdown forwarding onto the mocks, so it builds

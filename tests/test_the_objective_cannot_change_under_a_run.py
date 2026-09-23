@@ -38,10 +38,17 @@ def session(tmp_path):
 
 
 @pytest.fixture
-def under_a_run(session):
-    assert session.activity_claim.try_claim('protocol', run_trigger_source='test')
-    yield session
-    session.activity_claim.release('protocol')
+def run_claim(session):
+    """The run's taking, in a one-slot list so a test can release and retake it."""
+    held = [session.activity_claim.try_claim('protocol', run_trigger_source='test')]
+    assert held[0]
+    yield held
+    held[0].release()
+
+
+@pytest.fixture
+def under_a_run(session, run_claim):
+    return session
 
 
 @pytest.mark.parametrize(
@@ -79,11 +86,12 @@ def test_a_write_that_changes_nothing_is_not_refused(under_a_run, write):
     write(under_a_run)
 
 
-def test_after_the_run_the_change_is_accepted(under_a_run):
+def test_after_the_run_the_change_is_accepted(under_a_run, run_claim):
     session = under_a_run
-    session.activity_claim.release('protocol')
+    run_claim[0].release()
     try:
         session.assign_turret_objective(1, '20x Oly')
         assert session.scope.runtime_state.get_current_objective_id() == '20x Oly'
     finally:
-        assert session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        run_claim[0] = session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        assert run_claim[0]

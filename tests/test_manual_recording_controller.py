@@ -16,11 +16,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
-from tests.video_engine_harness import ClaimStub, FakeClock, ManualFireScheduler, NotifyRecorder
+from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 
 TICK_HZ = 1_000_000_000
 
@@ -142,7 +143,7 @@ def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kw
     controller = ManualRecordingController(
         scope=scope,
         settings=make_settings(tmp_path, **settings_kwargs),
-        activity_claim=ClaimStub(),
+        activity_claim=ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
     )
@@ -272,7 +273,7 @@ class TestRateLimit:
         controller = ManualRecordingController(
             scope=scope,
             settings=settings,
-            activity_claim=ClaimStub(),
+            activity_claim=ActivityClaim(),
             scheduler=ManualFireScheduler(),
             clock=FakeClock(),
         )

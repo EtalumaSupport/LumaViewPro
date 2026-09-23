@@ -56,6 +56,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -324,6 +325,7 @@ def _make_runner(scope, execs):
         file_io_executor=execs['file_io'],
         camera_executor=execs['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
     )
     exc._wellplate_loader = WellPlateLoader()

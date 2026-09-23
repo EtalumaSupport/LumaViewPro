@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
     ImageCaptureConfig,
@@ -170,6 +171,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     mock_transformer = MagicMock()

@@ -138,9 +138,10 @@ class TestTransitionNotification:
         session = _make_session(_file_executor(active=False))
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
-        assert session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol')
+        assert held
         assert len(fired) == 1
-        session.activity_claim.release('protocol')
+        held.release()
         assert len(fired) == 2
 
     def test_registration_level_syncs_immediately(self):

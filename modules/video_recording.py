@@ -72,17 +72,14 @@ class ExclusivityClaim(Protocol):
     cannot both win.
     """
 
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
-        """Atomically claim for ``owner``; False if another owner holds it."""
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> Any:
+        """Atomically claim for ``owner``; the taking that alone releases
+        it, or None if another activity holds the claim."""
         ...
 
     @property
     def holder(self) -> Any:
         """The current holder (kind, and the run behind it), or None."""
-        ...
-
-    def release(self, owner: str) -> None:
-        """Release ``owner``'s claim. Releasing an unheld claim is an error."""
         ...
 
 
@@ -232,11 +229,11 @@ class VideoRecordingEngine:
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._drained = threading.Event()
         self._drained.set()
-        # Holds the claim's owner string exactly while this engine holds the
-        # claim. Consuming it and releasing are one step, so the token is
-        # both the guard and the argument: a second arrival cannot release a
-        # claim it does not hold, and release() raises on a non-owner.
-        self._claim_owner: str | None = None
+        # The taking this engine holds, exactly while it holds the claim.
+        # Consuming it and releasing are one step, so it is both the guard
+        # and the credential: a second arrival finds None and releases
+        # nothing, and the claim raises on a taking that no longer holds it.
+        self._held_claim: Any = None
         self._config: RecordingConfig | None = None
         self._selector: CadenceSelector | None = None
         self._writer_thread: threading.Thread | None = None
@@ -297,7 +294,8 @@ class VideoRecordingEngine:
                     title='Recording Active',
                     message='A recording is already in progress. Stop it, then record again.',
                 )
-            if not self._claim.try_claim('recording'):
+            held = self._claim.try_claim('recording')
+            if held is None:
                 # Busy-with-what comes off the claim this just failed to
                 # take: the activity that holds it names itself and, when
                 # it is a run, which run.
@@ -312,7 +310,7 @@ class VideoRecordingEngine:
                     holder=holder.kind if holder is not None else None,
                     holder_trigger=(holder.run_trigger_source if holder is not None else None),
                 )
-            self._claim_owner = 'recording'
+            self._held_claim = held
             try:
                 self._config = config
                 start_ts = self._clock()
@@ -468,9 +466,9 @@ class VideoRecordingEngine:
         to call from every end path without any caller needing to know
         whether another one got there first.
         """
-        owner, self._claim_owner = self._claim_owner, None
-        if owner is not None:
-            self._claim.release(owner)
+        held, self._held_claim = self._held_claim, None
+        if held is not None:
+            held.release()
 
     def _close_selection_locked(self, reason: str) -> None:
         """Close selection exactly once; the caller holds the lock.
@@ -563,7 +561,7 @@ class VideoRecordingEngine:
         recording and protocol run.
         """
         with self._lock:
-            if self._claim_owner is None:
+            if self._held_claim is None:
                 return
             # Only an abnormal lane exit reaches here with selection still
             # open: every ordinary end path closes it to post the sentinel

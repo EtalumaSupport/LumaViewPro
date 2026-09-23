@@ -21,6 +21,32 @@ class ActivityHolder:
     run_trigger_source: str | None = None
 
 
+class HeldClaim:
+    """The claim as held by the one caller that took it.
+
+    A fresh object per taking, so it identifies that taking and no
+    other: the next run's HeldClaim is a different object even when its
+    holder description is equal. Only it releases the claim. Nothing
+    else hands it out -- ``ActivityClaim.holder`` describes the holder,
+    it does not return this.
+    """
+
+    __slots__ = ('_claim',)
+
+    def __init__(self, claim: 'ActivityClaim') -> None:
+        self._claim = claim
+
+    def release(self) -> None:
+        """Release the claim this taking holds.
+
+        Raises:
+            RuntimeError: this taking no longer holds the claim -- a
+                release path that runs twice or late fails loudly rather
+                than freeing a claim a newer activity took.
+        """
+        self._claim._release(self)
+
+
 class ActivityClaim:
     """Arbitrates the session's one exclusive activity.
 
@@ -29,7 +55,8 @@ class ActivityClaim:
     of two concurrent claimants exactly one wins. The claim is not
     reentrant -- a second ``try_claim`` fails even for the same owner,
     so a claimant that lost track of its own state cannot silently
-    stack claims.
+    stack claims. Ownership is the HeldClaim the winner receives, never
+    a name: anyone can spell a kind, only the taker holds the object.
     """
 
     def __init__(self, on_transition=None) -> None:
@@ -43,6 +70,7 @@ class ActivityClaim:
         """
         self._lock = threading.Lock()
         self._holder: ActivityHolder | None = None
+        self._held: HeldClaim | None = None
         self._on_transition = on_transition
 
     @property
@@ -60,38 +88,40 @@ class ActivityClaim:
         holder = self._holder
         return holder.kind if holder is not None else None
 
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
-        """Atomically claim for ``owner``; False when already held.
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> HeldClaim | None:
+        """Atomically claim for ``owner``; None when already held.
 
         Args:
-            owner: the kind of activity claiming.
+            owner: the kind of activity claiming -- a description for
+                display and refusal text, not a credential.
             run_trigger_source: which run is claiming, when the
                 claimant is a run. Optional because a recording has no
                 trigger; a run always passes one, which its own claim
                 site is what enforces.
+
+        Returns:
+            The HeldClaim that alone can release this taking, or None
+            when another activity holds the claim.
         """
         with self._lock:
             if self._holder is not None:
-                return False
+                return None
+            held = HeldClaim(self)
+            self._held = held
             self._holder = ActivityHolder(kind=owner, run_trigger_source=run_trigger_source)
         if self._on_transition is not None:
             self._on_transition()
-        return True
+        return held
 
-    def release(self, owner: str) -> None:
-        """Release ``owner``'s claim.
-
-        Raises:
-            RuntimeError: ``owner`` does not hold the claim. A release
-                path that runs at the wrong time must fail loudly here
-                rather than silently free another activity's claim.
-        """
+    def _release(self, held: HeldClaim) -> None:
         with self._lock:
-            held_by = self._holder.kind if self._holder is not None else None
-            if held_by != owner:
+            if self._held is not held:
+                held_by = self._holder.kind if self._holder is not None else None
                 raise RuntimeError(
-                    f'ActivityClaim.release({owner!r}): claim is held by {held_by!r}'
+                    f'ActivityClaim: a release by a taking that does not hold the claim '
+                    f'(held by {held_by!r})'
                 )
+            self._held = None
             self._holder = None
         if self._on_transition is not None:
             self._on_transition()

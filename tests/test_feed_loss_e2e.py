@@ -15,10 +15,10 @@ still gets the bound.
 import json
 import time
 
+from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
 from modules.scheduler import ThreadingTimerScheduler
-from tests.video_engine_harness import ClaimStub
 
 
 def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
@@ -34,7 +34,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     }
     scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(
-        scope=sim_scope, settings=settings, activity_claim=ClaimStub(), scheduler=scheduler
+        scope=sim_scope, settings=settings, activity_claim=ActivityClaim(), scheduler=scheduler
     )
     controller.start()
     time.sleep(1.0)

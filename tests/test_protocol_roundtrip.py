@@ -25,6 +25,7 @@ import time
 import pandas as pd
 import pytest
 
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
@@ -259,6 +260,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     mock_loader = MagicMock()
@@ -296,6 +298,7 @@ def real_executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()

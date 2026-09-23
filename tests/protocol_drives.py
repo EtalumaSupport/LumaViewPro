@@ -24,6 +24,7 @@ import datetime
 import time
 from unittest.mock import MagicMock
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 
 
@@ -105,6 +106,7 @@ def bare_capture_runner(**overrides):
         'file_io_executor': MagicMock(),
         'camera_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
+        'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)

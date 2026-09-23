@@ -45,6 +45,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -147,6 +148,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
             autofocus_thread=af_thread,
+            activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
         )
         runner._wellplate_loader = WellPlateLoader()

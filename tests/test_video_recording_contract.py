@@ -18,11 +18,11 @@ import pytest
 
 from tests.settings_fixtures import complete_settings
 
+from modules.activity_claim import ActivityClaim
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
-    ClaimStub,
     FakeClock,
     FrameFeed,
     NotifyRecorder,
@@ -106,7 +106,7 @@ class SingleFileWriterStub:
 def make_engine(tmp_path, *, clock=None, writer=None, claim=None, notify=None):
     clock = clock or FakeClock()
     writer = writer if writer is not None else WriterStub(tmp_path)
-    claim = claim or ClaimStub()
+    claim = claim or ActivityClaim()
     engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock, notify=notify)
     return engine, writer, clock, claim
 
@@ -552,7 +552,7 @@ class TestExclusivity:
         assert excinfo.value.reason == 'recording_active'
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         assert claim.try_claim('protocol')
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
@@ -565,7 +565,7 @@ class TestExclusivity:
         assert excinfo.value.holder_trigger is None
 
     def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         assert claim.try_claim('protocol', run_trigger_source='autofocus_scan')
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
@@ -574,7 +574,7 @@ class TestExclusivity:
         assert excinfo.value.holder_trigger == 'autofocus_scan'
 
     def test_concurrent_starts_exactly_one_wins(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         outcomes = []
         barrier = threading.Barrier(2)
 
@@ -596,7 +596,7 @@ class TestExclusivity:
         assert sorted(outcomes) == ['refused', 'won']
 
     def test_claim_released_after_drain(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         engine, _writer, clock, _ = make_engine(tmp_path, claim=claim)
         engine.start(make_config(tmp_path, fps=5, duration_s=1))
         assert claim.owner == 'recording'
@@ -644,11 +644,13 @@ class TestSessionActivityClaim:
 
     def test_session_owns_one_activity_claim(self, headless_session):
         claim = headless_session.activity_claim
-        assert claim.try_claim('recording')
+        recording = claim.try_claim('recording')
+        assert recording
         assert not claim.try_claim('protocol')
-        claim.release('recording')
-        assert claim.try_claim('protocol')
-        claim.release('protocol')
+        recording.release()
+        protocol = claim.try_claim('protocol')
+        assert protocol
+        protocol.release()
 
     def test_two_thread_claim_atomicity(self, headless_session):
         claim = headless_session.activity_claim
@@ -675,7 +677,8 @@ class TestSessionActivityClaim:
             _make_single_step_protocol,
         )
 
-        assert headless_session.activity_claim.try_claim('recording')
+        recording = headless_session.activity_claim.try_claim('recording')
+        assert recording
         runner = headless_session.create_protocol_runner()
         with pytest.raises(ProtocolRunRefusedError):
             runner.run_single_scan(
@@ -684,7 +687,7 @@ class TestSessionActivityClaim:
                 parent_dir=str(tmp_path),
                 image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
-        headless_session.activity_claim.release('recording')
+        recording.release()
 
 
 class TestEndReason:
@@ -908,7 +911,7 @@ class TestClaimLifetime:
     def test_lane_death_frees_the_claim_for_the_next_recording(self, tmp_path):
         # The interaction, not just the flag: a lane death that strands the
         # claim is only visible when something later tries to take it.
-        claim = ClaimStub()
+        claim = ActivityClaim()
         writer = WriterStub(tmp_path, die_on_frame=2)
         engine, _writer, clock, _ = make_engine(tmp_path, writer=writer, claim=claim)
         engine.start(make_config(tmp_path, fps=5, duration_s=2))

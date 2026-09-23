@@ -14,8 +14,6 @@ import threading
 
 import numpy as np
 
-from modules.activity_claim import ActivityHolder
-
 
 class FakeClock:
     """Injectable time source: a float the test advances explicitly."""
@@ -140,31 +138,6 @@ class WriterStub:
         self.written.append((frame_number, timestamp_s, path))
         self.written_chunks.append(chunks)
         return path
-
-
-class ClaimStub:
-    """Reference compare-and-claim: atomic, single owner, loud release."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.holder = None
-
-    @property
-    def owner(self):
-        return self.holder.kind if self.holder is not None else None
-
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
-        with self._lock:
-            if self.holder is not None:
-                return False
-            self.holder = ActivityHolder(kind=owner, run_trigger_source=run_trigger_source)
-            return True
-
-    def release(self, owner: str) -> None:
-        with self._lock:
-            if self.owner != owner:
-                raise RuntimeError(f'release by {owner!r} but owner is {self.owner!r}')
-            self.holder = None
 
 
 class NotifyRecorder:

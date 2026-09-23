@@ -59,6 +59,7 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -289,6 +290,7 @@ class TestHeadlessProtocolExecution:
                     file_io_executor=execs['file_io'],
                     camera_executor=execs['camera'],
                     autofocus_thread=MagicMock(in_flight_sweep=None),
+                    activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
                 )
                 executor._wellplate_loader = WellPlateLoader()

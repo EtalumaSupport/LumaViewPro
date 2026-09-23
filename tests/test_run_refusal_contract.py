@@ -64,6 +64,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
@@ -240,6 +241,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -795,7 +797,8 @@ class TestRefusalNotifyOnceFunnel:
         with monkeypatch.context() as mp:
             captured = _capture_notifications(mp)
             plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
-            assert executor._activity_claim.try_claim('recording')
+            recording = executor._activity_claim.try_claim('recording')
+            assert recording
             try:
                 with pytest.raises(ProtocolRunRefusedError) as excinfo:
                     executor.start(plan)
@@ -803,7 +806,7 @@ class TestRefusalNotifyOnceFunnel:
                     "a refused start must not steal or release the recording's claim"
                 )
             finally:
-                executor._activity_claim.release('recording')
+                recording.release()
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert 'recording' in excinfo.value.message.lower(), (
             'the recording-holder branch must name the recording, not the '

@@ -169,7 +169,8 @@ class TestClaimRefusalLeavesNoState:
             # A video recording holds the session's exclusive-activity
             # claim, exactly as the recording engine does for its whole
             # capture + drain lifetime.
-            assert session.activity_claim.try_claim('recording')
+            recording = session.activity_claim.try_claim('recording')
+            assert recording
             claim_held = True
 
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -207,7 +208,7 @@ class TestClaimRefusalLeavesNoState:
 
             # The session is not wedged: once the recording releases the
             # claim, a valid run starts and completes.
-            session.activity_claim.release('recording')
+            recording.release()
             claim_held = False
             done = threading.Event()
             runner.run_single_scan(
@@ -229,7 +230,7 @@ class TestClaimRefusalLeavesNoState:
             assert wait_until_not_running(session)
         finally:
             if claim_held:
-                session.activity_claim.release('recording')
+                recording.release()
             session.shutdown_executors()
 
 

@@ -24,7 +24,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
-from modules.activity_claim import ActivityClaim, ActivityHolder
+from modules.activity_claim import ActivityClaim, ActivityHolder, HeldClaim
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError, RunStartError
 from modules.protocol import Protocol
@@ -182,9 +182,9 @@ class SequencedCaptureRunner:
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
         autofocus_thread,
+        activity_claim: ActivityClaim,
         autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
-        activity_claim: ActivityClaim | None = None,
         coordinate_transformer=_BUILD_LOCALLY,
         wellplate_loader=_BUILD_LOCALLY,
     ):
@@ -236,11 +236,11 @@ class SequencedCaptureRunner:
         self._run_lock = threading.Lock()
         # Session-tier exclusivity: a protocol run and a video recording
         # can never run concurrently, arbitrated by one compare-and-claim
-        # both acquire. Production callers (the GUI composition root and
-        # ScopeSession) inject the session's claim; the private fallback
-        # exists so a bare runner keeps the refusal semantics locally.
-        self._activity_claim = activity_claim if activity_claim is not None else ActivityClaim()
-        self._activity_claim_held = False
+        # both acquire. Required, so no runner exists with a claim of its
+        # own that nothing else contends for.
+        self._activity_claim = activity_claim
+        # The taking this runner holds, or None; only it releases the claim.
+        self._held_claim: HeldClaim | None = None
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
@@ -736,7 +736,7 @@ class SequencedCaptureRunner:
         generation = self._run_generation
         return self._scope.illumination.acquire_led_lease(
             'protocol',
-            alive=lambda: self._activity_claim_held and self._run_generation == generation,
+            alive=lambda: self._held_claim is not None and self._run_generation == generation,
         )
 
     def _refuse(
@@ -1207,11 +1207,12 @@ class SequencedCaptureRunner:
             # same call that takes it: the holder question has one store,
             # and it is the one that already knows whether anything holds
             # the scope at all.
-            if not self._activity_claim.try_claim(
+            held = self._activity_claim.try_claim(
                 'protocol', run_trigger_source=plan.run_trigger_source
-            ):
+            )
+            if held is None:
                 self._refuse_exclusive_activity(self._activity_claim.holder)
-            self._activity_claim_held = True
+            self._held_claim = held
 
             # Bumped before the acquire below, because that acquire's
             # liveness probe compares against this value: a generation
@@ -1657,14 +1658,14 @@ class SequencedCaptureRunner:
     def _release_activity_claim(self):
         """Release the run's exclusivity claim (idempotent).
 
-        The held flag flips first so a re-entrant cleanup cannot release
-        twice; the claim itself raises on a mismatched release, keeping
-        any double-release loud instead of silently freeing a claim a
-        newer activity now holds.
+        The held taking is cleared first so a re-entrant cleanup cannot
+        release twice; the claim itself raises on a release by a taking
+        that no longer holds it, keeping any double-release loud instead
+        of silently freeing a claim a newer activity now holds.
         """
-        if self._activity_claim_held:
-            self._activity_claim_held = False
-            self._activity_claim.release('protocol')
+        held, self._held_claim = self._held_claim, None
+        if held is not None:
+            held.release()
 
     def _start_hyperstack_build(self) -> threading.Thread | None:
         """Kick off the post-run per-well hyperstack build, when configured.

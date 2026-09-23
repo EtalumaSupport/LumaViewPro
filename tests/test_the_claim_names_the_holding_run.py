@@ -41,19 +41,22 @@ class TestTheClaimCarriesTheRun:
 
     def test_the_holder_is_gone_on_release(self):
         claim = ActivityClaim()
-        claim.try_claim('protocol', run_trigger_source='scan')
+        held = claim.try_claim('protocol', run_trigger_source='scan')
 
-        claim.release('protocol')
+        held.release()
 
         assert claim.holder is None
         assert claim.owner is None
 
     def test_a_release_by_a_non_holder_still_says_who_holds_it(self):
         claim = ActivityClaim()
-        claim.try_claim('protocol', run_trigger_source='scan')
+        stale = claim.try_claim('protocol', run_trigger_source='scan')
+        stale.release()
+        claim.try_claim('recording')
 
-        with pytest.raises(RuntimeError, match="held by 'protocol'"):
-            claim.release('recording')
+        with pytest.raises(RuntimeError, match="held by 'recording'"):
+            stale.release()
+        assert claim.owner == 'recording', 'a stale taking freed the newer holder'
 
     def test_one_snapshot_is_published_at_a_time(self):
         """Kind and trigger travel together or not at all: a reader
@@ -73,10 +76,8 @@ class TestTheClaimCarriesTheRun:
         reader.start()
         try:
             for _ in range(500):
-                claim.try_claim('protocol', run_trigger_source='scan')
-                claim.release('protocol')
-                claim.try_claim('recording')
-                claim.release('recording')
+                claim.try_claim('protocol', run_trigger_source='scan').release()
+                claim.try_claim('recording').release()
         finally:
             stop.set()
             reader.join(timeout=5.0)
@@ -84,6 +85,40 @@ class TestTheClaimCarriesTheRun:
         assert seen <= {('protocol', 'scan'), ('recording', None)}, (
             f'a half-written holder was observed: {seen}'
         )
+
+
+class TestOnlyTheTakingReleases:
+    """Ownership is the object the taker receives, never a name: anyone
+    can spell 'protocol', only the run that took the claim holds it."""
+
+    def test_a_second_taker_is_refused(self):
+        claim = ActivityClaim()
+        assert claim.try_claim('protocol', run_trigger_source='scan')
+
+        assert claim.try_claim('protocol', run_trigger_source='scan') is None
+        assert claim.try_claim('recording') is None
+
+    def test_the_taking_is_not_obtainable_from_the_holder(self):
+        claim = ActivityClaim()
+        held = claim.try_claim('protocol', run_trigger_source='scan')
+
+        assert claim.holder is not held
+        assert not hasattr(claim.holder, 'release'), (
+            'the public description of the holder must not be a credential'
+        )
+        assert not hasattr(claim, 'release'), 'a release by name must not exist'
+
+    def test_two_takings_with_equal_descriptions_are_different_credentials(self):
+        claim = ActivityClaim()
+        first = claim.try_claim('protocol', run_trigger_source='scan')
+        first.release()
+        second = claim.try_claim('protocol', run_trigger_source='scan')
+
+        with pytest.raises(RuntimeError):
+            first.release()
+        assert claim.owner == 'protocol', "the first run's taking released the second run's claim"
+        second.release()
+        assert claim.owner is None
 
 
 class TestTheRunnerReadsTheClaim:
@@ -133,8 +168,9 @@ class TestTheFlagAndTheClaimEndTogether:
             _autofocus_snapshot=autofocus_snapshot(states={}),
             _run_dir=None,
         )
-        assert runner._activity_claim.try_claim('protocol', run_trigger_source='test')
-        runner._activity_claim_held = True
+        held = runner._activity_claim.try_claim('protocol', run_trigger_source='test')
+        assert held
+        runner._held_claim = held
         assert runner.run_in_progress()
 
         def _boom(**_kwargs):

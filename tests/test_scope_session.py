@@ -163,17 +163,19 @@ class TestIsProtocolRunning:
         assert headless_session.is_protocol_running is False
 
     def test_tracks_the_claim_in_both_directions(self, headless_session):
-        assert headless_session.activity_claim.try_claim('protocol')
+        held = headless_session.activity_claim.try_claim('protocol')
+        assert held
         assert headless_session.is_protocol_running is True
-        headless_session.activity_claim.release('protocol')
+        held.release()
         assert headless_session.is_protocol_running is False
 
     def test_a_recording_claim_is_not_a_run(self, headless_session):
-        assert headless_session.activity_claim.try_claim('recording')
+        held = headless_session.activity_claim.try_claim('recording')
+        assert held
         try:
             assert headless_session.is_protocol_running is False
         finally:
-            headless_session.activity_claim.release('recording')
+            held.release()
 
     def test_is_read_only(self, headless_session):
         """No setter, so no second writer for run state."""

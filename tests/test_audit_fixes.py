@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import PositionOutOfRangeError
 
 
@@ -3195,6 +3196,7 @@ def _make_capture_runner(**overrides):
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
+        'activity_claim': ActivityClaim(),
     }
     kwargs.update(overrides)
     return SequencedCaptureRunner(**kwargs)
@@ -9058,6 +9060,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
             autofocus_thread=MagicMock(in_flight_sweep=None),
+            activity_claim=ActivityClaim(),
         )
         exc._parent_dir = parent_dir
         return exc

@@ -47,6 +47,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
@@ -156,6 +157,7 @@ class _AfRig:
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,
             autofocus_thread=self.af_thread,
+            activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
         )
         self.runner._wellplate_loader = WellPlateLoader()

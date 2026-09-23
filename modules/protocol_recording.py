@@ -90,10 +90,10 @@ class _NestedClaim:
     the run releases its claim at run end, never per step.
     """
 
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> bool:
-        return True
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> '_NestedClaim':
+        return self
 
-    def release(self, owner: str) -> None:
+    def release(self) -> None:
         return None
 
     @property
