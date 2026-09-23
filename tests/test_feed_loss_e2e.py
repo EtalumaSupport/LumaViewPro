@@ -22,8 +22,8 @@ from tests.video_engine_harness import ClaimStub
 
 
 def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
-    # conftest mocks psutil, so the real disk probe returns MagicMocks;
-    # report ample free disk instead.
+    # The disk probe would report this machine's free space; report ample
+    # free disk instead so the stall bound is the only thing under test.
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )

@@ -28,8 +28,8 @@ TICK_HZ = 1_000_000_000
 
 @pytest.fixture(autouse=True)
 def _healthy_disk(monkeypatch):
-    # conftest mocks psutil, so the real probe returns MagicMocks; the
-    # default here reports ample free disk and the floor tests re-patch.
+    # The disk probe would report this machine's free space; the default
+    # here reports ample free disk and the floor tests re-patch.
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )

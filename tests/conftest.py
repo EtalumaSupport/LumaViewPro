@@ -85,7 +85,13 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 
 
 def install_mock_deps():
-    """Install MagicMock entries for heavy deps not present on dev machines.
+    """Install MagicMock stand-ins for the layers a test never has: the GUI
+    (kivy), the camera SDKs, the USB bus, the network client (requests), the
+    user directories (platformdirs) and the logger.
+
+    Never a library the test runner itself reads: pytest-xdist takes its
+    auto worker count from psutil.cpu_count(), and a mock there builds zero
+    workers (tests/guards/test_psutil_is_real.py).
 
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
@@ -109,7 +115,6 @@ def install_mock_deps():
         'lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
-        'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         # EventLoop.status must read as a RUNNING loop: the pre-mainloop

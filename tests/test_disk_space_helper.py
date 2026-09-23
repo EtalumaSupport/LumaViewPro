@@ -24,8 +24,8 @@ recommendation).
 Test approach
 -------------
 1. Behavioral: helper returns the right tuple by monkeypatching
-   psutil.disk_usage. conftest globally mocks psutil so a real
-   filesystem probe is impossible; the monkeypatch shapes the mock to
+   psutil.disk_usage. A real filesystem probe reports this machine's
+   free space, not the case's; the monkeypatch shapes the probe to
    return realistic free-bytes values per case.
 2. Source-text guards over the three call sites: shutil.disk_usage is
    gone; check_disk_space_ok is the new shape. Catches a reintroduction

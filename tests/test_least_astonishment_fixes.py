@@ -49,8 +49,8 @@ class TestFuturesMetricsFormat:
         rec = _RecordingLogger()
         monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
         monkeypatch.setattr(app_context, 'ctx', _FakeCtx())
-        # psutil is conftest-stubbed, so the disk/metrics helpers return
-        # MagicMocks; feed them real values to reach the futures block.
+        # The disk/metrics helpers would read this machine; feed them fixed
+        # values to reach the futures block.
         monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
         # defaultdict(float): direct-subscript metric keys resolve to 0.0;
         # .get() still returns None so the optional-metric blocks skip.
