@@ -42,10 +42,12 @@ def test_acquire_when_unleased_returns_token(scope):
     assert scope.illumination.led_lease_purpose == 'protocol'
 
 
-def test_second_owner_acquire_refused(scope):
+def test_second_live_top_level_acquire_raises(scope):
+    """Two live top-level leases would mean two activities hold the one
+    claim; the acquire raises instead of answering a refusal."""
     scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    denied = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
-    assert denied is None
+    with pytest.raises(RuntimeError, match='two live activities'):
+        scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     assert scope.illumination.led_lease_purpose == 'protocol'
 
 

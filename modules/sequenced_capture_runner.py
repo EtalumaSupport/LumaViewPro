@@ -699,32 +699,6 @@ class SequencedCaptureRunner:
             holder_trigger=(holder.run_trigger_source if holder is not None else None),
         )
 
-    def _acquire_led_lease_for_run(self):
-        """Acquire the run's LED lease, or None when a live owner holds it.
-
-        The illumination API arbitrates contention on the resource: a
-        provably-dead holder (a hard-killed prior run) is reclaimed with
-        evidence logged and the acquire succeeds, so a fresh run still
-        recovers from a stranded lease. A LIVE holder refuses us -- and a
-        refused run must refuse itself rather than steal authority from a
-        holder mid-sweep.
-
-        Runs inside start()'s gate-and-commit lock, BEFORE the run
-        commits, so None becomes a refusal like every other: nothing
-        committed, no terminal callback, no run directory on disk. The
-        caller owns that translation, because the caller is what holds
-        the claim this must release before it refuses.
-
-        Returns None rather than raising on contention; a raise here is
-        an acquire-time fault, not a busy holder.
-        """
-        # The lease lives exactly as long as this run's taking of the claim:
-        # the claim is taken immediately before and released only after the
-        # lease is released, so it brackets the lease's whole life. A lease
-        # stranded by a hard-killed prior run was taken under that run's
-        # taking, which no longer holds once this run has claimed.
-        return self._scope.illumination.acquire_led_lease('protocol', claim=self._held_claim)
-
     def _refuse(
         self,
         reason: str,
@@ -1168,8 +1142,7 @@ class SequencedCaptureRunner:
             ProtocolRunRefusedError: reason 'already_running' for the
                 prepare-to-start race, 'exclusive_activity_running' when
                 the session's activity claim is held (e.g. a video
-                recording in progress), or 'illumination_held' when a
-                live lease holds the LEDs; 'holder' names it.
+                recording in progress); 'holder' names it.
         """
         # Gate and commit under ONE lock hold: releasing between the
         # already-running check and the event set would let two
@@ -1192,35 +1165,20 @@ class SequencedCaptureRunner:
 
             # The LED lease covers the whole scan so live UI illumination
             # changes cannot disturb a running protocol's channels; AF steps
-            # nest a child under it. Acquired HERE, before the first state
-            # write, so a live holder is a refusal rather than a run that
-            # committed and then failed itself -- the holder keeps authority
-            # and this caller gets the same nothing-committed contract every
-            # other refusal gives.
+            # nest a child under it. It is taken under the claim just taken,
+            # which is released only after the lease, so the claim brackets
+            # the lease's whole life; a lease stranded by a hard-killed prior
+            # run was taken under that run's taking, which no longer holds,
+            # and the acquire reclaims it.
             #
-            # The except covers ANY exit, not just the None one: a raise from
-            # inside the acquire would otherwise leave the claim held for the
-            # life of the process and refuse every future run and recording.
+            # A raise from the acquire must release the claim, or the claim
+            # stays held for the life of the process and refuses every future
+            # run and recording.
             try:
-                lease = self._acquire_led_lease_for_run()
+                self._led_lease = self._scope.illumination.acquire_led_lease('protocol', claim=held)
             except BaseException:
                 self._release_activity_claim()
                 raise
-            if lease is None:
-                holder = self._scope.illumination.led_lease_purpose
-                holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
-                self._release_activity_claim()
-                self._refuse(
-                    reason='illumination_held',
-                    title='Illumination In Use',
-                    message=(
-                        f'{holder_desc} is controlling the microscope illumination. '
-                        'Stop it or let it finish, then start the run.'
-                    ),
-                    holder=holder,
-                    holder_trigger=None,
-                )
-            self._led_lease = lease
 
             self._reset_vars()
             self._protocol = plan.protocol

@@ -1188,42 +1188,48 @@ class IlluminationAPI:
             return 'its activity claim is no longer held'
         return None
 
-    def acquire_led_lease(self, purpose: str, *, claim: HeldClaim) -> LedLease | None:
+    def acquire_led_lease(self, purpose: str, *, claim: HeldClaim) -> LedLease:
         """Acquire the exclusive LED-ownership lease under a held claim.
 
         Internal run-exclusivity machinery -- not part of the L2 API
-        surface (clients drive ``led_on``/``led_off``; a refusal names the
-        holder).
+        surface (clients drive ``led_on``/``led_off``).
 
-        While a lease is held, only it may drive the LEDs.
-        Contention is arbitrated HERE, on the resource, not at call
-        sites: a holder whose claim is no longer held is reclaimed with
-        the evidence logged; a LIVE holder refuses the requester, and a
-        refused requester must refuse its own operation -- no caller may
-        reset the stack out from under a live owner. It never raises on
-        contention, so a contended acquire cannot crash a protocol run.
+        While a lease is held, only it may drive the LEDs. A top-level
+        lease is only ever taken under the session's one activity claim,
+        and the caller holds it, so any lease already on the stack was
+        taken under a taking that no longer holds: it is stranded, and is
+        reclaimed here with the evidence logged. A second LIVE top-level
+        holder would mean two activities hold the one claim; that is
+        raised, never answered as a refusal.
 
         Args:
-            purpose: A label for logs and refusal text ('protocol'); never
-                compared, so it grants nothing.
+            purpose: A label for logs ('protocol'); never compared, so it
+                grants nothing.
             claim: The caller's held activity claim. The lease lives while
                 this taking holds the claim, which is what lets a LATER
                 contender tell this holder's death from its inconvenience.
 
         Returns:
-            A LedLease token, or None if a live owner already holds the
-            lease.
+            The LedLease token.
 
         Raises:
             ValueError: *claim* no longer holds at acquire time -- a lease
                 taken under it would be stranded from its first moment.
+            RuntimeError: a lease taken under a claim that still holds is
+                on the stack -- two live activities.
         """
         if not claim.holds:
             raise ValueError(
                 f'LED lease acquire for {purpose!r}: the claim must be held at '
                 'acquire time (take the claim before the lease)'
             )
-        return self._acquire_led_lease(purpose, claim=claim, parent=None)
+        lease = self._acquire_led_lease(purpose, claim=claim, parent=None)
+        if lease is None:
+            raise RuntimeError(
+                f'LED lease acquire for {purpose!r}: the {self.led_lease_purpose!r} lease '
+                'is held under a claim that still holds -- two live activities'
+            )
+        return lease
 
     def _acquire_led_lease(
         self, purpose: str, *, claim: HeldClaim | None, parent: LedLease | None

@@ -545,8 +545,6 @@ The two vocabularies are deliberately separate. A run that aborted names why in 
 
 A refusal with reason `not_run_owner` means the live run belongs to a different trigger and this caller may not tear it down; `holder_trigger` names the owner. The run is untouched -- stop it through whatever started it, or wait. `ProtocolRunner.reset(requester=...)` and `abort(requester=...)` both raise it, and both require the argument: a teardown that does not say who is asking cannot be authorised.
 
-A refusal with reason `illumination_held` means another operation -- typically an autofocus sweep -- owns the LED illumination, and `holder` names it. The run was not started: stop the holder or let it finish, then retry. The lease is checked at the same commitment point as the activity claim, so this is a refusal and never a failed run; a holder that has died without releasing is reclaimed automatically, so this reason means the holder is genuinely live.
-
 A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
 
 ```python

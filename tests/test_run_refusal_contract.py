@@ -68,7 +68,7 @@ from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
-from tests.protocol_drives import autofocus_snapshot, held_run_claim, wait_until_not_running
+from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
 from tests.scope_fakes import configure_turret_like_bringup, home_sim_scope
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
@@ -600,10 +600,6 @@ RUNNER_REFUSAL_COVERAGE = {
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
-    # Also start()-tier, and for the same reason: the illumination lease is
-    # acquired inside the gate-and-commit lock, so a live holder is only
-    # discoverable there.
-    'illumination_held': ('test_start_refused_while_a_live_owner_holds_the_illumination'),
     # Raised at composite config assembly, before the engine is reached at
     # all -- a composite the merge could not produce is refused where the
     # channel count is known.
@@ -818,61 +814,6 @@ class TestRefusalNotifyOnceFunnel:
         assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
         assert not executor.run_in_progress(), 'a start()-tier refusal must leave the runner idle'
         # Not wedged: with the claim released, the next run completes.
-        _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
-
-    def test_start_refused_while_a_live_owner_holds_the_illumination(
-        self, executor, tmp_path, monkeypatch
-    ):
-        """A live LED-lease holder refuses the run instead of failing it.
-
-        The lease used to be acquired after the run had committed, so an
-        autofocus sweep holding illumination produced a run that fired its
-        terminal callback and left a directory on the capture disk -- a
-        failed run, for a request that should never have started. It is
-        now taken inside the same gate-and-commit lock as the other two
-        start-tier gates, so a live holder is an ordinary refusal: nothing
-        committed, no callback, the holder undisturbed.
-        """
-        ill = executor._scope.illumination
-        with monkeypatch.context() as mp:
-            captured = _capture_notifications(mp)
-            holder = ill.acquire_led_lease('autofocus', claim=held_run_claim())
-            assert holder is not None, 'precondition: the holder took the lease'
-            terminal = []
-            plan = _prepare(
-                executor,
-                _make_single_step_protocol(),
-                tmp_path,
-                callbacks={'run_complete': lambda **kw: terminal.append(kw)},
-            )
-            try:
-                with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                    executor.start(plan)
-            finally:
-                holder.release(leave_on=False)
-
-        assert excinfo.value.reason == 'illumination_held'
-        assert excinfo.value.holder == 'autofocus', (
-            f'the refusal must name the holder so a caller can say who to '
-            f'stop; got {excinfo.value.holder!r}'
-        )
-        assert 'autofocus' in excinfo.value.message, (
-            f'the message must name the holder too; got {excinfo.value.message!r}'
-        )
-        assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
-
-        # The refusal contract, which the old fail-at-start shape broke on
-        # every clause: no terminal callback, no committed run state, and
-        # -- the one a user sees -- nothing written to the capture disk.
-        assert terminal == [], f'a refused run must not fire its terminal callback; got {terminal}'
-        assert not executor.run_in_progress(), 'a start()-tier refusal must leave the runner idle'
-        assert executor._activity_claim.owner is None, (
-            'the refusal must release the claim it took before refusing, or '
-            'every later run and recording is refused for the process life'
-        )
-        assert not list(tmp_path.glob('**/*.tiff')), 'a refused run wrote image files'
-
-        # Not wedged: with the holder gone, the next run completes.
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
 
 

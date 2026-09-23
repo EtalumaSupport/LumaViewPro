@@ -97,11 +97,10 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
     lease = holder['lease']
     assert lease is not None and lease.held
 
-    contender = ill.acquire_led_lease('next', claim=held_run_claim())
-    assert contender is None, (
-        'a holder whose claim is still held is LIVE even though its acquiring '
-        'thread died -- the contender must be refused, not handed a reclaim'
-    )
+    # A holder whose claim is still held is LIVE even though its acquiring
+    # thread died -- the contender must not be handed a reclaim.
+    with pytest.raises(RuntimeError, match='two live activities'):
+        ill.acquire_led_lease('next', claim=held_run_claim())
     assert ill.led_lease_purpose == 'worker'
     assert lease.held
     lease.release(leave_on=False)

@@ -790,9 +790,8 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     holder_claim = held_run_claim()
     stranded = ill.acquire_led_lease('protocol', claim=holder_claim)
     assert stranded is not None
-    assert ill.acquire_led_lease('other', claim=held_run_claim()) is None, (
-        'precondition: a live holder refuses a second acquire'
-    )
+    with pytest.raises(RuntimeError, match='two live activities'):
+        ill.acquire_led_lease('other', claim=held_run_claim())  # precondition: live holder
     # ...and then the owning run's claim ends without the lease released.
     holder_claim.release()
 
@@ -816,92 +815,6 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     assert any(
         "'protocol'" in m and 'its activity claim is no longer held' in m for m in reclaims
     ), f'the warning must name the dead owner and the evidence; got {reclaims}'
-
-
-def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_path, monkeypatch):
-    """A run started while a LIVE owner holds the LED lease is REFUSED.
-
-    It used to fail itself instead -- the lease was acquired after the run
-    had committed, so a held lease produced a run that fired run_complete
-    with 'failed_at_start' and left a directory behind. The acquire now
-    happens inside start()'s gate-and-commit lock, so the caller gets the
-    ordinary refusal contract: nothing committed, no terminal callback.
-
-    Either way the point this test has always made still holds: the
-    holder keeps illumination authority and its applies still drive the
-    LEDs. A run that stole the lease would leave the holder scanning
-    dark.
-    """
-    import modules.notification_center as notification_center
-
-    from modules.exceptions import ProtocolRunRefusedError
-
-    notified = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'error',
-        lambda *args, **kwargs: notified.append(('error', args)),
-    )
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'warning',
-        lambda *args, **kwargs: notified.append(('warning', args)),
-    )
-
-    ill = scope.illumination
-    af_lease = ill.acquire_led_lease('autofocus', claim=held_run_claim())
-    assert af_lease is not None
-
-    completions = []
-    done = threading.Event()
-
-    def on_complete(**kwargs):
-        completions.append(kwargs)
-        done.set()
-
-    plan = runner.prepare(
-        keep_led_between_steps=False,
-        protocol=_build_protocol([('A1', 'Green', {})]),
-        run_trigger_source='test',
-        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-        sequence_name='led_lease_live_holder',
-        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-        autogain_settings={
-            'target_brightness': 0.3,
-            'min_gain_db': 0.0,
-            'max_gain_db': 20.0,
-            'max_duration': datetime.timedelta(seconds=1),
-        },
-        parent_dir=tmp_path / 'output',
-        max_scans=1,
-        callbacks={'run_complete': on_complete},
-        leds_state_at_end='off',
-        autofocus_snapshot=autofocus_snapshot(),
-    )
-    with pytest.raises(ProtocolRunRefusedError) as excinfo:
-        runner.start(plan)
-
-    assert excinfo.value.reason == 'illumination_held', (
-        f'a live holder must refuse the run, not fail it; got {excinfo.value.reason!r}'
-    )
-    assert excinfo.value.holder == 'autofocus', (
-        f'the refusal must name the holder; got {excinfo.value.holder!r}'
-    )
-    assert not done.is_set() and completions == [], (
-        f'a refused run must fire no terminal callback; got {completions}'
-    )
-    assert notified, 'the refusal must notify the user'
-    assert not runner.run_in_progress()
-
-    # The live holder was not disturbed: its lease is held and still drives LEDs.
-    assert af_lease.held, 'the live holder lease must survive the refused run'
-    assert ill.led_lease_purpose == 'autofocus'
-    af_lease.apply(
-        LedTransition.AF_ENTER,
-        LedTransitionCtx(channel=ill.color2ch('Green'), illumination_ma=250.0),
-    )
-    assert ill.get_led_state('Green')['enabled'], "the holder's apply must still drive the LEDs"
-    af_lease.release(leave_on=False)
 
 
 # ---------------------------------------------------------------------------
