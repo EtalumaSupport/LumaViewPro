@@ -89,7 +89,7 @@ def firmware_stim_supported() -> bool:
     yet available, so stim never appears on firmware that cannot drive it.
     """
     caps = _live_capabilities()
-    return bool(caps.supports('firmware_stim')) if caps is not None else False
+    return bool(caps.has_firmware_stim) if caps is not None else False
 
 
 def get_layer_illumination_slider_max(layer: str) -> int | None:

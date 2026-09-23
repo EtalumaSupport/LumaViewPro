@@ -9736,53 +9736,20 @@ class TestRuntimeStateSetObjective:
 class TestAxisTravelLimitsOnCapabilities:
     """Freeze audit Finding #20 -- `Lumascope.travel_limit_um(axis)`
     lived on the composition root but read `motorconfig.travel_limit_um`
-    (motion-driver state). Canonical home is now
-    `capabilities.axis_travel_limits_um` (immutable per scope, populated
-    once at boot from present axes). The wrapper is retired."""
+    (motion-driver state). The travel bound's one door is
+    `motion.get_axis_limits(axis)`. The wrapper is retired."""
 
     def test_lumascope_class_does_not_carry_travel_limit_um(self):
         from modules.lumascope_api import Lumascope
 
         assert not hasattr(Lumascope, 'travel_limit_um'), (
             'Lumascope.travel_limit_um must be retired per audit #20; '
-            'callers read scope.capabilities.axis_travel_limits_um[axis] instead.'
+            'callers read scope.motion.get_axis_limits(axis) instead.'
         )
 
-    def test_present_axes_have_travel_limits(self, sim_scope):
-        """Default sim is LS850 (X/Y/Z present). All three axes appear
-        in the mapping with positive um values."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        for ax in sim_scope.capabilities.axes:
-            assert ax in limits, f'axis {ax} present but missing from travel limits'
-            assert limits[ax] > 0.0
-
-    def test_absent_axis_keyerrors(self, sim_scope):
-        """Per Rule 8 capability-probe corollary, querying an absent
-        axis is a caller bug -- contract is KeyError, not a sentinel."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        # 'Q' is guaranteed absent (no motorconfig advertises it); the
-        # test originally used 'T' but the sim default migrated to
-        # LS850T which has a real turret, so 'T' is no longer absent.
-        assert 'Q' not in sim_scope.capabilities.axes
-        import pytest as _pytest
-
-        with _pytest.raises(KeyError):
-            _ = limits['Q']
-
-    def test_mapping_is_read_only(self, sim_scope):
-        """MappingProxyType wrapper enforces the frozen-dataclass
-        immutability contract for the contents too. Mutation raises
-        TypeError; a caller cannot silently corrupt the snapshot."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        import pytest as _pytest
-
-        with _pytest.raises(TypeError):
-            limits['X'] = 1.0  # type: ignore[index]
-
-    def test_null_motor_yields_empty_mapping(self):
-        """A NullMotionBoard exposes no motorconfig; the mapping is
-        empty -- which has_xy_stage / has_focus False already gates
-        callers away from it."""
+    def test_null_motor_has_no_stage_or_turret(self):
+        """A NullMotionBoard has no stage and no turret, which gates the
+        travel-dependent consumers away from it."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
         from modules.scope_capabilities import ScopeCapabilities
@@ -9792,12 +9759,8 @@ class TestAxisTravelLimitsOnCapabilities:
             led=NullLEDBoard(),
             camera=None,
         )
-        assert dict(caps.axis_travel_limits_um) == {}
-        # The empty-mapping contract pairs with has_xy_stage=False;
         # tiling_config / motion_settings / stage consumers gate on the
-        # capability and fall back to DEFAULT_STAGE_TRAVEL_UM. Pin both
-        # halves so a regression that flips one without the other is
-        # caught at unit-test time, not at cold-start without hardware.
+        # capability and fall back to DEFAULT_STAGE_TRAVEL_UM.
         assert caps.has_xy_stage is False
         assert caps.has_focus is False
 

@@ -1307,7 +1307,6 @@ caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
 caps.has_turret                 # True if the turret axis is present
 caps.motor_model                # e.g. 'RP2040' or '' if no motor
-caps.axis_travel_limits_um      # {'X': 120000.0, 'Y': 80000.0, 'Z': 14000.0} -- present axes only
 
 # LED
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
@@ -1320,9 +1319,6 @@ caps.has_firmware_stim          # firmware-timed stim support on the LED board
 #   -> camera SDK-reported pitch (pixel size only) -> None
 caps.pixel_size_um              # um/pixel, or None if the scope cannot report it
 caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavailable
-
-# Feature probe (cross-surface, by token)
-caps.supports('turret')         # searches has_X and camera_supports_X fields; unknown tokens -> False
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
@@ -1343,7 +1339,7 @@ Important consequences:
 - **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
-- **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
+- **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y.
 
 ---
 
