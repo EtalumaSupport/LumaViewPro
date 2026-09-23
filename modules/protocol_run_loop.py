@@ -17,7 +17,8 @@ from lvp_logger import logger
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
-from modules.run_outcome import RunEnding, describe_unknown_positions
+from modules.exceptions import describe_unknown_positions
+from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner

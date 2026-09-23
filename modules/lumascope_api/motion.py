@@ -397,7 +397,7 @@ class MotionAPI:
         # An axis the board does not have has no state to be unknown;
         # the move paths already no-op it further down.
         if state == AxisState.UNKNOWN:
-            raise AxisStateUnknownError(axis)
+            raise AxisStateUnknownError({axis: state})
 
     # ------------------------------------------------------------------
     # Stateless method bodies.

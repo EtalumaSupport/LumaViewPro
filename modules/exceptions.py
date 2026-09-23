@@ -309,33 +309,93 @@ class PositionOutOfRangeError(ValueError):
         self.quantity = quantity
 
 
+# The axis-state value for an axis whose home is in progress. Spelled here
+# rather than imported: AxisState lives in the lumascope_api package, whose
+# import pulls in modules that import this one.
+_AXIS_HOMING = 'homing'
+
+
+def describe_unknown_positions(axes: dict[str, str]) -> str:
+    """Say which axes do not know their position, in the words a user acts on.
+
+    One wording for every refusal and ending that names an unknown
+    position -- a run's start refusal, its mid-run ending, and a refused
+    move or save -- so they never describe the same state differently. A
+    homing axis is named apart from a lost one because the user does
+    different things about them: wait for the one, home the other.
+
+    Args:
+        axes: Axis name to state, as ``MotionAPI.axes_without_position``
+            answers it. Must not be empty.
+
+    Returns:
+        str: A clause such as "Z is still homing; the X and Y positions
+            are unknown", with no leading capital or closing full stop, so
+            each caller ends it with the action its own situation needs.
+    """
+
+    def _names(names: list[str]) -> str:
+        return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
+
+    homing = [axis for axis, state in axes.items() if state == _AXIS_HOMING]
+    lost = [axis for axis, state in axes.items() if state != _AXIS_HOMING]
+    parts = []
+    if homing:
+        parts.append(f'{_names(homing)} {"is" if len(homing) == 1 else "are"} still homing')
+    if lost:
+        parts.append(
+            f'the {_names(lost)} position{"" if len(lost) == 1 else "s"} '
+            f'{"is" if len(lost) == 1 else "are"} unknown'
+        )
+    return '; '.join(parts)
+
+
 class AxisStateUnknownError(Exception):
-    """A move was commanded on an axis whose position is not known.
+    """An axis whose position is not known was asked to move, or to be recorded.
 
     Raised by the motion pre-drive gate when the target axis is UNKNOWN:
     a home failed, the board vanished mid-move, or a move stalled out.
     An absolute move against an unknown reference frame is never a valid
     request -- there is no frame for it to be absolute in -- so refusing
     it discards nothing legitimate and makes the failure loud instead of
-    letting the stage travel somewhere nobody asked for.
+    letting the stage travel somewhere nobody asked for. Also raised when
+    a position is about to be saved (a step, a focus, a bookmark) while
+    an axis does not know where it is: the cached number is the last one
+    the axis reported, real-looking and no longer true.
 
     The recovery paths that must move a still-unknown axis (lowering Z
     for turret safety, a deliberate re-home jog) pass ``force=True``
     rather than pre-checking state, so the gate can never deadlock the
     operation that would clear the state it guards.
 
+    The message is written for the person at the scope, because the
+    GUI's background lane shows a typed error's message as the popup
+    body; it names every axis in one sentence so one refusal of a
+    several-axis gesture reads as one.
+
     Attributes:
-        axis: The axis that was refused, for callers that map refusals
-            to responses (REST status codes, SDK branches) and for the
-            user-facing message.
+        axes: Every refused axis, mapped to its state, in the scope's axis
+            order.
+        axis: The first of them, for callers that map a refusal to a
+            response by a single axis (REST status codes, SDK branches).
     """
 
-    def __init__(self, axis: str):
-        super().__init__(
-            f'{axis} position is unknown -- home the scope before moving it, '
-            f'or pass force=True to move anyway'
-        )
-        self.axis = axis
+    def __init__(self, axes: dict[str, str], then: str = 'move it'):
+        """Build the refusal for ``axes``.
+
+        Args:
+            axes: Axis name to state for every axis refused. Must not be
+                empty.
+            then: What the user does once the scope knows its position,
+                ending the sentence (e.g. ``'move it'``, ``'save the
+                focus'``).
+        """
+        clause = describe_unknown_positions(axes)
+        waiting = all(state == _AXIS_HOMING for state in axes.values())
+        remedy = 'Wait for the home to finish' if waiting else 'Home the scope'
+        super().__init__(f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.')
+        self.axes = dict(axes)
+        self.axis = next(iter(axes))
 
 
 class MoveNotCompletedError(Exception):

@@ -397,7 +397,7 @@ class ProtocolStepRunner:
         # through the run loop's classification.
         lost_axes = p._scope.motion.axes_without_position()
         if lost_axes:
-            raise AxisStateUnknownError(next(iter(lost_axes)))
+            raise AxisStateUnknownError(lost_axes)
 
         # Update Z position with autofocus results
         if wants_af:

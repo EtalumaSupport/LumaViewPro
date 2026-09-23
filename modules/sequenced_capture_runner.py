@@ -26,7 +26,11 @@ import modules.image_mode as image_mode
 import modules.labware_loader as labware_loader
 from modules.activity_claim import ActivityClaim, ActivityHolder, HeldClaim
 from modules.autofocus_runner import AutofocusRunner
-from modules.exceptions import ProtocolRunRefusedError, RunStartError
+from modules.exceptions import (
+    ProtocolRunRefusedError,
+    RunStartError,
+    describe_unknown_positions,
+)
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -34,7 +38,6 @@ from modules.run_outcome import (
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
-    describe_unknown_positions,
 )
 
 from modules.sequential_io_executor import SequentialIOExecutor
