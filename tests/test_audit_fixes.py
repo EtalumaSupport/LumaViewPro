@@ -3175,8 +3175,14 @@ def _bare_protocol_writer(**overrides):
         'video_max_fps': 0,
         'engineering_mode': False,
     }
+    scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)
-    return ProtocolImageWriter(**kwargs)
+    writer = ProtocolImageWriter(**kwargs)
+    if scope_is_stubbed:
+        # A brought-up scope answers the objective in the light path; the
+        # writer reads it once per capture, for the file name and the scale.
+        writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
+    return writer
 
 
 def _make_capture_runner(**overrides):

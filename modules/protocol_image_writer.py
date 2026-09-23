@@ -700,12 +700,23 @@ class ProtocolImageWriter:
                     f'settle drained in capture_and_wait'
                 )
 
-            # Objective short name for filename
+            # The objective in the light path, read once: the file name and
+            # the frame's scale both come from this one answer, so they cannot
+            # disagree -- and it is read now, before the save runs later on the
+            # file writer, after the next step's turret move may have begun.
+            # Unknown leaves the objective out of the name; a still then
+            # refuses below (no true scale), a video records with no scale.
+            try:
+                frame_objective_id, frame_objective = (
+                    self._scope.runtime_state.resolve_current_objective()
+                )
+                objective_unknown = None
+            except ObjectiveUnknownError as e:
+                frame_objective_id, frame_objective = None, None
+                objective_unknown = e
             objective_short_name = None
-            if self._scope.capabilities.has_turret:
-                objective_short_name = self._scope.runtime_state.get_objective_info(
-                    objective_id=step['Objective']
-                )['short_name']
+            if self._scope.capabilities.has_turret and frame_objective is not None:
+                objective_short_name = frame_objective['short_name']
 
             # Build base name from protocol's custom root + step name
             try:
@@ -831,15 +842,9 @@ class ProtocolImageWriter:
                     return False
 
                 else:
-                    # The objective this frame is taken with, read now -- the
-                    # save runs later, after the next step's turret move may
-                    # have begun. Unknown means no true scale for the frame,
-                    # so the step fails here, before any capture.
-                    try:
-                        frame_objective_id, _ = (
-                            self._scope.runtime_state.resolve_current_objective()
-                        )
-                    except ObjectiveUnknownError as e:
+                    # Unknown means no true scale for the frame, so the step
+                    # fails here, before any capture.
+                    if objective_unknown is not None:
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
@@ -847,7 +852,7 @@ class ProtocolImageWriter:
                             name=name,
                             enable_image_saving=enable_image_saving,
                             separate_folder_per_channel=separate_folder_per_channel,
-                            cause=str(e),
+                            cause=str(objective_unknown),
                         )
                         _proto_outcome = 'capture_failed'
                         return False

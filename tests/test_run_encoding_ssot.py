@@ -273,8 +273,12 @@ class TestOneRunOneEncoding:
     def _writer(config):
         from modules.protocol_image_writer import ProtocolImageWriter
 
+        scope = MagicMock()
+        # A brought-up scope answers the objective in the light path; the
+        # writer reads it once per capture, for the file name and the scale.
+        scope.runtime_state.resolve_current_objective.return_value = ('10x Oly', {})
         return ProtocolImageWriter(
-            scope=MagicMock(),
+            scope=scope,
             callbacks=ProtocolCallbacks(),
             aborted=threading.Event(),
             file_io_executor=MagicMock(),
