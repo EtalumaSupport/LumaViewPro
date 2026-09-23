@@ -62,6 +62,8 @@ Firmware-only (doc_status family):
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
     daily_log_ordering -- shard entries are newest-first; an entry dated
                 newer than the one above it is BLOCKED (insert at top)
+    daily_log_entries_kept -- a shard commit that drops an entry HEAD has
+                is BLOCKED (a prepend that truncated the file)
     handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
                 outside Branch tips / Next / Rulings / What not to touch,
                 and a new one has all four (WARN, diff-aware)
@@ -84,6 +86,7 @@ import subprocess
 import sys
 import tokenize
 import tomllib
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1175,6 +1178,51 @@ def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     return violations
 
 
+def _entry_keys(content: str) -> Counter[str]:
+    """The identity of each shard entry: its heading up to the first colon
+    (date, track, session), so a reworded headline is the same entry and
+    only a vanished one counts. A Counter, because two closes of one track
+    on one day can share a key."""
+    keys: Counter[str] = Counter()
+    for line in content.splitlines():
+        if _DAILY_LOG_ENTRY_RE.match(line):
+            keys[line.split(':', 1)[0].rstrip()] += 1
+    return keys
+
+
+def _check_daily_log_entries_kept(content: str, path: str, previous: str | None) -> list[Violation]:
+    """BLOCK a shard commit that loses an entry the previous revision had.
+
+    Every close prepends its entry with a freshly written command, four
+    tracks a day; one of them opened the file for writing before reading
+    it, which truncates the file first, so the committed shard was the
+    new entry alone and the ordering check saw a valid newest-first file
+    of one entry. Only what the commit REMOVES tells the two apart.
+    `previous` is the shard as the parent revision has it; None means
+    there is no parent copy (a new shard, or no diff context), and the
+    check has nothing to compare.
+    """
+    p = path.replace('\\', '/')
+    if previous is None or not _is_daily_log(p) or p.endswith('docs/DAILY_LOG.md'):
+        return []
+    missing = _entry_keys(previous) - _entry_keys(content)
+    if not missing:
+        return []
+    lost = sum(missing.values())
+    first = next(iter(missing))
+    return [
+        Violation(
+            path,
+            1,
+            0,
+            'daily_log_entries_kept',
+            f'{p.rsplit("/", 1)[-1]} loses {lost} entr{"y" if lost == 1 else "ies"} '
+            f'the previous revision has (first: `{first}`); a close PREPENDS '
+            'its entry -- read the file before opening it for writing',
+        )
+    ]
+
+
 def _merge_in_progress() -> bool:
     """True while a merge is being concluded.
 
@@ -1311,12 +1359,19 @@ def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[V
     return violations
 
 
-def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation]:
-    """Run the doc-status checks against one markdown file's content."""
+def check_doc(
+    content: str, path: str, added: set[int] | None, previous: str | None = None
+) -> list[Violation]:
+    """Run the doc-status checks against one markdown file's content.
+
+    `previous` is the parent revision's copy of the file, for the checks
+    that look at what a commit removes; None where no parent copy exists.
+    """
     violations: list[Violation] = []
     violations.extend(_check_rule_45(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))
+    violations.extend(_check_daily_log_entries_kept(content, path, previous))
     violations.extend(_check_handover_shape(content, path, added))
     return violations
 
@@ -1336,6 +1391,17 @@ def _staged_doc_files() -> list[str]:
 
 def _read_staged_content(path: str) -> str:
     return subprocess.check_output(['git', 'show', f':{path}'], text=True)
+
+
+def _read_head_content(path: str) -> str | None:
+    """The committed copy the staged one replaces; None when HEAD has no
+    such file (a new file, or an unborn branch)."""
+    try:
+        return subprocess.check_output(
+            ['git', 'show', f'HEAD:{path}'], text=True, stderr=subprocess.DEVNULL
+        )
+    except subprocess.CalledProcessError:
+        return None
 
 
 _HUNK_HEADER = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
@@ -1426,7 +1492,7 @@ def main(argv: list[str] | None = None) -> int:
                 # The doc checks are diff-aware (freshness) and content-aware
                 # (structure); they do their own line-range filtering, so they
                 # are not subject to the --all / added-line filter above.
-                violations.extend(check_doc(content, p, _added_lines(p)))
+                violations.extend(check_doc(content, p, _added_lines(p), _read_head_content(p)))
     else:
         for p in args.paths or []:
             try:
