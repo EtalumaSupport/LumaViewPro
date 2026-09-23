@@ -189,10 +189,9 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     scope.runtime_state.set_turret_config(
         dict(TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives)
     )
-    # Bring-up also records whether the scope has a turret, and startup's home
-    # leaves the turret in slot 1 -- the active objective is that slot's
-    # assignment, unknown until the slot is. Only the turret is homed, so the
-    # stage stays where the test put it.
+    # Bring-up also records whether the scope has a turret, and startup homes
+    # every axis: the turret lands in slot 1 -- the active objective is that
+    # slot's assignment, unknown until the slot is -- and a run's moves need
+    # a known stage, since the run moves every step itself.
     record_turret_answer(scope)
-    if scope.runtime_state.is_turreted() and not scope.motion._home_turret_impl():
-        raise AssertionError('the simulated turret failed to home')
+    home_sim_scope(scope)

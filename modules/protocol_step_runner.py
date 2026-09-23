@@ -24,7 +24,7 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusAborted, HardwareCommandRefusedError
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
     LedEndPolicy,
@@ -641,14 +641,35 @@ class ProtocolStepRunner:
         if p._io_executor is None:
             p._scope.motion._move_absolute_impl(**kwargs)
             return
-        fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs),
-            return_future=True,
+        self._put_move_and_wait(
+            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs), f'move {axis}'
         )
-        if fut:
-            fut.result(timeout=60.0)
 
-    def go_to_step(self, step_idx: int):
+    def _move_turret_through_io(self, slot: int) -> None:
+        """Turn the turret to ``slot`` on the io worker and wait for it.
+
+        Z is not restored after the turret's safety park: the step's own Z
+        move follows at once and would overwrite it.
+        """
+        p = self._p
+        kwargs = {'position': slot, 'restore_z': False}
+        if p._io_executor is None:
+            p._scope.motion._move_turret_impl(**kwargs)
+            return
+        self._put_move_and_wait(
+            IOTask(action=p._scope.motion._move_turret_impl, kwargs=kwargs), 'move T'
+        )
+
+    def _put_move_and_wait(self, task: IOTask, member: str) -> None:
+        # A put the queue refuses (the run is ending, the executor is
+        # disabled) raises: skipped silently, the step would capture at
+        # whatever position the last move left.
+        fut = self._p._io_executor.protocol_put(task, return_future=True)
+        if fut is None:
+            raise HardwareCommandRefusedError('protocol_queue_refused', member)
+        fut.result(timeout=60.0)
+
+    def go_to_step(self, step_idx: int) -> None:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
@@ -656,16 +677,33 @@ class ProtocolStepRunner:
         if p._aborted.is_set():
             return
 
+        step = p._protocol.step(idx=step_idx)
+        # The run turns the turret itself, on every host: a step's captures
+        # are only of its objective if that objective is in the light path.
+        # The slot is the one carrying the step's objective, which prepare()
+        # already refused to start without.
+        if p._scope.capabilities.has_turret:
+            slot = p._scope.motion.get_turret_position_for_objective_id(
+                objective_id=step['Objective']
+            )
+            if slot is None:
+                raise RuntimeError(
+                    f'no turret slot carries {step["Objective"]!r} for step {step_idx}, '
+                    'though the run was admitted with it'
+                )
+            self._move_turret_through_io(slot)
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt: p._callbacks.move_position('T'), 0)
+        self.default_move(px=step['X'], py=step['Y'], z=step['Z'])
+
+        # The host's callback displays the step; it moves nothing.
         if p._callbacks.go_to_step:
             p._callbacks.go_to_step(
                 protocol=p._protocol,
                 step_idx=step_idx,
-                include_move=True,
+                include_move=False,
                 ignore_auto_gain=True,
             )
-        else:
-            step = p._protocol.step(idx=step_idx)
-            self.default_move(px=step['X'], py=step['Y'], z=step['Z'])
 
     # ------------------------------------------------------------------
     # Grease redistribution

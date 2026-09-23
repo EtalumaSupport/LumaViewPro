@@ -25,7 +25,6 @@ import modules.common_utils as common_utils
 import modules.protocol_image_writer as protocol_image_writer
 from modules.image_utils import read_pixel_size_um
 from modules.protocol import Protocol
-from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -95,19 +94,16 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         second_turret_move_returned = threading.Event()
         held = []
 
-        def _go_to_step(*, protocol, step_idx, **_):
-            # The host's step navigation is what turns the turret during a
-            # run today, and this is the GUI's run lane: the turret move put
-            # on the protocol queue, ahead of the step's capture.
-            objective_id = protocol.step(idx=step_idx)['Objective']
-            slot = motion.get_turret_position_for_objective_id(objective_id)
-            future = session.io_executor.protocol_put(
-                IOTask(motion._move_turret_impl, kwargs={'position': slot, 'restore_z': False}),
-                return_future=True,
-            )
-            future.result(timeout=MOVE_TIMEOUT_S)
-            if slot == SECOND_SLOT:
+        real_turret_move = motion._move_turret_impl
+
+        def _turret_move(position, restore_z=True):
+            # The run's own turret move, observed: the engine turns the
+            # turret before each step's capture.
+            real_turret_move(position=position, restore_z=restore_z)
+            if position == SECOND_SLOT:
                 second_turret_move_returned.set()
+
+        monkeypatch.setattr(motion, '_move_turret_impl', _turret_move)
 
         def _held_until_the_turret_moves(scope, **kwargs):
             if not held:
@@ -121,7 +117,6 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            callbacks={'go_to_step': _go_to_step},
         )
         result = outcome.wait(timeout_s=60.0)
         assert result is not None and result.status == 'completed', result
