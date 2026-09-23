@@ -212,3 +212,28 @@ class TestResetClearsTheApisSlot:
             session.clear_current_turret_objective()
         assert excinfo.value.reason == 'slot_unknown'
         assert session.settings['turret_objectives'] == {int(k): v for k, v in ASSIGNED.items()}
+
+
+def test_a_full_home_shows_the_turret(monkeypatch):
+    """The XY Home homes every axis, the turret included, and its display
+    shows the turret: the firmware's home leaves it on slot 1."""
+    from ui import ui_helpers
+
+    shown = []
+    vertical = SimpleNamespace(
+        update_gui=lambda vertical_control=False: None,
+        show_turret_state=lambda prompt=True: shown.append(prompt),
+    )
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            scope=SimpleNamespace(capabilities=SimpleNamespace(has_turret=True)),
+            motion_settings=SimpleNamespace(
+                ids={'verticalcontrol_id': vertical},
+                update_xy_stage_control_gui=lambda: None,
+            ),
+        ),
+    )
+    ui_helpers._handle_ui_update_for_axis('ALL')
+    assert shown == [True]
