@@ -83,7 +83,7 @@ def stepnav_env(monkeypatch):
     # stand-in here would answer for production's rule without being it.
     scope = SimpleNamespace(
         motion=SimpleNamespace(),
-        capabilities=SimpleNamespace(has_turret=False),
+        capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
         motor_connected=False,
         imaging=SimpleNamespace(active_cached=False),
         illumination=SimpleNamespace(
@@ -120,9 +120,12 @@ def stepnav_env(monkeypatch):
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
     # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
-    # kivy mock cannot provide; go_to_step defers both imports and this
-    # test's path never calls into them, so module-boundary stubs suffice.
-    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', MagicMock())
+    # kivy mock cannot provide; go_to_step defers both imports, so
+    # module-boundary stubs suffice. The one answer this path reads from
+    # ui_helpers is whether the positions refuse the move: they do not.
+    ui_helpers = MagicMock()
+    ui_helpers.unknown_position_refused.return_value = False
+    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     # Run scheduled UI callbacks inline so the closures under test execute.
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))

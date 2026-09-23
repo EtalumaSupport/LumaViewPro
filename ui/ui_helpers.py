@@ -248,6 +248,36 @@ def move_absolute(
     _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
+def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, then: str) -> bool:
+    """The single UI boundary for the motion API's unknown-position refusal.
+
+    A gesture that moves or saves several axes asks the API once, before
+    it does anything, whether the scope knows where those axes are; the
+    API decides, logs and notifies. What remains for the gesture is only
+    to stop, so every gesture asks through here and none carries its own
+    handling of the refusal, the way every run starter routes its refusal
+    through ``run_with_refusal_boundary``.
+
+    Args:
+        axes: The axes the gesture needs.
+        recording: True when the gesture saves the position, False when
+            it moves.
+        then: What the user does once the scope knows its position,
+            ending the refusal the API shows.
+
+    Returns:
+        bool: True when the API refused (already logged and shown); the
+            caller stops. False when the gesture may go ahead.
+    """
+    from modules.exceptions import AxisStateUnknownError
+
+    try:
+        _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=recording, then=then)
+    except AxisStateUnknownError:
+        return True
+    return False
+
+
 def show_jog_refusal(label: str, error: Exception) -> None:
     """Display a jog the API refused, and why (e.g. home the turret)."""
     from modules.notification_center import notifications

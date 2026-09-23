@@ -419,7 +419,7 @@ class ScopeDisplay(Image):
                 frame_width, frame_height = self.full_resolution_frame_size()
 
                 from modules.config_ui_getters import get_binning_from_ui
-                from ui.ui_helpers import move_relative
+                from ui.ui_helpers import move_relative, unknown_position_refused
 
                 objective = _app_ctx.ctx.scope.runtime_state.get_current_objective()
                 if objective is None:
@@ -454,6 +454,10 @@ class ScopeDisplay(Image):
                     'SCOPE_CLICK_TO_CENTER',
                     f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
                 )
+                # One click, one question for both axes, asked before either
+                # move is submitted.
+                if unknown_position_refused(('X', 'Y'), recording=False, then='move the stage'):
+                    return
                 move_relative(axis='X', distance=x_dist_um)
                 move_relative(axis='Y', distance=y_dist_um)
 

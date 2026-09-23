@@ -85,7 +85,7 @@ def nav_env(monkeypatch):
     carried: dict = {1: ON_TURRET, 2: None, 3: None, 4: None}
 
     scope = SimpleNamespace(
-        capabilities=SimpleNamespace(has_turret=True),
+        capabilities=SimpleNamespace(has_turret=True, axes=('X', 'Y', 'Z', 'T')),
         runtime_state=SimpleNamespace(get_turret_config=lambda: carried),
         motion=SimpleNamespace(),
         motor_connected=True,
@@ -135,6 +135,9 @@ def nav_env(monkeypatch):
     monkeypatch.setattr('modules.app_context.ctx', ctx)
 
     ui_helpers = MagicMock()
+    # Every axis knows its position unless a test says otherwise: these
+    # tests are about the objective rule.
+    ui_helpers.unknown_position_refused.return_value = False
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
@@ -148,6 +151,7 @@ def nav_env(monkeypatch):
         scope=scope,
         protocol_settings=protocol_settings,
         move_absolute=ui_helpers.move_absolute,
+        unknown_position_refused=ui_helpers.unknown_position_refused,
     )
 
 
@@ -256,3 +260,33 @@ class TestTheSlotLookupCannotDisagreeWithTheRule:
         assert nav_env.move_absolute.call_count == 0, (
             'the stage moved despite the turret having nowhere to go'
         )
+
+
+class TestAnUnhomedNavigationIsANoOp:
+    """An axis that does not know its position refuses the navigation once,
+    before the pointer moves -- the same no-op as an unaddressable objective."""
+
+    def test_the_positions_are_asked_once_for_every_axis_before_anything_moves(self, nav_env):
+        nav_env.unknown_position_refused.return_value = True
+
+        _navigate(ON_TURRET)
+
+        nav_env.unknown_position_refused.assert_called_once_with(
+            ('X', 'Y', 'Z', 'T'), recording=False, then='go to the step'
+        )
+        assert nav_env.protocol_settings.curr_step == 3
+        assert nav_env.move_absolute.call_count == 0
+
+    def test_a_run_navigation_does_not_ask(self, nav_env):
+        """The run navigates with include_move=False; prepare() settled positions."""
+        import ui.step_navigation as step_navigation
+
+        protocol = SimpleNamespace(
+            num_steps=MagicMock(return_value=2),
+            step=MagicMock(return_value=_make_step(ON_TURRET)),
+        )
+        step_navigation.go_to_step(
+            protocol, step_idx=0, include_move=False, called_from_protocol=True
+        )
+
+        nav_env.unknown_position_refused.assert_not_called()

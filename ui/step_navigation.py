@@ -32,7 +32,7 @@ def go_to_step(
     # Deferred import: ui/ui_helpers.move_absolute wraps the
     # API call with UI update callbacks. step_navigation still reaches
     # upward here, which the display-only direction has yet to undo.
-    from ui.ui_helpers import move_absolute
+    from ui.ui_helpers import move_absolute, unknown_position_refused
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -66,6 +66,18 @@ def go_to_step(
     try:
         ctx.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
     except ProtocolRunRefusedError:
+        return
+
+    # The same reasoning for an axis that does not know where it is: the
+    # moves below would each be refused on the motion lane, after the
+    # pointer had moved, one popup per axis. Asked once, for every axis the
+    # navigation drives, turret included -- a failed turret home leaves T
+    # unknown while the stage axes are fine. Only when this call moves:
+    # a run navigates with include_move=False and settled positions at
+    # prepare().
+    if include_move and unknown_position_refused(
+        ctx.scope.capabilities.axes, recording=False, then='go to the step'
+    ):
         return
 
     # A same-step re-selection (re-clicking / re-typing the current number)

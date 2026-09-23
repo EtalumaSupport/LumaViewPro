@@ -33,7 +33,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 
 from drivers.exceptions import HardwareError
 from lib import profile_trace
@@ -44,7 +44,7 @@ from modules.exceptions import (
     MoveNotCompletedError,
     PositionOutOfRangeError,
 )
-from modules.notification_center import notifications
+from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -301,19 +301,23 @@ class MotionAPI:
     def position_is_known(self, axis: str) -> bool:
         """Whether *axis* has a reference position an absolute move can use.
 
-        The same question ``_pre_drive`` asks before it refuses, offered to
-        callers as a question rather than only as an exception. A caller
-        whose move is optional -- one that should be skipped rather than
-        attempted on an axis whose position was never established -- could
-        otherwise only discover the answer by provoking the refusal and
-        catching it, which is indistinguishable from swallowing a real one.
+        Offered to callers as a question rather than only as an exception.
+        A caller whose move is optional -- one that should be skipped
+        rather than attempted on an axis whose position was never
+        established -- could otherwise only discover the answer by
+        provoking the refusal and catching it, which is indistinguishable
+        from swallowing a real one.
+
+        Stricter than ``_pre_drive`` by one state: a HOMING axis answers
+        False here, because its reference is still being established,
+        while the gate lets it drive so the home can finish.
 
         Args:
             axis: The axis to ask about.
 
         Returns:
-            bool: True when an absolute move on *axis* would pass the
-            pre-drive gate; False when the axis has no reference yet.
+            bool: True when *axis* is IDLE or MOVING; False when it is
+            UNKNOWN or HOMING.
         """
         with self._axis_state_lock:
             state = self._axis_state.get(axis)
@@ -396,8 +400,79 @@ class MotionAPI:
             state = self._axis_state.get(axis)
         # An axis the board does not have has no state to be unknown;
         # the move paths already no-op it further down.
-        if state == AxisState.UNKNOWN:
+        if self._drive_refused(state):
             raise AxisStateUnknownError({axis: state})
+
+    @staticmethod
+    def _drive_refused(state: str | None) -> bool:
+        """Whether the pre-drive gate refuses to drive an axis in ``state``.
+
+        Only UNKNOWN: a HOMING axis must drive for its home to finish, and a
+        move asked for while it homes waits behind the home on the motion
+        lane. One rule, read by the gate and by ``refuse_unknown_positions``,
+        so an answer given before a move is submitted cannot disagree with
+        the gate that later drives it.
+        """
+        return state == AxisState.UNKNOWN
+
+    def refuse_unknown_positions(self, axes: Iterable[str], *, recording: bool, then: str) -> None:
+        """Refuse, once, a gesture that needs axes whose position is not known.
+
+        A person's gesture often touches several axes -- going to a step
+        moves X, Y, Z and the turret; saving a bookmark records a position.
+        Refused axis by axis on the motion lane, one condition becomes one
+        refusal per axis, each arriving after the gesture has moved on; and
+        a recorded position is simply the last number the axis reported,
+        real-looking and no longer true. This asks once, before anything is
+        submitted or written, names every axis in one sentence, and tells
+        the user once.
+
+        Two questions, because moving and recording differ over an axis
+        that is still homing: its move queues behind the home and lands,
+        so moving refuses only what the pre-drive gate refuses; its
+        position is not yet one to save, so recording refuses it too.
+
+        A consult seam for the GUI's gestures, not part of the L2 API
+        surface: an L2 caller's move meets the pre-drive gate, and the
+        positions a script saves go through API members that ask for
+        themselves.
+
+        Args:
+            axes: The axes the gesture needs. An axis this scope does not
+                have is not asked about.
+            recording: True when the gesture saves the position, False
+                when it moves.
+            then: What the user does once the scope knows its position,
+                ending the refusal (e.g. ``'move it'``, ``'save the
+                bookmark'``).
+
+        Raises:
+            AxisStateUnknownError: Naming every refused axis. Logged and
+                notified once before it is raised; the caller catches it
+                and stops, and shows nothing more.
+        """
+        wanted = set(axes)
+        with self._axis_state_lock:
+            states = {axis: s for axis, s in self._axis_state.items() if axis in wanted}
+        refused = {
+            axis: s
+            for axis, s in states.items()
+            if (not self._position_known(s) if recording else self._drive_refused(s))
+        }
+        if not refused:
+            return
+        error = AxisStateUnknownError(refused, then=then)
+        _api_log.warning(f'[API] Gesture refused: {error}')
+        # Solicited: the user just asked for this, so it reaches them even
+        # while a run is in flight.
+        notifications.warning(
+            'Motion',
+            'Scope Not Homed',
+            str(error),
+            solicited=True,
+            operation_key=REFUSAL_OPERATION_KEY,
+        )
+        raise error
 
     # ------------------------------------------------------------------
     # Stateless method bodies.

@@ -13,7 +13,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, move_absolute
+from ui.ui_helpers import find_nearest_step, move_absolute, unknown_position_refused
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -182,6 +182,10 @@ class Stage(Widget):
                 # The click is already a plate coordinate; the API converts
                 # it. Recording the stage equivalent here would mean keeping
                 # a frame conversion in the widget to feed the log line.
+                # One click, one question for both axes, asked before either
+                # move is submitted.
+                if unknown_position_refused(('X', 'Y'), recording=False, then='move the stage'):
+                    return
                 move_absolute('X', plate_x, frame='plate')
                 move_absolute('Y', plate_y, frame='plate')
 
