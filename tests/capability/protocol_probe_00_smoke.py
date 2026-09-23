@@ -14,7 +14,7 @@ try:
     print('run_trigger_src  :', runner.run_trigger_source())
 
     banner('flagged facade methods')
-    for name in ('video_drain_busy', 'video_pending_writes', 'discard_video_pending'):
+    for name in ('video_pending_writes', 'discard_video_pending'):
         try:
             v = getattr(runner, name)()
             print(f'{name:22s} -> OK {v!r}')

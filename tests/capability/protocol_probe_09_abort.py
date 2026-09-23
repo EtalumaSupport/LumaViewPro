@@ -40,13 +40,13 @@ try:
 
     banner('a NON-owner reset must be refused')
     try:
-        runner.reset(requester='zstack')
+        runner.abort(requester='zstack')
         print('NOT REFUSED (FAIL)')
     except Exception as e:
         print(f'refused: {type(e).__name__}: {e}')
 
     banner('the owner stops it')
-    runner.reset(requester='api_protocol')
+    runner.abort(requester='api_protocol')
     s = out.wait(timeout_s=120)
     print('status:', s.status, s.reason)
     print('idle  :', runner.wait_for_run_idle(timeout_s=60))

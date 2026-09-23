@@ -106,7 +106,6 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     try:
         yield session, runner
     finally:
-        runner.shutdown()
         session.shutdown()
 
 

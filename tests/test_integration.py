@@ -859,7 +859,6 @@ class TestHeadlessSession:
             completed = done.wait(timeout=COMPLETION_TIMEOUT)
             assert completed, 'Headless protocol did not complete within timeout'
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_protocol_runner_afe_no_kivy_dependency(self):
@@ -1078,7 +1077,6 @@ class TestRestAPIPrep:
             assert status['in_progress'] is False
             assert status['best_position'] is None
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_abort_noop_when_idle(self):
@@ -1097,7 +1095,6 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_run_and_complete(self):
@@ -1134,7 +1131,6 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_abort_during_run(self):
@@ -1170,7 +1166,6 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_settings_has_rest_api_section(self):

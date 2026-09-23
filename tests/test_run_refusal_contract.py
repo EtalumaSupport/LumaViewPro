@@ -424,7 +424,6 @@ class TestHeadlessRefusalDoesNotHang:
             )
             assert wait_until_not_running(session)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
 

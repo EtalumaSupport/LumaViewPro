@@ -230,7 +230,6 @@ class TestClaimRefusalLeavesNoState:
         finally:
             if claim_held:
                 session.activity_claim.release('recording')
-            runner.shutdown()
             session.shutdown_executors()
 
 
@@ -286,5 +285,4 @@ class TestTheHolderIsTheLiveRun:
             )
             assert session.activity_claim.holder is None
         finally:
-            runner.shutdown()
             session.shutdown_executors()

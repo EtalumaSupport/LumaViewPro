@@ -216,5 +216,4 @@ def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
     try:
         yield session, runner
     finally:
-        runner.shutdown()
         session.shutdown()

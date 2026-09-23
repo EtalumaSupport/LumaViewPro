@@ -103,9 +103,6 @@ def main():
     scope.imaging.start_streaming()
     print('Session created, scope configured')
 
-    # Create a ProtocolRunner from the session
-    runner = session.create_protocol_runner()
-
     # Build the protocol configuration
     config = build_protocol_config()
     print('\nProtocol config:')
@@ -165,7 +162,6 @@ def main():
     # Clean up. The scope was ours, so the disconnect is ours: session
     # shutdown leaves a caller-passed scope alone. A factory-built scope is
     # disconnected by session.shutdown() itself.
-    runner.shutdown()
     session.shutdown()
     scope.disconnect()
     print('Scope disconnected')

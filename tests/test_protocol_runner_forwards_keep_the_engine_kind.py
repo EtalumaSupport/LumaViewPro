@@ -47,10 +47,8 @@ def _facade_over(engine) -> ProtocolRunner:
 def test_the_facade_answers_the_engine_by_attribute_read():
     """What an L2 caller sees: the engine's values, not a bound method."""
     runner = _facade_over(_Engine(busy=True, pending=7))
-    assert runner.video_drain_busy is True
     assert runner.video_pending_writes == 7
     runner = _facade_over(_Engine(busy=False, pending=0))
-    assert runner.video_drain_busy is False
     assert runner.video_pending_writes == 0
 
 

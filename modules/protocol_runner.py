@@ -692,18 +692,6 @@ class ProtocolRunner:
         return self._executor.current_step_color()
 
     @property
-    def video_drain_busy(self) -> bool:
-        """True while a video step's write drain outlives the run.
-
-        Read, not called: the engine spells this as a property and so does
-        every reader of it (the app-close gate, the session's busy check),
-        and the facade keeps the engine's spelling for every member it
-        forwards. Calling the engine's property was the one way this
-        facade could raise on any use, and no caller had ever tried it.
-        """
-        return self._executor.video_drain_busy
-
-    @property
     def video_pending_writes(self) -> int:
         """Frames across the run's video steps not yet on disk; read, not called."""
         return self._executor.video_pending_writes
@@ -730,20 +718,6 @@ class ProtocolRunner:
         self._last_outcome = outcome
         return outcome
 
-    def reset(self, requester: str) -> None:
-        """Unwind the current run without tearing the runner down.
-
-        Distinct from abort(): reset() leaves the protocol thread alone
-        (abort-and-continue); abort() also aborts the scan loop
-        (abort-and-teardown for this run's callers). Neither releases a
-        waiter early -- the run's outcome settles in cleanup's finally,
-        which is when the teardown has actually happened.
-
-        ``requester`` is the caller's run_trigger_source; the engine
-        refuses a teardown from anyone but the run's owner.
-        """
-        self._executor.reset(requester=requester)
-
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the engine's cleanup fully lands (claim released).
 
@@ -751,18 +725,6 @@ class ProtocolRunner:
         outcome: this one answers only whether the runner is idle, for a
         caller about to start something else."""
         return self._executor.wait_for_run_idle(timeout_s)
-
-    def set_scope(self, scope) -> None:
-        """Rewire onto a new scope via the session's one bring-up seam.
-
-        The session services the new scope (executor registration,
-        bundle, source path) and rewires every holder; a pre-serviced
-        foreign scope carrying DIFFERENT executors is refused there --
-        a session and its scope must share one executor topology.
-        Refuses while an exclusive activity (run, recording incl. its
-        drain) owns the hardware.
-        """
-        self.session.set_scope(scope)
 
     def abort(self, requester: str) -> None:
         """Abort the current run.
@@ -798,12 +760,3 @@ class ProtocolRunner:
         if outcome is None:
             return None
         return outcome.wait(timeout_s=timeout)
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
-    def shutdown(self):
-        """Retained for callers that paired shutdown() with
-        create_protocol_runner(); the engine, threads, and executors are
-        session composition now, torn down by session.shutdown()."""
