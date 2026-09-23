@@ -129,6 +129,25 @@ class TestTheRunnerReadsTheClaim:
     tests/test_run_state_strand.py beside the harness that has one.
     """
 
+    def test_a_runner_cannot_be_built_without_a_claim(self):
+        """A runner with a claim of its own would arbitrate against nothing
+        else: every runner takes the claim its session holds."""
+        from unittest.mock import MagicMock
+
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from tests.scope_fakes import spec_scope
+
+        with pytest.raises(TypeError, match='activity_claim'):
+            SequencedCaptureRunner(
+                scope=spec_scope(),
+                stage_offset={},
+                io_executor=MagicMock(),
+                protocol_thread=MagicMock(),
+                file_io_executor=MagicMock(),
+                camera_executor=MagicMock(),
+                autofocus_thread=MagicMock(in_flight_sweep=None),
+            )
+
     def test_the_getter_is_empty_before_any_run(self):
         runner = bare_capture_runner()
 
