@@ -816,7 +816,12 @@ class IlluminationAPI:
             return impl(*args, **kwargs)
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        # The caller blocks on this future and receives the exception, so it
+        # is the one to report it; the lane's generic notice would say it twice.
+        fut = ex.put(
+            IOTask(action=impl, args=args, kwargs=kwargs, silent_on_failure=True),
+            return_future=True,
+        )
         if fut is None:
             # A protocol fence can land between the check above and the
             # submit; without this the race surfaces as an AttributeError on

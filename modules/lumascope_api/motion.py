@@ -2026,12 +2026,15 @@ class MotionAPI:
             return impl(*args, **kwargs)
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        # The caller blocks on this future and receives the exception, so it
+        # is the one to report it; the lane's generic notice would say it twice.
         fut = ex.put(
             IOTask(
                 action=impl,
                 args=args,
                 kwargs=kwargs,
                 slow_task_threshold_sec=slow_task_threshold_sec,
+                silent_on_failure=True,
             ),
             return_future=True,
         )
