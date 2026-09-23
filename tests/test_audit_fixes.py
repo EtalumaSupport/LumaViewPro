@@ -4148,34 +4148,21 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
             )
 
 
-class TestFrameValidity_CompositeOverlayBranchDrains:
-    """The overlay branch of composite_capture's live_capture path (bullseye /
-    crosshairs enabled) grabs an extra image_orig for overlay rendering. Bare
-    get_image here would persist a mid-transition raw image to disk via the
-    subsequent save_image call. Must route through capture_and_wait."""
+class TestFrameValidity_ManualCaptureDrains:
+    """The manual capture -- with or without an overlay -- grabs through the
+    capture-and-wait body. A bare get_image would persist a mid-transition raw
+    image to disk via the save that follows. It runs on the camera worker, so
+    the dispatching public form would deadlock; the body is the one to call."""
 
-    def test_live_capture_impl_uses_capture_and_wait(self):
+    def test_manual_capture_grabs_through_capture_and_wait(self):
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
-        body = _function_source(src, '_live_capture_impl')
-        assert 'ctx.scope.imaging._capture_and_wait_impl(' in body, (
-            'composite_capture._live_capture_impl must grab through the '
-            'capture-and-wait body (it runs on the executor worker, so the '
-            'dispatching public form would deadlock) for the '
-            'bullseye/crosshairs overlay branch (was bare get_image).'
+        src = (Path(__file__).resolve().parent.parent / 'modules' / 'manual_capture.py').read_text()
+        body = _function_source(src, '_capture_and_save')
+        assert 'scope.imaging._capture_and_wait_impl(' in body, (
+            'the manual capture must grab through the capture-and-wait body'
         )
-
-    def test_live_capture_impl_no_bare_ctx_scope_get_image(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
-        body = _function_source(src, '_live_capture_impl')
-        assert 'ctx.scope.imaging.get_image(' not in body, (
-            'composite_capture._live_capture_impl must not call '
-            'ctx.scope.imaging.get_image(...) directly. Route through capture_and_wait '
-            '(or save_live_image, which now uses capture_and_wait internally).'
-        )
+        assert '.get_image(' not in body, 'the manual capture must not grab with a bare get_image'
 
 
 class TestFrameValidity_AllLedMutatorsInvalidate:

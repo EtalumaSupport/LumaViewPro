@@ -231,8 +231,8 @@ class TestProtocolWriterWiring:
 
 
 class TestLiveCaptureConfigSeam:
-    """Every key ui/composite_capture.py reads off a get_layer_configs()
-    entry must exist in the dict get_layer_configs() actually emits.
+    """Every key the manual capture (modules/manual_capture.py) reads off a
+    get_layer_configs() entry must exist in the dict get_layer_configs() actually emits.
 
     The emitted keys carry unit suffixes (illumination_ma, exposure_ms,
     gain_db) that are easy to drop when writing a new read site; a stale
@@ -264,21 +264,20 @@ class TestLiveCaptureConfigSeam:
             config_helpers.get_layer_configs({'BF': layer_settings}, specific_layers=['BF'])['BF']
         )
 
-        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
+        src = (Path(__file__).resolve().parent.parent / 'modules' / 'manual_capture.py').read_text()
         read_keys = []
         for node in ast.walk(ast.parse(src)):
             if (
                 isinstance(node, ast.Subscript)
                 and isinstance(node.slice, ast.Constant)
                 and isinstance(node.slice.value, str)
-                and isinstance(node.value, ast.Subscript)
-                and isinstance(node.value.value, ast.Name)
-                and node.value.value.id == 'layer_configs'
+                and isinstance(node.value, ast.Name)
+                and node.value.id == 'layer_config'
             ):
                 read_keys.append((node.slice.value, node.lineno))
 
         assert read_keys, (
-            'expected layer_configs[...][key] reads in composite_capture.py; '
+            'expected layer_config[key] reads in manual_capture.py; '
             'if they moved, retarget this guard to the new reader'
         )
         stale = [(key, line) for key, line in read_keys if key not in schema]

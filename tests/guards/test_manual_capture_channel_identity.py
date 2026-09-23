@@ -16,34 +16,13 @@ is armed; and the open-layer scan has one implementation.
 
 import ast
 import json
-import sys
-import types
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import pytest
 import tifffile as tf
 
 from modules.labware_loader import WellPlateLoader
 from tests.ast_seams import REPO_ROOT, find_def, parse_module
-
-
-# ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
-# the uix submodules, and CompositeCapture subclasses FloatLayout (a bare
-# MagicMock cannot be subclassed).
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
-
-import modules.app_context as _app_ctx
 
 
 PLATE = '24 well microplate'
@@ -67,57 +46,30 @@ def _read_channel_name(path) -> str:
 
 
 def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_folders):
-    """Drive the real capture task with the values the button snapshots.
+    """Drive the one manual-capture path with the values the button snapshots.
 
     The save underneath is real: the defect lived in what reached the disk,
-    so a test that patches the save cannot see it.
+    so a test that patches the save cannot see it. Returns the files on disk
+    and the paths the capture reported, whose first parent is the folder the
+    button remembers.
     """
-    from ui.composite_capture import CompositeCapture
+    from modules.manual_capture import ManualCaptureController
+    from tests.settings_fixtures import complete_settings
 
-    ctx = MagicMock()
-    ctx.settings = {
-        'live_folder': str(tmp_path),
-        'separate_folder_per_channel': separate_folders,
-        'image_output_format': {'live': 'TIFF'},
-        'jpg_quality': 90,
-    }
-    ctx.scope = scope
-    ctx.scope_display.add_crosshairs.side_effect = lambda img: img
-    ctx.scope_display.transform_to_bullseye.side_effect = lambda img: img
-    capture_config = SimpleNamespace(capture_depth=8, save_encoding='8bit')
-    layer_rows = {
-        name: {'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0}
-        for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
-    }
+    settings = complete_settings(
+        live_folder=str(tmp_path),
+        separate_folder_per_channel=separate_folders,
+        image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
+        image_mode='8bit',
+    )
+    for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
+        settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
+    capture = ManualCaptureController(
+        scope=scope, settings_snapshot=lambda: settings, engineering_mode=False
+    )
+    reported = capture.capture(layer=layer, false_color_on=false_color_on).result(timeout=30)
 
-    original = _app_ctx.ctx
-    _app_ctx.ctx = ctx
-    remembered = MagicMock()
-    try:
-        with (
-            patch('ui.composite_capture.set_last_save_folder', remembered),
-            patch(
-                'modules.config_ui_getters.get_layer_configs',
-                side_effect=lambda specific_layers=None: {
-                    k: v for k, v in layer_rows.items() if k in specific_layers
-                },
-            ),
-            patch(
-                'modules.config_ui_getters.get_image_capture_config_from_ui',
-                return_value=capture_config,
-            ),
-        ):
-            CompositeCapture._live_capture_impl(
-                object(),
-                layer=layer,
-                false_color_on=false_color_on,
-                use_bullseye=False,
-                use_crosshairs=False,
-            )
-    finally:
-        _app_ctx.ctx = original
-
-    return sorted((tmp_path / 'Manual').rglob('*.tiff')), remembered
+    return sorted((tmp_path / 'Manual').rglob('*.tiff')), reported
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +82,7 @@ def test_no_drawer_open_and_no_led_lit_saves_as_brightfield(identity_scope, tmp_
     per-channel folder and the remembered save folder all say BF, and nothing
     raises. This is the state that used to create the wrong layer's folder and
     then raise on an unassigned name."""
-    written, remembered = _run_manual_capture(
+    written, reported = _run_manual_capture(
         tmp_path, identity_scope, layer=None, false_color_on=False, separate_folders=True
     )
 
@@ -139,7 +91,7 @@ def test_no_drawer_open_and_no_led_lit_saves_as_brightfield(identity_scope, tmp_
     assert path.parent == tmp_path / 'Manual' / 'BF', f'saved under {path.parent}'
     assert 'BF' in path.name, f'{path.name} lacks the BF token'
     assert _read_channel_name(path) == 'BF'
-    remembered.assert_called_once_with(dir=tmp_path / 'Manual' / 'BF')
+    assert reported[0].parent == tmp_path / 'Manual' / 'BF'
 
 
 def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
@@ -209,7 +161,7 @@ def test_both_manual_outputs_share_the_resolver():
     ]
     assert private == [], 'the recording controller still carries a private resolver'
 
-    for rel in ('modules/manual_recording.py', 'ui/composite_capture.py'):
+    for rel in ('modules/manual_recording.py', 'modules/manual_capture.py'):
         calls = [
             n
             for n in ast.walk(parse_module(rel))
@@ -241,14 +193,11 @@ def test_both_manual_outputs_share_the_resolver():
 
 
 def test_capture_task_reads_no_widget_and_the_button_snapshots_before_arming():
-    impl = find_def('ui/composite_capture.py', '_live_capture_impl', class_name='CompositeCapture')
-    kwonly = [a.arg for a in impl.args.kwonlyargs]
-    assert kwonly == ['layer', 'false_color_on', 'use_bullseye', 'use_crosshairs'], kwonly
-    body = ast.unparse(impl)
-    for forbidden in ('accordion_item_lookup', '.collapse', 'ids[', 'scope_display.use_'):
-        assert forbidden not in body, (
-            f'the capture task still reads widget state ({forbidden!r}) off the main thread'
-        )
+    """The capture lives below the GUI and reads nothing of it; the button
+    reads the widgets on the main thread, before it arms its guard."""
+    body = ast.unparse(parse_module('modules/manual_capture.py'))
+    for forbidden in ('_app_ctx', 'accordion_item_lookup', '.collapse', 'ids[', 'scope_display'):
+        assert forbidden not in body, f'the capture reads GUI state ({forbidden!r})'
 
     button = ast.unparse(
         find_def('ui/composite_capture.py', 'live_capture', class_name='CompositeCapture')

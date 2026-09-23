@@ -227,14 +227,6 @@ class ManualCaptureController:
         # change what the camera reports.
         significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
 
-        common = {
-            'channel': channel,
-            'false_color_on': request.false_color_on,
-            'output_format': capture_config.output_format_live,
-            'jpeg_quality': capture_config.jpg_quality,
-            'save_encoding': capture_config.save_encoding,
-            'objective_id': objective_id,
-        }
         raw_path = save_image(
             scope,
             array,
@@ -243,7 +235,12 @@ class ManualCaptureController:
             append=append,
             tail_id_mode='increment',
             significant_bits=significant_bits,
-            **common,
+            channel=channel,
+            false_color_on=request.false_color_on,
+            output_format=capture_config.output_format_live,
+            jpeg_quality=capture_config.jpg_quality,
+            save_encoding=capture_config.save_encoding,
+            objective_id=objective_id,
         )
         paths = [raw_path]
 
@@ -268,14 +265,29 @@ class ManualCaptureController:
                     append=f'{raw_stem}_overlay',
                     tail_id_mode='if_collision',
                     significant_bits=scope.imaging.capture_frame_depth(overlay),
-                    **common,
+                    channel=channel,
+                    false_color_on=request.false_color_on,
+                    output_format=capture_config.output_format_live,
+                    jpeg_quality=capture_config.jpg_quality,
+                    save_encoding=capture_config.save_encoding,
+                    objective_id=objective_id,
                 )
             )
 
+        # Both depths, because they differ: a scaled encoding left-justifies a
+        # 12-bit capture to fill the 16-bit container, so the file is 16-bit
+        # while the sensor gave 12, and logging one of them reads as a file
+        # tagged at the wrong depth.
+        saved_significant_bits = image_utils.written_significant_bits(
+            capture_config.save_encoding,
+            significant_bits,
+            array.dtype,
+            image_utils.is_color_image(array),
+        )
         logger.info(
             f'[ManualCapture] encoding={capture_config.save_encoding} '
-            f'capture_bits={significant_bits} dtype={array.dtype} shape={array.shape} '
-            f'-> {", ".join(p.name for p in paths)}'
+            f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
+            f'dtype={array.dtype} shape={array.shape} -> {", ".join(p.name for p in paths)}'
         )
         return paths
 

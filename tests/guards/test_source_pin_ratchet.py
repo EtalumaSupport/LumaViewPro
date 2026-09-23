@@ -118,7 +118,7 @@ def _fragile_pin_counts():
 # Pinned at 132d09a9 (beta35). Lower a value in the same commit that moves
 # the assertion to a seam or justifies the read; never raise one.
 _FRAGILE_PIN = {
-    'tests/test_audit_fixes.py': 74,
+    'tests/test_audit_fixes.py': 73,
     'tests/test_camera_log_routing.py': 1,
     'tests/test_camera_sdk_probe_observability.py': 2,
     # 4 -> 3: test_reconnect_regates_the_ui was deleted with the dead

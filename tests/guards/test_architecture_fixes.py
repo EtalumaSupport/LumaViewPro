@@ -521,7 +521,6 @@ def _ui_private_reach_counts():
 _UI_ANSWERER_CALL_PIN = {
     'lumaviewpro.py': 1,
     'ui/advanced_settings.py': 3,
-    'ui/composite_capture.py': 2,
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 6,
     'ui/microscope_settings.py': 6,
@@ -555,7 +554,6 @@ _UI_ANSWERER_CALL_PIN = {
 _UI_PRIVATE_REACH_PIN = {
     ('ui/advanced_settings.py', '_set_conversion_gain_mode_impl'): 1,
     ('ui/advanced_settings.py', '_set_line_noise_reduction_impl'): 1,
-    ('ui/composite_capture.py', '_capture_and_wait_impl'): 1,
     ('ui/layer_control.py', '_apply_layer_camera_settings_impl'): 1,
     ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,

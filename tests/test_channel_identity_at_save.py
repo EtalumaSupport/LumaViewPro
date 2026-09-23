@@ -24,10 +24,6 @@ independent of rendering, at every seam and in every identity field.
 import ast
 import inspect
 import json
-import sys
-import types
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -36,24 +32,6 @@ import tifffile as tf
 from modules import image_save
 from modules.labware_loader import WellPlateLoader
 from tests.ast_seams import find_def
-
-
-# ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
-# the uix submodules, and CompositeCapture subclasses FloatLayout (a bare
-# MagicMock cannot be subclassed).
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
-
-import modules.app_context as _app_ctx
 
 
 LAYER = 'Green'
@@ -114,58 +92,30 @@ def _read_channel(path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
-    ctx = MagicMock()
-    ctx.settings = {
-        'live_folder': str(tmp_path),
-        'separate_folder_per_channel': False,
-        'image_output_format': {'live': 'TIFF'},
-        'jpg_quality': 90,
-    }
-    ctx.scope = scope
-    ctx.scope_display.use_bullseye = False
-    ctx.scope_display.use_crosshairs = use_crosshairs
-    ctx.scope_display.add_crosshairs.side_effect = lambda img: img
-    ctx.scope_display.transform_to_bullseye.side_effect = lambda img: img
-    return ctx
-
-
 def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
-    """Drive the real capture path with the real save underneath it.
+    """Drive the one manual-capture path with the real save underneath it.
 
-    Deliberately does NOT patch save_image / save_live_image: the defect lives
-    in what reaches the file, so a test that patches the save cannot see it.
+    Deliberately does NOT patch save_image: the defect lives in what reaches
+    the file, so a test that patches the save cannot see it. The layer under
+    test is the open drawer; the settings are the shipped template with the
+    capture written to this test's folder at 8 bits.
     """
-    from ui.composite_capture import CompositeCapture
+    from modules.manual_capture import ManualCaptureController
+    from tests.settings_fixtures import complete_settings
 
-    capture_config = SimpleNamespace(capture_depth=8, save_encoding='8bit')
-    ctx = _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs)
-
-    original = _app_ctx.ctx
-    _app_ctx.ctx = ctx
-    try:
-        with (
-            patch('ui.composite_capture.set_last_save_folder'),
-            patch(
-                'modules.config_ui_getters.get_layer_configs',
-                return_value={LAYER: {'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100}},
-            ),
-            patch(
-                'modules.config_ui_getters.get_image_capture_config_from_ui',
-                return_value=capture_config,
-            ),
-        ):
-            # The four keywords are what the button snapshots on the main
-            # thread: the layer under test is the open drawer.
-            CompositeCapture._live_capture_impl(
-                object(),
-                layer=LAYER,
-                false_color_on=false_color_active,
-                use_bullseye=False,
-                use_crosshairs=use_crosshairs,
-            )
-    finally:
-        _app_ctx.ctx = original
+    settings = complete_settings(
+        live_folder=str(tmp_path),
+        separate_folder_per_channel=False,
+        image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
+        image_mode='8bit',
+    )
+    settings[LAYER].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100})
+    capture = ManualCaptureController(
+        scope=scope, settings_snapshot=lambda: settings, engineering_mode=False
+    )
+    capture.capture(
+        layer=LAYER, false_color_on=false_color_active, crosshairs=use_crosshairs
+    ).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').glob('*.tiff'))
 
