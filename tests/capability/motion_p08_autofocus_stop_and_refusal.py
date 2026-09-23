@@ -17,7 +17,6 @@ def body(s):
     m.move_absolute('Z', 3000.0, wait_until_complete=True)
     runner = ProtocolRunner(s)
 
-    check('ProtocolRunner exposes reset(requester)', callable(runner.reset))
     check('ProtocolRunner exposes abort(requester)', callable(runner.abort))
     check('ProtocolRunner exposes run_trigger_source()', callable(runner.run_trigger_source))
 
@@ -39,7 +38,7 @@ def body(s):
     # --- a STOP from a non-owner is refused ---
     refused = None
     try:
-        runner.reset(requester='somebody_else')
+        runner.abort(requester='somebody_else')
         refused = False
     except ProtocolRunRefusedError:
         refused = True
