@@ -34,7 +34,7 @@ _mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api.illumination import LedTransition
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
 
 
 class SetupError(Exception):
@@ -305,7 +305,7 @@ def _break_unwind(scope, seam):
     earlier version of this file made exactly that mistake.
     """
     if seam == 'led_apply':
-        lease = scope.illumination.acquire_led_lease.return_value
+        lease = af_lease(scope)
 
         def _raise_on_af_end(transition, ctx):
             if transition is LedTransition.AF_TO_CAPTURE:
@@ -358,7 +358,7 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
 
         drive_af(runner)
 
-        scope.illumination.acquire_led_lease.return_value.apply.side_effect = None
+        af_lease(scope).apply.side_effect = None
         scope.imaging.restore_camera_state.side_effect = None
 
         assert drive_af(runner) == AF_CENTER_Z, (
@@ -492,9 +492,7 @@ def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
     assert drive_af(runner, keep_led_on=True, led_color='Green') == AF_CENTER_Z
 
     assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
-    assert scope.illumination.acquire_led_lease.return_value.apply.called, (
-        'the AF-end LED transition must still run'
-    )
+    assert af_lease(scope).apply.called, 'the AF-end LED transition must still run'
     assert scope.imaging.restore_camera_state.called, 'the camera restore must still run'
 
 

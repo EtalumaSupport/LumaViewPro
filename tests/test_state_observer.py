@@ -12,6 +12,7 @@ import pytest
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +129,7 @@ class TestLEDOwnership:
     """Tests for LED ownership tracking."""
 
     def test_ownership_allows_own_off(self, scope):
-        lease = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
         scope.illumination._led_off_impl(channel=0, _lease=lease)
         color = scope.illumination.ch2color(0)
@@ -136,7 +137,7 @@ class TestLEDOwnership:
 
     def test_no_owner_off_is_unconditional(self, scope):
         """led_off without a lease works on a channel a (released) lease lit."""
-        lease = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
         lease.release(leave_on=True)
         scope.illumination.led_off(channel=0)  # no lease = unconditional
@@ -144,9 +145,9 @@ class TestLEDOwnership:
         assert not scope.illumination.get_led_state(color)['enabled']
 
     def test_leds_off_nuclear_clears_all(self, scope):
-        protocol = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+        protocol = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=1, illumination_ma=50, _lease=protocol)
-        autofocus = protocol.acquire_child('autofocus', alive=lambda: True)
+        autofocus = protocol.acquire_child('autofocus')
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=autofocus)
         assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
         assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
@@ -192,7 +193,7 @@ class TestLEDSaveRestore:
         scope.illumination.led_on(channel=0, illumination_ma=100)
         # AF starts
         snapshot = scope.illumination.save_led_state('autofocus')
-        lease = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)  # BF for AF
         # AF finishes
         lease.release()  # only kills the LED the AF lease lit

@@ -68,7 +68,7 @@ from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
-from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
+from tests.protocol_drives import autofocus_snapshot, held_run_claim, wait_until_not_running
 from tests.scope_fakes import configure_turret_like_bringup, home_sim_scope
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
@@ -836,7 +836,7 @@ class TestRefusalNotifyOnceFunnel:
         ill = executor._scope.illumination
         with monkeypatch.context() as mp:
             captured = _capture_notifications(mp)
-            holder = ill.acquire_led_lease('autofocus', alive=lambda: True)
+            holder = ill.acquire_led_lease('autofocus', claim=held_run_claim())
             assert holder is not None, 'precondition: the holder took the lease'
             terminal = []
             plan = _prepare(

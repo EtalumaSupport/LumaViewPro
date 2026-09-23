@@ -54,12 +54,26 @@ def af_runner_and_scope():
     return runner, scope
 
 
+def af_lease(scope):
+    """The child lease AF takes under the run's lease (scope.protocol_lease).
+
+    The run's lease hangs off the scope mock so its acquire_child call lands
+    in scope.mock_calls, in order with the AF-lease writes it spawns.
+    """
+    return scope.protocol_lease.acquire_child.return_value
+
+
 def drive_af(runner, **overrides):
-    """Call runner.run() with minimal interactive-trigger kwargs."""
+    """Call runner.run() with minimal interactive-trigger kwargs.
+
+    AF always runs inside a run, so it is handed the run's lease
+    (scope.protocol_lease); af_lease() is the child it takes under it.
+    """
     kwargs = {
         'objective_id': 'objective-under-test',
         'run_trigger_source': 'manual',
         'abort_event': threading.Event(),
+        'led_lease': runner._scope.protocol_lease,
     }
     kwargs.update(overrides)
     return runner.run(**kwargs)

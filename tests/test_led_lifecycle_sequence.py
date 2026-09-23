@@ -38,6 +38,7 @@ import datetime
 import logging
 import sys
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -67,7 +68,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import autofocus_snapshot, held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
 
 
@@ -557,7 +558,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
     ill._led_on_impl(channel=ill.color2ch('Green'), illumination_ma=250.0, _lease=lease)
 
@@ -696,7 +697,7 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -722,7 +723,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -754,12 +755,13 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
+    # Interactive AF runs as a one-step run, so it nests under that run's lease.
     _drive_af(
         _af_runner(scope),
         led_color='Green',
         led_illumination=250.0,
         keep_led_on=False,
-        led_lease=None,
+        led_lease=ill.acquire_led_lease('protocol', claim=held_run_claim()),
         run_trigger_source='manual',
     )
     assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
@@ -779,20 +781,20 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
 
 
 def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
-    """A lease whose owner is provably dead (its liveness probe answers False)
+    """A lease whose owner is provably dead (its claim is no longer held)
     must not lock out the next run: the run's acquire reclaims the stack,
     logging the dead owner and the evidence, and the run completes normally."""
     ill = runner._scope.illumination
     # Simulate a hard-killed prior run: a 'protocol' lease left on the stack
-    # whose in-flight probe still answers True at acquire time...
-    holder_alive = {'value': True}
-    stranded = ill.acquire_led_lease('protocol', alive=lambda: holder_alive['value'])
+    # whose claim is still held at acquire time...
+    holder_claim = held_run_claim()
+    stranded = ill.acquire_led_lease('protocol', claim=holder_claim)
     assert stranded is not None
-    assert ill.acquire_led_lease('other', alive=lambda: True) is None, (
+    assert ill.acquire_led_lease('other', claim=held_run_claim()) is None, (
         'precondition: a live holder refuses a second acquire'
     )
-    # ...and then the owning run dies without releasing.
-    holder_alive['value'] = False
+    # ...and then the owning run's claim ends without the lease released.
+    holder_claim.release()
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         completed, result = _run_protocol(runner, _build_protocol([('A1', 'Green', {})]), tmp_path)
@@ -800,14 +802,20 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     assert completed, 'the run must complete after reclaiming the stranded lease'
     assert result.get('status') == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
+    # run_complete fires during cleanup; the lease is released at cleanup
+    # end, just before the run leaves its run phase. Wait for that end.
+    deadline = time.monotonic() + 5.0
+    while runner.run_in_progress() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not runner.run_in_progress(), 'the completed run must end its cleanup'
     assert ill.led_lease_purpose is None, 'the completed run must have released its lease'
     reclaims = [
         r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
     ]
     assert reclaims, 'the reclaim must be logged as a warning'
-    assert any("'protocol'" in m and 'liveness probe returned False' in m for m in reclaims), (
-        f'the warning must name the dead owner and the evidence; got {reclaims}'
-    )
+    assert any(
+        "'protocol'" in m and 'its activity claim is no longer held' in m for m in reclaims
+    ), f'the warning must name the dead owner and the evidence; got {reclaims}'
 
 
 def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_path, monkeypatch):
@@ -841,7 +849,7 @@ def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_
     )
 
     ill = scope.illumination
-    af_lease = ill.acquire_led_lease('autofocus', alive=lambda: True)
+    af_lease = ill.acquire_led_lease('autofocus', claim=held_run_claim())
     assert af_lease is not None
 
     completions = []

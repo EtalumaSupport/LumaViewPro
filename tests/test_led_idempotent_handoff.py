@@ -18,6 +18,7 @@ import threading
 import pytest
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
 
@@ -49,7 +50,7 @@ def test_restore_does_not_blink_channel_already_at_target(scope):
 def test_restore_still_relights_a_channel_that_was_turned_off(scope):
     """The graceful path stays correct: a snapshot channel that is currently
     off is turned back on by restore."""
-    lease = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
     snapshot = scope.illumination.save_led_state('autofocus')
     lease.release()  # turns off the channels this lease lit

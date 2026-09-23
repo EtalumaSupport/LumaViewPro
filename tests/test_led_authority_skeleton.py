@@ -22,6 +22,7 @@ import threading
 import pytest
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedTransition,
@@ -382,7 +383,7 @@ def test_apply_step_light_lights_exclusively_and_holds_idempotently(scope):
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
     assert ill.get_led_state('Green')['enabled']
@@ -407,7 +408,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
     # z-stack boundary: held, zero new commands.
@@ -433,7 +434,7 @@ def test_apply_run_end_off_leaves_all_dark(scope):
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
     lease.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
@@ -447,7 +448,7 @@ def test_apply_run_end_return_to_original_relights_snapshot(scope):
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
     snap = frozenset({(_ch(scope, 'Blue'), BLUE_MA)})
@@ -469,7 +470,7 @@ def test_apply_on_released_lease_is_a_noop(scope):
     can outlive its run; acting then would light or off a channel out of turn
     (worse, a new run may hold a lease of the same purpose)."""
     ill = scope.illumination
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
     lease.release(leave_on=False)
 
@@ -495,12 +496,12 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    protocol = ill.acquire_led_lease('protocol', alive=lambda: True)
+    protocol = ill.acquire_led_lease('protocol', claim=held_run_claim())
     protocol.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
 
     # Autofocus takes a child and lights its own channel, then never releases
     # (a wedged AF run) -- the child is left as the active top-of-stack holder.
-    child = protocol.acquire_child('autofocus', alive=lambda: True)
+    child = protocol.acquire_child('autofocus')
     child.apply(LedTransition.AF_ENTER, _ctx(scope, 'Red', RED_MA))
     assert ill.led_lease_purpose == 'autofocus'
 
@@ -548,7 +549,7 @@ def test_apply_transition_refused_while_leased(scope):
     unleased apply_transition emits nothing rather than a partial diff the
     per-channel lease check would reject anyway."""
     ill = scope.illumination
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
 
     sub = LedSubstream()
@@ -586,7 +587,7 @@ def test_confirm_on_transitions_block_others_do_not(scope):
 
     ill._led_on_impl = _spy
     try:
-        lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+        lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
         lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
         assert blocks == [True], f'STEP_LIGHT must block its on-command: {blocks}'
 

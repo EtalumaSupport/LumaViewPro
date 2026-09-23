@@ -36,6 +36,15 @@ class HeldClaim:
     def __init__(self, claim: 'ActivityClaim') -> None:
         self._claim = claim
 
+    @property
+    def holds(self) -> bool:
+        """Whether this taking still holds the claim.
+
+        False once it is released, and stays False: a later taking of the
+        same claim is a different object.
+        """
+        return self._claim._is_held_by(self)
+
     def release(self) -> None:
         """Release the claim this taking holds.
 
@@ -82,7 +91,7 @@ class BorrowedClaim:
 
     def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
         """Act under the lender's claim; None once the lender no longer holds it."""
-        if not self._lender._claim._is_held_by(self._lender):
+        if not self._lender.holds:
             return None
         return _Borrowing()
 

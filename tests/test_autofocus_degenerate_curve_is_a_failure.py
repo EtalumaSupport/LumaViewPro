@@ -47,7 +47,7 @@ _mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import AutofocusAborted
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
 
 
 def _flat_curve(monkeypatch):
@@ -124,7 +124,7 @@ class TestDegenerateCurveReportsFailure:
 
         drive_af(runner, keep_led_on=True, led_color='Green')
 
-        lease = scope.illumination.acquire_led_lease.return_value
+        lease = af_lease(scope)
         assert lease.apply.called, 'the AF-end LED transition must be applied'
         ctx = lease.apply.call_args_list[-1].args[1]
         assert ctx.keep_led_on is True, (

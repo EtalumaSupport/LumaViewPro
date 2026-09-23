@@ -28,10 +28,17 @@ from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 
 
+def held_run_claim():
+    """A run's activity claim, as the run holds it: what a top-level LED
+    lease is taken under. Each call is a fresh claim, so two leases never
+    share one; release() it to strand a lease taken under it."""
+    return ActivityClaim().try_claim('protocol', run_trigger_source='test')
+
+
 def lent_run_claim():
     """A run's activity claim, lent: what the run's writer and its video
     steps receive, so they record under the run's claim."""
-    return ActivityClaim().try_claim('protocol', run_trigger_source='test').lend()
+    return held_run_claim().lend()
 
 
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:

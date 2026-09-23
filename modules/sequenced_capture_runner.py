@@ -225,11 +225,6 @@ class SequencedCaptureRunner:
         # construct SCE without a real protocol_thread can still read
         # this Event because it defaults to a local Event before start().
         self._aborted: threading.Event = threading.Event()
-        # Monotonic per-start() counter that scopes each run's LED-lease
-        # liveness probe to ITS run: the run phase is one store shared
-        # across runs, so without the generation a stale lease would
-        # probe live again the moment the next run leaves IDLE.
-        self._run_generation = 0
         # The loaded protocol exists from construction so a runner that has
         # never started (or refused to start) answers getters with None
         # instead of raising AttributeError from inside a UI handler.
@@ -710,10 +705,9 @@ class SequencedCaptureRunner:
         The illumination API arbitrates contention on the resource: a
         provably-dead holder (a hard-killed prior run) is reclaimed with
         evidence logged and the acquire succeeds, so a fresh run still
-        recovers from a stranded lease. A LIVE holder (an interactive
-        autofocus sweep, a future standalone recording) refuses us -- and
-        a refused run must refuse itself rather than steal authority
-        mid-sweep and leave the holder scanning dark.
+        recovers from a stranded lease. A LIVE holder refuses us -- and a
+        refused run must refuse itself rather than steal authority from a
+        holder mid-sweep.
 
         Runs inside start()'s gate-and-commit lock, BEFORE the run
         commits, so None becomes a refusal like every other: nothing
@@ -724,23 +718,12 @@ class SequencedCaptureRunner:
         Returns None rather than raising on contention; a raise here is
         an acquire-time fault, not a busy holder.
         """
-        # The claim, not the run flag, is this run's in-flight fact at
-        # acquire time. The flag is not set until the end of the locked
-        # block below, so a probe reading it would answer False here and
-        # the acquire would reject its own caller. The claim is taken
-        # immediately above and released only after the lease is released,
-        # so it brackets the lease's whole life.
-        #
-        # Generation-scoped as well, because the claim is one object reused
-        # across runs: a stale lease from a hard-killed prior run would
-        # otherwise vouch for itself with the RETRYING run's claim. Binding
-        # the probe to this run's generation makes the prior run's lease
-        # provably dead as soon as a newer run starts.
-        generation = self._run_generation
-        return self._scope.illumination.acquire_led_lease(
-            'protocol',
-            alive=lambda: self._held_claim is not None and self._run_generation == generation,
-        )
+        # The lease lives exactly as long as this run's taking of the claim:
+        # the claim is taken immediately before and released only after the
+        # lease is released, so it brackets the lease's whole life. A lease
+        # stranded by a hard-killed prior run was taken under that run's
+        # taking, which no longer holds once this run has claimed.
+        return self._scope.illumination.acquire_led_lease('protocol', claim=self._held_claim)
 
     def _refuse(
         self,
@@ -886,18 +869,9 @@ class SequencedCaptureRunner:
         # run (already_running fires first) -- kept deliberately for the
         # abort-tail window where the AF thread is still winding down
         # after the run flag clears.
-        # A live interactive autofocus owns the Z axis and the LED lease;
-        # starting a run under it would contest Z motion and steal
-        # illumination mid-sweep (dark AF frames, garbage focus). An AF
-        # enqueued AFTER this check but before start()'s lease acquire
-        # loses the lease race and is now REFUSED there rather than
-        # aborting itself loudly -- 'illumination_held', naming the
-        # holder. That race is this gate's shadow: because this check
-        # fires first and covers every clickable case, the lease refusal
-        # is reachable only through that milliseconds-wide inversion (or
-        # a future non-AF holder), which is why it is pinned by tests and
-        # not by a sim scenario. The window closes for good when AF
-        # acquires its lease at enqueue time instead of on the worker.
+        # A winding-down autofocus still drives the Z axis and its LED
+        # restore; starting a run under it would contest Z motion and
+        # illumination (dark AF frames, garbage focus).
         in_flight_sweep = (
             self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
         )
@@ -1195,8 +1169,7 @@ class SequencedCaptureRunner:
                 prepare-to-start race, 'exclusive_activity_running' when
                 the session's activity claim is held (e.g. a video
                 recording in progress), or 'illumination_held' when a
-                live owner (an autofocus sweep) holds the LED lease;
-                'holder' names it.
+                live lease holds the LEDs; 'holder' names it.
         """
         # Gate and commit under ONE lock hold: releasing between the
         # already-running check and the event set would let two
@@ -1217,13 +1190,6 @@ class SequencedCaptureRunner:
                 self._refuse_exclusive_activity(self._activity_claim.holder)
             self._held_claim = held
 
-            # Bumped before the acquire below, because that acquire's
-            # liveness probe compares against this value: a generation
-            # captured before the bump would make the live run's own probe
-            # answer False for its entire life, and a later contender would
-            # read this run as stranded and reclaim its lease mid-scan.
-            self._run_generation += 1
-
             # The LED lease covers the whole scan so live UI illumination
             # changes cannot disturb a running protocol's channels; AF steps
             # nest a child under it. Acquired HERE, before the first state
@@ -1232,9 +1198,8 @@ class SequencedCaptureRunner:
             # and this caller gets the same nothing-committed contract every
             # other refusal gives.
             #
-            # The except covers ANY exit, not just the None one: the probe
-            # path and a stale holder's own probe both run inside the
-            # acquire, so a raise there would leave the claim held for the
+            # The except covers ANY exit, not just the None one: a raise from
+            # inside the acquire would otherwise leave the claim held for the
             # life of the process and refuse every future run and recording.
             try:
                 lease = self._acquire_led_lease_for_run()

@@ -51,7 +51,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import autofocus_snapshot, held_run_claim
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -637,6 +637,7 @@ class TestIntegrationAutofocus:
                 led_illumination=50.0,
                 camera_gain=1.0,
                 camera_exposure=2.0,
+                led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
             future.result(timeout=15.0)
         finally:
@@ -1127,6 +1128,9 @@ class TestRestAPIPrep:
                     # were doing, so this read as a working sweep.
                     led_color='BF',
                     led_illumination=50.0,
+                    led_lease=session.scope.illumination.acquire_led_lease(
+                        'protocol', claim=held_run_claim()
+                    ),
                 )
                 result = future.result(timeout=30)
                 assert result is not None
@@ -1154,7 +1158,11 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus', objective_id=objectives[0]
+                    run_trigger_source='autofocus',
+                    objective_id=objectives[0],
+                    led_lease=session.scope.illumination.acquire_led_lease(
+                        'protocol', claim=held_run_claim()
+                    ),
                 )
 
                 # Give the thread a moment to enter AFE.run()
@@ -1211,6 +1219,7 @@ class TestAbortedAutofocusRestoresLeds:
                 led_illumination=20.0,
                 abort_event=abort,
                 keep_led_on=True,
+                led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
 
         # AF setup lit the BF channel before the abort was observed; the

@@ -24,6 +24,7 @@ import pytest
 
 import modules.sequenced_capture_runner as scr
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 from modules.run_outcome import RunEnding
 
 LAYER = 'Blue'
@@ -74,7 +75,7 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
     # the exact case a lit-by-lease-scoped darken misses.
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
@@ -93,7 +94,7 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
@@ -113,7 +114,7 @@ def test_decided_end_state_is_left_untouched(scope, monkeypatch):
     # RUN_END applied, the user's end policy owns the LEDs.
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope)
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=True))

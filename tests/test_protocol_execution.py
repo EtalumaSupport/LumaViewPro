@@ -45,7 +45,7 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import autofocus_snapshot, held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
 
 # ---------------------------------------------------------------------------
@@ -2457,7 +2457,7 @@ class TestRunReturnValueContract:
         # A failed start must not leak hardware setup: the protocol LED
         # lease is only held by a run in flight, so a fresh top-level
         # acquire must succeed after the failure.
-        lease = scope.illumination.acquire_led_lease('leak probe', alive=lambda: True)
+        lease = scope.illumination.acquire_led_lease('leak probe', claim=held_run_claim())
         assert lease is not None, 'Failed-at-start run leaked the protocol LED lease'
         lease.release()
         # The runner is reusable: the next prepare() passes every gate.

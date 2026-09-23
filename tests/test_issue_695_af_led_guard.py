@@ -30,6 +30,7 @@ from __future__ import annotations
 import pytest
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 
 
 @pytest.fixture
@@ -46,7 +47,7 @@ def _lit(scope, ch):
 
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
     """An unleased UI led_off must not turn off the channel autofocus owns."""
-    lease = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)
     assert _lit(scope, 3)
 

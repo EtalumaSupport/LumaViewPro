@@ -159,7 +159,8 @@ class AutofocusRunner:
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
-        led_lease: 'LedLease | None' = None,
+        *,
+        led_lease: 'LedLease',
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -182,9 +183,9 @@ class AutofocusRunner:
                 the lock read from the camera instead of camera_gain /
                 camera_exposure (see _apply_sweep_camera_targets).
             abort_event: signalled by caller to abort the run. Required.
-            led_lease: the caller's LED lease when AF runs inside a
-                protocol step -- AF takes a child lease under it. None for
-                an interactive run, where AF takes a top-level lease itself.
+            led_lease: the LED lease of the run AF executes inside -- AF
+                takes a child lease under it. Every AF runs inside a run,
+                an interactive one as a one-step run.
 
         Returns:
             best_focus_position (float) on success, or None when the AF
@@ -287,22 +288,12 @@ class AutofocusRunner:
             # illuminates by calling apply(AF_ENTER) ON this lease; issued
             # before AF holds a lease, a protocol's already-held lease would
             # refuse the out-of-turn write and the AF channel never lights --
-            # AF would then scan an unlit field. Inside a protocol step the
-            # protocol passes its lease and AF nests as a child it must
-            # outlive; an interactive run takes a top-level lease. The alive
-            # probe is _af_in_progress (set above, cleared LAST in the
-            # finally), so a contender can prove this run dead but never
-            # steal from it live. The acquire sits inside the try so a
-            # refused acquire unwinds through the finally (camera/Z restore,
-            # in-progress flags cleared) instead of latching is_focusing.
-            if led_lease is not None:
-                self._led_lease = led_lease.acquire_child(
-                    'autofocus', alive=self._af_in_progress.is_set
-                )
-            else:
-                self._led_lease = self._scope.illumination.acquire_led_lease(
-                    'autofocus', alive=self._af_in_progress.is_set
-                )
+            # AF would then scan an unlit field. The run passes its lease and
+            # AF nests as a child it must outlive. The acquire sits inside the
+            # try so a refused acquire unwinds through the finally (camera/Z
+            # restore, in-progress flags cleared) instead of latching
+            # is_focusing.
+            self._led_lease = led_lease.acquire_child('autofocus')
             if self._led_lease is None:
                 # A live owner holds illumination authority. AF without the
                 # lease would sweep an unlit field and commit a garbage Z --
@@ -570,12 +561,6 @@ class AutofocusRunner:
                     f'exp={self._scope.imaging.get_exposure_ms()}'
                 )
             finally:
-                # Order matters: the two flags clear before the lease is
-                # released. _af_in_progress IS the lease liveness probe, so
-                # clearing it while the AF_TO_CAPTURE transition above is
-                # still pending would publish this run as dead, let a
-                # contender reclaim, and silently no-op AF's own LED restore
-                # -- leaving the sample lit in AF illumination.
                 self._af_in_progress.clear()
                 # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
                 # finishes, matching _af_in_progress lifecycle.

@@ -1190,6 +1190,7 @@ class TestIssue602_AFExecutorLED:
         from modules.autofocus_runner import AutofocusRunner
         from modules.lumascope_api import Lumascope
         from unittest.mock import patch
+        from tests.protocol_drives import held_run_claim
 
         scope = Lumascope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
@@ -1211,6 +1212,7 @@ class TestIssue602_AFExecutorLED:
         # which helper emitted the off.
         af._led_color = 'BF'
         af._led_illumination = 100
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
 
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
@@ -1221,7 +1223,7 @@ class TestIssue602_AFExecutorLED:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x Oly', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
             assert not scope.illumination.get_led_state('BF')['enabled'], (
                 'aborted AF must leave its channel dark (#602)'
             )
@@ -1270,8 +1272,10 @@ class TestAFPrecisionModeRestoresOn:
         # invariant "Z precision ON outside of AF" holds for every
         # exit path (regression-tested below for the abort case).
         from unittest.mock import patch
+        from tests.protocol_drives import held_run_claim
 
         af, scope = self._build_af()
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort
         with (
@@ -1283,7 +1287,7 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x Oly', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
             calls = [tuple(c.args) for c in mock_set.call_args_list]
             assert ('Z', True) in calls, (
                 f'abort path must restore Z precision_mode=True; got calls {calls}'
