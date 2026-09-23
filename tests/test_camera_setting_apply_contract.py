@@ -249,6 +249,7 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
         turreted=False,
         objective_id='4x Oly',
         turret_config=None,
+        preferred_turret_slot=None,
         binning_size=binning_size,
         frame_width=frame_width,
         frame_height=frame_height,

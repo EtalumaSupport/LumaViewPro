@@ -186,6 +186,14 @@ class MotionAPI:
         # failure, and whenever T goes UNKNOWN (``_set_axis_state``).
         self._last_turret_position: int | None = None
 
+        # The slot the last successful turret MOVE landed on, which a home
+        # never writes: a home leaves the turret on slot 1 by convention, not
+        # by anyone's choice. When two slots carry the same objective, this is
+        # the one a person last chose, so the slot lookup prefers it over the
+        # current slot. Survives a restart through the saved turret_position,
+        # seeded at bring-up. None: no preference known.
+        self._preferred_turret_slot: int | None = None
+
         # Bumped by every stop_motion. A STOP sets target = actual on every
         # axis, so a move in flight then reports "reached" at a place
         # nobody commanded; a waited move compares this against the value
@@ -564,49 +572,30 @@ class MotionAPI:
             except Exception:
                 pass
 
-    def get_turret_position_for_objective_id(
-        self,
-        objective_id: str,
-        prefer_current: bool = True,
-        persisted_position: int | None = None,
-    ) -> int | None:
-        """Find the turret position holding a given objective.
+    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        """The turret slot to use for an objective, or None when no slot carries it.
 
-        Lookup ranking when multiple positions hold the same objective (#488):
-            1. Persisted position from settings, if it matches objective_id
-               and is provided by the caller. Honors the user's most
-               recent explicit choice -- survives restarts and post-home
-               situations where the current physical position is an
-               artifact of the home routine (T zeros to 1), not user
-               intent.
-            2. The turret's current slot (``get_turret_slot``), if known and
-               it matches objective_id. Catches the case where the user has
-               already rotated to a matching slot in this session and no
-               persisted hint exists.
-            3. First-match dict iteration (lowest position with the
-               objective). Used when neither hint is available -- preserves
-               today's fallback behavior.
+        One lookup for every caller -- a run's step and a person's step
+        navigation -- so the two choose the same slot. When several slots
+        carry the objective, ranked:
+            1. The preferred slot (``get_preferred_turret_slot``): the last
+               slot a turret move landed on, surviving a restart. After a
+               home the turret sits on slot 1 by convention, which says
+               nothing about which of two identical objectives a person
+               uses.
+            2. The turret's current slot (``get_turret_slot``).
+            3. The lowest-numbered slot carrying it.
 
         Args:
             objective_id: Objective identifier to search for.
-            prefer_current: If True (default), check the current physical
-                turret position when persisted_position is unavailable
-                or doesn't match.
-            persisted_position: Caller-supplied hint, typically
-                ``settings.get('turret_position')``. None disables this
-                tier of the lookup.
 
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
         turret_config = self._scope.runtime_state.get_turret_config()
-        if persisted_position is not None and turret_config.get(persisted_position) == objective_id:
-            return persisted_position
-
-        if prefer_current:
-            current_slot = self.get_turret_slot()
-            if current_slot is not None and turret_config.get(current_slot) == objective_id:
-                return current_slot
+        for slot in (self._preferred_turret_slot, self.get_turret_slot()):
+            if slot is not None and turret_config.get(slot) == objective_id:
+                return slot
 
         for (
             turret_position,
@@ -935,8 +924,10 @@ class MotionAPI:
 
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # A request for the slot the last successful turret command left the
-        # turret in is answered without moving.
+        # turret in is answered without moving -- and is still a choice of
+        # that slot.
         if self._last_turret_position == position:
+            self._preferred_turret_slot = int(position)
             return
 
         # Unknown from the start, and written only once the whole command --
@@ -947,6 +938,7 @@ class MotionAPI:
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self._move_absolute_impl('T', position, wait_until_complete=True)
         self._last_turret_position = int(position)
+        self._preferred_turret_slot = int(position)
 
     def get_turret_slot(self) -> int | None:
         """The turret slot in the light path, or None when it is not known.
@@ -963,6 +955,40 @@ class MotionAPI:
             int | None: The slot, 1-4, or None.
         """
         return self._last_turret_position
+
+    def get_preferred_turret_slot(self) -> int | None:
+        """The slot the last successful turret move landed on, or None.
+
+        Never written by a home. Seeded at bring-up from the saved turret
+        position, so a person's choice between two slots carrying the same
+        objective survives a restart; the slot lookup prefers it.
+
+        Returns:
+            int | None: The slot, 1-4, or None when no preference is known.
+        """
+        return self._preferred_turret_slot
+
+    def seed_preferred_turret_slot(self, slot: int | None) -> None:
+        """Seed the preferred slot at bring-up from the saved turret position.
+
+        This is not part of the L2 API surface: it is bring-up's seam,
+        called by ``Lumascope.initialize`` with the saved value. A caller
+        that wants a slot preferred turns the turret to it with
+        ``move_turret``.
+
+        Raises:
+            PositionOutOfRangeError: ``slot`` is neither None nor a slot 1-4.
+        """
+        if slot is not None and not is_turret_slot(slot):
+            raise PositionOutOfRangeError(
+                'T',
+                slot,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
+            )
+        self._preferred_turret_slot = slot
 
     def jog_step(self, axis: str, coarse: bool) -> float:
         """The jog step for ``axis`` under the active objective.

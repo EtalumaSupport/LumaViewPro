@@ -714,6 +714,11 @@ scope.motion.get_turret_slot()                   # slot in the light path, or No
 # fails (MoveNotCompletedError), and after the turret's position is lost.
 # move_absolute / move_relative (and their _async forms) refuse 'T' with
 # ValueError -- the turret moves only by slot, through move_turret.
+scope.motion.get_preferred_turret_slot()         # the slot the last move_turret landed on, or None
+# Never written by a home, and saved as turret_position, so it survives a
+# restart. When two slots carry the same objective, the slot lookup
+# (get_turret_position_for_objective_id) prefers it, then the current slot,
+# then the lowest-numbered -- a run and step navigation choose alike.
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}

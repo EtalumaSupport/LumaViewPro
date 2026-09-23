@@ -546,6 +546,33 @@ class TestT10TurretPosition:
         assert seen == [1]
 
 
+class TestTheSavedTurretPositionIsThePreferredSlot:
+    """The saved turret position is the slot a person last turned to -- a
+    preference between slots carrying one objective, seeded at bring-up and
+    written at save."""
+
+    def test_bring_up_seeds_the_preference_from_the_saved_position(self, sessions):
+        session = sessions(**_turret_settings(turret_position=3))
+        assert session.scope.motion.get_preferred_turret_slot() == 3
+
+    def test_a_saved_position_that_is_no_slot_seeds_no_preference_and_says_so(self, sessions):
+        _clear_log()
+        session = sessions(**_turret_settings(turret_position=9))
+        assert session.scope.motion.get_preferred_turret_slot() is None
+        assert any('is not a slot' in line for line in _lines()), _lines()
+
+    def test_a_save_writes_the_last_slot_moved_to_not_the_home(self, sessions, tmp_path):
+        session = sessions(**_turret_settings(turret_position=1))
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(3)
+        # A home lands on slot 1 by convention, not by anyone's choice.
+        home_sim_scope(session.scope)
+        assert session.scope.motion.get_turret_slot() == 1
+        saved = tmp_path / 'current.json'
+        session.save_settings(str(saved))
+        assert json.loads(saved.read_text())['turret_position'] == 3
+
+
 # ---------------------------------------------------------------------------
 # T14 -- the resolved-optics record is the Session's, single-homed
 # ---------------------------------------------------------------------------

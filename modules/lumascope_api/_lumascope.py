@@ -734,6 +734,7 @@ class Lumascope:
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
+        self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
         self.runtime_state.set_turreted(config.turreted)
         if config.turreted:
             # Nothing to set: the objective is the one assigned to the slot in

@@ -6,6 +6,7 @@ import modules.binning as binning
 import modules.image_mode as image_mode
 from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
 from modules.exceptions import ConfigError
+from modules.lumascope_api._constants import is_turret_slot
 from lvp_logger import logger
 
 
@@ -66,6 +67,10 @@ class ScopeInitConfig:
     # scope, whose objective is derived from the slot and never stored.
     objective_id: str | None
     turret_config: dict | None
+    # The saved turret position: the slot a person last turned to, which
+    # the slot lookup prefers when two slots carry one objective. None when
+    # nothing usable was saved.
+    preferred_turret_slot: int | None
     binning_size: int
     frame_width: int
     frame_height: int
@@ -136,6 +141,16 @@ class ScopeInitConfig:
                 or scope_config.get('XYStage')
                 or scope_config.get('Turret')
             )
+        preferred_turret_slot = settings.get('turret_position')
+        if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
+            # A preference, not a position: a value that names no slot
+            # leaves no preference, which the lookup already handles, and
+            # is said here so a hand-edited file is visible in the record.
+            logger.warning(
+                f'[Session  ] saved turret_position {preferred_turret_slot!r} is not a slot '
+                '1-4; no preferred slot'
+            )
+            preferred_turret_slot = None
         if layer_identity is None:
             expects_led = True
         else:
@@ -145,6 +160,7 @@ class ScopeInitConfig:
             turreted=turreted,
             objective_id=None if turreted else settings['objective_id'],
             turret_config=settings.get('turret_objectives'),
+            preferred_turret_slot=preferred_turret_slot,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],
