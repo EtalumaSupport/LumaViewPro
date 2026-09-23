@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 
 
@@ -50,6 +51,7 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
+        run_claim=lent_run_claim(),
     )
 
 

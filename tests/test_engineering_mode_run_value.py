@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
@@ -127,6 +128,7 @@ class TestTheWriterIsHandedTheMode:
             'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
             'timestamp_overlay': True,
             'video_max_fps': 0,
+            'run_claim': lent_run_claim(),
         }
 
         with pytest.raises(TypeError, match='engineering_mode'):

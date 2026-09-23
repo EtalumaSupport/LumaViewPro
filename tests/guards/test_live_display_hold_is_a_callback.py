@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
@@ -56,6 +57,7 @@ def _writer(callbacks):
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

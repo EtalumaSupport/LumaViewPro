@@ -31,6 +31,7 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 # ---------------------------------------------------------------------------
 
 
+from tests.protocol_drives import lent_run_claim
 from modules.run_outcome import EndingLatch
 
 
@@ -85,6 +86,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
     recorded = []
     monkeypatch.setattr(

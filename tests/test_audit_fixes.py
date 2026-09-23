@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import PositionOutOfRangeError
 
@@ -3163,6 +3164,7 @@ def _bare_protocol_writer(**overrides):
         'timestamp_overlay': True,
         'video_max_fps': 0,
         'engineering_mode': False,
+        'run_claim': lent_run_claim(),
     }
     scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)

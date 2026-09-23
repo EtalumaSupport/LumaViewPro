@@ -34,6 +34,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules import layer_record
@@ -663,6 +664,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
     recorded = []
     monkeypatch.setattr(

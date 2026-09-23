@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
@@ -723,6 +724,7 @@ class TestProtocolImageWriterWriteCapture:
             timestamp_overlay=True,
             video_max_fps=0,
             engineering_mode=False,
+            run_claim=lent_run_claim(),
         )
         return writer
 

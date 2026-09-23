@@ -564,6 +564,33 @@ class TestExclusivity:
         assert excinfo.value.holder == 'protocol'
         assert excinfo.value.holder_trigger is None
 
+    def test_a_recording_inside_a_run_leaves_the_runs_claim_held(self, tmp_path):
+        """A video step records under the run's claim; its end must not
+        free the claim the run holds until run end."""
+        claim = ActivityClaim()
+        run = claim.try_claim('protocol', run_trigger_source='scan')
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
+
+        engine.start(make_config(tmp_path, fps=5, duration_s=10))
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+
+        assert claim.owner == 'protocol', "the recording's end released the run's claim"
+        assert claim.try_claim('recording') is None
+        run.release()
+        assert claim.owner is None
+
+    def test_a_recording_lent_a_claim_its_run_no_longer_holds_is_refused(self, tmp_path):
+        claim = ActivityClaim()
+        run = claim.try_claim('protocol', run_trigger_source='scan')
+        lent = run.lend()
+        run.release()
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=lent)
+
+        with pytest.raises(RecordingRefusedError) as excinfo:
+            engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.reason == 'exclusive_activity_running'
+
     def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
         claim = ActivityClaim()
         assert claim.try_claim('protocol', run_trigger_source='autofocus_scan')

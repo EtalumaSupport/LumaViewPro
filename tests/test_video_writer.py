@@ -11,6 +11,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 
@@ -328,6 +329,7 @@ class TestProtocolVideoDropNotification:
             record_step_row=MagicMock(),
             record_dropped_capture=MagicMock(),
             clock=lambda: clock['t'],
+            run_claim=lent_run_claim(),
         )
         worker = threading.Thread(target=recorder.run_blocking)
         worker.start()

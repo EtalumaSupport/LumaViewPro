@@ -35,6 +35,7 @@ from typing import Any
 import numpy as np
 
 from lvp_logger import logger, version as lvp_version
+from modules.activity_claim import BorrowedClaim
 from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_PER_WRITE_DISK_MB,
@@ -81,29 +82,6 @@ _WAIT_TICK_S = 0.1
 _TITLE_UPDATE_INTERVAL_S = 1.0
 
 
-class _NestedClaim:
-    """Always-granting claim for a recording nested inside a protocol run.
-
-    The run's own session claim (held for the whole run) is the real
-    exclusivity fence; the engine's claim acquisition inside the run
-    must not contend with it. Release is a no-op for the same reason:
-    the run releases its claim at run end, never per step.
-    """
-
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> '_NestedClaim':
-        return self
-
-    def release(self) -> None:
-        return None
-
-    @property
-    def holder(self) -> None:
-        """Nothing is held HERE: the run's own session claim is the
-        fence, so a read of this one reports no holder rather than
-        raising at a caller that only asks on the refusal path."""
-        return None
-
-
 class ProtocolVideoStep:
     """One protocol video step: snapshot, record via the engine, finish.
 
@@ -136,6 +114,9 @@ class ProtocolVideoStep:
             duration_sec, timestamp)``.
         record_dropped_capture: Records a no-artifact row:
             ``record_dropped_capture(reason, capture_time)``.
+        run_claim: The run's activity claim, lent to this step. The
+            recording acts under it, and the step's end leaves it held:
+            the run releases its claim at run end, never per step.
         clock: Injectable time source (seconds); tests drive it.
     """
 
@@ -158,6 +139,7 @@ class ProtocolVideoStep:
         abort_run_on_writer_death: Callable[[], None],
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
+        run_claim: BorrowedClaim,
         clock: Callable[[], float] = time.time,
     ):
         self._scope = scope
@@ -176,6 +158,7 @@ class ProtocolVideoStep:
         self._abort_run_on_writer_death = abort_run_on_writer_death
         self._record_step_row = record_step_row
         self._record_dropped_capture = record_dropped_capture
+        self._run_claim = run_claim
         self._clock = clock
 
         self._engine: VideoRecordingEngine | None = None
@@ -332,7 +315,7 @@ class ProtocolVideoStep:
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
-            claim=_NestedClaim(),
+            claim=self._run_claim,
             clock=self._clock,
             notify=notifications,
         )

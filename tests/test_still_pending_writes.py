@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_image_writer import ProtocolImageWriter
 from tests.scope_fakes import spec_scope
@@ -44,6 +45,7 @@ def _writer(file_io_executor=None):
         timestamp_overlay=False,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
 
 

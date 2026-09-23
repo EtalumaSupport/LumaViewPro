@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
@@ -294,6 +295,7 @@ class TestOneRunOneEncoding:
             timestamp_overlay=True,
             video_max_fps=0,
             engineering_mode=False,
+            run_claim=lent_run_claim(),
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

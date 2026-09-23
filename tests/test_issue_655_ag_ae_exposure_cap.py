@@ -36,6 +36,7 @@ from __future__ import annotations
 import pathlib
 from unittest.mock import MagicMock
 
+from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
@@ -329,6 +330,7 @@ def _video_session_autogain_call(autogain_settings):
         abort_run_on_writer_death=MagicMock(),
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
+        run_claim=lent_run_claim(),
     )
     from unittest.mock import patch
 

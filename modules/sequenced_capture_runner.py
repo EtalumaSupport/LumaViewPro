@@ -1378,6 +1378,7 @@ class SequencedCaptureRunner:
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
                 engineering_mode=self._engineering_mode,
+                run_claim=self._held_claim.lend(),
             )
 
             self.camera_executor.disable()

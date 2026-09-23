@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
 
@@ -94,6 +95,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
         abort_run_on_writer_death=MagicMock(),
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
+        run_claim=lent_run_claim(),
     )
     outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES

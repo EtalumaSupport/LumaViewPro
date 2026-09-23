@@ -23,6 +23,7 @@ import modules.common_utils as common_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.activity_claim import BorrowedClaim
 from modules.exceptions import ObjectiveUnknownError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
@@ -119,6 +120,9 @@ class ProtocolImageWriter:
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
+        # The run's activity claim, lent to the work inside the run: a
+        # video step records under it and cannot release it.
+        run_claim: BorrowedClaim,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -134,6 +138,7 @@ class ProtocolImageWriter:
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
         self._engineering_mode = engineering_mode
+        self._run_claim = run_claim
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -799,6 +804,7 @@ class ProtocolImageWriter:
                             scan_count=scan_count,
                             name=name,
                         ),
+                        run_claim=self._run_claim,
                     )
                     self._video_steps.append(recorder)
                     outcome = recorder.run_blocking()

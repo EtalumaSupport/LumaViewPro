@@ -43,10 +43,11 @@ import queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from lib import profile_trace
 from lvp_logger import logger
+from modules.activity_claim import ActivityClaim, BorrowedClaim
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -62,25 +63,6 @@ END_REASON_START_FAILED = 'start_failed'
 # Queue sentinel closing the writer lane's drain loop. Enqueued exactly
 # once per recording, when selection closes.
 _END_OF_RECORDING = object()
-
-
-class ExclusivityClaim(Protocol):
-    """The session-owned compare-and-claim handle the engine acquires.
-
-    Exactly one exclusive activity (a protocol run XOR a recording) may
-    hold the claim; ``try_claim`` is atomic -- two concurrent claimants
-    cannot both win.
-    """
-
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> Any:
-        """Atomically claim for ``owner``; the taking that alone releases
-        it, or None if another activity holds the claim."""
-        ...
-
-    @property
-    def holder(self) -> Any:
-        """The current holder (kind, and the run behind it), or None."""
-        ...
 
 
 @dataclass(frozen=True)
@@ -199,9 +181,11 @@ class VideoRecordingEngine:
             chunk metadata (or None) -- frame identity travels WITH the
             frame so the write edge never re-derives it. Raising costs
             exactly that frame.
-        claim: The session-owned exclusivity claim handle; ``start``
-            acquires it and refuses when an exclusive activity already
-            holds it.
+        claim: The session's exclusivity claim, which ``start`` takes and
+            refuses when an exclusive activity already holds it -- or,
+            for a recording inside a run, the run's claim lent to it,
+            which ``start`` acts under and the recording's end leaves
+            held.
         clock: Time source returning seconds; injectable so cadence and
             duration behavior is testable without wall-clock sleeps.
         notify: Optional notification sink for the fatality classification
@@ -212,7 +196,7 @@ class VideoRecordingEngine:
         self,
         *,
         write_frame: Callable[..., pathlib.Path],
-        claim: ExclusivityClaim,
+        claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
         notify: Any = None,
     ):

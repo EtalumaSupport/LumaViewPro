@@ -46,6 +46,46 @@ class HeldClaim:
         """
         self._claim._release(self)
 
+    def lend(self) -> 'BorrowedClaim':
+        """Lend this taking to work that runs inside its activity."""
+        return BorrowedClaim(self)
+
+
+class _Borrowing:
+    """What a borrower holds: it acts under the lender's claim, and its
+    release leaves that claim held -- the lender releases at its own end."""
+
+    __slots__ = ()
+
+    def release(self) -> None:
+        return None
+
+
+class BorrowedClaim:
+    """A held claim lent to work inside the holder's activity.
+
+    A recording inside a run acts under the run's claim: its start is
+    granted while the run still holds the claim, and its end cannot free
+    it. The same shape as ActivityClaim to that work, so the work does
+    not know whether it runs alone or inside another activity.
+    """
+
+    __slots__ = ('_lender',)
+
+    def __init__(self, lender: HeldClaim) -> None:
+        self._lender = lender
+
+    @property
+    def holder(self) -> 'ActivityHolder | None':
+        """The claim's current holder, as ActivityClaim.holder answers it."""
+        return self._lender._claim.holder
+
+    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
+        """Act under the lender's claim; None once the lender no longer holds it."""
+        if not self._lender._claim._is_held_by(self._lender):
+            return None
+        return _Borrowing()
+
 
 class ActivityClaim:
     """Arbitrates the session's one exclusive activity.
@@ -112,6 +152,9 @@ class ActivityClaim:
         if self._on_transition is not None:
             self._on_transition()
         return held
+
+    def _is_held_by(self, held: HeldClaim) -> bool:
+        return self._held is held
 
     def _release(self, held: HeldClaim) -> None:
         with self._lock:
