@@ -122,7 +122,7 @@ def write_video_frame(
     )
 
 
-def get_next_save_path(scope: Lumascope, path) -> str:
+def get_next_save_path(scope: Lumascope, path: pathlib.Path | str) -> pathlib.Path:
     """Get the next save path given an existing save path.
 
     Increments the trailing numeric ID component on the filename and
@@ -136,7 +136,9 @@ def get_next_save_path(scope: Lumascope, path) -> str:
             ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
 
     Returns:
-        str: Next save path with ``file_id`` incremented.
+        pathlib.Path: Next save path with ``file_id`` incremented -- a Path,
+        as ``generate_image_save_path`` promises its callers after a
+        collision as well as before one.
     """
     # Handle both .tiff and .ome.tiff by detecting multiple extensions
     # if present -- pathlib doesn't handle multi-extension stems
@@ -152,8 +154,7 @@ def get_next_save_path(scope: Lumascope, path) -> str:
     next_seq_num = seq_num + 1
     next_seq_num_str = f'{next_seq_num:0>{_NUM_SEQ_DIGITS}}'
 
-    new_path = path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
-    return str(new_path)
+    return path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
 
 
 def generate_image_save_path(
@@ -608,7 +609,7 @@ def save_image(
     jpeg_quality: int = 90,
     significant_bits: int,
     objective_id: str,
-) -> str:
+) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
 
     Args:
@@ -646,7 +647,7 @@ def save_image(
             caller when it takes the frame, never at save time.
 
     Returns:
-        str: Path to the saved file.
+        pathlib.Path: Path to the saved file.
 
     Raises:
         CaptureError: If ``array`` is None (camera silent-stuck or
