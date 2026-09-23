@@ -220,65 +220,84 @@ def test_no_retired_runner_run_call_sites_remain():
 
 
 def _runner_reset_calls():
-    """Every `<something>runner.reset(...)` call under ui/, derived.
+    """Every UI run teardown under ui/, derived, with the run it names.
 
-    Derived rather than listed: the starter tuple above is hand-maintained
-    and had already drifted -- it names four starters while the autofocus
-    and composite buttons tear runs down too. A list that has to be updated
-    by hand is the thing this test exists to prevent, so it must not depend
-    on one.
+    A teardown is a `<something>runner.reset(...)` call, or a call to the
+    ui_helpers boundary that wraps one, direct or bound by a
+    functools.partial. Derived rather than listed: the starter tuple above
+    is hand-maintained and had already drifted -- it names four starters
+    while the autofocus and composite buttons tear runs down too. A list
+    that has to be updated by hand is the thing this test exists to
+    prevent, so it must not depend on one.
+
+    Yields (file, source, run argument or None when absent, keywords).
     """
 
-    def _reset_attribute(node):
-        """The `<x>.reset` this call references, direct or via a partial.
+    def _callee_and_args(node):
+        """The callee this call reaches and the arguments it is handed.
 
-        functools.partial(runner.reset, requester=...) carries the argument
-        on the binding rather than the call, so the partial's own keywords
-        are the ones that answer whether the caller identified itself.
+        functools.partial(f, a, b) carries the arguments on the binding
+        rather than the call, so the partial's own arguments are the ones
+        that answer which run the teardown names.
         """
         func = node.func
-        if (
-            isinstance(func, ast.Attribute)
-            and func.attr == 'partial'
-            and node.args
-            and isinstance(node.args[0], ast.Attribute)
-            and node.args[0].attr == 'reset'
-        ):
-            return node.args[0]
-        if isinstance(func, ast.Attribute) and func.attr == 'reset':
-            return func
-        return None
+        if isinstance(func, ast.Attribute) and func.attr == 'partial' and node.args:
+            return node.args[0], node.args[1:], node.keywords
+        return func, node.args, node.keywords
+
+    def _run_argument(position, args, keywords):
+        if len(args) > position:
+            return args[position]
+        return next((kw.value for kw in keywords if kw.arg == 'run'), None)
 
     for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            target = _reset_attribute(node)
-            if target is None or 'runner' not in ast.unparse(target.value).lower():
+            callee, args, keywords = _callee_and_args(node)
+            if (
+                isinstance(callee, ast.Attribute)
+                and callee.attr == 'reset'
+                and 'runner' in ast.unparse(callee.value).lower()
+            ):
+                run = _run_argument(0, args, keywords)
+            elif isinstance(callee, ast.Name) and callee.id == 'reset_with_refusal_boundary':
+                run = _run_argument(1, args, keywords)
+            else:
                 continue
-            yield source_file.name, ast.unparse(node), node.keywords
+            yield source_file.name, ast.unparse(node), run, keywords
 
 
-def test_every_ui_run_teardown_names_its_requester():
-    """A UI teardown says who is asking, so the engine can refuse a rival.
+def test_every_ui_run_teardown_names_its_run():
+    """A UI teardown names the run it means to stop, by its handle.
 
     The defect this locks: a stale autofocus toggle reached reset() during
     someone else's scan and destroyed it, because nothing in the call said
-    whose run it was. The engine now refuses a non-owner -- but only if the
-    caller passes the argument, so no ui/ call site may omit it.
+    which run it meant. The engine now stops only the run a stop names and
+    refuses a handle naming any other -- but only if the caller passes the
+    handle its own start returned, so no ui/ call site may omit it, pass a
+    literal in its place, or still say who is asking instead.
     """
     calls = list(_runner_reset_calls())
     assert calls, 'derivation found no teardown calls -- the AST shapes drifted'
+    assert any(src.startswith('runner.reset') for _, src, _, _ in calls), (
+        'derivation found no engine reset() call -- the AST shapes drifted'
+    )
+    assert any('reset_with_refusal_boundary' in src for _, src, _, _ in calls), (
+        'derivation found no call through the teardown boundary -- the AST shapes drifted'
+    )
 
-    unauthenticated = [
+    unnamed = [
         (where, src)
-        for where, src, keywords in calls
-        if not any(kw.arg == 'requester' for kw in keywords)
+        for where, src, run, keywords in calls
+        if run is None
+        or isinstance(run, ast.Constant)
+        or any(kw.arg == 'requester' for kw in keywords)
     ]
-    assert not unauthenticated, (
-        'run teardown without a requester -- the engine cannot tell an owner '
-        f'from a rival: {unauthenticated}'
+    assert not unnamed, (
+        'run teardown that does not name a run by its handle -- the engine '
+        f'cannot tell the run this control started from the live one: {unnamed}'
     )
 
 
@@ -306,8 +325,9 @@ def _teardown_iotasks():
 def test_a_refusable_teardown_task_does_not_double_notify():
     """A refused teardown notifies once, not twice.
 
-    reset() refuses a caller that does not own the run, and that refusal
-    has already logged once and notified once before it raises. The
+    reset() refuses a stop naming a run that is not the live one while
+    another run is live, and that refusal has already logged once and
+    notified once before it raises. The
     executor's generic failure popup would be a SECOND notification for
     one event -- and it titles that popup from the action, which for a
     functools.partial is the partial's repr, heap address included. The

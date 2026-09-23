@@ -16,7 +16,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
@@ -47,24 +47,26 @@ def run_with_refusal_boundary(
         on_refused()
 
 
-def reset_with_refusal_boundary(runner, requester: str) -> bool:
-    """Tear the run down, and say whether the engine let you.
+def reset_with_refusal_boundary(runner, run) -> bool:
+    """Stop *run*, the handle this control's start returned, and say whether anything is left.
 
-    The teardown half of the boundary above. Tearing a run down is an
-    authority decision the engine owns: it compares the requester against
-    the run's owner and refuses anyone else, having already logged and
-    notified exactly once. What the widget needs back is not the
-    exception but the outcome -- a refused teardown left the run running,
-    so the caller must not go on to restyle its button as though a
-    stop were under way.
+    The teardown half of the boundary above. Whether *run* may be stopped
+    is the engine's decision: it stops the live run by its handle and
+    refuses a handle naming any other, having already logged (and, when
+    another run is live, notified) once. What the widget needs back is not
+    the exception but the outcome -- a refused stop while another run is
+    live left that run running, so the caller must not go on to restyle
+    its button as though a stop were under way.
 
-    Returns True when the run was torn down (or there was none), False
-    when the engine refused. Without this the refusal reached a starter's
+    Returns True when the run was torn down or no run is live, False when
+    another run is live. Without this the refusal reached a starter's
     blanket handler, which renders str(e) -- the joined `reason: message`
     debugging form, in a dialog, at a user.
     """
     try:
-        runner.reset(requester=requester)
+        runner.reset(run)
+    except RunAlreadyEndedError:
+        return True
     except ProtocolRunRefusedError:
         return False
     return True

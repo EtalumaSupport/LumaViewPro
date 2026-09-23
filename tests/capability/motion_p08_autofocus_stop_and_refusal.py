@@ -1,13 +1,15 @@
-"""P08 -- the STOP half of the autofocus toggle, and the ownership refusal.
+"""P08 -- the STOP half of the autofocus toggle, and the stale-stop refusal.
 
-GUI entry: ui/vertical_control.py:446 (second click / 'normal' state) ->
-_cleanup_at_end_of_autofocus (vertical_control.py:346) -> ui_helpers
-reset_with_refusal_boundary -> SequencedCaptureRunner.reset(requester='autofocus').
+GUI entry: ui/vertical_control.py run_autofocus_from_ui (second click /
+'normal' state) -> _cleanup_at_end_of_autofocus -> ui_helpers
+reset_with_refusal_boundary -> SequencedCaptureRunner.reset(run), where run
+is the handle the button's own start returned.
 """
 
 from harness import check, run
 from modules.protocol_runner import ProtocolRunner
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.run_outcome import PendingRunOutcome
 
 
 def body(s):
@@ -17,7 +19,8 @@ def body(s):
     m.move_absolute('Z', 3000.0, wait_until_complete=True)
     runner = ProtocolRunner(s)
 
-    check('ProtocolRunner exposes abort(requester)', callable(runner.abort))
+    check('ProtocolRunner exposes abort(run)', callable(runner.abort))
+    check('ProtocolRunner exposes is_live_run(run)', callable(runner.is_live_run))
     check('ProtocolRunner exposes run_trigger_source()', callable(runner.run_trigger_source))
 
     # --- a run in flight names its trigger source; the GUI's is 'autofocus',
@@ -35,25 +38,41 @@ def body(s):
         f'run_trigger_source={src!r}',
     )
 
-    # --- a STOP from a non-owner is refused ---
+    # --- a STOP naming a run that is not the live one is refused ---
     refused = None
     try:
-        runner.abort(requester='somebody_else')
+        runner.abort(PendingRunOutcome())
         refused = False
-    except ProtocolRunRefusedError:
-        refused = True
+    except ProtocolRunRefusedError as e:
+        refused = True if e.reason == 'run_not_live' else f'reason={e.reason!r}'
     except Exception as e:
         refused = f'{type(e).__name__}'
-    print('non-owner reset ->', refused, flush=True)
+    print('stale-handle reset ->', refused, flush=True)
 
     outcome = pending.wait(timeout_s=300)
     check('run finished', outcome is not None, f'status={outcome.status}')
     check('a caller-supplied run_complete callback fires', seen.get('complete') is True)
 
     check(
-        'a non-owner STOP is refused at the API (ProtocolRunRefusedError)',
+        "a STOP naming another run is refused at the API ('run_not_live')",
         refused is True,
-        f'reset(requester="somebody_else") -> {refused}',
+        f'abort(<a handle that is not the live run>) -> {refused}',
+    )
+
+    # --- a STOP after the run ended is told so, and is not a refusal ---
+    check('the run went idle', runner.wait_for_run_idle(60))
+    ended = None
+    try:
+        runner.abort(pending)
+        ended = False
+    except RunAlreadyEndedError:
+        ended = True
+    except Exception as e:
+        ended = f'{type(e).__name__}'
+    check(
+        'a STOP naming a run that has ended raises RunAlreadyEndedError',
+        ended is True,
+        f'abort(<the finished run>) -> {ended}',
     )
 
     # --- the stuck-AF bound: the GUI arms a 15 s Clock timer

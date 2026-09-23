@@ -33,7 +33,7 @@ from modules.exceptions import PositionOutOfRangeError
 # ---------------------------------------------------------------------------
 
 
-from modules.run_outcome import EndingLatch, RunEnding
+from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 
 
 def _build_mock_logger():
@@ -9144,14 +9144,15 @@ class TestSCEResetSignalsAbort:
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
-        # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
-        runner.reset(requester='test')
+        runner.reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
 
@@ -9165,14 +9166,15 @@ class TestSCEResetSignalsAbort:
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
-        # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
-        runner.reset(requester='test')
+        runner.reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -9185,14 +9187,15 @@ class TestSCEResetSignalsAbort:
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
-        # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 
-        runner.reset(requester='test')
+        runner.reset(run)
 
         runner._cleanup.assert_called_once()
 
@@ -9205,17 +9208,18 @@ class TestSCEResetSignalsAbort:
 
         runner = self._make_runner()
         runner._set_state(ProtocolState.RUNNING)
-        # A live run always has an owner: start() writes the trigger before
-        # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
         runner._cleanup = MagicMock(side_effect=lambda *args, **kwargs: order.append('cleanup'))
 
-        runner.reset(requester='test')
+        runner.reset(run)
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
 
@@ -9249,11 +9253,15 @@ class TestSCEResetSignalsAbort:
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
+        from modules.exceptions import RunAlreadyEndedError
+
         runner = self._make_runner()
-        # Run not in progress -- reset() should be a no-op.
+        # Run not in progress -- reset() says the run has already ended and
+        # touches nothing.
         runner._cleanup = MagicMock()
 
-        runner.reset(requester='test')
+        with pytest.raises(RunAlreadyEndedError):
+            runner.reset(None)
 
         runner.protocol_thread.abort.assert_not_called()
         runner._cleanup.assert_not_called()

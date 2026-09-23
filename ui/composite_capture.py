@@ -18,12 +18,14 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
+from modules.run_outcome import PendingRunOutcome
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
     live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_title,
+    reset_with_refusal_boundary,
     run_with_refusal_boundary,
     set_last_save_folder,
     set_title_event_text,
@@ -34,6 +36,9 @@ logger = logging.getLogger('LVP.ui.composite_capture')
 
 class CompositeCapture(FloatLayout):
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
+    # The handle this button's last start returned: what its Stop names.
+    # The engine answers whether it is still the live run.
+    _composite_run: PendingRunOutcome | None = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -105,23 +110,27 @@ class CompositeCapture(FloatLayout):
         # The button is its own stop control, so a second click means stop.
         # It reads as one of two things: a toggle already back to 'normal',
         # or a click arriving while this starter's own run is live. The
-        # trigger source is what separates the second case from a click
-        # during someone ELSE's run, which must fall through to the engine
-        # and be refused rather than aborting a run this button never
-        # started.
+        # handle this button's start returned is what separates the second
+        # case from a click during someone ELSE's run, which the engine
+        # refuses rather than aborting a run this button never started.
         #
         # Reset goes onto the worker pool at high priority because the pool
         # runs exactly one worker: a stop that queued behind ordinary work
         # would not arrive until that work finished, which is the thing the
         # user is trying to interrupt.
-        if composite_btn.state == 'normal' or (
-            runner.is_running() and runner.run_trigger_source() == 'composite'
-        ):
+        if composite_btn.state == 'normal' or runner.is_live_run(self._composite_run):
             ctx.worker_pool.put(
                 IOTask(
-                    action=functools.partial(runner.abort, requester='composite'),
-                    # The engine's refusal notifies once on its own; the
-                    # executor's generic failure popup would be a second
+                    # Through the boundary, like every run control's Stop: a
+                    # Stop after the run ended is nothing left to do, and a
+                    # stale one while another run is live is the engine's
+                    # refusal, already notified once.
+                    action=functools.partial(
+                        reset_with_refusal_boundary,
+                        ctx.sequenced_capture_runner,
+                        self._composite_run,
+                    ),
+                    # The executor's generic failure popup would be a second
                     # notification titled with this partial's repr.
                     silent_on_failure=True,
                     priority=PRIORITY_HIGH,
@@ -194,7 +203,7 @@ class CompositeCapture(FloatLayout):
 
             def _start():
                 nonlocal started
-                runner.start_composite(
+                self._composite_run = runner.start_composite(
                     sequence_name='composite',
                     parent_dir=parent_dir,
                     callbacks={

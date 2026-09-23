@@ -500,10 +500,10 @@ pending = runner.run_single_scan(
 result = pending.wait(timeout_s=300)     # or runner.wait_for_completion()
 print(result.status, result.reason, result.message)
 
-# Or abort at any time. `requester` is who is asking: it must match the
-# run's own run_trigger_source, because tearing a run down is an authority
-# decision and the engine refuses anyone but the owner.
-runner.abort(requester='api_scan')
+# Or abort at any time, naming the run by the handle its call returned.
+# Anyone may stop the live run; a handle naming a run that has ended is
+# refused and never touches the run that is live now.
+runner.abort(pending)
 ```
 
 **Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol:
@@ -543,7 +543,7 @@ The outcome carries nine fields. `status` is one of `completed`, `aborted`, `fai
 
 The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that completed but whose merge produced nothing reports `status='completed'` with the cause in `merge_reason`. `run_composite()` raises `CaptureError` carrying whichever of the two applies.
 
-A refusal with reason `not_run_owner` means the live run belongs to a different trigger and this caller may not tear it down; `holder_trigger` names the owner. The run is untouched -- stop it through whatever started it, or wait. `ProtocolRunner.reset(requester=...)` and `abort(requester=...)` both raise it, and both require the argument: a teardown that does not say who is asking cannot be authorised.
+`abort(run)` with a handle naming a run that has already ended does nothing to any run. When another run is live it is a refusal with reason `run_not_live`, and `holder_trigger` names the run that is live; when nothing is live it raises `RunAlreadyEndedError` -- not a refusal, since the run simply finished before the stop arrived. `runner.is_live_run(handle)` answers whether a handle is still the live run, and `runner.run_outcome()` is the live or last run's handle.
 
 A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
 

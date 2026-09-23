@@ -20,6 +20,7 @@ import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.protocol_drives import autofocus_snapshot
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
@@ -33,9 +34,11 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 
 
 def _a_zstack_holds_the_scope(executor):
-    """The state start() commits for a live z-stack run, as its two fields."""
+    """The state start() commits for a live z-stack run, as its fields:
+    the phase, the trigger, and the handle start() returned."""
     executor._set_state(ProtocolState.RUNNING)
     executor._run_trigger_source = 'zstack'
+    executor._run_outcome = PendingRunOutcome()
 
 
 def _start_a_scan(executor, tmp_path):
@@ -86,15 +89,18 @@ class TestTheRefusalNamesTheHolder:
         )
 
     def test_a_refused_stop_still_names_the_owner(self, executor):
-        """The sentence this shares; unchanged behaviour, pinned against the move."""
+        """The sentence this shares: a stop naming a run that has ended,
+        refused while a z-stack is live, names the z-stack."""
         _a_zstack_holds_the_scope(executor)
+        an_ended_scan = PendingRunOutcome()
         try:
             with pytest.raises(ProtocolRunRefusedError) as refusal:
-                executor.reset(requester='scan')
+                executor.reset(an_ended_scan)
         finally:
             executor._set_state(ProtocolState.IDLE)
 
-        assert refusal.value.reason == 'not_run_owner'
+        assert refusal.value.reason == 'run_not_live'
+        assert refusal.value.holder_trigger == 'zstack'
         assert 'zstack' in refusal.value.message
 
 

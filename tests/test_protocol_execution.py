@@ -37,7 +37,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.protocol_state_machine import ProtocolState
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
@@ -1404,11 +1404,11 @@ class TestCancellationMidRun:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
 
         # Let it run briefly then cancel
         time.sleep(1.0)
-        executor.reset(requester='test')
+        executor.reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after reset()'
@@ -1442,21 +1442,27 @@ class TestCancellationMidRun:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
 
         # Cancel almost immediately
         time.sleep(0.2)
-        executor.reset(requester='test')
+        executor.reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after early reset()'
 
 
 class TestResetWhenNotRunning:
-    """reset() when no protocol is active should be a no-op."""
+    """reset() when no protocol is active says the run has already ended.
+
+    Not a crash and not a refusal: a stop that finds nothing live raises
+    RunAlreadyEndedError, which is neither notified nor a
+    ProtocolRunRefusedError."""
 
     def test_reset_no_crash(self, executor, scope, tmp_path):
-        executor.reset(requester='test')  # Should not raise
+        with pytest.raises(RunAlreadyEndedError) as exc:
+            executor.reset(None)
+        assert not isinstance(exc.value, ProtocolRunRefusedError)
 
 
 # ---------------------------------------------------------------------------
@@ -1844,26 +1850,44 @@ class TestCleanupConcurrency:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         # Let protocol start
         time.sleep(0.1)
-        # Fire reset from multiple threads simultaneously
-        threads = [threading.Thread(target=executor.reset) for _ in range(5)]
+        # Fire reset from multiple threads simultaneously. A stop that lands
+        # after an earlier one has already ended the run is told so with
+        # RunAlreadyEndedError; any other exception is a crash.
+        unexpected = []
+
+        def _stop():
+            try:
+                executor.reset(run)
+            except RunAlreadyEndedError:
+                pass
+            except Exception as e:
+                unexpected.append(e)
+
+        threads = [threading.Thread(target=_stop) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=5)
+        assert unexpected == [], f'concurrent reset raised: {unexpected!r}'
         # Should not crash; protocol should end
-        done.wait(timeout=COMPLETION_TIMEOUT)
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'protocol did not end after concurrent reset'
 
     def test_double_reset_idempotent(self, executor, scope, tmp_path):
         """Calling reset() twice in quick succession doesn't crash."""
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Protocol already completed and cleaned up -- reset again should be harmless
-        executor.reset(requester='test')
-        executor.reset(requester='test')
+        # Protocol already completed and cleaned up -- each further stop is
+        # told the run has ended, and neither disturbs the other.
+        run = executor.run_outcome()
+        with pytest.raises(RunAlreadyEndedError):
+            executor.reset(run)
+        with pytest.raises(RunAlreadyEndedError):
+            executor.reset(run)
+        assert not executor.run_in_progress()
 
 
 # ---------------------------------------------------------------------------
@@ -2089,9 +2113,9 @@ class TestCameraStateRestoration:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset(requester='test')
+        executor.reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
@@ -2148,9 +2172,9 @@ class TestCleanupCorrectness:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset(requester='test')
+        executor.reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:

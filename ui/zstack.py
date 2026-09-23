@@ -21,6 +21,7 @@ from modules.config_ui_getters import (
     get_zstack_positions,
     is_image_saving_enabled,
 )
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
@@ -42,6 +43,10 @@ logger = logging.getLogger('LVP.ui.zstack')
 
 
 class ZStack(FloatLayout):
+    # The handle this button's last start returned: what its Stop names.
+    # The engine answers whether it is still the live run.
+    _zstack_run: PendingRunOutcome | None = None
+
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
         settings = _app_ctx.ctx.settings
@@ -131,8 +136,8 @@ class ZStack(FloatLayout):
         # while the old one is still tearing down (the start guard
         # refuses it, but the label would lie about readiness).
         deferred_to_cleanup = runner.run_in_progress()
-        if not reset_with_refusal_boundary(runner, requester='zstack'):
-            # The engine refused: the run is someone else's and is still
+        if not reset_with_refusal_boundary(runner, self._zstack_run):
+            # The engine refused: another run is live and is still
             # running. Nothing was torn down, so nothing here is restyled
             # -- least of all to "Stopping...", which would describe a
             # teardown that did not happen.
@@ -161,15 +166,13 @@ class ZStack(FloatLayout):
             run_not_started_func = self._reset_run_zstack_acquire_button
             run_complete_func = self._zstack_run_complete
 
-            run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
-            # The ownership term is not redundant with the toggle read: a
+            # The live-run term is not redundant with the toggle read: a
             # run callback can reset this button to 'normal' mid-run, and
             # Kivy flips a toggle at touch-down, so the user's own Stop can
             # arrive reading 'down'. Keyed on state alone, that click fell
             # through to the start path and came back "already running".
             if self.ids['zstack_aqr_btn'].state == 'normal' or (
-                ctx.sequenced_capture_runner.run_in_progress()
-                and run_trigger_source == trigger_source
+                ctx.sequenced_capture_runner.is_live_run(self._zstack_run)
             ):
                 self._cleanup_at_end_of_acquire()
                 return
@@ -313,7 +316,7 @@ class ZStack(FloatLayout):
                         settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
                     ),
                 )
-                ctx.sequenced_capture_runner.start(plan)
+                self._zstack_run = ctx.sequenced_capture_runner.start(plan)
                 # A refusal raises out of prepare before this line, so the
                 # save folder can only ever point at THIS run's directory,
                 # never a previous run's stale data.

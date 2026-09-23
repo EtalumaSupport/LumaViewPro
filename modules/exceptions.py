@@ -167,6 +167,16 @@ class ProtocolRunRefusedError(ProtocolError):
         self.holder_trigger = holder_trigger
 
 
+class RunAlreadyEndedError(ProtocolError):
+    """A stop named a run that has ended, and no run is live.
+
+    Not a refusal: nothing was refused -- the run ended on its own, and a
+    Stop that arrives after that has nothing to act on. Raised so a script
+    learns its handle is stale; logged, never notified, because the person
+    at the instrument pressed Stop on a run that has already stopped.
+    """
+
+
 class RunStartError(ProtocolError):
     """A sequenced run failed after it was committed but before it ran.
 

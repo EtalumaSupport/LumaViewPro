@@ -28,6 +28,7 @@ from modules.config_ui_getters import (
 )
 from modules.path_utils import get_source_root
 from modules.protocol import Protocol
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.step_navigation import go_to_step
@@ -147,6 +148,10 @@ class ProtocolSettings(FloatLayout):
         # completion callback and whichever path completes its file
         # drain. Never read to answer what is running now.
         self._pending_run_dir = None
+        # The handle each of this panel's run buttons' last start returned,
+        # by trigger: what that button's Stop names. The engine answers
+        # whether it is still the live run.
+        self._runs_started_here: dict[str, PendingRunOutcome] = {}
 
         # source_path: use ctx if available, otherwise derive from install-aware defaults
         ctx = _app_ctx.ctx
@@ -1728,8 +1733,6 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
 
-            run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
             live_histo_off()
 
             # Not-started paths undo cosmetics only: run-state truth is
@@ -1751,13 +1754,14 @@ class ProtocolSettings(FloatLayout):
             # rival runs: the same refusal has to reach a script and REST,
             # so it is the engine's to give.
 
-            # The ownership term is load-bearing: a run callback resets
+            # The live-run term is load-bearing: a run callback resets
             # this button to 'normal' mid-run and Kivy flips a toggle at
             # touch-down, so the user's own Stop can arrive reading 'down'.
+            my_run = self._runs_started_here.get(trigger_source)
             if self.ids['run_autofocus_btn'].state == 'normal' or (
-                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+                sequenced_capture_runner.is_live_run(my_run)
             ):
-                self._cleanup_at_end_of_protocol(autofocus_scan=True, requester=trigger_source)
+                self._cleanup_at_end_of_protocol(autofocus_scan=True, run=my_run)
                 return
 
             if not self._is_protocol_valid():
@@ -1831,7 +1835,7 @@ class ProtocolSettings(FloatLayout):
                     ),
                 )
                 commit_ui_state()
-                sequenced_capture_runner.start(plan)
+                self._runs_started_here[trigger_source] = sequenced_capture_runner.start(plan)
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
@@ -1953,26 +1957,25 @@ class ProtocolSettings(FloatLayout):
             run_refused_func()
             return
 
-        run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
         # Abort BEFORE validity: the abort click must never be refused by
         # a validation failure (a mid-run unwritable save folder would
         # otherwise block the user's own Stop).
-        # The ownership term is not redundant with the toggle read: this
+        # The live-run term is not redundant with the toggle read: this
         # button resets itself to 'normal' between scans of a multi-scan
         # run (the scan_iterate_post callback), and Kivy flips a toggle at
         # touch-down, so the user's own Stop can arrive reading 'down'.
         # Keyed on state alone it fell through and came back "already
         # running" -- a Stop button refusing to stop.
+        my_run = self._runs_started_here.get(trigger_source)
         if self.ids['run_scan_btn'].state == 'normal' or (
-            sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+            sequenced_capture_runner.is_live_run(my_run)
         ):
             gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             # Hardware teardown finishes on the protocol thread; the scan
             # run-complete callback resets this label when it ends.
             self.ids['run_scan_btn'].text = 'Stopping...'
-            self._cleanup_at_end_of_protocol(autofocus_scan=False, requester=trigger_source)
+            self._cleanup_at_end_of_protocol(autofocus_scan=False, run=my_run)
             return
 
         if not self._is_protocol_valid():
@@ -2182,22 +2185,21 @@ class ProtocolSettings(FloatLayout):
                 run_refused_func()
                 return
 
-            run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
             # Abort BEFORE validity: the abort click must never be refused
             # by a validation failure (a mid-run unwritable save folder
             # would otherwise block the user's own Stop).
-            # Same ownership term as the scan starter above, for the same
+            # Same live-run term as the scan starter above, for the same
             # reason: a mid-run button reset plus Kivy's touch-down flip
             # lets the user's own Stop arrive reading 'down'.
+            my_run = self._runs_started_here.get(trigger_source)
             if self.ids['run_protocol_btn'].state == 'normal' or (
-                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
+                sequenced_capture_runner.is_live_run(my_run)
             ):
                 gui_logger.protocol_action('ABORT_PROTOCOL')
                 # Hardware teardown finishes on the protocol thread; the
                 # protocol run-complete callback resets this label.
                 self.ids['run_protocol_btn'].text = 'Stopping...'
-                self._cleanup_at_end_of_protocol(autofocus_scan=False, requester=trigger_source)
+                self._cleanup_at_end_of_protocol(autofocus_scan=False, run=my_run)
                 return
 
             if not self._is_protocol_valid():
@@ -2394,7 +2396,7 @@ class ProtocolSettings(FloatLayout):
         )
         if commit_ui_state is not None:
             commit_ui_state()
-        sequenced_capture_runner.start(plan)
+        self._runs_started_here[run_trigger_source] = sequenced_capture_runner.start(plan)
 
         # A start() that failed during setup unwound as a failed run: it
         # nulled run_dir (set_last_save_folder no-ops on None) and cleared
@@ -2411,14 +2413,14 @@ class ProtocolSettings(FloatLayout):
             )
 
     def _cleanup_at_end_of_protocol(
-        self, autofocus_scan: bool, requester: str | None = None, force: bool = False
+        self, autofocus_scan: bool, run: PendingRunOutcome | None = None, force: bool = False
     ):
-        """Unwind the run this starter owns, or -- with ``force`` -- whoever's.
+        """Stop *run*, the one this button started, or -- with ``force`` -- the live one.
 
-        ``force`` is app close, which owns no run and would otherwise be
-        refused by the engine's owner check. It stays a flag on the one
-        teardown path rather than a second path, so there is still exactly
-        one place the UI unwinds a run.
+        ``force`` is app close, which names no run and would otherwise be
+        refused by the engine. It stays a flag on the one teardown path
+        rather than a second path, so there is still exactly one place the
+        UI unwinds a run.
         """
         ctx = _app_ctx.ctx
         deferred_to_cleanup = False
@@ -2429,15 +2431,16 @@ class ProtocolSettings(FloatLayout):
             # unwinding, so reset() returns immediately and the hardware
             # teardown (LED off, camera restore, return-to-position) runs
             # on the protocol thread. The post-completion flavor (run
-            # already finished; reset() is a light no-op) keeps the
+            # already finished; reset() raises RunAlreadyEndedError, which
+            # the boundary reads as nothing left running) keeps the
             # synchronous restore below.
             deferred_to_cleanup = sequenced_capture_runner.run_in_progress()
             if force:
                 sequenced_capture_runner.force_reset(reason='app shutdown')
-            elif not reset_with_refusal_boundary(sequenced_capture_runner, requester=requester):
-                # The engine refused: this starter does not own the live
-                # run, and the refusal has already been logged and
-                # notified once. Nothing is unwinding, so the deferred
+            elif not reset_with_refusal_boundary(sequenced_capture_runner, run):
+                # The engine refused: another run is live, and the refusal
+                # has already been logged and notified once. Nothing is
+                # unwinding, so the deferred
                 # branch below would wait for run-complete callbacks that
                 # will never fire and leave the button reading
                 # "Stopping..." for a stop that did not happen. Clearing

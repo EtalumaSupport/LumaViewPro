@@ -160,7 +160,8 @@ class TestTheCasesThatMustNotBeRefused:
         plan = _prepare(executor, tmp_path, tmp_path / 'live' / 'Manual' / 'Z-Stacks')
 
         assert plan is not None
-        executor.reset(requester='zstack')
+        # prepare() commits nothing: there is no run to stop afterwards.
+        assert not executor.run_in_progress()
 
     @needs_posix_permissions
     def test_a_run_that_saves_nowhere_is_not_refused(self, executor, tmp_path):
@@ -185,7 +186,8 @@ class TestTheCasesThatMustNotBeRefused:
             read_only.chmod(0o700)
 
         assert plan is not None, 'a run with nowhere to save has no save location to refuse'
-        executor.reset(requester='autofocus_scan')
+        # prepare() commits nothing: there is no run to stop afterwards.
+        assert not executor.run_in_progress()
 
 
 class TestThePredicateDoesNotWrite:

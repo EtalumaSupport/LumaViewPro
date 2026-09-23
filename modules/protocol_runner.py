@@ -227,11 +227,9 @@ class ProtocolRunner:
             parent_dir: Parent directory for output (defaults to
                 settings['live_folder']/ProtocolData).
             callbacks: Optional dict of callback functions.
-            run_trigger_source: Provenance recorded on the run. A parameter
-                rather than a constant because the rival-run check compares
-                it: were a GUI click to record the API's token, a click
-                during an API composite would read as that run's own and
-                abort the API caller instead of being refused.
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so a GUI click records its own token rather
+                than the API's.
             engineering_mode: Whether the run stamps the turret position
                 into its filenames. A GUI caller passes its live flag, which
                 a plugin may have flipped after the session was built; None
@@ -681,6 +679,14 @@ class ProtocolRunner:
         run holds it."""
         return self._executor.run_trigger_source()
 
+    def run_outcome(self) -> PendingRunOutcome | None:
+        """The live or last run's handle -- what abort() names to stop it."""
+        return self._executor.run_outcome()
+
+    def is_live_run(self, run: PendingRunOutcome | None) -> bool:
+        """Whether *run*, a handle a run call returned, is the live run."""
+        return self._executor.is_live_run(run)
+
     def remaining_scans(self) -> int:
         return self._executor.remaining_scans()
 
@@ -726,22 +732,23 @@ class ProtocolRunner:
         caller about to start something else."""
         return self._executor.wait_for_run_idle(timeout_s)
 
-    def abort(self, requester: str) -> None:
-        """Abort the current run.
+    def abort(self, run: PendingRunOutcome | None) -> None:
+        """Abort *run*, the handle a run call returned.
 
-        ``requester`` is the caller's run_trigger_source. The owner check
-        lives in the engine, so an abort from a caller that does not own
-        the run raises out of reset() below -- ahead of every side effect
-        here, because a refused abort must leave the protocol thread
-        running and its waiters waiting. Ordering is the guard: the
-        thread signal is unconditional once reset() has returned.
+        Anyone may stop the live run. A handle naming a run that has ended
+        raises out of reset() below -- RunAlreadyEndedError when nothing is
+        live, the 'run_not_live' refusal when another run is -- ahead of
+        every side effect here, because a
+        refused abort must leave the protocol thread running and its
+        waiters waiting. Ordering is the guard: the thread signal is
+        unconditional once reset() has returned.
 
         Waiters are NOT released here. The run's outcome settles inside
         cleanup's finally, so a caller that wakes from
         wait_for_completion knows the teardown happened rather than only
         that someone asked for it.
         """
-        self._executor.reset(requester=requester)
+        self._executor.reset(run)
         self._protocol_thread.abort()
 
     def wait_for_completion(self, timeout: float | None = None) -> RunOutcome | None:

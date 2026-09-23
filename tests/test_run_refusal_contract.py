@@ -604,9 +604,10 @@ RUNNER_REFUSAL_COVERAGE = {
     # all -- a composite the merge could not produce is refused where the
     # channel count is known.
     'composite_needs_two_channels': ('tests/test_composite_run_config.py::TestTwoChannelFloor'),
-    # Raised at reset(), not prepare(): it refuses a TEARDOWN rather than a
-    # start, so there is no plan to drive and it cannot ride the loop.
-    'not_run_owner': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
+    # Raised at reset(), not prepare(): it refuses a STOP naming a run
+    # that has ended while another is live, so there is no plan to drive
+    # and it cannot ride the loop.
+    'run_not_live': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
     # Raised by the protocol BUILDER, before prepare() is reached at all:
     # a stack cannot be built from a range of zero, so there is no plan to
     # drive it with. The builder does its own log-notify-raise, and that

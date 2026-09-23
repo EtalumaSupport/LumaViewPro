@@ -11,14 +11,14 @@ on screen when it renders ``str(e)``.
 So any UI handler that can catch a refusal must render the refusal's own
 title and message, or -- where the engine's funnel has already notified
 -- render nothing at all. What it must never do is hand the user the
-joined form, because that is a dialog reading "not_run_owner: A protocol
-run is using the microscope" over a title of "Error".
+joined form, because that is a dialog reading "run_not_live: That run
+has already ended" over a title of "Error".
 
 Two paths can do that today:
 
-- **The z-stack teardown.** ``_cleanup_at_end_of_acquire`` calls
-  ``reset(requester='zstack')`` bare, and a teardown the engine refuses
-  (reason ``not_run_owner``) unwinds into the starter's blanket handler.
+- **The z-stack teardown.** ``_cleanup_at_end_of_acquire`` once called
+  the engine's ``reset()`` bare, and a teardown the engine refuses
+  (reason ``run_not_live``) unwound into the starter's blanket handler.
   Its three siblings each already handle this -- the protocol starter
   with a typed ``except``, the standalone autofocus by routing the reset
   through an IOTask with ``silent_on_failure=True``.
@@ -57,15 +57,16 @@ import ui.notification_popup as notification_popup
 import ui.protocol_settings as ps
 import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
+from modules.run_outcome import PendingRunOutcome
 
 
-# The refusal the engine raises when a teardown is requested by someone
-# who does not own the live run -- the case that reaches the z-stack
-# handler. Its words are the engine's; only the joined form is the bug.
-NOT_RUN_OWNER = ProtocolRunRefusedError(
-    reason='not_run_owner',
-    title='Run In Progress',
-    message='A protocol run is using the microscope.',
+# The refusal the engine raises when a stop names a run that has ended
+# while another run is live -- the case that reaches the z-stack handler.
+# Its words are the engine's; only the joined form is the bug.
+RUN_NOT_LIVE = ProtocolRunRefusedError(
+    reason='run_not_live',
+    title='Run Already Ended',
+    message='That run has already ended. A protocol run is using the microscope now.',
 )
 
 
@@ -79,11 +80,13 @@ class _ZStackStarter(zs.ZStack):
 
     def __init__(self):
         # 'down' is what a first click leaves behind. The stop branch is
-        # reached by ownership, not by this, but a button reading 'normal'
-        # would take the same branch for the wrong reason and the test
-        # would pass without exercising the teardown at all.
+        # reached because this button's own run is live, not by this, but a
+        # button reading 'normal' would take the same branch for the wrong
+        # reason and the test would pass without exercising the teardown.
         self.button = SimpleNamespace(state='down', text='Running Z-Stack')
         self.ids = {'zstack_aqr_btn': self.button}
+        # The handle this button's start returned.
+        self._zstack_run = PendingRunOutcome()
 
 
 @pytest.fixture
@@ -98,16 +101,19 @@ def popups(monkeypatch):
 
 @pytest.fixture
 def refusing_runner():
-    """A runner holding a live z-stack whose teardown it refuses.
+    """A runner whose live run is the z-stack's at the click, and whose
+    teardown it then refuses.
 
-    Owned-by-zstack is what routes the click to the teardown; the refusal
-    is what the widget then has to render. The two together are the real
-    sequence -- a run whose owner changed between the click and the reset.
+    This button's run being live is what routes the click to the teardown;
+    the refusal is what the widget then has to render. The two together
+    are the real sequence -- the z-stack ended and another run started
+    between the click and the reset.
     """
     runner = MagicMock()
     runner.run_in_progress.return_value = True
     runner.run_trigger_source.return_value = 'zstack'
-    runner.reset.side_effect = NOT_RUN_OWNER
+    runner.is_live_run.side_effect = lambda run: isinstance(run, PendingRunOutcome)
+    runner.reset.side_effect = RUN_NOT_LIVE
     return runner
 
 
@@ -138,6 +144,7 @@ class TestARefusedZStackTeardown:
         assert app_ctx.reset.called, (
             'the click never reached the teardown -- the test is not exercising the refusal'
         )
+        app_ctx.reset.assert_called_with(starter._zstack_run)
         assert [p for p in popups if p.get('title') == 'Error'] == [], (
             'a refused teardown is a designed outcome the engine already reported; '
             f'it must not surface as an Error dialog. Popups: {popups}'
@@ -149,7 +156,7 @@ class TestARefusedZStackTeardown:
         starter.run_zstack_acquire_from_ui()
 
         for popup in popups:
-            assert 'not_run_owner' not in str(popup.get('message', '')), (
+            assert 'run_not_live' not in str(popup.get('message', '')), (
                 'the reason code is for a REST or SDK caller to branch on; '
                 f'the user gets the sentence. Popup: {popup}'
             )

@@ -1,6 +1,7 @@
 """Probe 09 -- stop a running protocol from a script (the Stop half of the
-run buttons: ui/protocol_settings.py:2500 _cleanup_at_end_of_protocol ->
-reset(requester), ui/zstack.py:134 likewise)."""
+run buttons: ui/protocol_settings.py _cleanup_at_end_of_protocol ->
+reset(run), ui/zstack.py likewise). A stop names the run by the handle its
+call returned."""
 
 import datetime
 import time
@@ -11,6 +12,7 @@ session, live = make_session('abort', home=True)
 try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
+    from modules.run_outcome import PendingRunOutcome
 
     settings = session.settings
     runner = ProtocolRunner(session)
@@ -37,16 +39,17 @@ try:
     )
     time.sleep(3)
     print('is_running:', runner.is_running(), '| trigger:', runner.run_trigger_source())
+    print('is_live_run(out):', runner.is_live_run(out))
 
-    banner('a NON-owner reset must be refused')
+    banner('a stop naming a run that is not the live one must be refused')
     try:
-        runner.abort(requester='zstack')
+        runner.abort(PendingRunOutcome())
         print('NOT REFUSED (FAIL)')
     except Exception as e:
-        print(f'refused: {type(e).__name__}: {e}')
+        print(f'refused: {type(e).__name__}: {getattr(e, "reason", "")}: {e}')
 
-    banner('the owner stops it')
-    runner.abort(requester='api_protocol')
+    banner('the run is stopped by its own handle')
+    runner.abort(out)
     s = out.wait(timeout_s=120)
     print('status:', s.status, s.reason)
     print('idle  :', runner.wait_for_run_idle(timeout_s=60))

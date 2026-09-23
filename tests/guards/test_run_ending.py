@@ -19,7 +19,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
-from modules.run_outcome import EndingLatch, RunEnding
+from modules.exceptions import RunAlreadyEndedError
+from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
 
 MODULES = REPO_ROOT / 'modules'
@@ -219,43 +220,49 @@ def _stop_stub(trigger='test', signals_inline_cleanup=False):
     import modules.sequenced_capture_runner as scr
 
     cleaned = []
-    return (
-        scr,
-        SimpleNamespace(
-            _run_lock=threading.RLock(),
-            _is_run_live=lambda: True,
-            _run_trigger_source=trigger,
-            _ending=EndingLatch(),
-            _signal_abort_locked=lambda: signals_inline_cleanup,
-            _cleanup=cleaned.append,
-            LOGGER_NAME='TEST',
-        ),
-        cleaned,
+    stub = SimpleNamespace(
+        _run_lock=threading.RLock(),
+        _is_run_live=lambda: True,
+        _run_trigger_source=trigger,
+        # The handle start() returned for the live run, which a stop names.
+        _run_outcome=PendingRunOutcome(),
+        _ending=EndingLatch(),
+        _signal_abort_locked=lambda: signals_inline_cleanup,
+        _cleanup=cleaned.append,
+        LOGGER_NAME='TEST',
     )
+    # The runner's own liveness answer, so the stub cannot disagree with it.
+    stub.run_outcome = lambda: scr.SequencedCaptureRunner.run_outcome(stub)
+    stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
+    return scr, stub, cleaned
 
 
-class TestTheRunnerRecordsWhoStoppedIt:
-    def test_a_stop_records_its_requester(self):
+class TestTheRunnerRecordsTheStop:
+    def test_a_stop_records_that_the_run_was_stopped(self):
+        """A stop names the run, not the caller, so the ending records that
+        the run was stopped and nothing about who asked."""
         scr, stub, _cleaned = _stop_stub()
-        scr.SequencedCaptureRunner.reset(stub, 'test')
+        scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
 
         ending = stub._ending.get()
-        assert (ending.status, ending.reason) == ('aborted', 'stopped')
-        assert 'test' in ending.message, (
-            f'the ending must name who stopped the run; got {ending.message!r}'
+        assert (ending.status, ending.reason, ending.message) == (
+            'aborted',
+            'stopped',
+            'Stopped',
         )
 
     def test_a_stop_with_nothing_to_stop_records_nothing(self):
-        """A no-op Stop ended no run, so it must leave no reason behind for
-        the NEXT run to report as its own."""
+        """A Stop that finds its run already ended ended no run, so it must
+        leave no reason behind for the NEXT run to report as its own."""
         scr, stub, _ = _stop_stub()
         stub._is_run_live = lambda: False
-        scr.SequencedCaptureRunner.reset(stub, 'test')
+        with pytest.raises(RunAlreadyEndedError):
+            scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
         assert stub._ending.get() is None
 
     def test_the_inline_cleanup_gets_the_same_record(self):
         scr, stub, cleaned = _stop_stub(signals_inline_cleanup=True)
-        scr.SequencedCaptureRunner.reset(stub, 'test')
+        scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
         assert len(cleaned) == 1
         assert cleaned[0] is stub._ending.get(), (
             'cleanup was handed a different object than the one recorded, so '

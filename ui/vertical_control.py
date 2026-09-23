@@ -19,6 +19,7 @@ from modules.config_ui_getters import (
 )
 from modules.debounce import debounce
 from modules.exceptions import ObjectiveUnknownError
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import PRIORITY_HIGH, IOTask
 from modules.tiling_config import TilingConfig
@@ -58,6 +59,9 @@ class VerticalControl(BoxLayout):
         self.record_autofocus_to_file = False
         self._next_pos = None
         self._af_safety_event = None
+        # The handle this button's last start returned: what its Stop and
+        # its stuck-AF bound name. The engine answers whether it is live.
+        self._autofocus_run: PendingRunOutcome | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -386,14 +390,14 @@ class VerticalControl(BoxLayout):
         ctx.worker_pool.put(
             IOTask(
                 # Through the boundary, which returns the outcome instead
-                # of raising: a teardown this button does not own is
-                # refused, and the callback below must still run to put
+                # of raising: a stop naming a run that is not the live one
+                # is refused, and the callback below must still run to put
                 # the button back -- a refused stop is not a stop, and a
                 # button left mid-stop is dead until the process ends.
                 action=functools.partial(
                     reset_with_refusal_boundary,
                     ctx.sequenced_capture_runner,
-                    requester='autofocus',
+                    self._autofocus_run,
                 ),
                 callback=self._reset_run_autofocus_button,
                 # The engine logs and notifies a refusal exactly once.
@@ -425,7 +429,7 @@ class VerticalControl(BoxLayout):
             # Key on this button's own run, not on the AF thread being
             # busy: a rival run's AF step in flight when a stale timer
             # fires must stay out of reach.
-            if runner.run_in_progress() and runner.run_trigger_source() == 'autofocus':
+            if runner.is_live_run(self._autofocus_run):
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
                 self._cleanup_at_end_of_autofocus()
 
@@ -483,7 +487,6 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             trigger_source = 'autofocus'
             runner = ctx.sequenced_capture_runner
-            run_trigger_source = runner.run_trigger_source()
 
             # A click during someone else's run falls through to the stop
             # branch below and the engine refuses the teardown, naming the
@@ -492,12 +495,12 @@ class VerticalControl(BoxLayout):
             # so it is the engine's to give.
 
             # Stop click: the toggle is back to 'normal', or re-clicked
-            # while this button's own run is live. The ownership term is
+            # while this button's own run is live. The live-run term is
             # load-bearing -- a run callback can reset this button to
             # 'normal' mid-run, and Kivy flips a toggle at touch-down, so
             # the user's own Stop can arrive reading 'down'.
-            if self.ids['autofocus_id'].state == 'normal' or (
-                runner.run_in_progress() and run_trigger_source == trigger_source
+            if self.ids['autofocus_id'].state == 'normal' or runner.is_live_run(
+                self._autofocus_run
             ):
                 self._cleanup_at_end_of_autofocus()
                 return
@@ -617,14 +620,13 @@ class VerticalControl(BoxLayout):
                         settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
                     ),
                 )
-                runner.start(plan)
+                self._autofocus_run = runner.start(plan)
                 # Armed by the run it bounds, never before it. Arming
                 # ahead of prepare() outlived every exit between the arm
                 # and a committed run -- a refusal, a raise out of the
                 # builder, anything the blanket handler below catches --
-                # and the bound cannot tell those apart: it fires on the
-                # trigger source alone, so a click that started nothing
-                # reached forward and aborted the next autofocus that did.
+                # and a click that started nothing reached forward and
+                # aborted the next autofocus that did.
                 self._schedule_af_safety_timer()
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)

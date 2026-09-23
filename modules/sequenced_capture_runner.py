@@ -28,6 +28,7 @@ from modules.activity_claim import ActivityClaim, ActivityHolder, HeldClaim
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     ProtocolRunRefusedError,
+    RunAlreadyEndedError,
     RunStartError,
     describe_unknown_positions,
 )
@@ -479,14 +480,16 @@ class SequencedCaptureRunner:
 
         return True
 
-    def reset(self, requester: str) -> None:
-        """Unwind the run this caller owns. Non-blocking for the caller.
+    def reset(self, run: 'PendingRunOutcome | None') -> None:
+        """Stop *run*, the object its start() returned. Non-blocking for the caller.
 
-        ``requester`` is the caller's run_trigger_source, required rather
-        than defaulted: a default would let a new call site tear a run
-        down without ever saying who it was, which is the hole a stale UI
-        toggle used to destroy a scan it never started. A caller that
-        does not own the live run is refused and the run keeps going.
+        Anyone may stop the live run, and the stop names the run rather
+        than the caller: who asks is self-declared and protects nothing,
+        while a stale toggle naming an OLD run is the hole that once
+        destroyed a scan it never started. A stop naming a run that is not
+        the live one never touches the live one: while another run is live
+        it is refused (logged and notified); when nothing is live it is a
+        Stop that arrived after its run ended, raised but not notified.
 
         Hardware cleanup (queued LED-off, camera restore, multi-second
         return-to-position moves) runs on the protocol thread via the run
@@ -497,33 +500,31 @@ class SequencedCaptureRunner:
         finish (app shutdown) use wait_for_run_idle().
 
         Raises:
-            ProtocolRunRefusedError: reason 'not_run_owner' -- a
-                different trigger owns the live run. Logged and notified
-                once before it is raised, like every other refusal.
+            RunAlreadyEndedError: no run is live.
+            ProtocolRunRefusedError: reason 'run_not_live' -- another run
+                is live and *run* is not it.
         """
         with self._run_lock:
-            # No live run means no owner to be wrong about: a stop with
-            # nothing to stop is a no-op, never a refusal.
             if not self._is_run_live():
-                return
-
-            holder = self._run_trigger_source
-            if requester != holder:
+                logger.info(f'[{self.LOGGER_NAME}] Stop of a run that has ended: no run is live')
+                raise RunAlreadyEndedError('That run has already ended; no run is live.')
+            if not self._is_live_run_locked(run):
+                holder = self._run_trigger_source
                 self._refuse(
-                    reason='not_run_owner',
-                    title='Run In Progress',
+                    reason='run_not_live',
+                    title='Run Already Ended',
                     message=(
-                        f'{self._the_run_holding_the_scope(holder)} is using the microscope. '
-                        'Stop it from the control that started it, or let it finish.'
+                        f'That run has already ended. {self._the_run_holding_the_scope(holder)} '
+                        'is using the microscope now; stop it from its own control.'
                     ),
                     holder='protocol',
                     holder_trigger=holder,
                 )
 
-            # Recorded only past the guards above: a Stop that was refused
-            # or had nothing to stop ended no run, and must not leave a
-            # reason behind for the next one to report.
-            ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', f'Stopped by {requester}')
+            # Recorded only past the guard above: a Stop that was refused
+            # ended no run, and must not leave a reason behind for the next
+            # one to report.
+            ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
             self._ending.set_if_unset(ending)
             needs_inline_cleanup = self._signal_abort_locked()
 
@@ -531,13 +532,13 @@ class SequencedCaptureRunner:
             self._cleanup(ending)
 
     def force_reset(self, reason: str) -> None:
-        """Unwind the live run whoever owns it -- app shutdown only.
+        """Unwind the live run without naming it -- app shutdown only.
 
-        Exists so the shutdown path does not have to impersonate the
-        run's owner to get past reset()'s guard. A named method rather
-        than a privileged requester string: a string meaning "skip the
-        check" is guessable by callers that should not have it, and
-        invisible to a grep for the override's users.
+        Exists because the shutdown path holds no run's handle and must
+        stop whatever is live. A named method rather than a special
+        handle value: a value meaning "whatever is live" would be
+        reachable by callers that should not have it, and invisible to a
+        grep for the override's users.
         """
         with self._run_lock:
             if not self._is_run_live():
@@ -1581,6 +1582,18 @@ class SequencedCaptureRunner:
     def run_outcome(self) -> 'PendingRunOutcome | None':
         """This run's outcome, or None when no run has started."""
         return getattr(self, '_run_outcome', None)
+
+    def is_live_run(self, run: 'PendingRunOutcome | None') -> bool:
+        """Whether *run* -- the object a start() returned -- is the live run.
+
+        What a stop control asks to decide that a click means Stop: the
+        answer is the engine's, so a widget never compares triggers.
+        """
+        with self._run_lock:
+            return self._is_live_run_locked(run)
+
+    def _is_live_run_locked(self, run: 'PendingRunOutcome | None') -> bool:
+        return run is not None and run is self.run_outcome() and self._is_run_live()
 
     def _release_activity_claim(self):
         """Release the run's exclusivity claim (idempotent).

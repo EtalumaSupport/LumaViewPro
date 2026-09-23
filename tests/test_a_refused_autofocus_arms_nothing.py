@@ -10,9 +10,10 @@ outlives every exit between the arm and a run actually starting -- the
 engine's refusal, a raise out of the protocol builder, anything the
 starter's blanket handler catches. The timer then sits live for 15
 seconds with no run of its own, and its predicate cannot tell the
-difference: it fires on ``run_trigger_source() == 'autofocus'``, so the
-next standalone autofocus the user starts inside that window is the run
-it force-aborts. A click that was refused would be reaching forward to
+difference: it asks whether the button's run handle is live, reading the
+handle when it fires -- and by then the button holds the handle of the
+next standalone autofocus the user started inside that window, which is
+the run it force-aborts. A click that was refused would be reaching forward to
 kill the click that was not.
 
 So the bound is armed by the run it bounds: after ``start(plan)``
@@ -65,6 +66,8 @@ def _starter(arm_log):
     """
     return SimpleNamespace(
         ids={'autofocus_id': SimpleNamespace(state='down', text='Autofocus')},
+        # The handle the button's last start returned; none yet.
+        _autofocus_run=None,
         _schedule_af_safety_timer=lambda: arm_log.append('armed'),
         _unschedule_af_safety_timer=lambda: arm_log.append('disarmed'),
         _set_run_autofocus_button=lambda: None,
@@ -80,6 +83,7 @@ def runner():
     r = MagicMock()
     r.run_in_progress.return_value = False
     r.run_trigger_source.return_value = None
+    r.is_live_run.return_value = False
     return r
 
 

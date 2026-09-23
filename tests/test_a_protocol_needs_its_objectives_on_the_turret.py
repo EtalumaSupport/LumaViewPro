@@ -285,7 +285,8 @@ class TestTheEngineRefuses:
         plan = _prepare(executor, _protocol(ON_TURRET, NOT_ON_TURRET), tmp_path)
 
         assert plan is not None
-        executor.reset(requester='scan')
+        # prepare() commits nothing: there is no run to stop afterwards.
+        assert not executor.run_in_progress()
 
 
 class TestAnObjectiveThatDoesNotExistIsNotATurretProblem:
@@ -335,7 +336,8 @@ class TestTheCasesThatMustNotChange:
         plan = _prepare(executor, _protocol(ON_TURRET), tmp_path)
 
         assert plan is not None
-        executor.reset(requester='scan')
+        # prepare() commits nothing: there is no run to stop afterwards.
+        assert not executor.run_in_progress()
 
     def test_a_single_objective_protocol_runs_on_a_turretless_scope(
         self, executor, scope, monkeypatch, tmp_path
@@ -346,4 +348,5 @@ class TestTheCasesThatMustNotChange:
         plan = _prepare(executor, _protocol(ON_TURRET), tmp_path)
 
         assert plan is not None
-        executor.reset(requester='scan')
+        # prepare() commits nothing: there is no run to stop afterwards.
+        assert not executor.run_in_progress()

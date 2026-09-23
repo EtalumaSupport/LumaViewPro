@@ -246,17 +246,17 @@ class TestStandaloneAfLockout:
                     if isinstance(sub.func, ast.Attribute)
                     else getattr(sub.func, 'id', '')
                 )
-                if name in ('run_in_progress', 'require_file_writes_idle', 'prepare'):
+                if name in ('is_live_run', 'require_file_writes_idle', 'prepare'):
                     first_line.setdefault(name, sub.lineno)
         assert (
             0
-            < first_line.get('run_in_progress', 0)
+            < first_line.get('is_live_run', 0)
             < first_line.get('require_file_writes_idle', 0)
             < first_line.get('prepare', 0)
         ), (
-            'the rival-run and files-idle gates must run before the '
-            'engine prepare; a cosmetics commit before a refusal shows '
-            'a mid-run button for a run that never started'
+            'the own-run stop gate and the files-idle gate must run before '
+            'the engine prepare; a cosmetics commit before a refusal shows '
+            f'a mid-run button for a run that never started. Found: {first_line}'
         )
 
 

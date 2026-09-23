@@ -42,6 +42,7 @@ import modules.app_context as _app_ctx
 from modules.exceptions import ProtocolRunRefusedError
 from tests.scope_fakes import spec_scope
 import ui.composite_capture as cc
+import ui.ui_helpers as ui_helpers
 
 
 class _Starter(cc.CompositeCapture):
@@ -65,11 +66,20 @@ def runner():
     r = MagicMock()
     r.is_running.return_value = False
     r.run_trigger_source.return_value = None
+    # Nothing is live, so no handle is the live run -- what the real
+    # runner answers before any run starts.
+    r.is_live_run.return_value = False
     return r
 
 
 @pytest.fixture
-def app_ctx(runner, tmp_path):
+def engine():
+    """The session's sequenced-capture engine, which a Stop is handed to."""
+    return MagicMock()
+
+
+@pytest.fixture
+def app_ctx(runner, engine, tmp_path):
     saved = getattr(_app_ctx, 'ctx', None)
     scope = spec_scope(camera_connected=True)
     scope.imaging.active_cached = True
@@ -80,6 +90,7 @@ def app_ctx(runner, tmp_path):
         session=session,
         settings={'live_folder': str(tmp_path)},
         worker_pool=MagicMock(),
+        sequenced_capture_runner=engine,
         ui_listener_bridge=MagicMock(),
         # The starter hands the context's live flag to the run; production's
         # context always carries it.
@@ -183,6 +194,9 @@ def test_a_started_run_holds_the_guard_until_it_completes(app_ctx, runner):
         'rival composite instead of stopping this one'
     )
     assert starter.button.state == 'down', 'the button stays actionable during its own run'
+    assert starter._composite_run is runner.start_composite.return_value, (
+        'the button must keep the handle its start returned: it is what its Stop names'
+    )
 
 
 def test_completion_hands_the_led_buttons_back_to_the_hardware(app_ctx):
@@ -199,36 +213,45 @@ def test_completion_hands_the_led_buttons_back_to_the_hardware(app_ctx):
     assert starter.button.state == 'normal'
 
 
-def test_a_second_click_on_a_live_composite_stops_it(app_ctx, runner):
+def test_a_second_click_on_a_live_composite_stops_it(app_ctx, runner, engine):
     # The stop must not queue behind ordinary pool work: the pool runs one
     # worker, so a stop that waited its turn would not arrive until the
     # thing the user is interrupting had already finished.
+    from modules.run_outcome import PendingRunOutcome
     from modules.sequential_io_executor import PRIORITY_HIGH
 
+    starter = _Starter()
+    starter._composite_run = PendingRunOutcome()
     runner.is_running.return_value = True
     runner.run_trigger_source.return_value = 'composite'
-    starter = _Starter()
+    runner.is_live_run.side_effect = lambda run: run is starter._composite_run
 
     _click(starter)
 
     assert app_ctx.worker_pool.put.called, 'the stop must be dispatched'
     task = app_ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH
-    # The stop names its requester, so the engine can tell this starter's
-    # own run from a rival's; the action is that binding, not the bare method.
-    assert task.action.func == runner.abort
-    assert task.action.keywords == {'requester': 'composite'}
+    # The stop names the run this starter's own start returned, so the
+    # engine can tell it from a rival's; and it goes through the refusal
+    # boundary like every run control's Stop, not the bare method.
+    assert task.action.func is ui_helpers.reset_with_refusal_boundary
+    assert task.action.args == (engine, starter._composite_run)
+    assert task.action.keywords == {}
     runner.start_composite.assert_not_called()
 
 
 def test_a_click_during_someone_elses_run_is_not_an_abort(app_ctx, runner):
     # A rival run is the engine's to refuse. Treating this as a second click
     # would let the composite button stop a scan it never started.
+    starter = _Starter()
     runner.is_running.return_value = True
     runner.run_trigger_source.return_value = 'protocol'
-    starter = _Starter()
+    # The live run is the rival's, so the handle this button holds (none:
+    # it started nothing) is not the live run.
+    runner.is_live_run.side_effect = lambda run: False
 
     _click(starter)
 
+    runner.is_live_run.assert_called_with(None)
     assert not app_ctx.worker_pool.put.called, 'a rival run must not be aborted from here'
     runner.start_composite.assert_called_once()
