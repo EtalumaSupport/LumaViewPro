@@ -32,7 +32,7 @@ from modules.lumascope_api.illumination import (
 class LedSubstream:
     """Thread-safe recorder of the LED-only command substream.
 
-    Records (color, enabled, mA, owner) for every driver command, in order.
+    Records (color, enabled, mA) for every driver command, in order.
     Mirrors the recorder in test_led_lifecycle_sequence.py.
     """
 
@@ -40,9 +40,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, illumination_ma, owner) -> None:
+    def __call__(self, color, enabled, illumination_ma) -> None:
         with self._lock:
-            self._events.append((color, bool(enabled), illumination_ma, owner))
+            self._events.append((color, bool(enabled), illumination_ma))
 
     @property
     def events(self) -> list[tuple]:
@@ -50,11 +50,11 @@ class LedSubstream:
             return list(self._events)
 
     def on_events(self) -> list[tuple]:
-        return [(c, m) for c, e, m, _o in self.events if e]
+        return [(c, m) for c, e, m in self.events if e]
 
     def transitions(self, color: str) -> list[bool]:
         out: list[bool] = []
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if c != color:
                 continue
             if not out or out[-1] != e:
@@ -69,7 +69,7 @@ class LedSubstream:
 
     def final_lit(self) -> set:
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -84,7 +84,7 @@ class LedSubstream:
         channel before extinguishing the old would fail here but pass final_lit).
         """
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -94,9 +94,7 @@ class LedSubstream:
         return True
 
     def render(self) -> str:
-        lines = [
-            f'  {"ON " if e else "OFF"} {c:<6} mA={m} owner={o!r}' for c, e, m, o in self.events
-        ]
+        lines = [f'  {"ON " if e else "OFF"} {c:<6} mA={m}' for c, e, m in self.events]
         return '\n'.join(lines) if lines else '  (no LED events)'
 
 
@@ -469,7 +467,7 @@ def test_apply_run_end_return_to_original_relights_snapshot(scope):
 def test_apply_on_released_lease_is_a_noop(scope):
     """A transition on an already-released lease drives no LED. A queued apply
     can outlive its run; acting then would light or off a channel out of turn
-    (worse, a new run may hold the lease under the same owner name)."""
+    (worse, a new run may hold a lease of the same purpose)."""
     ill = scope.illumination
     lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
@@ -501,15 +499,15 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     protocol.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
 
     # Autofocus takes a child and lights its own channel, then never releases
-    # (a wedged AF run) -- the child is left as the active top-of-stack owner.
+    # (a wedged AF run) -- the child is left as the active top-of-stack holder.
     child = protocol.acquire_child('autofocus', alive=lambda: True)
     child.apply(LedTransition.AF_ENTER, _ctx(scope, 'Red', RED_MA))
-    assert ill.led_lease_owner == 'autofocus'
+    assert ill.led_lease_purpose == 'autofocus'
 
     # The protocol parent ends the run. It reclaims the top from the orphaned
     # child, so the off-everything diff is permitted and actually lands.
     protocol.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
-    assert ill.led_lease_owner == 'protocol'
+    assert ill.led_lease_purpose == 'protocol'
     assert sub.final_lit() == set(), sub.render()
     assert not ill.get_led_state('Red')['enabled']
     assert not ill.get_led_state('Green')['enabled']

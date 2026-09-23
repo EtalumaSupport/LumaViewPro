@@ -831,21 +831,17 @@ scope.illumination.ch2color(0)                         # 'Blue'
 Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `get_led_states()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
 
 ```python
-scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'} when on; {'enabled': False, 'illumination_ma': None, 'owner': ''} when off
+scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200} when on; {'enabled': False, 'illumination_ma': None} when off
 scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
 ```
 
-### Ownership — prevents subsystems from clobbering each other
+### Exclusivity — a run holds the LEDs
 
-Tag each LED operation with a subsystem name. Only an owner can turn off a channel they own.
+LED writes carry no owner name: no string grants the right to drive an LED.
 
 ```python
-scope.illumination.led_on('BF', 200, owner='autofocus')
-
-scope.illumination.led_off('BF', owner='protocol')     # no-op — wrong owner
-scope.illumination.led_off('BF', owner='autofocus')    # works
-
-scope.illumination.leds_off_owned('autofocus')         # turn off only channels owned by this subsystem
+scope.illumination.led_on('BF', 200)
+scope.illumination.led_off('BF')
 scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
 ```
 
@@ -858,20 +854,20 @@ Preserve the user's LED state while a subsystem does its own work, then restore:
 ```python
 # User has Red on at 150 mA. Autofocus needs BF:
 snapshot = scope.illumination.save_led_state('autofocus')        # capture current state
-scope.illumination.led_on('BF', 100, owner='autofocus')
+scope.illumination.led_on('BF', 100)
 # ... autofocus runs: changes Z, captures frames, evaluates focus ...
-scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on at 150 mA, BF off
+scope.illumination.restore_led_state(snapshot)                   # Red back on at 150 mA, BF off
 ```
 
-`save_led_state(tag)` returns a snapshot dict; `restore_led_state(snapshot, owner='…')` reverts. The owner must match the subsystem that did the save.
+`save_led_state(tag)` returns a snapshot dict (the tag is for logs); `restore_led_state(snapshot)` turns off lit channels the snapshot does not have on and re-lights the ones it does. While a run holds the LEDs, the restore is refused like any other write.
 
 ### Listeners — push-based notifications
 
-Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change, ownership change) with no serial I/O cost:
+Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change) with no serial I/O cost:
 
 ```python
-def on_led(channel: str, enabled: bool, illumination_ma: float, owner: str):
-    print(f"{channel} {'ON' if enabled else 'OFF'} {illumination_ma}mA owner={owner!r}")
+def on_led(channel: str, enabled: bool, illumination_ma: float):
+    print(f"{channel} {'ON' if enabled else 'OFF'} {illumination_ma}mA")
 
 scope.illumination.add_led_listener(on_led)
 # ... later ...
@@ -1094,7 +1090,7 @@ snapshot = scope.imaging.save_camera_state('autofocus')
 scope.imaging.restore_camera_state(snapshot)
 ```
 
-Symmetric to the LED version, but `restore_camera_state` takes only the snapshot (no `owner` arg — camera state is single-owner by nature).
+Symmetric to the LED version, and like `restore_led_state`, `restore_camera_state` takes only the snapshot.
 
 The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_db` / `exposure_ms` only when a usable value existed at save time (a missing field means that value was never successfully read from the camera; `save_camera_state` logs a warning when it omits one). Use `.get(...)` rather than indexing if you read snapshot fields directly. `restore_camera_state` restores the fields present, quietly skips absent ones (callers may deliberately trim fields they want left at current values), and leaves the camera unchanged for anything it skips.
 
@@ -1138,7 +1134,7 @@ The six listener families each pass a different callback signature -- register a
 | Listener | Register via | Callback signature |
 |---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, target: float, state: str)` |
-| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float, owner: str)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) |

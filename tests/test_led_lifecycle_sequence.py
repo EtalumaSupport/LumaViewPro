@@ -11,7 +11,7 @@ This test builds that missing guard. It runs real protocol / autofocus /
 manual-nav paths on a real ``Lumascope(simulate=True)`` with real
 ``SequentialIOExecutor`` workers and asserts the **LED-only command substream**
 recorded by a driver listener. The substream is the sequence of
-``(color, enabled, mA, owner)`` events that actually reached the LED driver, in
+``(color, enabled, mA)`` events that actually reached the LED driver, in
 order. Because a no-op (a channel already at target) emits no driver command,
 the listener is a direct measure of "did the LED blink / hold / switch".
 
@@ -147,7 +147,7 @@ def _build_protocol(step_specs):
 class LedSubstream:
     """Thread-safe recorder of the LED-only command substream.
 
-    Records (color, enabled, mA, owner) for every driver command, in order.
+    Records (color, enabled, mA) for every driver command, in order.
     The listener fires from whichever worker thread issued the command, so the
     append is locked.
     """
@@ -156,9 +156,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, illumination_ma, owner):
+    def __call__(self, color, enabled, illumination_ma):
         with self._lock:
-            self._events.append((color, bool(enabled), illumination_ma, owner))
+            self._events.append((color, bool(enabled), illumination_ma))
 
     @property
     def events(self) -> list[tuple]:
@@ -169,10 +169,10 @@ class LedSubstream:
         """The enabled (True/False) sequence for one color, with consecutive
         duplicates collapsed. This is the migration-invariant view: it ignores
         whether an off was emitted as a per-channel command or as part of a
-        nuclear leds_off, and it ignores owner. A regression that fails to turn
+        nuclear leds_off. A regression that fails to turn
         a color off (or blinks it) still changes this sequence."""
         out: list[bool] = []
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if c != color:
                 continue
             if not out or out[-1] != e:
@@ -202,12 +202,12 @@ class LedSubstream:
         """(color, mA) for every ON command, in order -- the lit sequence.
         Never-lit channels and offs do not appear. mA is preserved because the
         authority migration preserves the (op, channel, mA) target stream."""
-        return [(c, m) for c, e, m, _o in self.events if e]
+        return [(c, m) for c, e, m in self.events if e]
 
     def final_lit(self) -> set:
         """The set of colors lit at the end of the stream (the run end-state)."""
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -218,7 +218,7 @@ class LedSubstream:
         """Replay the stream; assert at most one color is ever lit at a time
         (the mutual-exclusion invariant -- no double illumination)."""
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -229,9 +229,9 @@ class LedSubstream:
 
     def render(self) -> str:
         lines = []
-        for c, e, m, o in self.events:
+        for c, e, m in self.events:
             verb = 'ON ' if e else 'OFF'
-            lines.append(f'  {verb} {c:<6} mA={m} owner={o!r}')
+            lines.append(f'  {verb} {c:<6} mA={m}')
         return '\n'.join(lines) if lines else '  (no LED events)'
 
 
@@ -410,7 +410,7 @@ def _recorded_run(
         # A pre-run Live LED so leds_state_at_end='return_to_original' has
         # something to restore (the snapshot is taken at lease acquire).
         scope.illumination.led_on(
-            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1], owner='ui'
+            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1]
         )
     scope.illumination.add_led_listener(sub)
     protocol = _build_protocol(specs)
@@ -550,7 +550,7 @@ def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, t
 
 
 def test_s8_live_write_refused_while_run_holds_lease(scope):
-    """While a 'protocol' lease is held, an out-of-turn live write (empty owner)
+    """While a 'protocol' lease is held, an out-of-turn live write (no lease)
     is refused: no driver command, the run's channel unchanged (pins the lease
     enforcement, ffd5a83c). The refused write emits nothing to the listener."""
     ill = scope.illumination
@@ -559,16 +559,15 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
     lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     assert lease is not None
-    ill.led_on(channel=ill.color2ch('Green'), illumination_ma=250.0, owner='protocol')
+    ill._led_on_impl(channel=ill.color2ch('Green'), illumination_ma=250.0, _lease=lease)
 
-    # Out-of-turn live writes (empty owner) while the run holds the lease. Both
-    # are refused by the LEASE check (_lease_violation), not by per-owner
-    # ownership -- an empty owner skips the ownership gate, so the lease is the
+    # Out-of-turn live writes (no lease) while the run holds the lease. Both
+    # are refused by the LEASE check (_lease_violation) -- the lease is the
     # only thing that can refuse them. The off is NOT a no-op skip: Green is lit,
     # so if the lease did not refuse it Green would go dark and the assertions
     # below would fail -- the refusal is what keeps Green lit.
-    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0, owner='')  # refused by lease
-    ill.led_off(channel=ill.color2ch('Green'), owner='')  # refused by lease
+    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0)  # refused by lease
+    ill.led_off(channel=ill.color2ch('Green'))  # refused by lease
 
     assert ill.get_led_state('Green')['enabled'], 'protocol channel was disturbed by a live write'
     assert not ill.get_led_state('Red')['enabled'], 'live write lit a channel despite the lease'
@@ -734,7 +733,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     )
     # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
     # exclusive-Red diff the run drives on the held lease.
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='protocol', block=False)
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=lease, block=False)
 
     assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
     assert sub.lit_transitions('Green') == [True, False], sub.render()
@@ -751,7 +750,7 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     restores the pre-AF Live channel on exit -- no stale AF channel, original
     Live state back (pins #695 restore path)."""
     ill = scope.illumination
-    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='ui')
+    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0)
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
@@ -801,7 +800,7 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     assert completed, 'the run must complete after reclaiming the stranded lease'
     assert result.get('status') == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
-    assert ill.led_lease_owner is None, 'the completed run must have released its lease'
+    assert ill.led_lease_purpose is None, 'the completed run must have released its lease'
     reclaims = [
         r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
     ]
@@ -888,7 +887,7 @@ def test_run_start_refused_by_live_lease_holder_is_a_refusal(scope, runner, tmp_
 
     # The live holder was not disturbed: its lease is held and still drives LEDs.
     assert af_lease.held, 'the live holder lease must survive the refused run'
-    assert ill.led_lease_owner == 'autofocus'
+    assert ill.led_lease_purpose == 'autofocus'
     af_lease.apply(
         LedTransition.AF_ENTER,
         LedTransitionCtx(channel=ill.color2ch('Green'), illumination_ma=250.0),
@@ -1079,7 +1078,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
 # correct behaviour for it. The API deliberately permits several at once: an L2
 # caller that wants two channels lit may have them. That is not an accident of
 # the implementation -- _led_on_impl writes its own entry and never clears a
-# peer, and leds_off / leds_off_owned only mean something if plural-lit is
+# peer, and leds_off / a lease release only mean something if plural-lit is
 # reachable -- but until these tests nothing pinned it, so a later stage could
 # have removed the capability by "simplifying" the diff or by pushing the GUI's
 # mutual exclusion down into the API, and the suite would have stayed green.
@@ -1109,7 +1108,7 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
         f'the test is gone, not the diff\n{sub.render()}'
     )
 
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='', block=False)
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=None, block=False)
 
     assert sub.final_lit() == {'Red'}, sub.render()
     # Red was already at its target current, so the diff must emit nothing for
@@ -1131,7 +1130,7 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
 
     ill._emit_led_diff(
         frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),
-        owner='',
+        lease=None,
         block=False,
     )
 

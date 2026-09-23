@@ -70,8 +70,8 @@ def _run_cleanup_inner(stub, ending=None):
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
-    # Lit before the lease exists, so the channel carries no owner record:
-    # the exact case an owner-scoped darken misses.
+    # Lit before the lease exists, so no lease is recorded as having lit it:
+    # the exact case a lit-by-lease-scoped darken misses.
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
     lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
@@ -87,7 +87,7 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
         'a raise before the RUN_END transition leaves the end-state '
         'undecided; cleanup must darken before releasing the lease'
     )
-    assert scope.illumination.led_lease_owner is None, 'the lease must still release'
+    assert scope.illumination.led_lease_purpose is None, 'the lease must still release'
 
 
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
@@ -105,7 +105,7 @@ def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
         'a cancelled or failed RUN_END restore returns undecided; '
         'cleanup must darken before releasing the lease'
     )
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 def test_decided_end_state_is_left_untouched(scope, monkeypatch):
@@ -122,7 +122,7 @@ def test_decided_end_state_is_left_untouched(scope, monkeypatch):
     _run_cleanup_inner(stub)
 
     assert _lit(scope), 'a decided end-state must not be overridden by a force-dark'
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):

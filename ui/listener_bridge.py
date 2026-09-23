@@ -95,7 +95,7 @@ class UIListenerBridge:
             if z_ctrl:
                 self._ui_dispatch(lambda dt: z_ctrl._update_z_text(target), 0)
 
-    def _on_led_state_changed(self, channel, enabled, illumination_ma, owner):
+    def _on_led_state_changed(self, channel, enabled, illumination_ma):
         """LED listener -- coalesces rapid stim pulses to one UI update per channel per Kivy frame.
 
         Replaces all manual ``update_led_toggle_ui()`` calls.

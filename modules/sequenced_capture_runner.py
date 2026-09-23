@@ -1242,7 +1242,7 @@ class SequencedCaptureRunner:
                 self._release_activity_claim()
                 raise
             if lease is None:
-                holder = self._scope.illumination.led_lease_owner
+                holder = self._scope.illumination.led_lease_purpose
                 holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
                 self._release_activity_claim()
                 self._refuse(

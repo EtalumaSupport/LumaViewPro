@@ -61,7 +61,7 @@ def _af_runner(scope):
 def test_acquire_without_alive_probe_raises_type_error(scope):
     with pytest.raises(TypeError):
         scope.illumination.acquire_led_lease('x')
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 def test_acquire_with_false_probe_raises_value_error(scope):
@@ -70,7 +70,7 @@ def test_acquire_with_false_probe_raises_value_error(scope):
     # reclaimable) from the moment it acquired.
     with pytest.raises(ValueError):
         scope.illumination.acquire_led_lease('x', alive=lambda: False)
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
         'a holder whose probe answers True is LIVE even though its acquiring '
         'thread died -- the contender must be refused, not handed a reclaim'
     )
-    assert ill.led_lease_owner == 'worker'
+    assert ill.led_lease_purpose == 'worker'
     assert lease.held
     lease.release(leave_on=False)
 
@@ -117,7 +117,7 @@ def test_dead_probe_reclaims_regardless_of_thread_state(scope, caplog):
         nxt = ill.acquire_led_lease('next', alive=lambda: True)
 
     assert nxt is not None, 'a dead-probe holder must not lock out the next acquire'
-    assert ill.led_lease_owner == 'next'
+    assert ill.led_lease_purpose == 'next'
     assert not lease.held, 'the reclaimed lease must report not held'
     reclaims = [
         r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
@@ -153,7 +153,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     ill = scope.illumination
     holder = ill.acquire_led_lease('protocol', alive=lambda: True)
     assert holder is not None
-    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='protocol')
+    ill._led_on_impl(channel=ill.color2ch('Blue'), illumination_ma=120.0, _lease=holder)
 
     runner = _af_runner(scope)
     iterations = []
@@ -196,7 +196,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     # The live holder is undisturbed: lease held, channel still lit, and the
     # AF channel was never lit.
     assert holder.held
-    assert ill.led_lease_owner == 'protocol'
+    assert ill.led_lease_purpose == 'protocol'
     assert ill.get_led_state('Blue')['enabled'], (
         "the holder's lit channel must survive the refused AF"
     )

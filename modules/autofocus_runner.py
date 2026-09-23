@@ -310,7 +310,7 @@ class AutofocusRunner:
                 # operation ABORTED, and the likeliest contention (a running
                 # protocol) suppresses non-fatal popups, which would
                 # otherwise swallow exactly this message.
-                holder = self._scope.illumination.led_lease_owner
+                holder = self._scope.illumination.led_lease_purpose
                 holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
                 logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
                 notifications.error(

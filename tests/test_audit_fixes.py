@@ -9898,7 +9898,6 @@ class TestLedSentinelReturnsAreNone:
         sim_scope.illumination._led_state['Blue'] = {
             'enabled': True,
             'illumination_ma': 50.0,
-            'owner': '',
         }
         assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] == 50.0
         sim_scope.illumination._led_state.pop('Blue', None)
@@ -10126,8 +10125,8 @@ class TestLumascopeSkillsApiPluginDocBatch:
 
 
 class TestGetLedStateShape:
-    """get_led_state / get_led_states return shape must include `owner`
-    (matches internal _led_state) and use None (not -1) for the
+    """get_led_state / get_led_states return shape carries enabled and
+    illumination_ma (matches internal _led_state) and uses None (not -1) for the
     illumination_ma sentinel when the channel is off / no LED board
     (matches the Sentinel-return contract preface in LumascopeSkills).
     Closes API audit F2 / F3 / F12 cluster.
@@ -10140,24 +10139,15 @@ class TestGetLedStateShape:
         scope._led_driver.set_timing_mode('fast')
         return scope
 
-    def test_get_led_state_off_returns_none_sentinel_and_empty_owner(self):
+    def test_get_led_state_off_returns_none_sentinel(self):
         scope = self._scope()
         state = scope.illumination.get_led_state('Blue')
         assert state == {
             'enabled': False,
             'illumination_ma': None,
-            'owner': '',
         }
 
-    def test_get_led_state_on_includes_owner(self):
-        scope = self._scope()
-        scope.illumination.led_on(channel='Green', illumination_ma=125.0, owner='audit_test')
-        state = scope.illumination.get_led_state('Green')
-        assert state['enabled'] is True
-        assert state['illumination_ma'] == 125.0
-        assert state['owner'] == 'audit_test'
-
-    def test_get_led_states_off_channels_use_none_and_empty_owner(self):
+    def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
         states = scope.illumination.get_led_states()
         assert states, 'get_led_states must return per-channel entries'
@@ -10166,15 +10156,6 @@ class TestGetLedStateShape:
             assert entry['illumination_ma'] is None, (
                 f'{color} off-state must use None sentinel, not -1.'
             )
-            assert entry['owner'] == '', f'{color} off-state must report owner = empty string.'
-
-    def test_get_led_states_on_channel_carries_owner(self):
-        scope = self._scope()
-        scope.illumination.led_on(channel='Red', illumination_ma=42.5, owner='restore_pre')
-        states = scope.illumination.get_led_states()
-        assert states['Red']['enabled'] is True
-        assert states['Red']['illumination_ma'] == 42.5
-        assert states['Red']['owner'] == 'restore_pre'
 
     def test_doc_example_matches_shape(self):
         import pathlib
@@ -10182,13 +10163,13 @@ class TestGetLedStateShape:
         # pin-justified: the published doc example text is the L2 contract
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        # \u2026 escape rather than a literal ellipsis: the doc currently
-        # uses the Unicode character, so this is the branch that matches,
-        # but source files stay ASCII. Both forms are accepted so a doc
-        # edit to '...' does not break the check.
-        assert "'owner': '\u2026'" in doc or "'owner': '...'" in doc, (
-            'LumascopeSkills get_led_state example must include the '
-            "'owner' key in the return-shape example."
+        assert "{'enabled': True, 'illumination_ma': 200} when on" in doc, (
+            'LumascopeSkills get_led_state example must show the on-state '
+            "return shape {'enabled', 'illumination_ma'}."
+        )
+        assert "{'enabled': False, 'illumination_ma': None} when off" in doc, (
+            'LumascopeSkills get_led_state example must show the off-state '
+            'return shape with the None sentinel.'
         )
         # Old "current mA, or -1 if off" wording must be retired.
         assert 'current mA, or -1 if off' not in doc, (

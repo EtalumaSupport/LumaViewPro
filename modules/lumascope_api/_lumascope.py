@@ -387,8 +387,8 @@ class Lumascope:
         # Driver construction + sub-API wiring happen below.
         self._init_minimal(simulated=simulate)
 
-        # LED state slots (_led_listeners, _led_state, _led_owners,
-        # _led_owner_lock, _led_listeners_lock, _led_lock) live on
+        # LED state slots (_led_listeners, _led_state, _lit_by,
+        # _led_state_lock, _led_listeners_lock, _led_lock) live on
         # IlluminationAPI.
 
         # Camera state slots (_camera_listeners + lock, _frame_buffer,

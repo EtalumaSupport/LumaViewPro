@@ -77,7 +77,7 @@ class TestBridgeRebind:
         bridge.register_all()
         bridge.rebind(new_scope)
 
-        bridge._on_led_state_changed('BF', True, 10.0, 'test')
+        bridge._on_led_state_changed('BF', True, 10.0)
         assert not old_scope.illumination.get_led_state.called, (
             'a rebound bridge must not read LED state from the discarded scope'
         )

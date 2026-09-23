@@ -368,7 +368,7 @@ class TestAddedLocationLedOrdering:
         all_red_led_ons = [
             i
             for i, (_, msg) in enumerate(capture.records)
-            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "owner='protocol'" in msg
+            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "lease='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
             f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '

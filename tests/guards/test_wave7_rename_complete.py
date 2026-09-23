@@ -214,7 +214,6 @@ ILLUMINATION_ONLY_METHODS = frozenset(
         'led_on_async',
         'leds_off',
         'leds_off_async',
-        'leds_off_owned',
         'remove_led_listener',
         'restore_led_state',
         'save_led_state',
