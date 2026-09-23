@@ -11,7 +11,7 @@ import queue
 from collections.abc import Callable, Sequence
 from lvp_logger import logger
 from lib import profile_trace
-from modules.notification_center import notifications
+from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 from modules.exceptions import Refusal
 import threading
 import time
@@ -1291,8 +1291,23 @@ class SequentialIOExecutor:
             elif isinstance(exception, Refusal):
                 # Its own title and words, as a warning: the person asked
                 # for something the scope declined, and nothing failed.
+                #
+                # Outside a run, someone asked for this task, so the refusal
+                # is an answer: never filtered as a repeat -- a second
+                # out-of-range press that showed nothing looked like a dead
+                # button -- and replacing the last refusal popup, as every
+                # other refusal does. A run's own task keeps the run's mute:
+                # mid-run only a fatal error may pop up. The worker marks
+                # which queue a task came off, and serves only the run's
+                # queue while a run is going.
                 action_name = getattr(task.action, '__name__', str(task.action))
-                notifications.warning(f'Task:{action_name}', exception.title, str(exception))
+                notifications.warning(
+                    f'Task:{action_name}',
+                    exception.title,
+                    str(exception),
+                    solicited=not task.protocol,
+                    operation_key=REFUSAL_OPERATION_KEY,
+                )
             else:
                 # Typed exceptions (CaptureError / ProtocolError / etc.)
                 # carry a user-friendly message in str(exception); show

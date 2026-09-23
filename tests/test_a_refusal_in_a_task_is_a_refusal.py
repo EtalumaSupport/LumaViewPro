@@ -24,7 +24,7 @@ import pytest
 
 import modules.sequential_io_executor as sio
 from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
-from modules.notification_center import NotificationCenter, Severity
+from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 REFUSALS = [
@@ -52,24 +52,37 @@ def _move_absolute_impl(error):
     raise error
 
 
-def _run_on_the_lane(action, *args):
-    """Run one fire-and-forget task through a real executor's worker path
-    and epilogue; return what the user was shown."""
+def _watched_centre():
     centre = NotificationCenter(dedup_window_s=10.0)
     shown = []
     centre.add_listener(shown.append, min_severity=Severity.INFO)
+    return centre, shown
+
+
+def _run_task(centre, action, *args, protocol=False):
+    """Run one fire-and-forget task through a real executor's worker path
+    and epilogue, posting to ``centre``. ``protocol`` is the worker's own
+    mark for a task it took off the run's queue."""
     original = sio.notifications
     try:
         sio.notifications = centre
         executor = SequentialIOExecutor(name='TEST')
         task = IOTask(action, args=args)
         task.set_name(executor.executor_name)
-        executor.queue.put(task)
-        executor.queue.get()
+        lane = executor.protocol_queue if protocol else executor.queue
+        lane.put(task)
+        lane.get()
+        task.protocol = protocol
         result, exception = task.run()
         executor._on_task_done(task, result, exception)
     finally:
         sio.notifications = original
+
+
+def _run_on_the_lane(action, *args):
+    """One fire-and-forget task on a fresh centre; what the user was shown."""
+    centre, shown = _watched_centre()
+    _run_task(centre, action, *args)
     return shown
 
 
@@ -145,6 +158,33 @@ def test_a_refusal_with_no_executor_still_leaves_one_line(scope, caplog, monkeyp
     records = _task_records(caplog)
     assert [r.levelno for r in records] == [logging.WARNING]
     assert not records[0].exc_info
+
+
+@pytest.mark.parametrize(('error', 'title'), REFUSALS)
+def test_every_refused_press_is_shown_however_soon_it_repeats(error, title):
+    """Eric, 2026-09-23: *"i do not want a 10 second filter on user buttons.
+    Every time you try to go out of range, you should get the dialog."*
+    A task outside a run was asked for by someone, so its refusal is an
+    answer, and an answer is never filtered as a repeat."""
+    centre, shown = _watched_centre()
+
+    for _ in range(3):
+        _run_task(centre, _move_absolute_impl, error)
+
+    assert [n.title for n in shown] == [title, title, title]
+    # Each replaces the last refusal popup rather than stacking on it.
+    assert {n.operation_key for n in shown} == {REFUSAL_OPERATION_KEY}
+
+
+@pytest.mark.parametrize(('error', 'title'), REFUSALS)
+def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(error, title):
+    # Mid-run only a fatal error may pop up; the run owns its refusals.
+    centre, shown = _watched_centre()
+    centre.set_unattended_run(True)
+
+    _run_task(centre, _move_absolute_impl, error, protocol=True)
+
+    assert shown == []
 
 
 def test_a_failure_is_still_a_failure(caplog):
