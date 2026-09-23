@@ -1329,7 +1329,6 @@ class Lumascope:
         instance.motion._init_axes(present_axes, instance._motion_driver.detect_homed_axes())
         instance.motion._start_monitor()
 
-        instance.camera = None
         instance._frame_buffer = None
 
         # Diagnostic instances have no settings to name a configured
