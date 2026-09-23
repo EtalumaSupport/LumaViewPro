@@ -1514,7 +1514,7 @@ class ScopeSession:
     # session.scope.motion.*, session.scope.imaging.*,
     # session.scope.runtime_state.* -- so every command has exactly one
     # public spelling and the Session owns only what is session-scoped:
-    # lifecycle (create / start_executors / shutdown /
+    # lifecycle (create / shutdown /
     # start_application_session / start_metrics / stop_metrics), the
     # protocol runner, run-state queries, and the settings-composition
     # getters above.
@@ -1542,17 +1542,6 @@ class ScopeSession:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
-
-    def start_executors(self) -> None:
-        """Start the IO and camera lanes.
-
-        This method is not part of the L2 API surface: the factories start
-        the lanes they build, and a host that hands its own lanes in starts
-        them itself. A second start on a running lane spawns a second
-        worker thread beside the first.
-        """
-        self.io_executor.start()
-        self.camera_executor.start()
 
     def start_metrics(self) -> None:
         """Start the scope's periodic metrics logging.

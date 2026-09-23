@@ -102,7 +102,6 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
 
-    session.start_executors()
     runner = session.create_protocol_runner()
     try:
         yield session, runner

@@ -212,7 +212,6 @@ def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
-    session.start_executors()
     runner = session.create_protocol_runner()
     try:
         yield session, runner

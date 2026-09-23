@@ -47,8 +47,8 @@ def headless_session():
         try:
             session.shutdown_executors()
         except Exception:
-            # Teardown must not mask the test's own failure; a session
-            # whose executors never started is the normal case here.
+            # Teardown must not mask the test's own failure; a test may
+            # already have shut the lanes down itself.
             pass
         session.scope.disconnect()
 
@@ -114,25 +114,22 @@ class TestCreateHeadlessComposesARealSession:
 
 
 class TestExecutorLifecycle:
-    """`start_executors` / `shutdown_executors` must really start and stop.
+    """The factory's lanes really run work, and `shutdown_executors` really stops them.
 
     Proven by running work, not by reading a thread flag.
     """
 
     def test_started_io_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'io_executor did not execute a queued task'
 
     def test_started_camera_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.camera_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'camera_executor did not execute a queued task'
 
     def test_shutdown_stops_the_worker_threads(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0)

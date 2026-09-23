@@ -549,6 +549,9 @@ class SequentialIOExecutor:
         # replacement, so an abandoned worker stuck inside a task exits
         # without touching executor state when its call finally returns.
         self._worker_generation = 0
+        # The generation the current worker was started under; a live worker
+        # of an older generation is a quarantined one, not the lane's worker.
+        self._started_generation = None
         # Per-run total the blocking protocol enqueue spent waiting for a
         # queue slot -- the demand-relative slow-disk signal. Reset at
         # protocol_start alongside the drop counter.
@@ -589,12 +592,25 @@ class SequentialIOExecutor:
         with self._running_task_lock:
             self._running_task = value
 
-    def start(self):
+    def start(self) -> None:
+        # One ACTIVE worker per lane is the lane's whole contract: tasks on
+        # it run one at a time, in order. A second start while the current
+        # worker is alive would put a second worker on the same queue, and
+        # nothing would say the ordering was gone. Wedged-queue recovery is
+        # the one legitimate replacement: it quarantines the stuck worker by
+        # moving the generation on first, so the live thread it leaves
+        # behind is no longer this lane's worker.
+        if self.worker_alive and self._started_generation == self._worker_generation:
+            raise RuntimeError(
+                f'{self.executor_name}: already running -- a lane is started once, '
+                'by whoever built it'
+            )
         # daemon=True so a hung in-flight task at app teardown cannot keep
         # the process alive. Cooperative shutdown is still preferred:
         # long-running task implementations may close over the executor
         # and poll `executor.pending_shutdown` to bail early (the pattern
         # used by protocol_thread.aborted.is_set() in scan_loop).
+        self._started_generation = self._worker_generation
         self._worker_thread = threading.Thread(
             target=self._run_loop,
             name=self.executor_name,

@@ -778,7 +778,6 @@ class TestHeadlessSession:
     def test_headless_led_commands(self):
         """Headless session should support LED on/off via scope."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.start_executors()
         try:
             scope = session.scope
             scope.illumination.led_on(channel=0, illumination_ma=100)
@@ -1066,7 +1065,6 @@ class TestRestAPIPrep:
     def test_autofocus_runner_get_status_idle(self):
         """AutofocusRunner.get_status() should return idle state initially."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.start_executors()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1083,7 +1081,6 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.start_executors()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1104,7 +1101,6 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.start_executors()
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
@@ -1143,7 +1139,6 @@ class TestRestAPIPrep:
         from modules.exceptions import AutofocusAborted
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.start_executors()
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
