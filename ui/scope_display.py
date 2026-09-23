@@ -31,7 +31,6 @@ import threading
 import time
 
 import numpy as np
-import skimage.draw
 
 from kivy.clock import Clock
 from kivy.graphics import InstructionGroup, Color, Line, Ellipse
@@ -42,6 +41,7 @@ from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
+from modules import capture_overlays
 from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
 import modules.image_mode as image_mode
@@ -457,88 +457,18 @@ class ScopeDisplay(Image):
                 move_relative(axis='X', distance=x_dist_um)
                 move_relative(axis='Y', distance=y_dist_um)
 
-    @staticmethod
-    def add_crosshairs(image):
-        height, width = image.shape[0], image.shape[1]
-
-        if image.ndim == 3:
-            is_color = True
-        else:
-            is_color = False
-
-        center_x = round(width / 2)
-        center_y = round(height / 2)
-
-        # Crosshairs - 2 pixels wide
-        if is_color:
-            image[:, center_x - 1 : center_x + 1, :] = 255
-            image[center_y - 1 : center_y + 1, :, :] = 255
-        else:
-            image[:, center_x - 1 : center_x + 1] = 255
-            image[center_y - 1 : center_y + 1, :] = 255
-
-        # Radiating circles
-        num_circles = 4
-        minimum_dimension = min(height, width)
-        circle_spacing = round(minimum_dimension / 2 / num_circles)
-        for i in range(num_circles):
-            radius = (i + 1) * circle_spacing
-            rr, cc = skimage.draw.circle_perimeter(
-                center_y, center_x, radius=radius, shape=image.shape
-            )
-            image[rr, cc] = 255
-
-            # To make circles 2 pixel wide...
-            rr, cc = skimage.draw.circle_perimeter(
-                center_y, center_x, radius=radius + 1, shape=image.shape
-            )
-            image[rr, cc] = 255
-
-        return image
-
-    # Pre-built 256-entry LUT for bullseye color mapping (built once, used every frame)
-    _bullseye_lut = None
-
-    @staticmethod
-    def _build_bullseye_lut():
-        """Build a 256x3 uint8 lookup table for the bullseye color map."""
-        lut = np.zeros((256, 3), dtype=np.uint8)
-        # Pattern: 10-pixel-wide bands alternating black/green,
-        # with blue at 125-135 and red at 245-255
-        color_bands = [
-            # (start_exclusive, end_inclusive, R, G, B)
-            (5, 15, 0, 255, 0),
-            (25, 35, 0, 255, 0),
-            (45, 55, 0, 255, 0),
-            (65, 75, 0, 255, 0),
-            (85, 95, 0, 255, 0),
-            (105, 115, 0, 255, 0),
-            (125, 135, 0, 0, 255),
-            (145, 155, 0, 255, 0),
-            (165, 175, 0, 255, 0),
-            (185, 195, 0, 255, 0),
-            (205, 215, 0, 255, 0),
-            (225, 235, 0, 255, 0),
-            (245, 255, 255, 0, 0),
-        ]
-        for start, end, r, g, b in color_bands:
-            lut[start + 1 : end + 1] = [r, g, b]
-        return lut
-
-    @staticmethod
-    def transform_to_bullseye(image):
-        if ScopeDisplay._bullseye_lut is None:
-            ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
-        return ScopeDisplay._bullseye_lut[image]
+    # The saved overlay copy is rendered below the GUI, where a headless
+    # capture reaches it too; these forward to it until the Capture button
+    # stops asking the display for them.
+    add_crosshairs = staticmethod(capture_overlays.add_crosshairs)
+    transform_to_bullseye = staticmethod(capture_overlays.transform_to_bullseye)
 
     def transform_to_bullseye_prealloc(self, image):
-        if ScopeDisplay._bullseye_lut is None:
-            ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
         target_shape = (*image.shape, 3)
         if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
             self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
             self._bullseye_buf_shape = image.shape
-        np.take(ScopeDisplay._bullseye_lut, image, axis=0, out=self._bullseye_rgb_buf)
+        np.take(capture_overlays.BULLSEYE_LUT, image, axis=0, out=self._bullseye_rgb_buf)
         return self._bullseye_rgb_buf
 
     def _record_frame_interval(self, cycle_start, intentional_wait_ms):
