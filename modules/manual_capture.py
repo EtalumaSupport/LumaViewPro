@@ -103,9 +103,15 @@ class ManualCaptureController:
             Future sets no timeout: its caller bounds its own wait.
 
         Raises:
+            ValueError: ``layer`` is not a channel. Refused before anything
+                is named, created or captured.
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
                 while an earlier still has not finished.
         """
+        if layer is not None and layer not in common_utils.get_layers():
+            raise ValueError(
+                f'layer {layer!r} is not a channel; expected one of {common_utils.get_layers()}'
+            )
         if not self._in_flight.acquire(blocking=False):
             raise HardwareCommandRefusedError('capture_in_flight', _MEMBER)
         try:

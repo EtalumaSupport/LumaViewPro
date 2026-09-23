@@ -23,8 +23,10 @@ import time
 import numpy as np
 import pytest
 
+import modules.image_mode as image_mode
 from modules.exceptions import CaptureError, HardwareCommandRefusedError
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
+from modules.lumascope_api.imaging import capture_failure_cause
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
@@ -163,18 +165,34 @@ class TestOverlays:
         )
 
     def test_a_summed_capture_saves_its_overlay(self, tmp_path):
-        """A summed frame exceeds the per-frame range; the overlay's 8-bit
-        rendering must scale against the summed depth, not refuse it."""
+        """A lit 12-bit frame summed three times peaks above 4095; the
+        overlay's 8-bit rendering must scale against the summed depth, since
+        scaling against the per-frame depth refuses the frame."""
         settings = _settings(tmp_path)
+        settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
         settings['BF']['sum'] = 3
         with _open_session(settings) as session:
+            session.scope.illumination.led_on('BF', 200.0)
             paths = _capture(session, bullseye=True, crosshairs=True)
+            peak = int(read_tiff_with_legacy_collapse(paths[0]).max())
+
+        assert peak > 4095, f'the summed frame never left the per-frame range (peak {peak})'
 
         assert len(paths) == 2
         assert all(p.is_file() for p in paths)
 
 
 class TestRefusalsAndFailures:
+    def test_a_layer_that_is_not_a_channel_is_refused_before_anything_happens(self, tmp_path):
+        settings = _settings(tmp_path)
+        settings['separate_folder_per_channel'] = True
+        with _open_session(settings) as session:
+            with pytest.raises(ValueError, match='Foo'):
+                session.manual_capture.capture(layer='Foo', false_color_on=False)
+            assert not session.manual_capture.in_flight
+
+        assert not (tmp_path / 'Manual').exists()
+
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session
         blocker = _LaneBlocker(session)
@@ -237,7 +255,9 @@ class TestRefusalsAndFailures:
         with pytest.raises(CaptureError) as failed:
             future.result(timeout=RESULT_TIMEOUT_S)
         assert failed.value.reason == 'no_frame_returned'
-        assert str(failed.value)
+        assert str(failed.value) == capture_failure_cause(
+            session.scope.imaging.last_capture_info
+        ), "the failure must carry the capture engine's cause, not a save-time placeholder"
         assert not list((tmp_path / 'Manual').glob('*.tiff'))
         assert not session.manual_capture.in_flight
 
@@ -259,3 +279,25 @@ class TestTheRecordIsTheCapturesMoment:
         writer.join(RESULT_TIMEOUT_S)
 
         assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
+
+
+def test_a_reconnect_rewires_the_capture_controller():
+    """Left on the discarded scope, a still after a reconnect would grab
+    from a camera that is gone."""
+    from unittest.mock import MagicMock
+
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import spec_scope
+
+    old_scope = spec_scope()
+    new_scope = spec_scope()
+    session = ScopeSession(
+        settings={},
+        scope=old_scope,
+        io_executor=MagicMock(),
+        camera_executor=MagicMock(),
+    )
+
+    session.set_scope(new_scope)
+
+    assert session.manual_capture._scope is new_scope
