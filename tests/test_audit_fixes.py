@@ -1320,18 +1320,18 @@ class TestIssue606_TurretObjectiveValidation:
     Fix: warn on select, block protocol run.
     """
 
-    def test_select_objective_detects_unassigned_turret_objective(self):
-        """select_objective must still DETECT the condition.
+    def test_select_objective_assigns_the_slot_in_the_light_path(self):
+        """On a turreted scope, selecting an objective assigns it to the slot.
 
-        It no longer raises a dialog for it. Selecting an objective the
-        turret does not hold is the first half of assigning it -- the user
-        picks the objective, then presses Set -- so the dialog interrupted
-        the workflow that resolves the condition, and said the selection had
-        been refused when the write below it always went through.
+        The active objective is the slot's assignment, so a selection the
+        turret does not hold is no longer constructible: picking one says
+        what is installed in the light path. No dialog either -- the
+        selection is the assignment, not a step before it.
 
-        The half of #606 that prevents harm is the protocol-run block, pinned
-        by the sibling test below: an unassigned objective still cannot reach
-        a run.
+        The behaviour is pinned in
+        tests/guards/test_session_objective_question.py (TestT10SelectObjective);
+        the half of #606 that prevents harm is the protocol-run block, pinned
+        by the sibling test below.
         """
         import ast
         import inspect
@@ -1346,12 +1346,10 @@ class TestIssue606_TurretObjectiveValidation:
         src = ast.unparse(
             ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
         )
-        assert 'turret_objectives' in src, (
-            'select_objective must still detect an objective with no turret position'
+        assert 'self.assign_turret_objective(slot, objective_id)' in src, (
+            'select_objective must assign the objective to the slot in the light path'
         )
-        assert 'notifications.warning' not in src, (
-            'detection must reach the log, not a dialog: this fires mid-assignment'
-        )
+        assert 'notifications.warning' not in src, 'a selection is not refused by a dialog'
 
     def test_the_engine_refuses_unassigned_turret_objectives(self):
         """The guarantee moved from the widget to the API that owns the rule.
@@ -3245,6 +3243,8 @@ def test_not_saving_capture_builds_record_task_without_crash():
 
     writer = _bare_protocol_writer()
     scope = writer._scope
+    # The objective the frame is taken with, read at capture.
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
     protocol = MagicMock()
@@ -3303,7 +3303,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             image_save,
             'generate_image_metadata',
-            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um: {},
+            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id: {},
         )
         image_save.save_image(
             SimpleNamespace(
@@ -3318,6 +3318,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             tail_id_mode=None,
             save_encoding='rgb',
             significant_bits=8,
+            objective_id='4x Oly',
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -3344,7 +3345,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3564,7 +3565,7 @@ class TestPIW2_DisksUsageDeduped:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3962,7 +3963,7 @@ class TestPF5_ImageBufferRetired:
         imaging, _cam = _sim_backed_imaging()
         sentinel = np.full((4, 4), 9, dtype=np.uint8)
         imaging._scale_bar['enabled'] = True
-        imaging._scope.runtime_state._objective = {'magnification': 4}
+        imaging._scope.runtime_state.set_objective('4x Oly')
         monkeypatch.setattr('modules.image_utils.add_scale_bar', lambda **kwargs: sentinel)
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
         assert out is sentinel, 'get_image must return the add_scale_bar result'
@@ -4086,6 +4087,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 capture_frame_depth=lambda array, sum_count=1: 8,
             ),
             illumination=SimpleNamespace(leds_off=lambda: None),
+            runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
         )
         saved = {}
         monkeypatch.setattr(
@@ -4238,6 +4240,7 @@ def _sim_backed_imaging():
     # thread, so these tests exercise the public surface inline.
     scope._camera_executor = None
     scope.runtime_state = RuntimeState(scope)
+    scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded
     # LED state; these stubs command nothing, so an empty state map reads
     # as dark-by-design (the same result the retired explicit False gave).
@@ -10586,6 +10589,8 @@ class TestAutoGainArmedInScanIterate:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
         scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
@@ -12982,6 +12987,8 @@ class TestCaptureFailureAbortNotificationOrdering:
             'record'
         )
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.led_connected = False
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.

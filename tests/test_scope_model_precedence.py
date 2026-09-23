@@ -75,12 +75,13 @@ class TestTheBringUpAdoptsTheReportedModel:
         raw = complete_settings(live_folder=str(tmp_path), **settings_overrides)
         return ScopeSession.create(settings=raw, scope=scope, warn_pre_release=False)
 
-    def test_a_catalogued_model_is_written_before_the_slot_one_adoption(
+    def test_a_catalogued_model_is_written_before_the_turret_is_decided(
         self, tmp_path, session_log
     ):
-        # The file says LS850 (no turret) with an objective assigned to
-        # slot 1; the board says LS850T. Adopting slot 1 depends on the
-        # model having a turret, so the write must precede that read.
+        # The file says LS850 (no turret) with a stored objective; the board
+        # says LS850T. Whether the objective is stored or derived from the
+        # slot depends on the model having a turret, so the write must
+        # precede that decision.
         scope = _sim_scope(sim_model='LS850T')
         session = self._caller_scope_session(
             tmp_path,
@@ -92,9 +93,12 @@ class TestTheBringUpAdoptsTheReportedModel:
         try:
             session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'
-            assert session.settings['objective_id'] == '10x Oly', (
-                'slot 1 adopted against the ADOPTED model'
+            assert session.scope.runtime_state.is_turreted(), (
+                'the turret decided against the ADOPTED model'
             )
+            # Derived from a slot no turret command has named yet, so
+            # unknown -- never the stored turretless selection.
+            assert session.scope.runtime_state.get_current_objective_id() is None
             assert any('the hardware wins' in r.getMessage() for r in session_log)
         finally:
             session.shutdown()

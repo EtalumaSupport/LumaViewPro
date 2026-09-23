@@ -20,6 +20,55 @@ class ConfigError(Exception):
     pass
 
 
+class ObjectiveUnknownError(ConfigError):
+    """No one can say which objective is in the light path.
+
+    On a turreted scope the active objective is the objective assigned to
+    the slot in the light path, so it is unknown when the slot is unknown
+    (the turret has not been homed or moved since it was last lost), when
+    the slot has no assignment, or when its assignment names nothing in
+    the objective catalogue. Raised instead of answering with a stored
+    objective, because an objective that is not in the light path puts a
+    wrong scale into every image it names.
+
+    On a scope with no turret it is unknown only before any objective was
+    selected. On any scope it is unknown before bring-up has said whether
+    the scope has a turret, since that decides where the objective comes
+    from.
+
+    Attributes:
+        reason: ``'slot_unknown'``, ``'slot_unassigned'``,
+            ``'not_in_catalogue'``, ``'none_selected'`` or
+            ``'turret_undecided'``.
+        slot: The slot in the light path, or None when that is what is
+            unknown.
+    """
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'slot_unknown': ('the turret is in no known slot -- home the turret or move it to a slot'),
+        'slot_unassigned': (
+            'turret slot {slot} has no objective assigned -- assign the objective installed there'
+        ),
+        'not_in_catalogue': (
+            'turret slot {slot} is assigned an objective that is not in the catalogue'
+            ' -- assign the objective installed there'
+        ),
+        'none_selected': 'no objective has been selected',
+        'turret_undecided': (
+            'the scope has not been configured, so whether it has a turret is not known'
+            ' -- run initialize() (a ScopeSession does this at bring-up)'
+        ),
+    }
+
+    def __init__(self, reason: str, slot: int | None = None):
+        super().__init__(
+            'The objective in the light path is unknown: '
+            + self._SENTENCES[reason].format(slot=slot)
+        )
+        self.reason = reason
+        self.slot = slot
+
+
 class SettingsSaveRefusedError(ConfigError):
     """A settings save was refused: writing now would destroy real data.
 

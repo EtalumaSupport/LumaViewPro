@@ -206,6 +206,8 @@ class TestProtocolWriterWiring:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
         protocol = MagicMock()

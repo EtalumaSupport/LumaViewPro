@@ -107,6 +107,7 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         jpeg_quality=95,
         save_encoding='8bit',
         significant_bits=8,
+        objective_id='4x Oly',
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'
@@ -147,7 +148,10 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
     imaging.capture_frame_depth = lambda array, sum_count=1: ImagingAPI.capture_frame_depth(
         imaging, array, sum_count
     )
-    return SimpleNamespace(imaging=imaging)
+    return SimpleNamespace(
+        imaging=imaging,
+        runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
+    )
 
 
 def test_save_live_log_reports_captured_depth(monkeypatch):

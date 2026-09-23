@@ -147,9 +147,10 @@ def load_scope_models(data_file: str | None = None) -> dict:
     The identity resolver above tolerates an unreadable file: an empty
     catalogue resolves no identity, and LED use then fails by name. The
     settings-to-scope bring-up cannot tolerate it: with no catalogue the
-    declared model has no entry, `model_has_turret` answers False, and the
-    slot-1 objective adoption silently never runs -- the one thing the
-    bring-up exists to do on a turret scope. So a missing or malformed
+    declared model has no entry, `model_has_turret` answers False, and a
+    turret scope whose board is not talking is configured as turretless --
+    answering with its stored objective instead of the one in the light
+    path. So a missing or malformed
     section refuses here, naming the file, instead of returning {}.
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')

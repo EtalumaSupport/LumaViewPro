@@ -127,7 +127,9 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     The caller owns shutdown: `scope.disconnect()` plus `shutdown()` on
     each executor, or the worker threads outlive the test.
     """
-    scope = lumascope_api.Lumascope(simulate=True)
+    from tests.scope_fakes import record_turret_answer
+
+    scope = record_turret_answer(lumascope_api.Lumascope(simulate=True))
     if not led:
         from drivers.null_ledboard import NullLEDBoard
 
@@ -671,12 +673,24 @@ class TestScopeSession:
         assert isinstance(result['max_duration'], datetime.timedelta)
 
     def test_get_current_objective_info_delegates(self):
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'magnification': 10}
-        session = self._make_session(objective_helper=helper)
+        # The answer is the runtime state's, not the settings dict's: on
+        # this turret scope, the assignment of the slot in the light path.
+        from tests.scope_fakes import home_sim_scope
+
+        session = self._make_session()
+        session.scope.runtime_state.set_turret_config({1: '10x Oly', 2: None, 3: None, 4: None})
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(1)
         obj_id, obj = session.get_current_objective_info()
-        assert obj_id == '4x Oly'
-        assert obj['magnification'] == 10
+        assert obj_id == '10x Oly'
+        assert obj == session.scope.runtime_state.get_objective_info('10x Oly')
+
+    def test_get_current_objective_info_raises_when_nothing_is_known(self):
+        from modules.exceptions import ObjectiveUnknownError
+
+        session = self._make_session()
+        with pytest.raises(ObjectiveUnknownError):
+            session.get_current_objective_info()
 
     def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()

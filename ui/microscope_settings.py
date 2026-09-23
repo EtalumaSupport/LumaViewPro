@@ -361,30 +361,29 @@ class MicroscopeSettings(BoxLayout):
             self.select_binning_size()
 
             # The settings-to-scope bring-up ran in the Session before this
-            # widget existed: the slot-1 objective is adopted (the stored
-            # one is only a leftover from the previous session), the
-            # labware selected, scope.initialize() applied. Everything
-            # below renders settings, the objective helper and the frozen
-            # capabilities, none of which initialize changes.
-            objective_id = settings['objective_id']
+            # widget existed: the labware selected, scope.initialize()
+            # applied. The objective shown is the API's answer -- on a
+            # turreted scope the slot's assignment, unknown until the turret
+            # is in a known slot, in which case nothing is shown yet.
+            objective_id = ctx.scope.runtime_state.get_current_objective_id()
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
-            v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
-            v_control_objective_spinner.text = objective_id
+            if objective_id is not None:
+                vertical_control_id.ids['objective_spinner2'].text = objective_id
 
-            objective = ctx.session.get_objective_info(objective_id=objective_id)
+                objective = ctx.session.get_objective_info(objective_id=objective_id)
 
-            # Populate FOV fields at startup; otherwise the fields stay blank
-            # until the user clicks Frame Size or selects an objective (both
-            # have their own FOV-recalc handlers).
-            fov_size = config_ui_getters.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=binning_size,
-            )
-            fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
-            self.ids['field_of_view_width_id'].text = fov_w_text
-            self.ids['field_of_view_height_id'].text = fov_h_text
+                # Populate FOV fields at startup; otherwise the fields stay
+                # blank until the user clicks Frame Size or selects an
+                # objective (both have their own FOV-recalc handlers).
+                fov_size = config_ui_getters.get_field_of_view(
+                    focal_length=objective['focal_length'],
+                    frame_size=settings['frame'],
+                    binning_size=binning_size,
+                )
+                fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+                self.ids['field_of_view_width_id'].text = fov_w_text
+                self.ids['field_of_view_height_id'].text = fov_h_text
 
             # Load previous turret position objectives
             for turret_pos, objective_id in settings['turret_objectives'].items():
@@ -1262,10 +1261,15 @@ class MicroscopeSettings(BoxLayout):
 
     def _refresh_fov_labels(self) -> None:
         """Recompute the FOV readout from the current delivered-sourced
-        frame settings and the UI binning."""
+        frame settings and the UI binning. With no known objective there is
+        no field of view to show, so the readout is blank."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        objective = ctx.session.get_objective_info(objective_id=settings['objective_id'])
+        objective = ctx.scope.runtime_state.get_current_objective()
+        if objective is None:
+            self.ids['field_of_view_width_id'].text = ''
+            self.ids['field_of_view_height_id'].text = ''
+            return
         fov_size = config_ui_getters.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],

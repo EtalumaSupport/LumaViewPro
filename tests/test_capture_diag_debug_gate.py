@@ -43,6 +43,8 @@ def _drive_capture(monkeypatch, debug_enabled):
         engineering_mode=False,
     )
     scope = writer._scope
+    # The objective the frame is taken with, read at capture.
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)

@@ -309,7 +309,7 @@ class TestOneRunOneEncoding:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12
+                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12, objective_id='4x Oly'
             ),
             step=step,
             name='A1_BF',

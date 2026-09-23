@@ -36,6 +36,7 @@ from tests.ast_seams import (
     production_modules,
     walk_defs,
 )
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from ui.vertical_control import VerticalControl
 
@@ -186,6 +187,10 @@ def session():
         ),
         simulate=True,
     )
+    # The question names the live slot, so the turret is put in slot 1 --
+    # where a real startup's home leaves it.
+    home_sim_scope(built.scope)
+    built.scope.motion.move_turret(1)
     yield built
     built.shutdown()
 
@@ -385,11 +390,10 @@ class TestProvisionalSettings:
         session = ScopeSession.create(
             ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
         )
-        monkeypatch.setattr(
-            session,
-            'scope',
-            SimpleNamespace(camera_connected=True, motor_connected=True, led_connected=True),
-        )
+        # The real scope with its connection flags up, so the save still
+        # reads the live runtime state it records the turret slot from.
+        for flag in ('camera_connected', 'motor_connected', 'led_connected'):
+            monkeypatch.setattr(type(session.scope), flag, property(lambda self: True))
 
         session.update_settings('objective_confirmed', True)
         session.save_settings()
@@ -523,7 +527,7 @@ class TestTheFoldedRequestIsStillAnswered:
 
         stand.prompt_if_objective_unknown()
         stand.prompt_if_objective_unknown(
-            on_resolved=lambda: seen.append(session.settings['objective_id'])
+            on_resolved=lambda: seen.append(session.scope.runtime_state.get_current_objective_id())
         )
         confirm(popups[0], '4x Oly')
 

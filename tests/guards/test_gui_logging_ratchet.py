@@ -269,26 +269,15 @@ _ROSTER = {
     'VerticalControl.set_turret_objective_btn': ('TURRET_OBJECTIVE',),
     'VerticalControl.slow_down': (_D('fine_down'),),
     'VerticalControl.slow_up': (_D('fine_up'),),
-    'VerticalControl.turret_pos_1_btn': (
-        'OBJECTIVE',
-        'TURRET_OBJECTIVE',
-        _D('turret_gesture'),
-    ),
-    'VerticalControl.turret_pos_2_btn': (
-        'OBJECTIVE',
-        'TURRET_OBJECTIVE',
-        _D('turret_gesture'),
-    ),
-    'VerticalControl.turret_pos_3_btn': (
-        'OBJECTIVE',
-        'TURRET_OBJECTIVE',
-        _D('turret_gesture'),
-    ),
-    'VerticalControl.turret_pos_4_btn': (
-        'OBJECTIVE',
-        'TURRET_OBJECTIVE',
-        _D('turret_gesture'),
-    ),
+    # Narrowed to the gesture: a turret press no longer selects an objective
+    # (the objective is derived from the slot). When the slot's objective is
+    # unknown, the move's IO callback (_show_turret_outcome) asks, and the
+    # answer writes OBJECTIVE / TURRET_OBJECTIVE from the prompt itself --
+    # a callback reference this walk does not follow.
+    'VerticalControl.turret_pos_1_btn': (_D('turret_gesture'),),
+    'VerticalControl.turret_pos_2_btn': (_D('turret_gesture'),),
+    'VerticalControl.turret_pos_3_btn': (_D('turret_gesture'),),
+    'VerticalControl.turret_pos_4_btn': (_D('turret_gesture'),),
     'VerticalControl.z_position_id': ('Z_POSITION',),
     'VideoCreationControls.FolderChooseBTN(choose:apply_video_gen_to_folder)': (
         'FOLDER_CHOOSE',

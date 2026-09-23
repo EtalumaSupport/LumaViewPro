@@ -541,7 +541,9 @@ class TestScaleBarObjectiveInit:
         """set_objective() should populate _objective dict."""
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        from tests.scope_fakes import record_turret_answer
+
+        scope = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
         scope.runtime_state.set_objective('20x Oly')
         assert scope.runtime_state._objective is not None
         assert scope.runtime_state._objective['magnification'] == 20
@@ -560,7 +562,9 @@ class TestScaleBarObjectiveInit:
         """Scale bar with objective set should proceed."""
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        from tests.scope_fakes import record_turret_answer
+
+        scope = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
         scope.runtime_state.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True

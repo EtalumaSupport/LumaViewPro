@@ -767,7 +767,10 @@ def test_save_image_requires_save_encoding():
     from modules.image_save import save_image
 
     with pytest.raises(TypeError, match='save_encoding'):
-        save_image(None, array=np.zeros((4, 4), dtype=np.uint8))
+        save_image(
+            None,
+            array=np.zeros((4, 4), dtype=np.uint8),
+        )
 
 
 def test_save_live_image_requires_save_encoding():

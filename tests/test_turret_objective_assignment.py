@@ -78,9 +78,9 @@ class TestTurretSlotKeyMatchesTheFile:
 
 class TestSelectingAnObjectiveIsQuiet:
     def test_objective_selection_raises_no_notification(self):
-        # The guard stays -- it is how the condition reaches the log -- but it
-        # must not interrupt. The refusals that matter live at protocol
-        # create / modify / add / run, and those really do refuse.
+        # On a turreted scope a selection assigns the slot in the light path,
+        # so there is no unassigned selection to interrupt. The refusals that
+        # matter live at protocol create / modify / add / run.
         import textwrap
 
         from modules.scope_session import ScopeSession
@@ -89,11 +89,11 @@ class TestSelectingAnObjectiveIsQuiet:
             ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
         )
         assert 'notifications.' not in src, (
-            'selecting an objective must not raise a notification: it is the first '
-            'step of assigning one, and the write below it always succeeds'
+            'selecting an objective must not raise a notification: on a turreted '
+            'scope it is the assignment itself'
         )
-        assert 'turret_objectives' in src, (
-            'the unassigned-objective condition should still reach the log'
+        assert 'self.assign_turret_objective(slot, objective_id)' in src, (
+            'a selection on a turreted scope must assign the slot in the light path'
         )
 
 

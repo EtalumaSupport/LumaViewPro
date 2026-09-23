@@ -34,6 +34,7 @@ def _runner(acquiring=('BF', 'Blue')):
 
     session = MagicMock()
     session.settings = _settings(acquiring=acquiring)
+    session.capture_settings_snapshot.return_value = session.settings
     session.get_current_plate_position.return_value = {'x': 1.0, 'y': 2.0, 'z': 3.0}
     session.objective_helper.get_objective_info.return_value = {'magnification': 10}
     return ProtocolRunner(session)

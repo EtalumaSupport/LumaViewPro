@@ -205,7 +205,7 @@ class TilingConfig:
     def get_tile_centers(
         self,
         config_label: str,
-        focal_length: float,
+        focal_length: float | None,
         frame_size: dict[int],
         fill_factor: int,
         binning_size: int,

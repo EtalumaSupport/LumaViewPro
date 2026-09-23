@@ -109,6 +109,18 @@ def home_sim_scope(scope):
     return scope
 
 
+def record_turret_answer(scope):
+    """Record whether a bare simulated scope has a turret, and return it.
+
+    Bring-up (``Lumascope.initialize``) records the answer; until it does,
+    the scope's objective is unknown and cannot be set. For the fixtures
+    that build a bare scope and skip bring-up, this records the answer
+    bring-up would when the board is talking: the scope's own capability.
+    """
+    scope.runtime_state.set_turreted(scope.capabilities.has_turret)
+    return scope
+
+
 def spec_scope(**attrs):
     """A scope double specced against a real constructed Lumascope.
 
@@ -177,3 +189,10 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     scope.runtime_state.set_turret_config(
         dict(TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives)
     )
+    # Bring-up also records whether the scope has a turret, and startup's home
+    # leaves the turret in slot 1 -- the active objective is that slot's
+    # assignment, unknown until the slot is. Only the turret is homed, so the
+    # stage stays where the test put it.
+    record_turret_answer(scope)
+    if scope.runtime_state.is_turreted() and not scope.motion._home_turret_impl():
+        raise AssertionError('the simulated turret failed to home')

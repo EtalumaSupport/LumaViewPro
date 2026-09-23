@@ -242,6 +242,7 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
     )
     protocol = image_save.save_image(
         identity_scope,
@@ -255,6 +256,7 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
     )
 
     assert _read_channel(manual) == _read_channel(protocol) == LAYER, (
@@ -314,6 +316,7 @@ def test_save_image_rejects_a_missing_channel(identity_scope):
             save_encoding='8bit',
             significant_bits=8,
             false_color_on=False,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
         )
 
 
@@ -322,7 +325,12 @@ def test_metadata_rejects_a_channel_outside_the_vocabulary(identity_scope):
     typo must not reach durable metadata as an identity."""
     with pytest.raises(ValueError, match='unknown channel'):
         image_save.generate_image_metadata(
-            identity_scope, channel=3, plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+            identity_scope,
+            channel=3,
+            plate_x_mm=0,
+            plate_y_mm=0,
+            stage_z_um=0,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
         )
 
 
@@ -347,6 +355,7 @@ def test_composite_export_stamps_composite(identity_scope, tmp_path):
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
     )
     assert _read_identity(path)['Name'] == 'Composite', (
         'a multi-channel composite must record Composite, not brightfield'
@@ -367,6 +376,7 @@ def test_single_channel_composite_export_stamps_that_channel(identity_scope, tmp
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
     )
     assert _read_identity(path)['Name'] == LAYER, (
         'a single-channel composite export records the channel it holds'
@@ -402,6 +412,7 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
             output_format='TIFF',
             save_encoding='right_aligned',
             significant_bits=12,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
         )
 
     on = _read_identity(_save(True, 'on_'))

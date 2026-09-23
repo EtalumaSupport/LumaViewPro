@@ -180,7 +180,15 @@ class ZStack(FloatLayout):
             self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
 
             labware_id, _ = get_selected_labware()
-            objective_id, _ = ctx.session.get_current_objective_info()
+            objective_id = ctx.scope.runtime_state.get_current_objective_id()
+            if objective_id is None:
+                from modules.notification_center import notifications
+
+                reason = 'The objective in the light path is unknown.'
+                logger.warning(f'[LVP Main  ] ZStack: {reason}')
+                notifications.warning('Z-Stack', 'Objective Unknown', reason)
+                run_not_started_func()
+                return
             zstack_positions_valid, _ = get_zstack_positions(
                 ctx.scope.motion.get_current_position('Z')
             )

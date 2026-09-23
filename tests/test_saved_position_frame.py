@@ -55,6 +55,7 @@ class TestThePlatePositionSurvivesTheSave:
             plate_x_mm=PLATE_X_MM,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         assert metadata['plate_pos_mm']['x'] == pytest.approx(PLATE_X_MM), (
@@ -74,6 +75,7 @@ class TestThePlatePositionSurvivesTheSave:
             plate_x_mm=PLATE_X_MM,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         assert metadata['z_pos_um'] == pytest.approx(STAGE_Z_UM)
@@ -88,6 +90,7 @@ class TestThePlatePositionSurvivesTheSave:
             plate_x_mm=PLATE_X_MM,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
         far = image_save.generate_image_metadata(
             positioned_scope,
@@ -95,6 +98,7 @@ class TestThePlatePositionSurvivesTheSave:
             plate_x_mm=PLATE_X_MM + 9.0,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         delta = far['plate_pos_mm']['x'] - near['plate_pos_mm']['x']
@@ -109,6 +113,7 @@ class TestThePlatePositionSurvivesTheSave:
             plate_x_mm=PLATE_X_MM,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         assert metadata['x_pos'] == metadata['plate_pos_mm']['x']
@@ -136,6 +141,7 @@ class TestTheWholeSaveChainCarriesOneFrame:
             plate_x_mm=PLATE_X_MM,
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         plane = _read_plane(path)

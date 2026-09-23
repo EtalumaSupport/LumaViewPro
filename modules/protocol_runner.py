@@ -248,7 +248,7 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        settings = self.session.settings
+        settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_composite_capture_config_from_settings(
             settings,
             self.session.objective_helper,
@@ -331,7 +331,7 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        settings = self.session.settings
+        settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
             self.session.objective_helper,
@@ -434,7 +434,7 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        settings = self.session.settings
+        settings = self.session.capture_settings_snapshot()
         position = self.session.get_current_plate_position()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,

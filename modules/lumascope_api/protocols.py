@@ -137,8 +137,9 @@ class ProtocolsAPI:
           - config={...}: full config dict passed to Protocol() directly.
           - input_config={...}: partial config (positions, layer_configs,
             etc.); routed through Protocol.from_config which fills defaults.
-          - empty_config={...}: labware/objective config for an empty-steps
-            protocol; routed through Protocol.create_empty.
+          - empty_config={...}: labware, period, duration, frame_dimensions
+            and binning_size for an empty-steps protocol, which needs no
+            objective; routed through Protocol.create_empty.
         tiling_configs_file_loc is resolved internally from the registered
         source_path.
 
@@ -186,7 +187,7 @@ class ProtocolsAPI:
         layer_configs: dict,
         stim_configs: dict,
         plate_position: dict,
-        objective_id: str,
+        objective_id: str | None,
         channel_order: list[str] | None = None,
         before_step: int | None = None,
         after_step: int | None = None,
@@ -207,11 +208,15 @@ class ProtocolsAPI:
         reads in that order -- the composite path associates channels by
         their step order.
 
+        ``objective_id`` is the active objective, or None when no one can say
+        which objective is in the light path.
+
         Returns the inserted step names, in protocol order.
 
         Raises:
-            ProtocolRunRefusedError: no layer acquires, or the turret's
-                current slot has no objective. Logged and notified once.
+            ProtocolRunRefusedError: no layer acquires, the turret's current
+                slot has no objective, or the active objective is unknown.
+                Logged and notified once.
             ProtocolError: an impossible ``before_step`` / ``after_step``
                 (raised by the protocol).
         """
@@ -223,6 +228,15 @@ class ProtocolsAPI:
                 title='Protocol Add Step Error',
                 message=(
                     'Cannot add step to protocol. Please set objective for current turret position.'
+                ),
+            )
+        if objective_id is None:
+            self._refuse(
+                reason='objective_unknown',
+                title='Protocol Add Step Error',
+                message=(
+                    'Cannot add step: the objective in the light path is unknown, so the '
+                    'step could not say which objective it was taken with.'
                 ),
             )
         if not any(cfg['acquire'] is not None for cfg in layer_configs.values()):

@@ -267,9 +267,7 @@ class ProtocolSettings(FloatLayout):
         #
         # The panel still needs A protocol so nothing downstream reads
         # None.
-        self._protocol = ctx.scope.protocols.create_protocol(
-            empty_config=ctx.session.get_sequenced_capture_config(),
-        )
+        self._protocol = ctx.session.create_empty_protocol()
 
         # The panel applying the plate it already shows, so the scope is on it
         # even when no protocol loaded; not a user pick.
@@ -727,15 +725,6 @@ class ProtocolSettings(FloatLayout):
         if not require_file_writes_idle('create a new protocol'):
             return
 
-        # The two authoring choices live only in this panel's widgets, so
-        # the panel states them; the Session assembles everything else.
-        # Left to the member's defaults they read 1x1 and no z-stack, and
-        # the built protocol silently loses the user's choice.
-        config = ctx.session.get_sequenced_capture_config(
-            tiling=self.ids['tiling_size_spinner'].text,
-            use_zstacking=self.ids['acquire_zstack_id'].active,
-        )
-
         # New Protocol resets each step to its channel's saved focus baseline.
         # A per-(well, channel) Z carry-over from the prior in-memory protocol
         # used to run here, but it harvested autofocus-refined Z along with
@@ -746,6 +735,17 @@ class ProtocolSettings(FloatLayout):
         # setting without re-plumbing.
 
         try:
+            # The two authoring choices live only in this panel's widgets, so
+            # the panel states them; the Session assembles everything else.
+            # Left to the member's defaults they read 1x1 and no z-stack, and
+            # the built protocol silently loses the user's choice. The config
+            # carries the active objective, so it raises while that is unknown
+            # (a turret move in flight, an unassigned slot); the handler below
+            # shows the reason, where an escape here would end the app.
+            config = ctx.session.get_sequenced_capture_config(
+                tiling=self.ids['tiling_size_spinner'].text,
+                use_zstacking=self.ids['acquire_zstack_id'].active,
+            )
             protocol = ctx.scope.protocols.create_protocol(input_config=config)
         except exceptions.ProtocolRunRefusedError as e:
             # The builder logged this and posted it solicited, so the user
@@ -930,9 +930,7 @@ class ProtocolSettings(FloatLayout):
                 'its path is kept so it can be reloaded once the scope can perform it'
             )
 
-        self._protocol = ctx.scope.protocols.create_protocol(
-            empty_config=ctx.session.get_sequenced_capture_config(),
-        )
+        self._protocol = ctx.session.create_empty_protocol()
         self.update_step_ui()
 
     # Load Protocol from File

@@ -316,20 +316,19 @@ def untouched(session, tmp_path):
     return _check
 
 
+def _set_connected(session, monkeypatch, connected):
+    # The real scope with its connection flags forced, so the save still
+    # reads the live runtime state it records the turret slot from.
+    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
+        monkeypatch.setattr(type(session.scope), flag, property(lambda self: connected))
+
+
 def _with_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=True, motor_connected=True, led_connected=True),
-    )
+    _set_connected(session, monkeypatch, True)
 
 
 def _without_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=False, motor_connected=False, led_connected=False),
-    )
+    _set_connected(session, monkeypatch, False)
 
 
 def _make_provisional(monkeypatch, tmp_path):

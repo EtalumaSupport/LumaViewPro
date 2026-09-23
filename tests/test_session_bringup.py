@@ -18,6 +18,7 @@ import pytest
 
 from modules.exceptions import ConfigError
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
 
 
@@ -69,6 +70,7 @@ class TestAFactorySessionIsConfigured:
             false_color_on=False,
             save_encoding='8bit',
             significant_bits=8,
+            objective_id=session.scope.runtime_state.get_current_objective_id(),
         )
         assert path is not None
 
@@ -82,13 +84,25 @@ class TestSettingsThatCannotConfigureAScope:
         with pytest.raises(ConfigError, match='objective_id'):
             ScopeSession.create(complete_settings_without('objective_id'), simulate=True)
 
+    def test_a_turret_scope_needs_no_stored_objective(self, tmp_path):
+        """On a turret scope the objective is the slot's assignment; a stored
+        id names nothing, so its absence is not a reason to refuse."""
+        session = ScopeSession.create(
+            complete_settings_without(
+                'objective_id', live_folder=str(tmp_path), microscope='LS850T'
+            ),
+            simulate=True,
+        )
+        session.shutdown()
+
     def test_an_unshipped_objective_refuses_by_value(self):
         with pytest.raises(ConfigError, match='banana'):
             ScopeSession.create(complete_settings(objective_id='banana'), simulate=True)
 
-    def test_string_turret_keys_are_normalized_and_slot_one_is_adopted(self, tmp_path):
+    def test_string_turret_keys_are_normalized_and_slot_one_answers(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw
-        it. Adoption must still find slot 1 and write the objective."""
+        it. The slot map must still be keyed by int, so the turret in slot 1
+        answers slot 1's assignment."""
         raw = complete_settings(
             live_folder=str(tmp_path),
             microscope='LS850T',
@@ -97,7 +111,9 @@ class TestSettingsThatCannotConfigureAScope:
         raw['turret_objectives'] = {'1': '10x Oly', '2': None, '3': None, '4': None}
         s = ScopeSession.create(raw, simulate=True)
         try:
-            assert s.settings['objective_id'] == '10x Oly'
+            assert s.settings['turret_objectives'][1] == '10x Oly'
+            home_sim_scope(s.scope)
+            s.scope.motion.move_turret(1)
             assert s.scope.runtime_state.get_current_objective_id() == '10x Oly'
         finally:
             s.shutdown()

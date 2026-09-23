@@ -49,7 +49,9 @@ def metadata_scope(sim_scope):
 
 
 def _metadata(scope, channel):
-    return image_save.generate_image_metadata(scope, channel, 0, 0, 0)
+    return image_save.generate_image_metadata(
+        scope, channel, 0, 0, 0, objective_id=scope.runtime_state.get_current_objective_id()
+    )
 
 
 class TestSpectralTrio:

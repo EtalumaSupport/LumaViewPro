@@ -598,7 +598,8 @@
 			# #631: text_autoupdate: True caused .values reassignment to reset
 			# .text to the alphabetically-first option, firing on_text with the
 			# wrong objective_id and tripping the misleading turret warning.
-			# Text is authoritatively driven by settings['objective_id'].
+			# Text shows the active objective the API derives; a write that
+			# equals it is a no-op in select_objective.
 	        on_release: root.load_objectives()
 	        on_text: root.select_objective()
 

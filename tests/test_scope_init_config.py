@@ -107,24 +107,25 @@ _NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
 
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
         # No image_mode key -> 8-bit default.
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
         assert config.capture_depth == 8
         # A 12-bit image mode resolves to a 12-bit capture depth, so
         # initialize() applies a 12-bit native pixel format up front.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
-        config = ScopeInitConfig.from_settings(twelve, labware=None)
+        config = ScopeInitConfig.from_settings(twelve, labware=None, turreted=False)
         assert config.capture_depth == 12
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS620_CONFIG,
             layer_identity=_LS620_IDENTITY,
         )
@@ -135,6 +136,7 @@ class TestFromSettings:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS820_CONFIG,
             layer_identity=_LS820_IDENTITY,
         )
@@ -145,6 +147,7 @@ class TestFromSettings:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS850T_CONFIG,
             layer_identity=_LS850T_IDENTITY,
         )
@@ -156,6 +159,7 @@ class TestFromSettings:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=scope_config,
             layer_identity=_NO_LED_IDENTITY,
         )
@@ -190,12 +194,12 @@ class TestAccelerationBound:
     )
     def test_stored_value_is_bounded_to_what_the_driver_accepts(self, stored, expected):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
+        config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
         assert config.acceleration_pct == expected
 
     def test_an_absent_motion_section_still_yields_a_legal_value(self):
         settings = {key: value for key, value in _BASE_SETTINGS.items() if key != 'motion'}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
+        config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
         assert ACCELERATION_PCT_MIN <= config.acceleration_pct <= ACCELERATION_PCT_MAX
 
     def test_the_bound_is_the_drivers_own_rather_than_a_second_copy(self):
@@ -207,7 +211,7 @@ class TestAccelerationBound:
         how the value got out of range to begin with.
         """
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 10**6}}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
+        config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
         assert config.acceleration_pct == ACCELERATION_PCT_MAX
 
         board = MotorBoard.__new__(MotorBoard)
@@ -248,6 +252,7 @@ class TestNotifyPartialHardware:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS620_CONFIG,
             layer_identity=_LS620_IDENTITY,
         )
@@ -262,6 +267,7 @@ class TestNotifyPartialHardware:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS620_CONFIG,
             layer_identity=_LS620_IDENTITY,
         )
@@ -278,6 +284,7 @@ class TestNotifyPartialHardware:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS820_CONFIG,
         )
         scope._notify_partial_hardware(config)
@@ -289,7 +296,7 @@ class TestNotifyPartialHardware:
         the pre-filter behavior (any Null driver -> warning)."""
         scope = _make_scope_with_no_hardware()
         scope._led_driver = object()
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
         scope._notify_partial_hardware(config)
         assert len(captured_warnings) == 1
         assert 'Motor Controller' in captured_warnings[0].message
@@ -311,6 +318,7 @@ class TestNotifyPartialHardware:
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,
+            turreted=False,
             scope_config=_LS820_CONFIG,
         )
         scope._notify_partial_hardware(config)

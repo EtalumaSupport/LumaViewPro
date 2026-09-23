@@ -69,3 +69,41 @@ def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
     exist for callers with no widgets, and the panel is not one of them."""
     asked = _drive_new_protocol(monkeypatch, tiling='1x1', use_zstacking=False)
     assert asked == {'tiling': '1x1', 'use_zstacking': False}
+
+
+def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path):
+    """The config carries the active objective, which is unknown on an
+    unassigned slot and during every turret move. The panel shows the
+    Session's reason; an exception out of a button handler ends the app."""
+    import ui.notification_popup as notification_popup
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope='LS850T',
+            objective_confirmed=True,
+            turret_objectives={1: '10x Oly', 2: None, 3: None, 4: None},
+        ),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(2)
+        shown = []
+        monkeypatch.setattr(
+            notification_popup,
+            'show_notification_popup',
+            lambda title, message, **_: shown.append((title, message)),
+        )
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=session.scope, session=session))
+        monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
+
+        _Panel('1x1', False).new_protocol()
+
+        assert len(shown) == 1, shown
+        assert 'slot 2 has no objective assigned' in shown[0][1], shown
+    finally:
+        session.shutdown()

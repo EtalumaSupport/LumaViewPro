@@ -250,8 +250,32 @@ class TestUnknownObjectiveEventsReachThePrompt:
     cannot quietly drop a trigger)."""
 
     def test_turret_select_wires_the_prompt(self):
-        calls = _method_calls('ui/vertical_control.py', 'VerticalControl', 'turret_select')
-        assert 'prompt_if_objective_unknown' in calls
+        # One hop: the move hands its outcome to _show_turret_outcome (as the
+        # IO callback outside a run, scheduled inside one), and that asks.
+        module = parse_module('ui/vertical_control.py')
+        cls = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.ClassDef) and node.name == 'VerticalControl'
+        )
+        turret_select = next(
+            node
+            for node in cls.body
+            if isinstance(node, ast.FunctionDef) and node.name == 'turret_select'
+        )
+        callbacks = [
+            kw.value.attr
+            for node in ast.walk(turret_select)
+            if isinstance(node, ast.Call)
+            for kw in node.keywords
+            if kw.arg == 'callback' and isinstance(kw.value, ast.Attribute)
+        ]
+        assert '_show_turret_outcome' in callbacks
+        assert '_show_turret_outcome' in _method_calls(
+            'ui/vertical_control.py', 'VerticalControl', 'turret_select'
+        )
+        outcome = _method_calls('ui/vertical_control.py', 'VerticalControl', '_show_turret_outcome')
+        assert 'prompt_if_objective_unknown' in outcome
 
     def test_reset_turret_objective_does_not_wire_the_prompt(self):
         """The one trigger that must NOT exist.

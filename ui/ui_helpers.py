@@ -295,6 +295,14 @@ def move_absolute(
         _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
+def show_jog_refusal(label: str, error: Exception) -> None:
+    """Display a jog the API refused, and why (e.g. home the turret)."""
+    from modules.notification_center import notifications
+
+    logger.warning(f'[Motion] {label} refused: {error}')
+    notifications.warning('Motion', 'Jog refused', str(error))
+
+
 def move_relative(
     axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):

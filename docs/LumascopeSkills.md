@@ -144,11 +144,12 @@ scope.refresh_layer_identity(override_model='LS850T')
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
 
-Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` runs `session.configure_scope()` before it returns (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` or `objective_id` is missing; you can also construct one directly:
+Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` runs `session.configure_scope()` before it returns (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=..., turreted=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` is missing, or `objective_id` on a scope with no turret. `turreted` is required and has no default: on a turreted scope the objective is the one assigned to the slot in the light path, so no `objective_id` is carried. You can also construct one directly:
 
 ```python
 config = ScopeInitConfig(
     labware=labware_obj,
+    turreted=False,                  # True on a turret model; objective_id is then None
     objective_id='10x Oly',
     turret_config=None,
     binning_size=1,
@@ -178,7 +179,9 @@ scope.disconnect()
 
 ### Objective management
 
-The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. Each writer moves the settings store and the scope's runtime state together and records the resolved optics (`[Optics   ] objective=... -> N um/px`) in the log; every member refuses an id that is not exactly a catalogue key with `ConfigError`, before any write.
+The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. On a scope with a turret, the active objective is the one assigned to the slot in the light path, derived on every read: a turret move changes it, and no copy of it is stored beside the slot map. With no turret, it is the selected objective, and `select_objective` moves the settings store and the scope's runtime state together. Every writer refuses an id that is not exactly a catalogue key with `ConfigError`, before any write. The resolved optics (`[Optics   ] objective=... -> N um/px`) are recorded in the log once each time the active objective changes -- after a selection, an assignment or a turret move -- the next time it is read, so before any capture stamps it.
+
+When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `session.get_current_objective_info()` and `scope.runtime_state.resolve_current_objective()` then raise `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, `'none_selected'` or `'turret_undecided'` -- a bare `Lumascope` before `initialize()` has recorded whether it has a turret, and `.slot` is the slot in the light path or `None`), and `get_current_objective_id()` / `get_current_objective()` return `None`.
 
 The plate decides every well position the program computes, so the Session owns it on the same terms: `select_labware` moves the settings store and the scope's runtime state together, or moves neither. It refuses with `ConfigError` -- before either store is written -- a name that is not a string, a name the labware catalogue cannot resolve, and settings with no usable `protocol` block to hold the selection. Plate names that were renamed still resolve, so a protocol saved under an old name is accepted rather than refused.
 
@@ -189,24 +192,28 @@ question = session.objective_question()            # None, or ObjectiveQuestion(
 if question is not None:
     session.confirm_objective(question.proposed, turret_position=question.turret_position)
 
-session.select_objective('10x Oly')                # True when the objective changed; False for the one held
+session.select_objective('10x Oly')                # True when the objective changed; False for the one held.
+                                                   # On a turret scope it assigns the slot in the light path;
+                                                   # ObjectiveUnknownError while that slot is unknown
 session.select_labware('384 well microplate')      # True when the plate changed; a retired spelling is accepted and stored under its catalogue key; both stores are written either way
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (ValueError otherwise)
 session.clear_turret_objective(2)
 session.set_turret_position(2)                     # record the slot a move landed on; no-op when unchanged
 ```
 
-`objective_question()` is a read: it returns a question when no one has confirmed the objective on this install, or when the declared turret model sits on an unassigned slot. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. A headless turret move that changes the recorded position onto an unassigned slot logs a warning.
+`objective_question()` is a read: it returns a question when no one has confirmed the objective on this install, or when the slot in the light path on a declared turret model has no assignment. The question names the live slot (`scope.motion.get_turret_slot()`) and proposes only that slot's assignment; an unknown slot alone -- as during every turret move -- owes no question, but on an install whose objective has never been confirmed an unknown slot raises `ObjectiveUnknownError` (`.reason` `'slot_unknown'`) rather than ask about a slot the turret may not be in. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. Recording a slot with `session.set_turret_position` onto an unassigned slot logs a warning; a bare `scope.motion.move_turret` does not, so a headless caller asks `objective_question()` after the move.
 
-Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. Its objective setter is the bare-`Lumascope` form: it writes the scope's runtime state only, not the session's settings, so a Session caller uses `session.select_objective` instead.
+Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. Its objective setter is the bare-`Lumascope` form: it writes the scope's runtime state only, not the session's settings, so a Session caller uses `session.select_objective` instead. It is for an initialized scope with no turret: before `initialize()` it raises `ConfigError`, since whether the scope has a turret is not yet known, and on a turreted scope it raises `ConfigError`, because the objective there is the slot's assignment (`set_turret_config`, then move the turret).
 
 ```python
-scope.runtime_state.set_objective('10x Oly')           # bare-Lumascope form; a Session caller uses session.select_objective
+scope.runtime_state.set_objective('10x Oly')           # bare-Lumascope form, no-turret scopes only; a Session caller uses session.select_objective
 
-scope.runtime_state.get_current_objective_id()
+scope.runtime_state.is_turreted()                      # True when the objective is derived from the turret slot
+scope.runtime_state.resolve_current_objective()        # (id, info), or raises ObjectiveUnknownError saying why
+scope.runtime_state.get_current_objective_id()         # None when unknown
 scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
 scope.runtime_state.get_available_objectives()
-scope.runtime_state.get_current_objective()
+scope.runtime_state.get_current_objective()            # None when unknown
 
 # Turret integration
 scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
@@ -267,7 +274,7 @@ settings_init.load_lvp_settings(logger, '.')
 session = ScopeSession.create(settings=settings_init.settings, source_path='.')
 ```
 
-The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the slot-1 objective adopted, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes. Do not call `session.start_executors()` after a factory: it is internal, and a second start spawns a second worker thread on each lane with no error. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
+The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes. Do not call `session.start_executors()` after a factory: it is internal, and a second start spawns a second worker thread on each lane with no error. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
 
 `create` takes the host's injections as named keyword arguments; every one of them is optional, and the headless form passes none of them.
 
@@ -298,7 +305,7 @@ session.scope.imaging.start_streaming()
 
 Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -317,7 +324,7 @@ session.start_application_session()                  # home ALL axes, then posit
 session.start_application_session(disable_homing=True)  # skip homing; no startup motion at all
 ```
 
-`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step and, with it, every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
+`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step and, with it, every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
 ### Reading and persisting configuration
 
@@ -426,6 +433,7 @@ from modules.image_save import save_image
 
 # The capture derives the dark-floor expectation itself from commanded
 # LED state -- there is no illumination fact to pass.
+objective_id, _ = session.scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
 image = session.scope.imaging.capture_and_wait()
 save_image(
     session.scope,
@@ -434,6 +442,7 @@ save_image(
     channel='BF', false_color_on=False,
     save_encoding='right_aligned',
     significant_bits=session.scope.imaging.capture_frame_depth(image),
+    objective_id=objective_id,
 )
 
 # Live-view tap: the latest buffered frame, no new exposure forced
@@ -521,10 +530,10 @@ Recovery is deliberate data loss: pending writes from the wedged run are discard
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
-**Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. It returns the inserted step names in protocol order. When no layer is set to acquire, or a turret scope's current slot names no objective, it raises `ProtocolRunRefusedError` (reason `no_acquiring_layer` / `turret_objective_unset`) after logging and notifying once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=..., channel_order=..., before_step=... | after_step=...)`.
+**Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. It returns the inserted step names in protocol order. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is logged and notified once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=... (None when unknown, which is refused), channel_order=..., before_step=... | after_step=...)`.
 
 ```python
-protocol = session.scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
+protocol = session.create_empty_protocol()          # no steps; needs no objective, so it works before one is known
 names = session.add_step(protocol, before_step=0)   # ['custom0000_BF', ...]
 ```
 
@@ -576,7 +585,9 @@ session.notify_run_state()       # force a level-sync of all listeners
 
 ```python
 session.get_layer_configs()              # all layer settings
-session.get_current_objective_info()     # active objective
+session.get_current_objective_info()     # (id, info) of the active objective; ObjectiveUnknownError when unknown
+session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
+                                         # for composing a capture or run; not for saving
 session.get_current_plate_position()     # current XY in plate coords
 session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
@@ -674,6 +685,11 @@ scope.motion.move_absolute('X', 60000, wait_until_complete=True)
 
 # Relative moves (µm)
 scope.motion.move_relative('Z', 100)
+
+# Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
+# ObjectiveUnknownError when the objective is unknown -- no step is guessed
+step = scope.motion.jog_step('Z', coarse=True)
+scope.motion.move_relative('Z', -step)
 
 # Status
 scope.motion.get_target_status('Z')              # True if target reached
@@ -1002,7 +1018,7 @@ scope.imaging.pixel_format_cached
 scope.imaging.min_frame_size_cached                # dict, or None when no camera is connected
 
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
-# skipped -- with one warning logged -- while no objective is selected)
+# skipped while the objective is unknown, with one warning each time it becomes unknown)
 scope.imaging.set_scale_bar(True, color='red')
 scope.imaging.scale_bar_config                     # snapshot dict: {'enabled', 'color', ...}
 ```
@@ -1377,7 +1393,9 @@ save_image(
     output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
     save_encoding='right_aligned',         # from the image-mode config layer
     significant_bits=scope.imaging.capture_frame_depth(image),
-    x=60000, y=40000, z=5000,              # stage position metadata (µm)
+    objective_id=objective_id,             # the objective the frame was taken with (read at capture)
+    plate_x_mm=60.0, plate_y_mm=40.0,      # plate position the file records (mm)
+    stage_z_um=5000,                       # stage Z (µm)
 )
 ```
 
@@ -1388,7 +1406,7 @@ The full set of free functions in `modules.image_save`:
 | `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
 | `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
 | `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
-| `generate_image_metadata(scope, channel, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
+| `generate_image_metadata(scope, channel, plate_x_mm, plate_y_mm, stage_z_um, *, objective_id)` | Build the TIFF metadata dict for the capture settings + position; the scale comes from `objective_id`, the objective the frame was taken with. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
 | `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
 
@@ -1538,7 +1556,8 @@ scope = Lumascope()
 scope.motion.home()
 scope.motion.wait_until_finished_moving()
 
-scope.runtime_state.set_objective('10x Oly')
+scope.initialize(config)   # a ScopeInitConfig (see "Initialization"): records whether the scope has a turret and, with
+                           # none, selects config.objective_id; on a turret model, move the turret to the objective's slot
 scope.imaging.set_exposure_ms(50)
 scope.imaging.set_gain_db(5.0)
 
@@ -1549,6 +1568,7 @@ scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 from modules.image_save import save_image
 
 scope.illumination.led_on('BF', 100)
+objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
 image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
@@ -1559,6 +1579,7 @@ save_image(
     channel='BF', false_color_on=False,
     save_encoding='right_aligned',
     significant_bits=scope.imaging.capture_frame_depth(image),
+    objective_id=objective_id,
     output_format='TIFF', x=60000, y=40000, z=5000,
 )
 scope.disconnect()
@@ -1615,6 +1636,7 @@ scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
     scope.motion.move_absolute('Z', z, wait_until_complete=True)
+    objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
     image = scope.imaging.capture_and_wait()
     save_image(
         scope,
@@ -1623,6 +1645,7 @@ while z <= z_end:
         channel='BF', false_color_on=False,
         save_encoding='right_aligned',
         significant_bits=scope.imaging.capture_frame_depth(image),
+        objective_id=objective_id,
         output_format='TIFF', z=z,
     )
     z += z_step
@@ -1644,6 +1667,7 @@ for well_name, px, py in wells:
     scope.motion.move_absolute('X', sx, wait_until_complete=True)
     scope.motion.move_absolute('Y', sy, wait_until_complete=True)
 
+    objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
     image = scope.imaging.capture_and_wait()
     save_image(
         scope,
@@ -1652,6 +1676,7 @@ for well_name, px, py in wells:
         channel='BF', false_color_on=False,
         save_encoding='right_aligned',
         significant_bits=scope.imaging.capture_frame_depth(image),
+        objective_id=objective_id,
         output_format='TIFF', x=sx, y=sy,
     )
 scope.illumination.leds_off()

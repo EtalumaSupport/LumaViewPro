@@ -27,12 +27,13 @@ See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.5 and sec 10.
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Any
 
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
 from lvp_logger import logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, ObjectiveUnknownError
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -60,9 +61,21 @@ class RuntimeState:
         ships."""
 
         self._labware: Any | None = None
+        # The selected objective: the live store on a scope with no turret.
+        # On a turreted scope nothing is stored -- the objective is the one
+        # assigned to the slot in the light path, derived on every read.
         self._objective: dict | None = None
         self._objective_id: str | None = None
+        # Set once at bring-up from the session's one has-a-turret answer.
+        # None until then: a scope nobody has configured does not know where
+        # its objective comes from, and a False here would let a turret scope
+        # answer with a stored objective.
+        self._turreted: bool | None = None
         self._turret_config: dict = {}
+        # The objective whose optics were last recorded, so the record is
+        # written once per change of the active objective, not per read.
+        self._logged_objective_id: str | None = None
+        self._optics_lock = threading.Lock()
         self._stage_offset: dict | None = None
 
         self._objectives_loader = objectives_loader.ObjectiveLoader()
@@ -84,8 +97,36 @@ class RuntimeState:
         """
         return self._labware
 
+    def set_turreted(self, turreted: bool) -> None:
+        """Record whether this scope has a turret, once, at bring-up.
+
+        This method is not part of the L2 API surface: bring-up sets it from
+        the session's one has-a-turret answer (the board when it is talking,
+        the declared model when it is not), so a turreted scope whose board
+        is dead still derives its objective -- and, with no known slot,
+        answers unknown -- rather than falling back to a stored one.
+        """
+        self._turreted = turreted
+
+    def is_turreted(self) -> bool:
+        """Whether this scope derives its objective from the turret slot.
+
+        The answer bring-up recorded; every objective question asks this
+        one, so selection and derivation cannot disagree about the turret.
+
+        Raises:
+            ConfigError: Bring-up has not recorded the answer
+                (``Lumascope.initialize`` has not run).
+        """
+        if self._turreted is None:
+            raise ConfigError(
+                'whether this scope has a turret is not known: the scope has not been '
+                'configured -- run initialize() (a ScopeSession does this at bring-up)'
+            )
+        return self._turreted
+
     def set_objective(self, objective_id: str) -> None:
-        """Set the active objective by ID.
+        """Set the active objective by ID, on a scope with no turret.
 
         Args:
             objective_id: Objective identifier (e.g. "4x", "10x", "20x").
@@ -94,19 +135,104 @@ class RuntimeState:
             ConfigError: The id resolves to no objective. State is
                 untouched on failure -- resolving before assigning keeps
                 the id and the info describing the same objective, so a
-                bad id can never leave the pair torn.
+                bad id can never leave the pair torn. Also raised on a
+                turreted scope, whose objective is the slot's assignment
+                and cannot be set beside it, and before bring-up has said
+                whether the scope has a turret.
         """
+        if self.is_turreted():
+            raise ConfigError(
+                'a turreted scope has no selected objective to set: the active objective '
+                'is the one assigned to the slot in the light path'
+            )
         objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
         self._objective_id = objective_id
         self._objective = objective
+
+    def resolve_current_objective(self) -> tuple[str, dict]:
+        """The active objective's id and metadata, or why it is unknown.
+
+        On a turreted scope, the objective assigned to the slot in the light
+        path (``motion.get_turret_slot``), read fresh every time; with no
+        turret, the selected one.
+
+        Returns:
+            tuple[str, dict]: The objective id and its catalogue entry.
+
+        Raises:
+            ObjectiveUnknownError: On a turreted scope, the slot is unknown,
+                it has no assignment, or its assignment is not in the
+                catalogue; with no turret, nothing was selected; on any
+                scope, bring-up has not said whether it has a turret.
+        """
+        objective_id, info, unknown = self._derive_current_objective()
+        if unknown is not None:
+            raise unknown
+        return objective_id, info
+
+    def _derive_current_objective(
+        self,
+    ) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
+        """The one derivation: (id, info, None), or (None, None, why).
+
+        Records the optics whenever the answer is a different objective
+        from the last one recorded -- after a turret move, an assignment
+        or a selection -- so the scale every later capture used is in the
+        log however the objective changed.
+        """
+        objective_id, info, unknown = self._derive()
+        if unknown is None:
+            self._record_optics_on_change(objective_id, info)
+        return objective_id, info, unknown
+
+    def _record_optics_on_change(self, objective_id: str, info: dict) -> None:
+        with self._optics_lock:
+            if objective_id == self._logged_objective_id:
+                return
+            self._logged_objective_id = objective_id
+        # A record that cannot be written must not fail the read that
+        # triggered it: the objective is still known and still correct.
+        try:
+            import modules.config_helpers as config_helpers
+
+            config_helpers.log_resolved_optics(
+                objective_id,
+                info['focal_length'],
+                self._scope.imaging.get_binning_size(),
+                capabilities=self._scope.capabilities,
+            )
+        except Exception:
+            logger.warning(
+                f'[LVP API  ] could not record the optics for objective {objective_id!r}',
+                exc_info=True,
+            )
+
+    def _derive(self) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
+        if self._turreted is None:
+            return None, None, ObjectiveUnknownError('turret_undecided')
+        if not self._turreted:
+            if self._objective_id is None:
+                return None, None, ObjectiveUnknownError('none_selected')
+            return self._objective_id, self._objective, None
+        slot = self._scope.motion.get_turret_slot()
+        if slot is None:
+            return None, None, ObjectiveUnknownError('slot_unknown')
+        objective_id = self._turret_config.get(slot)
+        if objective_id is None:
+            return None, None, ObjectiveUnknownError('slot_unassigned', slot)
+        if objective_id not in self._objectives_loader.get_objectives_list():
+            return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
+        info = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        return objective_id, info, None
 
     def get_current_objective_id(self) -> str | None:
         """Get the ID of the currently active objective.
 
         Returns:
-            str | None: e.g. '20x Oly', or None if not set.
+            str | None: e.g. '20x Oly', or None when it is not known
+                (``resolve_current_objective`` says why).
         """
-        return getattr(self, '_objective_id', None)
+        return self._derive_current_objective()[0]
 
     def get_objective_info(self, objective_id: str) -> dict:
         """Get objective metadata by ID.
@@ -139,9 +265,10 @@ class RuntimeState:
         """Get the currently active objective info.
 
         Returns:
-            dict | None: Active objective metadata, or None if not set.
+            dict | None: Active objective metadata, or None when it is not
+                known (``resolve_current_objective`` says why).
         """
-        return self._objective
+        return self._derive_current_objective()[1]
 
     def set_turret_config(self, turret_config: dict[int, str]) -> None:
         """Set the turret objective configuration.

@@ -401,10 +401,17 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def sim_scope():
-    """Lumascope with simulated hardware in fast timing mode."""
+    """Lumascope with simulated hardware in fast timing mode.
+
+    An LS850: the LS850T without the turret. Its users select an objective
+    directly, which only a scope with no turret can do -- on a turret scope
+    the objective is the slot's assignment.
+    """
     from modules.lumascope_api import Lumascope
 
-    s = Lumascope(simulate=True)
+    from tests.scope_fakes import record_turret_answer
+
+    s = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

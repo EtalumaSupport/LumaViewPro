@@ -36,6 +36,7 @@ try:
             save_encoding='rgb',
             output_format='TIFF',
             significant_bits=12,
+            objective_id=scope.runtime_state.get_current_objective_id(),
         )
         outs[fc] = hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:16]
         import tifffile

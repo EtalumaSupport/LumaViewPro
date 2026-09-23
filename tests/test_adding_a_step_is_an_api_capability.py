@@ -39,13 +39,13 @@ def _layer_configs(**acquire_by_layer):
     return config_helpers.get_layer_configs(settings)
 
 
-def _add(scope, protocol, layer_configs, **kwargs):
+def _add(scope, protocol, layer_configs, *, objective_id=OBJECTIVE, **kwargs):
     return scope.protocols.add_step(
         protocol,
         layer_configs=layer_configs,
         stim_configs={},
         plate_position=PLATE_POSITION,
-        objective_id=OBJECTIVE,
+        objective_id=objective_id,
         **kwargs,
     )
 
@@ -83,6 +83,20 @@ class TestTheApiRefuses:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
 
         assert excinfo.value.reason == 'turret_objective_unset'
+        assert len(captured) == 1
+        assert protocol.num_steps() == 0
+
+    def test_an_unknown_objective_is_refused_and_adds_nothing(self, scope, monkeypatch):
+        # A step records the objective it was taken with; with no one able
+        # to say which objective is in the light path, there is nothing
+        # true to record.
+        protocol = _empty_protocol_for_add()
+        captured = _capture_notifications(monkeypatch)
+
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            _add(scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step=0)
+
+        assert excinfo.value.reason == 'objective_unknown'
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 

@@ -23,6 +23,7 @@ import modules.common_utils as common_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.exceptions import ObjectiveUnknownError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.protocol import Protocol
@@ -50,17 +51,19 @@ WRITE_STALL_FATAL_S = 30.0
 
 
 class CapturedFrame(NamedTuple):
-    """A captured frame coupled with the payload depth it was captured at.
+    """A captured frame coupled with the facts it was captured under.
 
     The save runs asynchronously on the file-IO thread; a bare array would
-    force the writer to re-derive depth at save time, when the camera may
-    be at a different pixel format or unreadable. Coupling the depth to
-    the frame at capture makes handing over a frame without its depth
-    unrepresentable.
+    force the writer to re-derive them at save time, when the camera may
+    be at a different pixel format or unreadable, and the next step's
+    turret move may already have changed the objective in the light path.
+    Coupling them to the frame at capture makes handing over a frame
+    without them unrepresentable.
     """
 
     image: np.ndarray
     significant_bits: int
+    objective_id: str
 
 
 class ProtocolImageWriter:
@@ -828,6 +831,26 @@ class ProtocolImageWriter:
                     return False
 
                 else:
+                    # The objective this frame is taken with, read now -- the
+                    # save runs later, after the next step's turret move may
+                    # have begun. Unknown means no true scale for the frame,
+                    # so the step fails here, before any capture.
+                    try:
+                        frame_objective_id, _ = (
+                            self._scope.runtime_state.resolve_current_objective()
+                        )
+                    except ObjectiveUnknownError as e:
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause=str(e),
+                        )
+                        _proto_outcome = 'capture_failed'
+                        return False
                     # Frame validity drains stale frames, then grabs a valid
                     # one. The dark-floor expectation is derived inside the
                     # capture from commanded LED state -- the writer commands
@@ -907,6 +930,7 @@ class ProtocolImageWriter:
                             'captured_image': CapturedFrame(
                                 image=captured_image,
                                 significant_bits=frame_significant_bits,
+                                objective_id=frame_objective_id,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1078,6 +1102,7 @@ class ProtocolImageWriter:
                     stage_z_um=step['Z'],
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
+                    objective_id=captured_image.objective_id,
                 )
             except Exception:
                 self._record_dropped_capture(

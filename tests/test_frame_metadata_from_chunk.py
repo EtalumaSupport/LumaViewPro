@@ -38,6 +38,9 @@ def _metadata_scope(chunks, chunk_reads=None):
     labware = SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'})
     runtime_state = SimpleNamespace(
         get_current_objective=lambda: {'focal_length': 9.0},
+        # The metadata stamps the objective the frame was taken with, by id.
+        get_current_objective_id=lambda: '4x Oly',
+        get_objective_info=lambda objective_id: {'focal_length': 9.0},
         get_labware=lambda: labware,
         get_stage_offset=lambda: {'x': 0, 'y': 0},
         stage_to_plate=lambda **kwargs: (1.0, 2.0),
@@ -76,7 +79,12 @@ def _metadata_scope(chunks, chunk_reads=None):
 def test_exposure_metadata_prefers_chunk_with_us_to_ms_conversion():
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0})
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     assert metadata['exposure_time_ms'] == 5.0, (
         'chunk ExposureTime (us) must win over the live read and convert '
@@ -87,14 +95,24 @@ def test_exposure_metadata_prefers_chunk_with_us_to_ms_conversion():
 def test_gain_metadata_prefers_chunk_with_live_fallback():
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0})
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     assert metadata['gain_db'] == 3.0, (
         f'chunk Gain must win over the live read; got {metadata["gain_db"]}'
     )
 
     no_chunk = generate_image_metadata(
-        _metadata_scope(None), channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        _metadata_scope(None),
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=_metadata_scope(None).runtime_state.get_current_objective_id(),
     )
     assert no_chunk['exposure_time_ms'] == LIVE_EXPOSURE_MS
     assert no_chunk['gain_db'] == LIVE_GAIN_DB
@@ -107,7 +125,12 @@ def test_failed_live_read_omits_gain_exposure_keys():
     scope = _metadata_scope(None)
     scope.imaging.get_live_camera_settings = lambda: {}
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     assert 'exposure_time_ms' not in metadata, (
         f'failed exposure read must omit the key, not record {metadata.get("exposure_time_ms")}'
@@ -126,7 +149,12 @@ def test_inactive_camera_zero_exposure_omitted():
     scope = _metadata_scope(None)
     scope.imaging.get_live_camera_settings = lambda: {'exposure_ms': 0.0, 'gain_db': -1.0}
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     assert 'exposure_time_ms' not in metadata
     assert 'gain_db' not in metadata
@@ -144,7 +172,12 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure():
     scope = _metadata_scope(None)
     scope.imaging.get_live_camera_settings = lambda: {}
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     metadata['significant_bits'] = 8  # write_tiff supplies this in production
     data = np.zeros((4, 4), dtype=np.uint8)
@@ -157,7 +190,12 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure():
 def test_chunk_provenance_fields_recorded():
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0, 'Timestamp': 42, 'FrameID': 7})
     metadata = generate_image_metadata(
-        scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
     )
     assert metadata['timestamp_camera_ticks'] == 42
     assert metadata['timestamp_camera_tick_hz'] == 1_000_000_000
@@ -169,5 +207,12 @@ def test_chunk_read_not_duplicated():
     frame-id (was two separate get_last_chunks() calls)."""
     reads = []
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0}, chunk_reads=reads)
-    generate_image_metadata(scope, channel='BF', plate_x_mm=0, plate_y_mm=0, stage_z_um=0)
+    generate_image_metadata(
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
+    )
     assert len(reads) == 1, f'get_last_chunks() must run once per metadata build; ran {len(reads)}x'

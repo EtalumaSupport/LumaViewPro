@@ -41,6 +41,7 @@ def _runner():
 
     session = MagicMock()
     session.settings = _zstack_settings()
+    session.capture_settings_snapshot.return_value = session.settings
     session.get_current_plate_position.return_value = dict(_POSITION)
     session.objective_helper.get_objective_info.return_value = {'magnification': 10}
     return ProtocolRunner(session)

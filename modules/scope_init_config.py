@@ -58,7 +58,13 @@ class ScopeInitConfig:
     """
 
     labware: object
-    objective_id: str
+    # The session's one has-a-turret answer. Required, never defaulted: a
+    # turreted scope treated as turretless would answer with its stored
+    # objective instead of the one in the light path.
+    turreted: bool
+    # The selected objective, on a scope with no turret; None on a turreted
+    # scope, whose objective is derived from the slot and never stored.
+    objective_id: str | None
     turret_config: dict | None
     binning_size: int
     frame_width: int
@@ -79,8 +85,15 @@ class ScopeInitConfig:
         labware: object,
         scope_config: dict | None = None,
         layer_identity: object | None = None,
+        *,
+        turreted: bool,
     ) -> 'ScopeInitConfig':
         """Build config from LVP settings dict and labware object.
+
+        turreted: the session's one has-a-turret answer
+        (``ScopeSession.scope_has_turret``). On a turreted scope the stored
+        ``objective_id`` is neither required nor carried: the objective is
+        the slot's assignment, derived when asked.
 
         scope_config: the entry for the active scope from scopes.json
         (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).
@@ -94,14 +107,16 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame`` or ``objective_id`` is missing. Every
-                other field has a value ``initialize`` can apply harmlessly
-                when absent; these two do not -- a frame the camera never
-                held is silent-wrong geometry, and an objective default that
-                names no shipped objective was prefix-matched to a real one
-                and stamped into every saved image's scale.
+            ConfigError: ``frame`` is missing, or ``objective_id`` is missing
+                on a scope with no turret. Every other field has a value
+                ``initialize`` can apply harmlessly when absent; these two do
+                not -- a frame the camera never held is silent-wrong
+                geometry, and an objective default that names no shipped
+                objective was prefix-matched to a real one and stamped into
+                every saved image's scale.
         """
-        missing = [key for key in ('frame', 'objective_id') if key not in settings]
+        required = ('frame',) if turreted else ('frame', 'objective_id')
+        missing = [key for key in required if key not in settings]
         if missing:
             raise ConfigError(
                 f'settings cannot configure a scope: missing {missing}; '
@@ -127,7 +142,8 @@ class ScopeInitConfig:
             expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
             labware=labware,
-            objective_id=settings['objective_id'],
+            turreted=turreted,
+            objective_id=None if turreted else settings['objective_id'],
             turret_config=settings.get('turret_objectives'),
             binning_size=binning_size,
             frame_width=settings['frame']['width'],

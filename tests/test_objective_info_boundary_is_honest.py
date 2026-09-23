@@ -23,6 +23,14 @@ from modules.lumascope_api.runtime_state import RuntimeState
 from modules.objectives_loader import ObjectiveLoader
 
 
+def _turretless_state():
+    # A scope with no turret: the selected objective is the store, and the
+    # state never asks the scope for a slot, so no scope is needed.
+    state = RuntimeState(scope=None)
+    state.set_turreted(False)
+    return state
+
+
 def _return_annotation(method):
     return typing.get_type_hints(method).get('return')
 
@@ -39,8 +47,7 @@ def test_the_loader_it_forwards_promises_the_same():
 
 def test_an_unknown_objective_id_is_refused_through_the_boundary():
     """The refusal crosses the boundary as itself, not wrapped or swallowed."""
-    api = RuntimeState.__new__(RuntimeState)
-    api._objectives_loader = ObjectiveLoader()
+    api = _turretless_state()
     with pytest.raises(ConfigError, match="unknown objective 'not-a-real-objective'"):
         api.get_objective_info(objective_id='not-a-real-objective')
 
@@ -49,14 +56,12 @@ def test_selecting_an_unknown_objective_is_refused_and_leaves_state_untouched():
     """The selection member relied on the loader answering None and refused on
     its behalf; with the loader refusing, that second check was a duplicate and
     is gone. What it protected still holds: a bad id never tears the pair."""
-    api = RuntimeState.__new__(RuntimeState)
-    api._objectives_loader = ObjectiveLoader()
-    api._objective_id = '4x Oly'
-    api._objective = api._objectives_loader.get_objective_info(objective_id='4x Oly')
+    api = _turretless_state()
+    api.set_objective('4x Oly')
     with pytest.raises(ConfigError):
         api.set_objective('not-a-real-objective')
-    assert api._objective_id == '4x Oly'
-    assert api._objective['short_name'] == '4xOly'
+    assert api.get_current_objective_id() == '4x Oly'
+    assert api.get_current_objective()['short_name'] == '4xOly'
 
 
 def test_the_docstring_names_the_refusal():

@@ -9,7 +9,6 @@ hardware-presence gate that came with it.
 import json
 import os
 import shutil
-from types import SimpleNamespace
 
 import pytest
 
@@ -39,11 +38,10 @@ def session(tmp_path, monkeypatch):
 
 
 def _disconnect(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=False, motor_connected=False, led_connected=False),
-    )
+    # The real scope with its connection flags down, so the save still reads
+    # the live runtime state it records the turret slot from.
+    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
+        monkeypatch.setattr(type(session.scope), flag, property(lambda self: False))
 
 
 def test_a_deliberate_save_reaches_disk(session, tmp_path):

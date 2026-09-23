@@ -4012,8 +4012,8 @@ class ImagingAPI:
         if enabled and not self._scale_bar_objective_skip_logged:
             self._scale_bar_objective_skip_logged = True
             logger.warning(
-                '[SCOPE API ] Scale bar is enabled but no objective is '
-                'selected; skipping the bar until an objective is set.'
+                '[SCOPE API ] Scale bar is enabled but the objective in the '
+                'light path is unknown; skipping the bar until it is known.'
             )
         return False
 

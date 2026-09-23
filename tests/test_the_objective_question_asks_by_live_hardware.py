@@ -95,9 +95,10 @@ class TestTheQuestionUsesIt:
         _declare(session, 'LS850')
         session.settings['objective_confirmed'] = False
         session.settings['turret_objectives'] = {1: None, 2: None, 3: None, 4: None}
-        session.settings['turret_position'] = 1
         monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: True))
         _board(session, connected=True, has_turret=True)
+        # The question names the live slot, the one motion reports.
+        monkeypatch.setattr(session.scope.motion, 'get_turret_slot', lambda: 1)
         monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 

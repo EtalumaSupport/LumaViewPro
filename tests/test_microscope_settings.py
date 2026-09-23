@@ -526,19 +526,20 @@ class TestFrameSizeMirrorChain:
         # delivered geometry.
         assert fov_refreshes == [{'width': 1896, 'height': 1900}]
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+    def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
+        """Run the refresh against a scope whose active objective is
+        ``objective`` (None when unknown); returns the two label texts."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         import modules.common_utils as common_utils_real
         import modules.config_ui_getters as config_ui_getters_real
 
-        settings = {'frame': {'width': 1896, 'height': 1900}, 'objective_id': '4x'}
-        objective = {'focal_length': 9.0}
         ctx = SimpleNamespace(
-            settings=settings,
-            session=SimpleNamespace(
-                get_objective_info=lambda objective_id: objective,
+            settings={'frame': {'width': 1896, 'height': 1900}},
+            # The active objective is the runtime state's answer.
+            scope=SimpleNamespace(
+                runtime_state=SimpleNamespace(get_current_objective=lambda: objective)
             ),
             # The GUI getter resolves the scale off the LIVE scope.
             lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
@@ -554,12 +555,17 @@ class TestFrameSizeMirrorChain:
             },
         )
         ids = {
-            'field_of_view_width_id': SimpleNamespace(text=''),
-            'field_of_view_height_id': SimpleNamespace(text=''),
+            'field_of_view_width_id': SimpleNamespace(text='stale'),
+            'field_of_view_height_id': SimpleNamespace(text='stale'),
         }
-        fake_self = SimpleNamespace(ids=ids)
+        fn(SimpleNamespace(ids=ids))
+        return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-        fn(fake_self)
+    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+        import modules.common_utils as common_utils_real
+
+        objective = {'focal_length': 9.0}
+        width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
 
         expected_fov = common_utils_real.get_field_of_view(
             focal_length=objective['focal_length'],
@@ -567,8 +573,13 @@ class TestFrameSizeMirrorChain:
             binning_size=1,
             capabilities=scale_capabilities,
         )
-        assert ids['field_of_view_width_id'].text == str(round(expected_fov['width'], 0))
-        assert ids['field_of_view_height_id'].text == str(round(expected_fov['height'], 0))
+        assert width == str(round(expected_fov['width'], 0))
+        assert height == str(round(expected_fov['height'], 0))
+
+    def test_an_unknown_objective_blanks_the_readout(self, scale_capabilities, monkeypatch):
+        # No objective, no field of view: the readout says nothing rather
+        # than keep a stale value or compute one from a guess.
+        assert self._refresh_fov(scale_capabilities, monkeypatch, None) == ('', '')
 
 
 class TestBinningApplyOutcome:

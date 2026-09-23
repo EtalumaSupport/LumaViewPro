@@ -27,7 +27,12 @@ ILLUMINATION_MA = 10.0
 
 @pytest.fixture
 def scope():
+    from tests.scope_fakes import configure_turret_like_bringup
+
     s = Lumascope(simulate=True)
+    # Brought up like a real scope, so its objective is known and the save
+    # reaches the capture the test faults.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     return s
 

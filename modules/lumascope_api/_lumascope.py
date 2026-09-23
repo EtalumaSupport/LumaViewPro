@@ -734,7 +734,22 @@ class Lumascope:
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
-        self.runtime_state.set_objective(config.objective_id)
+        self.runtime_state.set_turreted(config.turreted)
+        if config.turreted:
+            # Nothing to set: the objective is the one assigned to the slot in
+            # the light path, derived on every read. An assignment the
+            # catalogue does not hold reads as unknown whenever its slot is in
+            # the light path; said once here, not raised per read.
+            catalogue = set(self.runtime_state.get_available_objectives())
+            for slot, objective_id in (config.turret_config or {}).items():
+                if objective_id is not None and objective_id not in catalogue:
+                    logger.warning(
+                        f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
+                        'which is not in the objective catalogue; its objective reads '
+                        'as unknown until it is reassigned'
+                    )
+        else:
+            self.runtime_state.set_objective(config.objective_id)
         # Startup applies push PERSISTED settings at the connect boundary, so
         # each value is reconciled to the capabilities the connected hardware
         # actually reports BEFORE the apply -- a settings file written against

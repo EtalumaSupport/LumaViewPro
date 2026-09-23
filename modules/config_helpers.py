@@ -1617,6 +1617,27 @@ def get_standalone_capture_config_from_settings(
     )
 
 
+def get_empty_protocol_config_from_settings(
+    settings: dict,
+    wellplate_loader: WellPlateLoader,
+) -> dict:
+    """The config an empty-steps protocol takes: labware, timing, geometry.
+
+    No objective: an empty protocol has no step to stamp one into, so it
+    can be built while the objective in the light path is unknown. Reached
+    through ScopeSession.create_empty_protocol.
+    """
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+    time_params = get_protocol_time_params_from_settings(settings)
+    return {
+        'labware_id': labware_id,
+        'period': time_params['period'],
+        'duration': time_params['duration'],
+        'frame_dimensions': get_frame_dimensions_from_settings(settings),
+        'binning_size': get_binning_from_settings(settings),
+    }
+
+
 def get_sequenced_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,

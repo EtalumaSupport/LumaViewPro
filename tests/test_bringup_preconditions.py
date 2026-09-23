@@ -74,7 +74,7 @@ class TestInitializeStaysOnTheCallingThread:
         cam = SequentialIOExecutor(name='CAMERA_UNSTARTED')
         try:
             scope.register_executors(io_executor=io, camera_executor=cam)
-            config = ScopeInitConfig.from_settings(_settings(), labware=None)
+            config = ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
             started = time.monotonic()
             scope.initialize(config)
             elapsed = time.monotonic() - started
@@ -98,7 +98,9 @@ class TestInitializeStaysOnTheCallingThread:
             monkeypatch.setattr(scope, '_led_driver', NullLEDBoard())
             calls = []
             monkeypatch.setattr(scope.illumination, '_leds_off_impl', lambda: calls.append(1))
-            scope.initialize(ScopeInitConfig.from_settings(_settings(), labware=None))
+            scope.initialize(
+                ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
+            )
             assert calls == []
         finally:
             scope.disconnect()

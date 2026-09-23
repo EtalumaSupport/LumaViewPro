@@ -54,6 +54,7 @@ def _save(scope, folder, **position) -> str:
         tail_id_mode=None,
         channel='BF',
         false_color_on=False,
+        objective_id=scope.runtime_state.get_current_objective_id(),
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
@@ -71,6 +72,7 @@ class TestNoPositionMeansNoPositionKeys:
             plate_x_mm=None,
             plate_y_mm=None,
             stage_z_um=None,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         present = [k for k in POSITION_KEYS if k in metadata]
@@ -88,6 +90,7 @@ class TestNoPositionMeansNoPositionKeys:
             plate_x_mm=None,
             plate_y_mm=None,
             stage_z_um=None,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         assert metadata['channel'] == 'BF'
@@ -104,6 +107,7 @@ class TestNoPositionMeansNoPositionKeys:
             plate_x_mm=None,
             plate_y_mm=None,
             stage_z_um=4950.0,
+            objective_id=positioned_scope.runtime_state.get_current_objective_id(),
         )
 
         assert metadata['z_pos_um'] == pytest.approx(4950.0)

@@ -74,6 +74,8 @@ def capture_ctx(tmp_path):
         'jpg_quality': 90,
     }
     ctx.scope.runtime_state.get_well_label.return_value = 'A1'
+    # The objective the frame is taken with, read at capture.
+    ctx.scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     ctx.image_settings.layer_lookup.return_value = types.SimpleNamespace(
         ids={'false_color': types.SimpleNamespace(active=False)}
     )

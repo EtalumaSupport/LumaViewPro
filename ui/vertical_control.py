@@ -8,8 +8,9 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.config_ui_getters as config_ui_getters
 import modules.config_helpers as config_helpers
+import modules.config_ui_getters as config_ui_getters
+from modules import gui_logger
 from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
@@ -17,10 +18,10 @@ from modules.config_ui_getters import (
     get_image_capture_config_from_ui,
     get_selected_labware,
 )
-from modules import gui_logger
 from modules.debounce import debounce
+from modules.exceptions import ObjectiveUnknownError
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
+from modules.sequential_io_executor import PRIORITY_HIGH, IOTask
 from modules.tiling_config import TilingConfig
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
@@ -31,8 +32,9 @@ from ui.ui_helpers import (
     move_absolute,
     move_home,
     move_relative,
-    run_with_refusal_boundary,
     reset_with_refusal_boundary,
+    run_with_refusal_boundary,
+    show_jog_refusal,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -154,11 +156,10 @@ class VerticalControl(BoxLayout):
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
         try:
-            _, objective = ctx.session.get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] {label}: no objective info: {e}')
+            step = ctx.scope.motion.jog_step('Z', coarse)
+        except ObjectiveUnknownError as e:
+            show_jog_refusal(label, e)
             return
-        step = objective['z_coarse' if coarse else 'z_fine']
         move_relative('Z', direction * step, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
@@ -500,7 +501,15 @@ class VerticalControl(BoxLayout):
             # degenerate-plan recipe as the z-stack starter, so the
             # standalone button and a protocol AF step share one engine.
             labware_id, _ = get_selected_labware()
-            objective_id, _ = ctx.session.get_current_objective_info()
+            objective_id = ctx.scope.runtime_state.get_current_objective_id()
+            if objective_id is None:
+                from modules.notification_center import notifications
+
+                reason = 'The objective in the light path is unknown.'
+                logger.warning(f'[LVP Main  ] Autofocus: {reason}')
+                notifications.warning('Autofocus', 'Objective Unknown', reason)
+                run_refused_func()
+                return
             active_layer, active_layer_config = get_active_layer_config(
                 common_utils.get_opened_layer(ctx.image_settings)
             )
@@ -802,7 +811,6 @@ class VerticalControl(BoxLayout):
         """
         try:
             ctx = _app_ctx.ctx
-            settings = ctx.settings
             if not ctx.lumaview.scope.motion.has_turret_homed():
                 if not protocol:
                     ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._home_turret_impl))
@@ -826,10 +834,15 @@ class VerticalControl(BoxLayout):
                 selected_position = int(selected_position)
 
             if not protocol:
+                # The display follows the move's outcome, so it is updated
+                # when the move has finished, not before: while the move runs
+                # the slot, and so the objective, is unknown.
                 ctx.io_executor.put(
                     IOTask(
                         ctx.lumaview.scope.motion._move_turret_impl,
                         kwargs={'position': selected_position},
+                        callback=self._show_turret_outcome,
+                        cb_kwargs={'selected_position': selected_position, 'protocol': False},
                     )
                 )
             else:
@@ -852,36 +865,31 @@ class VerticalControl(BoxLayout):
             # objective at this slot is duplicated elsewhere on the turret.
             ctx.session.set_turret_position(selected_position)
 
-            for available_position in range(1, 5):
-                if selected_position == available_position:
-                    # Check if an objective has been saved to that turret
-                    turret_position_objective = settings['turret_objectives'][selected_position]
-                    if turret_position_objective is not None:
-                        # If an objective has been assigned to the turret position, change to that objective
-                        Clock.schedule_once(
-                            lambda dt: self.update_spinner_text(selected_position), 0
-                        )
-                        Clock.schedule_once(lambda dt: self.select_objective(), 0)
-                    elif not protocol:
-                        # The turret is moving to a position with no
-                        # assignment: the previous objective would keep
-                        # setting the image scale silently. The Session
-                        # decides whether to ask (a declared non-turret
-                        # model, e.g. the XY-home resync, is never asked)
-                        # and has already warned for every host. A prompt
-                        # must never interrupt an unattended run.
-                        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
-
-            Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
+            if protocol:
+                Clock.schedule_once(
+                    lambda dt: self._show_turret_outcome(selected_position, protocol=True), 0
+                )
         except Exception as e:
             logger.error(f'[UI] turret_select failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
             show_notification_popup(title='Error', message=str(e))
 
-    def update_spinner_text(self, selected_position):
-        settings = _app_ctx.ctx.settings
-        self.ids['objective_spinner2'].text = settings['turret_objectives'][selected_position]
+    def _show_turret_outcome(self, selected_position, protocol):
+        """Display what the API says after a turret move: its objective, or
+        the question when no one can say which objective is there.
+
+        The spinner shows the derived objective, so its on_text selection
+        finds nothing to change. An unknown objective leaves the spinner as
+        it is and, outside a run, asks -- a prompt must never interrupt an
+        unattended run.
+        """
+        objective_id = _app_ctx.ctx.scope.runtime_state.get_current_objective_id()
+        if objective_id is not None:
+            self.ids['objective_spinner2'].text = objective_id
+        elif not protocol:
+            self.prompt_if_objective_unknown()
+        self.update_all_turret_btn_states(selected_position)
 
     def update_turret_btn_state(self, position, state):
         self.ids[f'turret_pos_{position}_btn'].state = state
@@ -893,28 +901,3 @@ class VerticalControl(BoxLayout):
             else:
                 state = 'normal'
             self.update_turret_btn_state(available_position, state)
-
-    def update_turret_gui(self, turret_position):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        # Record the position the turret physically ended up at -- this
-        # is called after every protocol-driven or step-navigation T
-        # move, so the recorded value tracks reality across moves.
-        ctx.session.set_turret_position(int(turret_position))
-        for available_position in range(1, 5):
-            if turret_position == available_position:
-                state = 'down'
-
-                # Check if an objective has been saved to that turret
-                turret_position_objective = settings['turret_objectives'][turret_position]
-                if turret_position_objective is not None:
-                    # If an objective has been assigned to the turret position, change to that objective
-                    self.ids['objective_spinner2'].text = settings['turret_objectives'][
-                        turret_position
-                    ]
-                    self.select_objective()
-
-            else:
-                state = 'normal'
-
-            self.ids[f'turret_pos_{available_position}_btn'].state = state

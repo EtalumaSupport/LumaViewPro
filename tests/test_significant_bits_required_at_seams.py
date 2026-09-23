@@ -65,6 +65,7 @@ def test_save_image_rejects_missing_depth():
             save_encoding='8bit',
             channel='BF',
             false_color_on=False,
+            objective_id='4x Oly',
         )
 
 
@@ -83,6 +84,7 @@ def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
             last_capture_info=None,
         ),
         illumination=SimpleNamespace(leds_off=lambda: None),
+        runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
     )
 
     def _fail_save(*args, **kwargs):

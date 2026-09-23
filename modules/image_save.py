@@ -249,6 +249,8 @@ def generate_image_metadata(
     plate_x_mm: float | None,
     plate_y_mm: float | None,
     stage_z_um: float | None,
+    *,
+    objective_id: str,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
@@ -271,12 +273,18 @@ def generate_image_metadata(
         plate_x_mm (float): Plate X position in mm (or None).
         plate_y_mm (float): Plate Y position in mm (or None).
         stage_z_um (float): Stage Z position in um (or None).
+        objective_id: The objective in the light path when the frame was
+            taken. Required: the save runs later, on the file writer, when a
+            turret move for the next step may already have changed the live
+            objective -- read then, the file would claim the wrong scale or
+            none. The caller reads it when it takes the frame.
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
 
     Raises:
-        ConfigError: If objective, labware, or stage offset are not set.
+        ConfigError: If ``objective_id`` is not a catalogue key, or labware
+            or stage offset are not set.
         ValueError: If channel is not a known layer or 'Composite'.
     """
     # This is the last point that can tell a real channel from a placeholder,
@@ -289,9 +297,7 @@ def generate_image_metadata(
             f"{common_utils.get_layers()} or 'Composite'"
         )
 
-    objective = scope.runtime_state.get_current_objective()
-    if objective is None:
-        raise ConfigError('[SCOPE API ] Objective not set')
+    objective = scope.runtime_state.get_objective_info(objective_id)
 
     if 'focal_length' not in objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
@@ -516,6 +522,7 @@ def prepare_image_for_saving(
     *,
     channel: str,
     significant_bits: int,
+    objective_id: str,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -545,6 +552,8 @@ def prepare_image_for_saving(
             single wider frame, 16 for a summed 16-bit container) -- a save
             cannot re-derive it from the camera's live state, which may already
             describe a newer format.
+        objective_id: The objective in the light path when the frame was
+            taken, for the same reason (see ``generate_image_metadata``).
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
@@ -555,6 +564,7 @@ def prepare_image_for_saving(
         plate_x_mm=plate_x_mm,
         plate_y_mm=plate_y_mm,
         stage_z_um=stage_z_um,
+        objective_id=objective_id,
     )
 
     metadata['significant_bits'] = significant_bits
@@ -597,6 +607,7 @@ def save_image(
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
     significant_bits: int,
+    objective_id: str,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -629,6 +640,10 @@ def save_image(
         rgb_buf: Preallocated RGB buffer.
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
+        significant_bits: Payload depth the frame was captured at.
+        objective_id: The objective in the light path when the frame was
+            taken; recorded as the file's scale. Required: read by the
+            caller when it takes the frame, never at save time.
 
     Returns:
         str: Path to the saved file.
@@ -685,6 +700,7 @@ def save_image(
             plate_y_mm=plate_y_mm,
             stage_z_um=stage_z_um,
             significant_bits=significant_bits,
+            objective_id=objective_id,
         )
         image = image_data['image']
         metadata = image_data['metadata']
@@ -811,8 +827,15 @@ def save_live_image(
             so the live-capture path cannot drop the image mode.
     Returns:
         str | None: Path to saved file, or None on failure.
+
+    Raises:
+        ObjectiveUnknownError: The objective in the light path is unknown,
+            so the frame would carry no true scale; nothing is captured.
     """
     try:
+        # The objective the frame is taken with, read now: the save below
+        # records it, and an unknown objective refuses before any capture.
+        objective_id, _ = scope.runtime_state.resolve_current_objective()
         array = scope.imaging._capture_and_wait_impl(
             force_to_8bit=force_to_8bit,
             timeout_s=timeout_s,
@@ -849,6 +872,7 @@ def save_live_image(
         jpeg_quality=jpeg_quality,
         significant_bits=significant_bits,
         save_encoding=save_encoding,
+        objective_id=objective_id,
     )
 
     # Record what the manual capture actually wrote, so a saved-file bundle is

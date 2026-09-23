@@ -187,6 +187,9 @@ class CompositeCapture(FloatLayout):
                 save_encoding=save_encoding,
             )
 
+        # The objective the frame is taken with: both files below record it,
+        # and an unknown objective refuses before any capture.
+        objective_id, _ = ctx.scope.runtime_state.resolve_current_objective()
         # Summing is carried here exactly as save_live_image carries it above:
         # an overlay is a display choice, and switching one on must not
         # silently reduce a summed capture to a single frame.
@@ -236,6 +239,7 @@ class CompositeCapture(FloatLayout):
             jpeg_quality=settings.get('jpg_quality', 90),
             save_encoding=save_encoding,
             significant_bits=ctx.scope.imaging.capture_frame_depth(image_orig, sum_count),
+            objective_id=objective_id,
         )
 
         if use_bullseye:
@@ -264,6 +268,7 @@ class CompositeCapture(FloatLayout):
             jpeg_quality=settings.get('jpg_quality', 90),
             save_encoding=save_encoding,
             significant_bits=ctx.scope.imaging.capture_frame_depth(crosshairs_image),
+            objective_id=objective_id,
         )
 
     # capture and save a composite image using the current settings

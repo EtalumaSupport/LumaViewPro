@@ -10,9 +10,10 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
+from modules.exceptions import ObjectiveUnknownError
 from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import move_absolute, move_home, move_relative
 from ui.image_settings import AccordionItemXyStageControl
+from ui.ui_helpers import move_absolute, move_home, move_relative, show_jog_refusal
 
 logger = logging.getLogger('LVP.ui.motion_settings')
 
@@ -441,11 +442,10 @@ class XYStageControl(BoxLayout):
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
         try:
-            _, objective = ctx.session.get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] {label}: no objective info: {e}')
+            step = ctx.scope.motion.jog_step(axis, coarse)
+        except ObjectiveUnknownError as e:
+            show_jog_refusal(label, e)
             return
-        step = objective['xy_coarse' if coarse else 'xy_fine']
         move_relative(axis, direction * step)
 
     @debounce(0.2)

@@ -109,13 +109,8 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
+                    # turret_select shows the outcome once the move has landed.
                     move_absolute(axis='T', position=turret_pos, protocol=False)
-                    _schedule_ui(
-                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
-                            turret_pos
-                        ),
-                        0,
-                    )
                 move_absolute(axis='X', position=plate_x, protocol=False, frame='plate')
                 move_absolute(axis='Y', position=plate_y, protocol=False, frame='plate')
                 move_absolute(axis='Z', position=step['Z'], protocol=False)
@@ -125,12 +120,6 @@ def go_to_step(
                     # step['Z'] immediately, so _safe_turret_move's default
                     # Z-restore-after-T-move would be wasted motion (#524).
                     move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
-                    _schedule_ui(
-                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
-                            turret_pos
-                        ),
-                        0,
-                    )
                 move_absolute('X', plate_x, protocol=True, frame='plate')
                 move_absolute('Y', plate_y, protocol=True, frame='plate')
                 move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)

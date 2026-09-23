@@ -964,6 +964,28 @@ class MotionAPI:
         """
         return self._last_turret_position
 
+    def jog_step(self, axis: str, coarse: bool) -> float:
+        """The jog step for ``axis`` under the active objective.
+
+        A jog's size scales with the objective, so the active objective's
+        catalogue entry answers: ``z_coarse`` / ``z_fine`` for Z,
+        ``xy_coarse`` / ``xy_fine`` for X and Y, in the units
+        ``move_relative`` takes for that axis.
+
+        Raises:
+            ObjectiveUnknownError: The objective in the light path is
+                unknown; no step is guessed, so nothing should move.
+            ValueError: ``axis`` is not 'X', 'Y' or 'Z'.
+        """
+        if axis == 'Z':
+            kind = 'z'
+        elif axis in ('X', 'Y'):
+            kind = 'xy'
+        else:
+            raise ValueError(f"jog_step: axis must be 'X', 'Y' or 'Z', got {axis!r}")
+        _, objective = self._scope.runtime_state.resolve_current_objective()
+        return objective[f'{kind}_{"coarse" if coarse else "fine"}']
+
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 

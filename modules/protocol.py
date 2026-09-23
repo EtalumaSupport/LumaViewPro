@@ -1683,13 +1683,27 @@ class Protocol:
                 reason='zstack_not_configured', title=title, message=message
             )
 
-        objective_loader = ObjectiveLoader()
-        objective = objective_loader.get_objective_info(objective_id=objective_id)
+        # The objective is stamped into every step and sizes a spaced tiling
+        # grid; a protocol with neither -- an empty one -- is built with no
+        # objective (None), since there may be none in the light path to name.
+        acquiring = any(cfg['acquire'] in ('image', 'video') for cfg in layer_configs.values())
+        tiling_mxn = tiling_config.get_mxn_size(tiling)
+        single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
+        if objective_id is None:
+            if acquiring or not single_tile:
+                raise ConfigError(
+                    'cannot build protocol steps or a tiling grid with no objective: '
+                    'the objective in the light path is unknown'
+                )
+            focal_length = None
+        else:
+            objective = ObjectiveLoader().get_objective_info(objective_id=objective_id)
+            focal_length = objective['focal_length']
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
-            focal_length=objective['focal_length'],
+            focal_length=focal_length,
             frame_size=frame_dimensions,
             fill_factor=fill_factor,
             binning_size=binning_size,
@@ -1888,7 +1902,9 @@ class Protocol:
         tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         labware_id = config['labware_id']
-        objective_id = config['objective_id']
+        # No steps and one tile: nothing to stamp an objective into, so none
+        # is read -- the protocol can be created before the objective is known.
+        objective_id = None
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()

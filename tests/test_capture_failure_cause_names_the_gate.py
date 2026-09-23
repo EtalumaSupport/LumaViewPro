@@ -60,6 +60,10 @@ def test_manual_capture_that_saves_nothing_tells_the_user_why(tmp_path):
     from modules import image_save
 
     imaging, cam = _build(ae_lands_on_ms=62.0)
+    # The save reads the objective the frame is taken with before capturing.
+    from types import SimpleNamespace
+
+    imaging._scope.runtime_state = SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {}))
     imaging._set_exposure_ms_impl(100.0)
     cam._exposure_us = 62000.0
     with patch('modules.image_save.notifications') as notifications:
