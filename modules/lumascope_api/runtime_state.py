@@ -352,7 +352,7 @@ class RuntimeState:
         )
         return sx if axis == 'X' else sy
 
-    def get_well_label(self) -> str:
+    def get_well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 
         Maps the current target X/Y stage position to a plate-frame
@@ -360,15 +360,22 @@ class RuntimeState:
         looks up the matching well label.
 
         Returns:
-            str: Well label (e.g. ``"A1"``), or ``''`` when the selected
-            labware has no wells (the Blank plate) -- consumers omit the
-            well from filenames and metadata rather than stamping a
-            fabricated one.
+            str | None: Well label (e.g. ``"A1"``); ``''`` when the selected
+            labware has no wells (the Blank plate); None when X or Y does not
+            know its position. Consumers omit the well from filenames and
+            metadata for both rather than stamping a fabricated one -- an axis
+            that lost its reference keeps answering the last target it had,
+            which names a real well the scope may no longer be over. The two
+            stay distinct so a caller can say which it was.
 
         Raises:
             Exception: Re-raises any error encountered reading target
                 position; logged before re-raise.
         """
+        unknown = self._scope.motion.axes_without_position()
+        if 'X' in unknown or 'Y' in unknown:
+            return None
+
         labware = self.get_labware()
 
         try:

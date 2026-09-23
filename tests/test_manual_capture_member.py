@@ -106,6 +106,30 @@ class TestWhereTheFileLands:
         assert path.name == f'live_{session.scope.runtime_state.get_well_label()}_BF_000001.tiff'
         assert path.is_file()
 
+    def test_a_lost_position_saves_the_image_without_a_well_and_says_so_once(
+        self, still_session, monkeypatch
+    ):
+        # After a failed home the target cache keeps its last well, real and
+        # stale. The image is still real, so it is saved -- without the well.
+        from modules.lumascope_api import AxisState
+        from modules.notification_center import notifications
+
+        session, _ = still_session
+        shown = []
+        monkeypatch.setattr(
+            notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(title),
+        )
+        with session.scope.motion._axis_state_lock:
+            session.scope.motion._axis_state['X'] = AxisState.UNKNOWN
+
+        paths = _capture(session)
+
+        assert [p.name for p in paths] == ['live_BF_000001.tiff']
+        assert paths[0].is_file()
+        assert shown == ['Position Not Recorded']
+
     def test_the_open_drawer_names_the_channel_when_nothing_is_lit(self, still_session):
         session, _ = still_session
 

@@ -419,7 +419,7 @@ class ManualRecordingController:
             # One position snapshot for the whole recording: the stage
             # does not move during a manual record, and the writer lane
             # must never query hardware per frame.
-            stage_position=(scope.motion.get_current_position() if hyperstack else None),
+            stage_position=(_recording_position(scope) if hyperstack else None),
             pixel_size_um=resolve_recording_pixel_size(scope),
         )
 
@@ -837,6 +837,36 @@ class ManualRecordingController:
         if not result['status']:
             raise RuntimeError(f'hyperstack refused: {result["error"]}')
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
+
+
+def _recording_position(scope) -> dict | None:
+    """Where the recording is, in the frames the hyperstack writes: plate mm, Z um.
+
+    The hyperstack labels X and Y as plate millimetres, as a protocol's
+    stack does, so the stage micrometres the motion API answers are
+    converted here. None when any axis does not know its position -- an
+    axis that lost its reference keeps answering the last number it
+    reported -- and the recording is still made, without a position, and
+    says so once. An axis the scope does not have is left out.
+    """
+    if scope.motion.axes_without_position():
+        logger.warning('[ManualRecord] Recording without a position: an axis is unknown')
+        notifications.warning(
+            'Recording',
+            'Position Not Recorded',
+            'The stage position is unknown, so this recording will be saved without '
+            'a position. Home the scope to record it.',
+        )
+        return None
+    stage = scope.motion.get_current_position()
+    position = {}
+    if 'X' in stage and 'Y' in stage:
+        position['X'], position['Y'] = scope.runtime_state.stage_to_plate(
+            sx=stage['X'], sy=stage['Y']
+        )
+    if 'Z' in stage:
+        position['Z'] = stage['Z']
+    return position
 
 
 @dataclass(frozen=True)

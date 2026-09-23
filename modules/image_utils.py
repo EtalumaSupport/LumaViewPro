@@ -1284,14 +1284,27 @@ def build_hyperstack_output_metadata(
             colormap_type = LvpColormap.GRAY
         channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
 
-    plane: dict = {
-        'PositionX': plane_positions['PositionX'],
-        'PositionY': plane_positions['PositionY'],
-        'PositionZ': plane_positions['PositionZ'],
-        'PositionXUnit': ['mm'] * num_planes,
-        'PositionYUnit': ['mm'] * num_planes,
-        'PositionZUnit': [OME_UNIT_MICROMETER] * num_planes,
-    }
+    # A position is written only when every plane has one, like the timing
+    # below: tifffile writes a missing value as the literal PositionX="None",
+    # which no OME reader accepts as a number. A recording whose position the
+    # scope did not know, or a scope with no stage, states no position. X and
+    # Y travel as a pair because half a plate coordinate is not one; Z is
+    # independent.
+    # A pandas column holding a missing value hands it back as NaN, not None.
+    def _every_plane_has(values) -> bool:
+        return all(v is not None and not np.isnan(v) for v in values)
+
+    plane: dict = {}
+    if _every_plane_has(plane_positions['PositionX']) and _every_plane_has(
+        plane_positions['PositionY']
+    ):
+        plane['PositionX'] = plane_positions['PositionX']
+        plane['PositionY'] = plane_positions['PositionY']
+        plane['PositionXUnit'] = ['mm'] * num_planes
+        plane['PositionYUnit'] = ['mm'] * num_planes
+    if _every_plane_has(plane_positions['PositionZ']):
+        plane['PositionZ'] = plane_positions['PositionZ']
+        plane['PositionZUnit'] = [OME_UNIT_MICROMETER] * num_planes
     # Timing is written only when the caller measured it (per-plane
     # seconds from the earliest plane; DeltaT is a required key, None when
     # unmeasured). Like the pixel-size claim below, an absent DeltaT is

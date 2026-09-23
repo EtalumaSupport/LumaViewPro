@@ -130,3 +130,37 @@ def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, notices):
         'Z is still homing. Wait for the home to finish, then save the focus.'
     )
     assert len(notices) == 1
+
+
+# ---------------------------------------------------------------------------
+# A capture whose position is not known is saved without one, never with the
+# last number the axis reported.
+# ---------------------------------------------------------------------------
+
+
+def test_the_well_label_of_an_unknown_position_is_none_not_a_stale_well(unhomed_scope):
+    # '' is a plate with no wells; None is a position nobody knows. Both are
+    # omitted from the file name, and they stay distinct for the caller.
+    assert unhomed_scope.runtime_state.get_well_label() is None
+
+
+def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):
+    from modules.image_utils import build_hyperstack_output_metadata
+
+    nan = float('nan')
+    metadata = build_hyperstack_output_metadata(
+        tmp_path / 'absent.tiff',
+        channel_names=['BF'],
+        plane_positions={
+            'PositionX': [nan, nan],
+            'PositionY': [nan, nan],
+            'PositionZ': [3.0, 3.0],
+            'DeltaT': None,
+        },
+        significant_bits=8,
+        pixel_size_um=None,
+    )
+
+    assert 'PositionX' not in metadata['Plane']
+    assert 'PositionY' not in metadata['Plane']
+    assert metadata['Plane']['PositionZ'] == [3.0, 3.0]

@@ -183,7 +183,21 @@ class ManualCaptureController:
         channel = common_utils.resolve_channel_identity(scope.illumination, request.layer)
 
         well_label = scope.runtime_state.get_well_label()
-        # A zero-well plate has no label; no leading underscore for it.
+        if well_label is None:
+            # The image is real; only where it was taken is not known. It is
+            # saved, and says so once, here -- the label is read again by the
+            # save, so the read is not the place to say it.
+            from modules.notification_center import notifications
+
+            logger.warning('[Capture] Saved without a well or position: X or Y is unknown')
+            notifications.warning(
+                'Capture',
+                'Position Not Recorded',
+                'The stage position is unknown, so this image was saved without a well '
+                'or position. Home the scope to record them.',
+            )
+        # A zero-well plate or an unknown position has no label; no leading
+        # underscore for it.
         append = f'{well_label}_{channel}' if well_label else channel
         # The writer's own renderer, so a manual still and a protocol step
         # spell the turret slot the same way; an unknown slot adds nothing.

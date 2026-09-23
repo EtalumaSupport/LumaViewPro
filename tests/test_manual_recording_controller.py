@@ -70,8 +70,15 @@ class _FakeImaging:
 
 
 class _FakeMotion:
+    def __init__(self):
+        # Every axis knows its position unless a test loses one.
+        self.unknown = {}
+
+    def axes_without_position(self):
+        return dict(self.unknown)
+
     def get_current_position(self):
-        return {'X': 1.0, 'Y': 2.0, 'Z': 3.0}
+        return {'X': 1000.0, 'Y': 2000.0, 'Z': 3.0}
 
 
 class _FakeIllumination:
@@ -107,6 +114,11 @@ class _FakeRuntimeState:
 
     def get_current_objective(self):
         return self._objective
+
+    def stage_to_plate(self, sx, sy):
+        # A stand-in transform, distinct from the identity so a stage number
+        # recorded as a plate one shows.
+        return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
 
 
 class _FakeScope:
@@ -1028,3 +1040,39 @@ class TestHealthCheckArming:
         finish(controller)
         assert sched.unscheduled, 'the finish path must disarm the health check'
         assert controller.end_reason == 'duration_elapsed'
+
+
+class TestTheRecordedPosition:
+    """The hyperstack labels X and Y as plate millimetres, so that is what is
+    recorded; and a position the scope does not know is not recorded at all."""
+
+    def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 1.5]
+        assert list(captured['df']['Y']) == [2.5, 2.5]
+        assert list(captured['df']['Z']) == [3.0, 3.0]
+
+    def test_an_unknown_position_is_not_recorded_and_says_so_once(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(title),
+        )
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'X': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert captured['df']['X'].isna().all()
+        assert captured['df']['Z'].isna().all()
+        assert shown.count('Position Not Recorded') == 1
