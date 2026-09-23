@@ -773,15 +773,6 @@ def test_save_image_requires_save_encoding():
         )
 
 
-def test_save_live_image_requires_save_encoding():
-    """save_live_image cannot be called without save_encoding -- the omission
-    that saved 12-bit-scaled dark from the non-engineering live path."""
-    from modules.image_save import save_live_image
-
-    with pytest.raises(TypeError, match='save_encoding'):
-        save_live_image(None)
-
-
 @pytest.mark.parametrize(
     ('dtype', 'expected'),
     [

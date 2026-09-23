@@ -361,7 +361,6 @@ class TestAnUnknownSlotSaysWhatHappensNext:
 
     def test_the_popup_names_the_reason_and_the_refusal_is_real(self, monkeypatch, tmp_path):
         from modules.exceptions import ObjectiveUnknownError
-        from modules.image_save import save_live_image
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
@@ -383,12 +382,6 @@ class TestAnUnknownSlotSaysWhatHappensNext:
             assert 'may be wrong' not in message
 
             with pytest.raises(ObjectiveUnknownError):
-                save_live_image(
-                    session.scope,
-                    save_folder=str(tmp_path),
-                    channel='BF',
-                    false_color_on=False,
-                    save_encoding='8bit',
-                )
+                session.manual_capture.capture(layer=None, false_color_on=False).result(timeout=30)
         finally:
             session.shutdown()

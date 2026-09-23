@@ -22,7 +22,6 @@ from __future__ import annotations
 import datetime
 import os
 import pathlib
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -33,7 +32,6 @@ import modules.image_utils as image_utils
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
 from modules.exceptions import CaptureError, ConfigError
-from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 
 if TYPE_CHECKING:
@@ -755,138 +753,3 @@ def save_image(
     _h_tick('save_image')
 
     return file_loc
-
-
-def report_manual_capture_failure(scope: Lumascope) -> None:
-    """Tell the user a manual capture saved nothing, and why.
-
-    A rejected frame returned None exactly as a dead camera did, and the
-    manual path passed that None up to a button that only re-enabled
-    itself: three captures in a row rejected against a stale target on a
-    field unit with no sign to the user, while the composite path
-    notified for the identical rejection. The notice is the API's, so a
-    headless caller of the same save gets the same failure.
-    """
-    cause = capture_failure_cause(scope.imaging.last_capture_info)
-    logger.error(f'[ImageSave] manual capture saved nothing: {cause}')
-    notifications.error(
-        'Capture',
-        'Capture rejected',
-        f'No image was saved: {cause}. Check the live view, then try again.',
-    )
-
-
-def save_live_image(
-    scope: Lumascope,
-    save_folder: str | pathlib.Path = './capture',
-    file_root: str = 'img_',
-    append: str = 'ms',
-    tail_id_mode: str | None = 'increment',
-    force_to_8bit: bool = True,
-    output_format: str = 'TIFF',
-    timeout_s: float = 5.0,
-    all_ones_check: bool = False,
-    sum_count: int = 1,
-    sum_delay_s: float = 0,
-    sum_iteration_callback: Callable[..., None] | None = None,
-    turn_off_all_leds_after: bool = False,
-    use_executor: bool = False,
-    jpeg_quality: int = 90,
-    *,
-    channel: str,
-    false_color_on: bool,
-    save_encoding: str,
-) -> str | None:
-    """Grab the current live image from the camera and save to a TIFF file.
-
-    Combines capture_and_wait() and save_image() in one call. Optionally
-    turns off all LEDs after capture.
-
-    Args:
-        scope: Source of imaging.capture_and_wait + illumination.leds_off.
-        save_folder: Directory to save into.
-        file_root: Filename prefix.
-        append: String appended to filename.
-        tail_id_mode: "increment" for auto-numbered files, or None.
-        force_to_8bit: Convert 12-bit images to 8-bit.
-        output_format: "TIFF" or "OME-TIFF".
-        timeout_s: Max seconds to wait for a valid frame.
-        all_ones_check: Reject saturated frames.
-        sum_count: Number of frames to sum.
-        sum_delay_s: Delay between summed frames.
-        sum_iteration_callback: Called after each summed frame.
-        turn_off_all_leds_after: Turn off all LEDs after capture.
-        use_executor: Reserved for future use.
-        jpeg_quality: JPEG quality 1-100, used only when output_format
-            is "JPG".
-        channel: Channel the frame was acquired on, forwarded to save_image as
-            the file's identity. Required and keyword-only.
-        false_color_on: Whether the channel's false-color toggle was on,
-            forwarded as the rendering choice. Required and keyword-only.
-        save_encoding: The derived on-disk encoding from the image_mode
-            config layer; required and keyword-only, forwarded to save_image
-            so the live-capture path cannot drop the image mode.
-    Returns:
-        str | None: Path to saved file, or None on failure.
-
-    Raises:
-        ObjectiveUnknownError: The objective in the light path is unknown,
-            so the frame would carry no true scale; nothing is captured.
-    """
-    try:
-        # The objective the frame is taken with, read now: the save below
-        # records it, and an unknown objective refuses before any capture.
-        objective_id, _ = scope.runtime_state.resolve_current_objective()
-        array = scope.imaging._capture_and_wait_impl(
-            force_to_8bit=force_to_8bit,
-            timeout_s=timeout_s,
-            all_ones_check=all_ones_check,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
-    finally:
-        # The off must hold even when the capture raises -- a caller that
-        # asked for it is relying on this call to end illumination.
-        if turn_off_all_leds_after:
-            scope.illumination._leds_off_impl()
-
-    if array is None:
-        report_manual_capture_failure(scope)
-        return None
-
-    # Depth resolved here, right after the capture that produced the frame
-    # (uint8 -> 8, summed -> 16, else the per-frame delivery stamp), and
-    # handed down with it -- the shared capture-time depth rule.
-    significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
-
-    path = save_image(
-        scope,
-        array,
-        save_folder=save_folder,
-        file_root=file_root,
-        append=append,
-        tail_id_mode=tail_id_mode,
-        channel=channel,
-        false_color_on=false_color_on,
-        output_format=output_format,
-        jpeg_quality=jpeg_quality,
-        significant_bits=significant_bits,
-        save_encoding=save_encoding,
-        objective_id=objective_id,
-    )
-
-    # Record what the manual capture actually wrote, so a saved-file bundle is
-    # self-describing. Report the sensor's acquired depth AND the depth stamped
-    # on the file separately: a scaled encoding left-justifies a 12-bit capture
-    # to fill the 16-bit container, so the file is 16-bit while the sensor gave
-    # 12. Reporting only the acquired depth read as if the file were mis-tagged.
-    saved_significant_bits = image_utils.written_significant_bits(
-        save_encoding, significant_bits, array.dtype, image_utils.is_color_image(array)
-    )
-    logger.info(
-        f'[ImageSave] manual capture encoding={save_encoding} '
-        f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
-        f'dtype={array.dtype} shape={array.shape} -> {pathlib.Path(path).name}'
-    )
-    return path

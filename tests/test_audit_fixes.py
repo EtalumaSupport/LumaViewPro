@@ -4057,54 +4057,6 @@ def _function_source(source: str, func_name: str) -> str:
     raise AssertionError(f'function {func_name!r} not found in source')
 
 
-class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
-    """Lumascope.save_live_image must drain stale frames before grabbing.
-    Bare self.get_image(...) ships a mid-transition frame to disk on every
-    manual save; the canonical helper is self.capture_and_wait(...)."""
-
-    def test_save_live_image_drains_via_capture_and_wait(self, monkeypatch, tmp_path):
-        """save_live_image must grab through capture_and_wait (drain-then-
-        grab) and hand THAT frame to save_image -- never the bare
-        get_image, which would ship a mid-transition frame to disk."""
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        from modules import image_save
-
-        calls = []
-        frame = np.zeros((4, 4), dtype=np.uint8)
-        scope = SimpleNamespace(
-            imaging=SimpleNamespace(
-                _capture_and_wait_impl=lambda **kw: calls.append('capture_and_wait') or frame,
-                get_image=lambda **kw: calls.append('get_image') or frame,
-                capture_frame_depth=lambda array, sum_count=1: 8,
-            ),
-            illumination=SimpleNamespace(leds_off=lambda: None),
-            runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
-        )
-        saved = {}
-        monkeypatch.setattr(
-            image_save,
-            'save_image',
-            lambda scope, array, *args, **kwargs: (
-                saved.update(array=array) or str(tmp_path / 'live.tiff')
-            ),
-        )
-        out = image_save.save_live_image(
-            scope,
-            save_folder=str(tmp_path),
-            save_encoding='8bit',
-            channel='BF',
-            false_color_on=False,
-        )
-        assert out is not None
-        assert calls == ['capture_and_wait'], (
-            f'save_live_image must drain via capture_and_wait only; saw {calls}'
-        )
-        assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
-
-
 class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
@@ -9493,64 +9445,6 @@ class TestImagingGetCameraTempsRetired:
         )
 
 
-class TestSaveLiveImageTimeoutIsFloat:
-    """Phase-2 units-audit Finding P2-1 -- save_live_image's `timeout`
-    must be a float (seconds), not a datetime.timedelta. The Phase 1
-    audit #11 rename of capture_and_wait/get_image to float seconds
-    introduced a latent regression: the caller `image_save.save_live_image`
-    kept its `datetime.timedelta` default, which then flowed through
-    `capture_and_wait(timeout=...)` -> `get_image(timeout=...)` ->
-    `datetime.timedelta(seconds=timeout)` where `seconds=` rejects
-    timedelta with TypeError. Both UI callers (composite_capture.py)
-    use the default; the live-capture path crashes."""
-
-    def test_signature_is_float(self):
-        import inspect
-        from modules.image_save import save_live_image
-
-        sig = inspect.signature(save_live_image)
-        timeout_param = sig.parameters['timeout_s']
-        # Reject the previous timedelta default.
-        assert not isinstance(timeout_param.default, __import__('datetime').timedelta), (
-            'save_live_image.timeout_s default must be float seconds, not timedelta'
-        )
-        assert isinstance(timeout_param.default, float)
-        assert timeout_param.default == 5.0
-        assert 'timeout' not in sig.parameters, (
-            'save_live_image must not still expose bare `timeout` (audit U6 rename)'
-        )
-
-    def test_default_timeout_flows_through_capture_and_wait_without_crash(self, sim_scope):
-        # The original regression was: save_live_image's timedelta default
-        # flowed unchanged through capture_and_wait -> get_image, where
-        # `datetime.timedelta(seconds=timeout)` rejected timedelta with
-        # TypeError. This test exercises the same forwarding path that
-        # save_live_image uses (line 484-491), with the new float default.
-        # If a future revert restores `timeout_s: datetime.timedelta`, the
-        # signature test above fails first; if some other regression
-        # restores the TypeError at the get_image conversion, this fails.
-        # U6 renamed the keyword from `timeout` to `timeout_s` across the
-        # imaging API; this test follows.
-        import inspect
-        from modules.image_save import save_live_image
-
-        timeout_default = inspect.signature(save_live_image).parameters['timeout_s'].default
-        try:
-            sim_scope.imaging.capture_and_wait(
-                force_to_8bit=True,
-                all_ones_check=False,
-                timeout_s=timeout_default,
-                sum_count=1,
-                sum_delay_s=0,
-            )
-        except TypeError as e:
-            raise AssertionError(
-                f"capture_and_wait raised TypeError when given save_live_image's "
-                f'default timeout_s ({timeout_default!r}): {e}. '
-                f'Phase-2 audit P2-1 regression has returned.'
-            ) from e
-
-
 class TestImagingParamNamesUseUnitSuffix:
     """Audit U3 + U4 -- imaging API + driver method param names carry unit
     suffix (gain_db / exposure_ms / min_gain_db / max_gain_db). Pre-freeze,
@@ -9654,15 +9548,6 @@ class TestTimeoutParamNamesUseSecondSuffix:
             assert 'timeout' not in params, (
                 f'{class_name}.{method_name} still has bare `timeout` (U6 rename incomplete)'
             )
-
-    def test_save_live_image_uses_timeout_s(self):
-        """The save_live_image helper participates in the same sweep."""
-        import inspect
-        from modules.image_save import save_live_image
-
-        params = set(inspect.signature(save_live_image).parameters)
-        assert 'timeout_s' in params
-        assert 'timeout' not in params
 
     def test_driver_grab_new_capture_uses_timeout_s(self):
         """L2-mirror driver method -- grab_new_capture is invoked from

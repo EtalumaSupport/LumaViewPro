@@ -520,7 +520,6 @@ def test_no_self_diagnostics_calls_in_lumascope():
 IMAGE_SAVE_METHODS = frozenset(
     {
         'save_image',
-        'save_live_image',
         'get_next_save_path',
         'generate_image_save_path',
         'generate_image_metadata',

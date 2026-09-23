@@ -223,7 +223,6 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
 SEAMS = [
     image_save.prepare_image_for_saving,
     image_save.save_image,
-    image_save.save_live_image,
 ]
 
 

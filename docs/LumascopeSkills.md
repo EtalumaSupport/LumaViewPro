@@ -429,6 +429,32 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 
 ### Capture
 
+`session.manual_capture.capture()` captures one still and saves it, the same
+file the GUI's Capture button makes. The caller names only the layer whose
+drawer is open (or None), whether it is shown in false colour, and the
+overlays it wants; the channel (the lit LED, else that layer, else BF), the
+folder (`live_folder/Manual`, per channel when `separate_folder_per_channel`),
+the name, summing, format and encoding come from the session's settings. It
+returns at once with a `concurrent.futures.Future` of the paths written, the
+unmarked file first; an overlay adds a second file from the same frame.
+
+```python
+paths = session.manual_capture.capture(
+    layer='Blue', false_color_on=True, bullseye=False, crosshairs=False,
+).result(timeout=30)
+```
+
+It raises `ValueError` for a layer that is not a channel and
+`HardwareCommandRefusedError` (reason `'capture_in_flight'`) while an earlier
+still is running. The Future raises `ObjectiveUnknownError` when the
+objective in the light path is unknown (nothing captured),
+`HardwareCommandRefusedError` when a run holds the camera, and `CaptureError`
+(reason `'no_frame_returned'`, the capture engine's cause as its message) when
+no frame passed. `session.manual_capture.in_flight` is True while a still is
+running.
+
+To save a frame you already hold, capture it and call `save_image`:
+
 ```python
 from modules.image_save import save_image
 
@@ -1399,7 +1425,6 @@ The full set of free functions in `modules.image_save`:
 | Function | Purpose |
 |---|---|
 | `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
-| `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
 | `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
 | `generate_image_metadata(scope, channel, plate_x_mm, plate_y_mm, stage_z_um, *, objective_id)` | Build the TIFF metadata dict for the capture settings + position; the scale comes from `objective_id`, the objective the frame was taken with. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |

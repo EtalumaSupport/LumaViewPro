@@ -94,8 +94,10 @@ def main():
     session.shutdown()
     print('Session shut down')
 
-    # NOTE: To save images, import from modules.image_save:
-    #     from modules.image_save import save_image, save_live_image
+    # NOTE: To capture and save one still the way the GUI's Capture button
+    # does, call session.manual_capture.capture(layer=..., false_color_on=...)
+    # before shutdown. To save an array you already hold:
+    #     from modules.image_save import save_image
     #     save_image(scope, array=image, save_folder='./out', ...)
     # These require an objective, labware, and stage offset for metadata
     # generation -- what session.configure_scope() (or the factories that
