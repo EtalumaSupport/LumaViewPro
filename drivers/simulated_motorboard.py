@@ -20,7 +20,7 @@ import pathlib
 import threading
 import time
 from typing import ClassVar
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.motorconfig import MotorConfig, read_only_axes_config
@@ -81,9 +81,19 @@ class SimulatedMotorBoard:
         motorconfig_defaults_file: pathlib.Path | None = None,
         fail_after: int | None = None,
         fail_on: set | None = None,
+        axes: Iterable[str] | None = None,
         **kwargs,
     ):
+        """``axes``: the motor axes the board carries. A simulated scope
+        passes its model's axes from the catalogue; a board built on its
+        own, with none given, carries X/Y/Z for an LS85x model and Z
+        otherwise, plus T for a model whose name ends in T."""
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
+        if axes is None:
+            axes = {'X', 'Y', 'Z'} if model.startswith('LS85') else {'Z'}
+            if model.endswith('T'):
+                axes.add('T')
+        self._axes = frozenset(axes)
 
         # Failure injection
         self._fail_after = fail_after  # disconnect after N commands
@@ -98,7 +108,7 @@ class SimulatedMotorBoard:
         self.found = True
         self.overshoot = False
         self.backlash = self.motorconfig.antibacklash_um('Z')
-        self._has_turret = model.endswith('T')
+        self._has_turret = 'T' in self._axes
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
         self.port = '/dev/simulated_motor'
@@ -1164,13 +1174,7 @@ class SimulatedMotorBoard:
         Returns:
             list: Axis letters present (e.g. ``['X', 'Y', 'Z', 'T']``).
         """
-        axes = ['Z']  # Z always present
-        if self._fullinfo.get('model', '').startswith('LS85'):
-            axes = ['X', 'Y', 'Z']
-        model = self._fullinfo.get('model', '')
-        if model.endswith('T'):
-            axes.append('T')
-        return axes
+        return [axis for axis in ('X', 'Y', 'Z', 'T') if axis in self._axes]
 
     def detect_homed_axes(self) -> list:
         """Return the axes the simulated board reports as homed.

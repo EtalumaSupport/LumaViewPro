@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.image_mode as image_mode
+import modules.layer_record as layer_record
 from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
 from modules.exceptions import ConfigError
 from modules.lumascope_api._constants import is_turret_slot
@@ -51,11 +52,11 @@ class ScopeInitConfig:
     settings (gain, exposure, auto-gain).
 
     `expects_motion` / `expects_led` reflect what the selected scope's
-    `scopes.json` entry says it should have, used by `initialize()` to
-    filter the partial-hardware notification (LS620 correctly has no
-    motor -- don't pop a "Motor Controller missing" warning). Defaults
-    are True so callers that don't supply scope_config preserve the
-    pre-filter behavior.
+    `scopes.json` entry says it should have. A scope that expects no motor
+    board (an LS620 has none) is complete without one: `initialize()` does
+    not warn that it is missing, the connection check does not require it,
+    and startup does not home it. Defaults are True so callers that don't
+    supply scope_config are held to every board.
     """
 
     labware: object
@@ -136,11 +137,7 @@ class ScopeInitConfig:
         if scope_config is None:
             expects_motion = True
         else:
-            expects_motion = bool(
-                scope_config.get('Focus')
-                or scope_config.get('XYStage')
-                or scope_config.get('Turret')
-            )
+            expects_motion = bool(layer_record.entry_axes(scope_config))
         preferred_turret_slot = settings.get('turret_position')
         if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
             # A preference, not a position: a value that names no slot

@@ -1883,6 +1883,9 @@ class ScopeSession:
         asked us not to establish. The skip is the requested behaviour,
         so it is logged, not signalled.
 
+        A scope whose model has no motor board (``scope.motion_expected``
+        False) has nothing to home, so it issues no startup motion either.
+
         Headless / REST callers can use this exact same call to apply
         the standard startup orchestration without copy-pasting from
         the App.
@@ -1905,6 +1908,9 @@ class ScopeSession:
         """
         if disable_homing:
             logger.info('startup motion skipped: homing disabled; the turret is left where it is')
+            return
+        if not self.scope.motion_expected:
+            logger.info('startup motion skipped: this scope model has no motor board')
             return
 
         if home_fn is None:

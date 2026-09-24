@@ -181,6 +181,12 @@ def model_axes(models: dict, model: str) -> frozenset[str]:
             f'scopes.json lists no model {model!r} (known: {sorted(models)}); '
             'the microscope setting names a model the catalogue lacks'
         )
+    return entry_axes(entry)
+
+
+def entry_axes(entry: dict) -> frozenset[str]:
+    """The motor axes one catalogue entry declares. Empty for a manual
+    scope, which has no motor board at all."""
     return frozenset(axis for flag, axes in _AXES_BY_FLAG if entry.get(flag) for axis in axes)
 
 

@@ -170,8 +170,9 @@ scope.initialize(config)
 ### Connection
 
 ```python
-scope.are_all_connected()                 # LED + motor + camera all up
+scope.are_all_connected()                 # LED + motor + camera all up (motor only if expected)
 scope.motor_connected                     # motor board (property)
+scope.motion_expected                     # False on a manual scope (LS620, LS560): no motor board to connect
 scope.led_connected                       # LED board (property)
 scope.camera_connected                    # camera (property)
 scope.no_hardware                         # True if all-null (no real hardware found)

@@ -292,6 +292,11 @@ class Lumascope:
         the single point of truth.
         """
         self._simulated = simulated
+        # Whether this scope's model has a motor board. Until initialize()
+        # reads the model's catalogue entry, a missing board counts as
+        # disconnected: holding an unconfigured scope to every board is the
+        # answer that cannot admit a run on a board that fell off.
+        self._motion_expected = True
 
         # Driver slot defaults -- __init__ overrides _camera_driver with
         # the real driver; create_diagnostic leaves it None.
@@ -321,29 +326,29 @@ class Lumascope:
     def _build_simulated_motor_board(model: str, sim_tier: str) -> MotorBoardProtocol:
         """The simulated scope's motor board, on the tier asked for.
 
-        The fast tier goes through the registry's simulator selection as
-        every simulated build did before there was a second tier. The
-        firmware tier asks the catalogue which axes the model has and
-        builds the production driver by name against the emulator: a
-        model with no axes has no motor board, so it gets the null driver
-        directly, and a model with axes whose emulator does not come up
-        raises, because the registry's auto path would fall back to the
-        null driver and a dead emulator would then look exactly like a
-        manual scope.
+        Both tiers ask the catalogue which axes the model has: a model
+        with no axes has no motor board, so it gets the null driver on
+        either tier. The fast tier goes through the registry's simulator
+        selection with those axes. The firmware tier builds the production
+        driver by name against the emulator: a model with axes whose
+        emulator does not come up raises, because the registry's auto path
+        would fall back to the null driver and a dead emulator would then
+        look exactly like a manual scope.
         """
-        if sim_tier == 'fast':
-            board = motor_registry.create('auto', simulate=True, model=model)
-            logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
-            return board
-        if sim_tier != 'firmware':
+        if sim_tier not in SIMULATOR_TIERS:
             raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
-        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
         from modules.layer_record import load_scope_models, model_axes
 
         axes = model_axes(load_scope_models(), model)
         if not axes:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
+        if sim_tier == 'fast':
+            board = motor_registry.create('auto', simulate=True, model=model, axes=axes)
+            logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
+            return board
+        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
         backend = SimWireBackend(MotorBoardSpec(model, axes))
         board = motor_registry.create('rp2040', backend=backend)
         logger.info(
@@ -761,6 +766,7 @@ class Lumascope:
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
         """
+        self._motion_expected = config.expects_motion
         self._notify_partial_hardware(config)
         # The safety-off is bound to the impl like every other write here,
         # never to the public dispatcher: a session factory runs initialize
@@ -1037,6 +1043,16 @@ class Lumascope:
             not isinstance(self._motion_driver, NullMotionBoard)
             and self._motion_driver.is_connected()
         )
+
+    @property
+    def motion_expected(self) -> bool:
+        """Whether this scope's model has a motor board at all.
+
+        False for a manual scope (an LS620 or LS560): it is complete
+        without one, so its absence is not a disconnection. Set from the
+        model's catalogue entry by ``initialize()``; True before that.
+        """
+        return self._motion_expected
 
     @property
     def led_connected(self) -> bool:
@@ -1317,12 +1333,15 @@ class Lumascope:
         this converts it into a refusal that says the state could not be
         read, which is not the same answer as "not connected".
 
+        A scope whose model has no motor board is not asked for one: a
+        manual scope is complete without it.
+
         Returns:
             bool: True if all three components are connected.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
         led = self.led_connected
-        motion = self.motor_connected
+        motion = self.motor_connected or not self._motion_expected
         camera = self._camera_is_connected()
 
         if not led:
