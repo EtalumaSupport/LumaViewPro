@@ -1173,14 +1173,17 @@ class SequencedCaptureRunner:
         state back.
 
         Runs on the protocol thread, so the wait never holds the caller
-        that clicked. Returns None once the camera is taken, or when a
-        Stop arrived during the wait (the loop's own tail ends the run,
-        and cleanup finds no snapshot to restore); an ending when the
-        lane's in-flight task is stuck past the threshold that already
-        calls the file lane wedged.
+        that clicked. Returns None once the camera is taken, or when the
+        run is no longer live -- a Stop during the wait, or a reset that
+        tore the run down inline in the gap between its commit and this
+        loop's dispatch -- so a run that has ended never writes the
+        camera or takes a snapshot nothing will restore; the loop's own
+        tail ends the stopped run, and cleanup finds no snapshot. An
+        ending when the lane's in-flight task is stuck past the threshold
+        that already calls the file lane wedged.
         """
         while self.camera_executor.is_busy():
-            if self._aborted.is_set():
+            if self._aborted.is_set() or not self._is_run_live():
                 return None
             if self.camera_executor.in_flight_task_stalled(WRITE_STALL_FATAL_S):
                 return RunEnding(
@@ -1191,6 +1194,8 @@ class SequencedCaptureRunner:
                     'Restart LumaViewPro if the camera stays busy.',
                 )
             time.sleep(_CAMERA_LANE_POLL_S)
+        if not self._is_run_live():
+            return None
         self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
         self._take_auto_gain_arm_for_run()

@@ -99,8 +99,13 @@ class TestAHeldLane:
     def test_a_stop_during_the_wait_ends_the_run_stopped_and_restores_nothing(self, lane_session):
         session, runner, tmp_path = lane_session
         scope = session.scope
+        # A channel lit by the user before the click: cleanup must leave it
+        # lit, not read the missing snapshot as "nothing was lit" and
+        # darken the sample.
+        scope.illumination.led_on('BF', 20.0)
         gain_before = scope.imaging.get_gain_db()
         leds_before = scope.illumination.get_led_states()
+        assert leds_before['BF']['enabled'], 'the fixture could not light a channel'
         hold = _LaneHold(session)
         try:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))
@@ -138,6 +143,23 @@ class TestAHeldLane:
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'camera_lane_stalled'
         assert len(completions) == 1, completions
+
+
+class TestARunThatAlreadyEnded:
+    def test_takes_nothing(self):
+        # A reset in the gap between the run's commit and its loop's
+        # dispatch tears the run down inline; the loop then still runs,
+        # and its first act must not write the camera for a run that is
+        # gone or snapshot a state nothing will restore.
+        from modules.protocol_state_machine import ProtocolState
+        from tests.protocol_drives import bare_capture_runner
+
+        runner = bare_capture_runner()
+        runner._state = ProtocolState.IDLE
+
+        assert runner._take_camera() is None
+        assert runner._scope.imaging.save_camera_state.call_count == 0
+        assert runner._scope.imaging._update_auto_gain_target_brightness_impl.call_count == 0
 
 
 class TestATakeoverWriteThatRaises:
