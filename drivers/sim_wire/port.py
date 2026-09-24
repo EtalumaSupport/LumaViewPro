@@ -88,12 +88,11 @@ INTERRUPT_SETTLE_S = 1.0
 
 # Runs the firmware with a watcher beside it. The watcher polls this
 # interpreter's pid and kills the firmware (whose pid is the shell's, via
-# exec) when this interpreter is gone, or exits when the firmware is. The
-# fault pipe's read end, passed as $3, becomes the firmware's fd 3.
+# exec) when this interpreter is gone, or exits when the firmware is.
 _LAUNCH = (
     '(while kill -0 "$1" 2>/dev/null && kill -0 $$ 2>/dev/null; do sleep 1; done; '
     'kill -9 $$ 2>/dev/null) </dev/null >/dev/null 2>&1 & '
-    'exec "$2" -i -c "import main" 3<&"$3"'
+    'exec "$2" -i -c "import main"'
 )
 
 
@@ -139,15 +138,19 @@ class _Process:
             with open(os.path.join(workdir, name), 'wb') as f:
                 f.write(data)
         shutil.copyfile(image.firmware_mpy, os.path.join(workdir, 'main.mpy'))
-        env = dict(os.environ, MICROPYPATH=':'.join((*image.module_path, '.frozen')))
         faults_r, self.faults_w = os.pipe()
+        env = dict(
+            os.environ,
+            MICROPYPATH=':'.join((*image.module_path, '.frozen')),
+            **{channel.FAULTS_FD_ENV: str(faults_r)},
+        )
         try:
             # Written before the process starts, so the firmware's first
             # transfer at boot already sees them.
             for axis, name in sorted(faults):
                 os.write(self.faults_w, channel.fault_line(True, axis, name))
             self.proc = subprocess.Popen(
-                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), image.runtime, str(faults_r)],
+                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), image.runtime],
                 cwd=workdir,
                 env=env,
                 stdin=subprocess.PIPE,

@@ -15,7 +15,8 @@
 #
 # The control channel. The firmware blocks in stdin's readline() while idle,
 # so this code runs only inside the firmware's own SPI transfers:
-# - Faults come in on fd 3, a pipe the port writes, one line per change.
+# - Faults come in on a pipe the port writes, one line per change, at the
+#   fd `channel.FAULTS_FD_ENV` names.
 #   It is read at every transfer: a pipe write the port has finished is
 #   readable at once, so a fault written before a command is in effect from
 #   its first transfer.
@@ -25,6 +26,7 @@
 # The messages themselves are `channel.py`'s.
 
 import json
+import os
 import select
 import sys
 import time
@@ -119,7 +121,7 @@ _board = None
 _oracle = False
 
 # Open for the life of the process: the port holds the other end.
-_faults_in = open('/dev/fd/3', 'rb')  # noqa: SIM115
+_faults_in = open('/dev/fd/' + os.getenv(channel.FAULTS_FD_ENV), 'rb')  # noqa: SIM115
 _faults_poll = select.poll()
 _faults_poll.register(_faults_in, select.POLLIN)
 

@@ -12,6 +12,12 @@
 ORACLE_START = 0x1E
 ORACLE_END = 0x1F
 
+# The environment variable naming the fault pipe's fd in the child. The fd
+# keeps its number across the launch, so no shell redirection moves it: dash,
+# Linux's sh, refuses one naming an fd above 9. A handle between the two
+# processes, like MICROPYPATH, not a setting.
+FAULTS_FD_ENV = 'SIM_WIRE_FAULTS_FD'
+
 
 def fault_line(on: bool, axis: str, name: str) -> bytes:
     return f'{"FAULT" if on else "CLEAR"} {axis} {name}\n'.encode()

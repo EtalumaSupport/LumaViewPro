@@ -22,6 +22,7 @@ from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
 from drivers.sim_wire import port as sim_port
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from drivers.sim_wire.mp import tmc5072
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -192,6 +193,33 @@ def test_a_reopened_port_meets_the_same_running_homed_firmware():
         assert b'Z homed: True' in _exchange(port, b'FULLINFO')
     finally:
         port.close()
+
+
+@pytest.mark.skipif(not os.path.exists('/bin/dash'), reason='needs /bin/dash')
+def test_the_board_boots_and_takes_faults_under_dash_with_a_high_fault_fd(monkeypatch):
+    # Linux's sh is dash, which refuses a redirection naming an fd above 9;
+    # under pytest the fault pipe is well past 9. macOS's sh is bash, which
+    # takes any fd, so this runs the launch under dash to see what Linux sees.
+    real_popen = subprocess.Popen
+
+    def popen_under_dash(args, **kwargs):
+        if args[0] == 'sh':
+            args = ['/bin/dash', *args[1:]]
+        return real_popen(args, **kwargs)
+
+    monkeypatch.setattr(sim_port.subprocess, 'Popen', popen_under_dash)
+    padding = [os.open(os.devnull, os.O_RDONLY) for _ in range(12)]
+    try:
+        backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES))
+        board = MotorBoard(backend=backend)
+    finally:
+        for fd in padding:
+            os.close(fd)
+    try:
+        backend.motor_board.inject('Z', tmc5072.ABSENT)
+        assert 'OPEN_A OPEN_B' in board.exchange_command('DRVSTAT_Z')
+    finally:
+        board.disconnect()
 
 
 def test_the_board_process_ends_when_its_backend_is_released():
