@@ -52,9 +52,10 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
                │
 ┌──────────────▼──────────────────────────────────┐
 │  Lumascope composition root  (Python)           │
-│  ├─ scope.motion        ├─ scope.diagnostics    │
-│  ├─ scope.illumination  ├─ scope.capabilities   │
-│  ├─ scope.imaging       └─ scope.io             │
+│  ├─ scope.motion        ├─ scope.capabilities   │
+│  ├─ scope.illumination  ├─ scope.runtime_state  │
+│  ├─ scope.imaging       ├─ scope.protocols      │
+│  └─ scope.diagnostics   └─ scope.io             │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
@@ -100,7 +101,7 @@ If you are writing a new wrapper, the `Raises:` section is the canonical declara
 
 ## Lumascope composition root
 
-The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the six sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.io`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown).
+The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the eight sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`, `scope.io`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown). `scope.protocols` holds the two `Protocol` constructors, documented under Running protocols.
 
 **When to use directly:** you need fine-grained control beyond ScopeSession, or you're building a custom application. The GUI, ScopeSession, and REST surface all go through this class.
 
@@ -1178,7 +1179,6 @@ scope.imaging.remove_frame_listener(on_frame)
 - **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and the user sees a notification.
 - **Re-entrancy.** A handler will not be re-entered on the same thread; the driver's fire-site is single-threaded.
 - **Plugin authors**: use `ctx.plugins.live_processing.register(spec, handler)` rather than calling `add_frame_listener` directly. The registry forwards through to this API and surfaces the plugin name in the budget-violation log.
-- **Tutorial**: `docs/LIVE_PROCESSING_TUTORIAL.md` -- minimum-viable plugin example + failure-injection example + common pitfalls.
 
 ### Listener callback signatures (overview)
 
@@ -1594,7 +1594,7 @@ from modules.protocol import Protocol
 Plugin platform spec and live-processing tutorial both live alongside LumaViewPro.
 
 - **Design**: `docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
-- **Live-processing tutorial**: `docs/LIVE_PROCESSING_TUTORIAL.md` — walkthrough for writing a `ctx.plugins.live_processing` plugin.
+- **Plugin tutorial**: `docs/PluginTutorial.md` — the plugin shape and lifecycle, worked for `ctx.plugins.post_processing`.
 - **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`.
 
 A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml` `entry_points` for how a plugin declares itself.
