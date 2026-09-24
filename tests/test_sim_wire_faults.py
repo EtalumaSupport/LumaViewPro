@@ -21,7 +21,7 @@ from drivers.motorboard import MotorBoard
 from drivers.sim_wire import port as sim_port
 from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import channel, tmc5072
-from drivers.sim_wire.port import BoardImage, EmulatedPort, RegisterWrite
+from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
 
 firmware_only = pytest.mark.skipif(
     not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
@@ -131,52 +131,53 @@ class TestTheChannel:
         assert channel.parse_write(frame[1:-1]) == ('XY', None, 0x00, 1)
 
 
-def _unopened_port(oracle: bool) -> EmulatedPort:
+def _unpowered_board(oracle: bool) -> EmulatedBoard:
     image = BoardImage(
         runtime='-', firmware_mpy='-', files={}, module_path=(), label='[test]', oracle=oracle
     )
-    return EmulatedPort(image)
+    return EmulatedBoard(image)
 
 
 class TestTheDemux:
     def test_a_frame_split_across_reads_is_taken_out_whole(self):
-        port = _unopened_port(oracle=True)
+        board = _unpowered_board(oracle=True)
         frame = channel.write_frame('XY', 'X', 0x0D, 1234).encode('latin-1')
         stream = b'Z home ' + frame + b'successful\r\n'
-        to_driver = b''.join(port._demux(stream[i : i + 5]) for i in range(0, len(stream), 5))
+        to_driver = b''.join(board._demux(stream[i : i + 5]) for i in range(0, len(stream), 5))
         assert to_driver == b'Z home successful\r\n'
-        assert port._writes == [RegisterWrite('XY', 'X', 0x0D, 1234)]
+        assert board._writes == [RegisterWrite('XY', 'X', 0x0D, 1234)]
 
-    def test_a_frame_with_the_oracle_off_fails_the_port(self):
-        port = _unopened_port(oracle=False)
-        port._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1'))
-        assert 'oracle off' in port._failure
+    def test_a_frame_with_the_oracle_off_fails_the_board(self):
+        board = _unpowered_board(oracle=False)
+        board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1'))
+        assert 'oracle off' in board._failure
 
-    def test_untaken_writes_past_the_limit_fail_the_port(self, monkeypatch):
+    def test_untaken_writes_past_the_limit_fail_the_board(self, monkeypatch):
         monkeypatch.setattr(sim_port, 'WRITES_LIMIT', 3)
-        port = _unopened_port(oracle=True)
-        port._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1') * 4)
-        assert 'nothing is taking them' in port._failure
-        assert len(port._writes) == 3
+        board = _unpowered_board(oracle=True)
+        board._demux(channel.write_frame('XY', 'X', 0x0D, 1).encode('latin-1') * 4)
+        assert 'nothing is taking them' in board._failure
+        assert len(board._writes) == 3
 
     def test_a_fault_needs_a_known_axis_and_name(self):
-        port = _unopened_port(oracle=False)
+        board = _unpowered_board(oracle=False)
         with pytest.raises(ValueError, match='unknown axis'):
-            port.inject('Q', tmc5072.STALL)
+            board.inject('Q', tmc5072.STALL)
         with pytest.raises(ValueError, match='unknown fault'):
-            port.inject('Z', 'melted')
+            board.inject('Z', 'melted')
 
 
 @pytest.fixture
 def scope(request):
-    """(MotorBoard, EmulatedPort) for an LS850T on the requested dialect."""
+    """(MotorBoard, the simulated EmulatedBoard behind it) for an LS850T on the
+    requested dialect."""
     dialect, oracle = getattr(request, 'param', ('3.0', False))
     backend = SimWireBackend(
         MotorBoardSpec('LS850T', frozenset('XYZT'), dialect=dialect, oracle=oracle)
     )
     board = MotorBoard(backend=backend)
     try:
-        yield board, backend.motor_port
+        yield board, backend.motor_board
     finally:
         board.disconnect()
 
@@ -185,39 +186,39 @@ def scope(request):
 class TestTheFirmwareMeetsTheFault:
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_z_switch_that_never_trips_is_the_firmwares_home_timeout(self, scope):
-        board, port = scope
+        board, sim = scope
         assert board.exchange_command('ZHOME') == 'Z home successful'
-        port.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
+        sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
         assert board.exchange_command('ZHOME') == 'ERROR: Z home timeout'
-        port.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
+        sim.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
         assert board.exchange_command('ZHOME') == 'Z home successful'
 
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_stalled_x_is_the_firmwares_xy_home_timeout(self, scope):
-        board, port = scope
-        port.inject('X', tmc5072.STALL)
+        board, sim = scope
+        sim.inject('X', tmc5072.STALL)
         assert board.exchange_command('HOME') == 'ERROR: XY home timeout'
 
     def test_a_fault_set_before_a_command_is_in_effect_from_its_first_transfer(self, scope):
         # DRVSTAT_Z is one register read; a fault picked up any later than
         # the command's first SPI transfer would miss it entirely.
-        board, port = scope
+        board, sim = scope
         for _ in range(50):
-            port.inject('Z', tmc5072.ABSENT)
+            sim.inject('Z', tmc5072.ABSENT)
             assert 'OPEN_A OPEN_B' in board.exchange_command('DRVSTAT_Z')
-            port.clear('Z', tmc5072.ABSENT)
+            sim.clear('Z', tmc5072.ABSENT)
             assert 'OPEN_A' not in board.exchange_command('DRVSTAT_Z')
 
     def test_an_absent_motor_is_not_detected_by_the_firmware(self, scope):
-        board, port = scope
-        port.inject('X', tmc5072.ABSENT)
+        board, sim = scope
+        sim.inject('X', tmc5072.ABSENT)
         # X is the reply's first line.
         assert board.exchange_command('MOTORDETECT') == 'X: detected=False  configured=True'
 
     def test_a_fault_outlives_a_soft_reset(self, scope):
-        board, port = scope
-        port.inject('Z', tmc5072.ABSENT)
-        port.write(b'\x03\x04')
+        board, sim = scope
+        sim.inject('Z', tmc5072.ABSENT)
+        board.driver.write(b'\x03\x04')
         deadline = time.monotonic() + 5
         while not board.exchange_command('INFO', timeout=0.5):
             assert time.monotonic() < deadline, 'the board did not come back from the soft reset'
@@ -228,17 +229,17 @@ class TestTheFirmwareMeetsTheFault:
 class TestTheOracle:
     @pytest.mark.parametrize('scope', [('3.0', True)], indirect=True)
     def test_every_z_home_makes_the_same_writes_before_its_reply(self, scope):
-        board, port = scope
-        port.take_writes()
+        board, sim = scope
+        sim.take_writes()
         seen = []
         for _ in range(20):
             assert board.exchange_command('ZHOME') == 'Z home successful'
-            seen.append(tuple(port.take_writes()))
+            seen.append(tuple(sim.take_writes()))
         assert seen[0] and all(writes == seen[0] for writes in seen[1:])
         # The firmware's own approach target: 30 mm toward the flag.
         assert RegisterWrite('ZT', 'Z', tmc5072.XTARGET, 0xFFB1E012) in seen[0]
 
     def test_with_the_oracle_off_there_are_no_writes_to_take(self, scope):
-        _board, port = scope
+        _board, sim = scope
         with pytest.raises(SerialException, match='oracle is off'):
-            port.take_writes()
+            sim.take_writes()

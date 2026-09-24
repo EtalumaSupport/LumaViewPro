@@ -7,6 +7,7 @@ change, Ctrl-C and Ctrl-D do what they do on the board, and the process can
 neither outlive its port nor fail quietly.
 """
 
+import gc
 import os
 import signal
 import subprocess
@@ -61,6 +62,14 @@ def _exchange(port, command: bytes) -> bytes:
     port.reset_input_buffer()
     port.write(command + b'\n')
     return port.readline()
+
+
+def _at_repl(port) -> bool:
+    return port._board._tail == sim_port.REPL_PROMPT
+
+
+def _firmware_pid(port) -> int:
+    return port._board._life.process.proc.pid
 
 
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
@@ -125,7 +134,7 @@ def test_ctrl_c_interrupts_the_running_firmware_into_the_repl(dialect):
     try:
         _exchange(port, b'BOGUS')
         port.write(b'\x03')
-        _wait_for(port._at_repl, what='the REPL after Ctrl-C', limit=2.0)
+        _wait_for(lambda: _at_repl(port), what='the REPL after Ctrl-C', limit=2.0)
         assert b'KeyboardInterrupt' in bytes(port._rx)
     finally:
         port.close()
@@ -136,15 +145,15 @@ def test_ctrl_d_is_a_soft_reset_at_the_repl_and_data_while_running():
     try:
         port.write(b'\x04')
         assert b'not found' in _exchange(port, b'BOGUS')
-        first = port._proc.pid
+        first = _firmware_pid(port)
 
         port.write(b'\x03')
-        _wait_for(port._at_repl, what='the REPL after Ctrl-C')
+        _wait_for(lambda: _at_repl(port), what='the REPL after Ctrl-C')
         # A driver reads the prompt before it sends Ctrl-D; the REPL is still
         # where the board is.
         _drain(port)
         port.write(b'\x04')
-        assert port._proc.pid != first
+        assert _firmware_pid(port) != first
         _wait_for(
             lambda: b'Firmware:' in _exchange(port, b'INFO'), what='the firmware to boot again'
         )
@@ -158,9 +167,9 @@ def test_ctrl_c_then_ctrl_d_in_one_write_is_a_soft_reset():
     # input and end the process.
     port = _open()
     try:
-        first = port._proc.pid
+        first = _firmware_pid(port)
         port.write(b'\x03\x04')
-        assert port._proc.pid != first
+        assert _firmware_pid(port) != first
         _wait_for(
             lambda: b'Firmware:' in _exchange(port, b'INFO'), what='the firmware to boot again'
         )
@@ -168,12 +177,32 @@ def test_ctrl_c_then_ctrl_d_in_one_write_is_a_soft_reset():
         port.close()
 
 
-def test_close_ends_the_board_process():
+def test_a_reopened_port_meets_the_same_running_homed_firmware():
+    # The motor controller is powered by the board, not by the host cable: a
+    # driver that closes its port and opens it again finds the firmware it
+    # left, homing included.
     port = _open()
-    pid = port._proc.pid
+    board = port._board
+    pid = _firmware_pid(port)
+    assert _exchange(port, b'ZHOME').strip() == b'Z home successful'
     port.close()
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    port = sim_port.EmulatedPort(board, port=sim_backend.MOTOR_DEVICE, timeout=0.5)
+    try:
+        assert _firmware_pid(port) == pid
+        assert b'Z homed: True' in _exchange(port, b'FULLINFO')
+    finally:
+        port.close()
+
+
+def test_the_board_process_ends_when_its_backend_is_released():
+    backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES))
+    port = backend.open(port=backend.comports()[0].device, baudrate=115200, timeout=0.5)
+    pid = _firmware_pid(port)
+    port.close()
+    # Nothing holds the board now: not the port, not the backend.
+    del port, backend
+    gc.collect()
+    _wait_for(lambda: not _alive(pid), what='the released board to end', limit=5.0)
 
 
 def test_the_board_process_dies_with_the_interpreter_that_opened_it():
@@ -189,7 +218,7 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
             p.write(b'INFO\\n')
             if b'Firmware:' in p.readline():
                 break
-        print(p._proc.pid, flush=True)
+        print(b.motor_board._life.process.proc.pid, flush=True)
         time.sleep(60)
         """
     )
@@ -217,7 +246,7 @@ def _alive(pid):
 def test_a_board_that_goes_away_raises_as_a_pulled_cable_does():
     port = _open()
     try:
-        port._proc.kill()
+        port._board._life.process.proc.kill()
         _wait_for(lambda: port._failure is not None, what='the reader to see the exit')
         port.reset_input_buffer()
         with pytest.raises(serial.SerialException, match='board process exited'):
