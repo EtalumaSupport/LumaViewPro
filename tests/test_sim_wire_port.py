@@ -140,6 +140,9 @@ def test_ctrl_d_is_a_soft_reset_at_the_repl_and_data_while_running():
 
         port.write(b'\x03')
         _wait_for(port._at_repl, what='the REPL after Ctrl-C')
+        # A driver reads the prompt before it sends Ctrl-D; the REPL is still
+        # where the board is.
+        _drain(port)
         port.write(b'\x04')
         assert port._proc.pid != first
         _wait_for(
@@ -182,6 +185,10 @@ def test_the_board_process_dies_with_the_interpreter_that_opened_it():
         from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
         b = SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT')))
         p = b.open(port=b.comports()[0].device, baudrate=115200, timeout=0.5)
+        while True:  # the firmware is running, not still starting
+            p.write(b'INFO\\n')
+            if b'Firmware:' in p.readline():
+                break
         print(p._proc.pid, flush=True)
         time.sleep(60)
         """
