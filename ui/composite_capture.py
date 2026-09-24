@@ -7,9 +7,6 @@ Provides live_capture() and composite_capture() methods inherited by MainDisplay
 
 import functools
 import logging
-import pathlib
-import threading
-
 
 from kivy.clock import Clock
 from kivy.uix.floatlayout import FloatLayout
@@ -35,7 +32,6 @@ logger = logging.getLogger('LVP.ui.composite_capture')
 
 
 class CompositeCapture(FloatLayout):
-    _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
     _composite_run: PendingRunOutcome | None = None
@@ -49,14 +45,11 @@ class CompositeCapture(FloatLayout):
         Every decision about the still -- channel, folder, name, summing,
         format, depth, overlay copy, refusals -- is the session's
         ``manual_capture``; the button supplies only what the user is
-        looking at, read here on the main thread.
+        looking at, read here on the main thread. A second press while a
+        still is in flight, and a press while a run holds the camera, are
+        the member's refusals, shown below like any other.
         """
         gui_logger.button('LIVE_CAPTURE')
-        # The Composite button reads this too: a still and a composite never
-        # overlap from this window. A second still is the member's refusal.
-        if CompositeCapture._capturing.is_set():
-            logger.warning('[LVP Main  ] Capture already in progress, ignoring')
-            return
         ctx = _app_ctx.ctx
         layer = common_utils.get_opened_layer(ctx.image_settings)
         false_color_on = (
@@ -64,7 +57,6 @@ class CompositeCapture(FloatLayout):
             if layer is not None
             else False
         )
-        CompositeCapture._capturing.set()
         try:
             future = ctx.session.manual_capture.capture(
                 layer=layer,
@@ -74,12 +66,8 @@ class CompositeCapture(FloatLayout):
                 engineering_mode=ctx.engineering_mode,
             )
         except HardwareCommandRefusedError as refused:
-            CompositeCapture._capturing.clear()
             _show_capture_failure(refused)
             return
-        except BaseException:
-            CompositeCapture._capturing.clear()
-            raise
         future.add_done_callback(
             lambda done: Clock.schedule_once(lambda _dt: _show_capture_outcome(done))
         )
@@ -89,18 +77,15 @@ class CompositeCapture(FloatLayout):
         """Start a composite run, or stop the one already running.
 
         A composite is a sequenced run like a scan or a z-stack, so this
-        is a run starter and nothing more. It states no run parameters and
-        assembles no config: everything the run needs is settings the
-        engine already reads, and duplicating that assembly here is what
-        put a second composite implementation in the GUI to begin with.
-
-        Only the concerns the engine cannot own stay here. It cannot know
-        the toggle was clicked a second time, it does not share the guard
-        that makes the two capture buttons mutually exclusive, and it has
-        no refusal for a camera that is connected but not yet streaming.
-        Everything else -- a rival run, files still draining, too few
-        channels -- is the engine's refusal to raise, not this starter's
-        to pre-check.
+        is a run starter and nothing more. It states no run parameters,
+        assembles no config and pre-checks nothing: everything the run
+        needs is settings the engine already reads, and every refusal --
+        a rival run, files still draining, too few channels, a camera
+        that is absent, an unknown objective -- is the engine's to raise
+        and this button's to display, once. A still mid-capture is not a
+        refusal at all: the run waits for it. The one thing decided here
+        is what only a toggle can know, that this click is the second of
+        a pair.
         """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
@@ -138,74 +123,22 @@ class CompositeCapture(FloatLayout):
             )
             return
 
-        # Every gate below puts the toggle back before returning. Left
-        # 'down', it makes the NEXT click read as the second click of a
-        # pair, and that click is swallowed as an abort of a run that was
-        # never started.
-        if CompositeCapture._capturing.is_set():
-            # Names "a capture", not "a composite": a composite's own second
-            # click is taken by the stop branch above, so the only way to
-            # arrive here is a live capture still holding the guard. Saying
-            # "composite" reported the wrong subsystem to the user.
-            logger.warning('[LVP Main  ] A capture is already running, ignoring composite press')
-            composite_btn.state = 'normal'
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(
-                title='Capture In Progress',
-                message=(
-                    'A capture is still running.\n\n'
-                    'Wait for it to finish before starting a composite.'
-                ),
-            )
-            return
-
-        from modules.notification_center import notifications
-
-        if not getattr(ctx.scope, 'camera_connected', True):
-            notifications.warning(
-                'Camera',
-                'Camera not connected',
-                'Cannot capture composite -- camera is not connected. '
-                'Check USB and reconnect, then try again.',
-            )
-            composite_btn.state = 'normal'
-            return
-
-        if not ctx.scope.imaging.active_cached:
-            notifications.warning(
-                'Camera',
-                'Camera not active',
-                'Cannot capture composite -- the camera is not streaming. '
-                'Wait for the camera to start, then try again.',
-            )
-            composite_btn.state = 'normal'
-            return
-
-        # Set only once every gate above has passed, and cleared in exactly
-        # one place per outcome: the finally below for anything that does
-        # not reach a live run, and the run's own completion for anything
-        # that does. A guard left set is permanent -- both capture entry
-        # points return at their is_set() check before enqueuing the work
-        # whose completion would clear it -- so a path with no clearer
-        # disables both capture buttons for the life of the process. That
-        # is why the clear sits in a finally rather than at each exit: the
-        # refusal boundary only catches the typed refusal, and a
-        # programming error at the call site raises straight past it.
-        CompositeCapture._capturing.set()
+        # Every path that does not reach a live run hands the UI back in
+        # the finally below, toggle included: left 'down', the NEXT click
+        # reads as the second click of a pair and is swallowed as an abort
+        # of a run that was never started. The finally rather than each
+        # exit because the refusal boundary catches only the typed
+        # refusal, and a programming error at the call site raises
+        # straight past it.
         started = False
         try:
             live_histo_off()
             set_title_event_text('Compositing...')
 
-            settings = ctx.settings
-            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Composites'
-
             def _start():
                 nonlocal started
                 self._composite_run = runner.start_composite(
                     sequence_name='composite',
-                    parent_dir=parent_dir,
                     callbacks={
                         **live_display_callbacks(),
                         'run_complete': self._composite_finished,
@@ -218,13 +151,9 @@ class CompositeCapture(FloatLayout):
                 # folder can only ever name THIS run's directory.
                 set_last_save_folder(dir=runner.run_dir())
 
-            # A refusal is always LOGGED by the engine's funnel, and the
-            # finally below undoes the cosmetics. It is not necessarily
-            # SHOWN: the centre drops non-fatal notifications for the whole
-            # of a run nobody is watching, and a rival run owning the scope
-            # is the only way this starter is refused, since it carries no
-            # rival gate of its own. So that refusal currently reaches the
-            # user nowhere: a known hole, recorded rather than closed.
+            # A refusal is logged and shown once by the engine's funnel
+            # (solicited, so it reaches the user during a run of any
+            # kind); the finally below undoes the cosmetics.
             run_with_refusal_boundary(_start, on_refused=lambda: None)
         except Exception as e:
             logger.error(f'[LVP Main  ] composite_capture failed: {e}', exc_info=True)
@@ -256,7 +185,6 @@ class CompositeCapture(FloatLayout):
         # enable toggle to what the driver actually reports: a restore that
         # emits no LED events leaves the buttons stale otherwise.
         _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
-        CompositeCapture._capturing.clear()
 
 
 # A refusal carries a reason code for callers that branch on it, and no
@@ -268,7 +196,6 @@ _REFUSAL_TEXT = {
 
 
 def _show_capture_outcome(future) -> None:
-    CompositeCapture._capturing.clear()
     exc = future.exception()
     if exc is None:
         set_last_save_folder(dir=future.result()[0].parent)

@@ -87,7 +87,6 @@ def button_ctx():
 def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
     from ui.composite_capture import CompositeCapture
 
-    CompositeCapture._capturing.clear()
     with patch('ui.composite_capture.common_utils.get_opened_layer', return_value=None):
         CompositeCapture.live_capture(object())
 
@@ -99,13 +98,11 @@ def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
         'crosshairs': False,
         'engineering_mode': True,
     }
-    CompositeCapture._capturing.clear()
 
 
-def test_a_refused_press_releases_the_composite_flag_and_says_why(button_ctx):
+def test_a_refused_press_says_why(button_ctx):
     from ui.composite_capture import CompositeCapture
 
-    CompositeCapture._capturing.clear()
     button_ctx.session.manual_capture.capture.side_effect = HardwareCommandRefusedError(
         'capture_in_flight', 'manual_capture.capture'
     )
@@ -115,7 +112,6 @@ def test_a_refused_press_releases_the_composite_flag_and_says_why(button_ctx):
     ):
         CompositeCapture.live_capture(object())
 
-    assert not CompositeCapture._capturing.is_set()
     assert notifications.warning.call_count == 1
 
 
@@ -126,9 +122,7 @@ def test_a_saved_still_remembers_its_folder(tmp_path):
 
     done = concurrent.futures.Future()
     done.set_result([tmp_path / 'Manual' / 'live_A1_BF_000001.tiff'])
-    composite_capture.CompositeCapture._capturing.set()
     with patch('ui.composite_capture.set_last_save_folder') as remembered:
         composite_capture._show_capture_outcome(done)
 
     remembered.assert_called_once_with(dir=tmp_path / 'Manual')
-    assert not composite_capture.CompositeCapture._capturing.is_set()

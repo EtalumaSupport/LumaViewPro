@@ -225,8 +225,10 @@ class ProtocolRunner:
 
         Args:
             sequence_name: Name for the output folder.
-            parent_dir: Parent directory for output (defaults to
-                settings['live_folder']/ProtocolData).
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Composites' under the live folder, where the button
+                already puts it, so a script's composite and a click's land
+                in the same place.
             callbacks: Optional dict of callback functions.
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so a GUI click records its own token rather
@@ -254,6 +256,11 @@ class ProtocolRunner:
             position=self.session.get_current_plate_position(),
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Composites'
+            )
 
         return self._run(
             protocol=protocol,
@@ -526,8 +533,8 @@ class ProtocolRunner:
 
         Args:
             sequence_name: Name for the output folder.
-            parent_dir: Parent directory for output (defaults to
-                settings['live_folder']/ProtocolData).
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Composites' under the live folder, as start_composite.
             callbacks: Optional dict of callback functions.
             merge_timeout_s: Upper bound on the whole capture-and-merge
                 wait. Covers the run itself, so it is longer than the

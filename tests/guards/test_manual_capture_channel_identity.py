@@ -192,9 +192,9 @@ def test_both_manual_outputs_share_the_resolver():
 # ---------------------------------------------------------------------------
 
 
-def test_capture_task_reads_no_widget_and_the_button_snapshots_before_arming():
+def test_capture_task_reads_no_widget_and_the_button_snapshots_the_open_layer():
     """The capture lives below the GUI and reads nothing of it; the button
-    reads the widgets on the main thread, before it arms its guard."""
+    reads the widgets on the main thread and hands the member what it saw."""
     body = ast.unparse(parse_module('modules/manual_capture.py'))
     for forbidden in ('_app_ctx', 'accordion_item_lookup', '.collapse', 'ids[', 'scope_display'):
         assert forbidden not in body, f'the capture reads GUI state ({forbidden!r})'
@@ -203,9 +203,6 @@ def test_capture_task_reads_no_widget_and_the_button_snapshots_before_arming():
         find_def('ui/composite_capture.py', 'live_capture', class_name='CompositeCapture')
     )
     assert 'get_opened_layer' in button, 'the button does not snapshot the open layer'
-    assert button.index('get_opened_layer') < button.index('_capturing.set()'), (
-        'the snapshot must precede arming the guard, or a raising read wedges the button'
-    )
 
 
 # ---------------------------------------------------------------------------

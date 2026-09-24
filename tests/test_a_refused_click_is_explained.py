@@ -210,33 +210,3 @@ def test_a_double_click_guard_is_not_treated_as_a_refusal():
     assert not list(_refusal_branches(method)), (
         'a re-entry guard that resets nothing was classified as a refusal'
     )
-
-
-# The class that stood here pinned the GUI popup naming which run held
-# the scope. That sentence is the ENGINE's now: a refused start names
-# the run that has the scope, pinned where every caller gets it --
-# a script and REST included -- instead of only a click.
-def test_the_composite_guard_does_not_blame_the_wrong_subsystem():
-    """A composite's own second click is taken by the stop branch above it.
-
-    So the only way to reach the already-capturing branch is a LIVE
-    capture still holding the guard, and calling that "composite capture
-    already in progress" told the user about the wrong subsystem.
-
-    Read through the AST seam rather than as source text: a text pin on a
-    production file is what the fragile-pin ratchet forbids, and it would
-    also match the phrase in a comment or a docstring, which is not what
-    the user is shown.
-    """
-    tree = parse_module('ui/composite_capture.py')
-    blaming = sorted(
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and 'Composite capture already in progress' in node.value
-    )
-    assert not blaming, (
-        'the guard names the composite again, but a composite cannot be what '
-        f'holds the flag on that path: {blaming}'
-    )

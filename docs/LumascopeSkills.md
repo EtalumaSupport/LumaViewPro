@@ -1664,7 +1664,9 @@ print(f'merged composite: {artifact_path}')
 `run_composite` blocks until the merge settles and returns the merged
 file's path, so a missing artifact cannot be mistaken for a success. To
 launch one without waiting, call `runner.start_composite(...)`, which
-returns the run's merge outcome to wait on or ignore.
+returns the run's merge outcome to wait on or ignore. With no
+`parent_dir` the run lands under `Manual/Composites` in the live folder,
+where the Composite button puts it.
 
 It raises `ProtocolRunRefusedError` when the run is refused before
 anything is committed -- fewer than two channels set to acquire an image,

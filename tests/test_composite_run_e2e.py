@@ -125,6 +125,18 @@ def single_run_dir(tmp_path):
 class TestCompositeRunEndToEnd:
     """One composite run, from the L2 call to the file it produced."""
 
+    def test_a_composite_with_no_folder_lands_where_the_button_puts_it(self, composite_session):
+        # The API owns the folder: a script that names none and a click on
+        # the Composite button write to the same place. Before this the
+        # button composed 'Manual/Composites' itself and a script's
+        # composite landed beside protocol data.
+        _session, runner, tmp_path = composite_session
+
+        artifact = pathlib.Path(runner.run_composite(sequence_name='unplaced'))
+
+        assert artifact.exists()
+        assert (tmp_path / 'Manual' / 'Composites') in artifact.parents, artifact
+
     def test_the_returned_path_is_a_readable_composite(self, composite_session):
         _session, runner, tmp_path = composite_session
 
