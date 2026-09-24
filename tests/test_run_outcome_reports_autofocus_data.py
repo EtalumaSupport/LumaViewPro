@@ -491,6 +491,28 @@ class TestARunUnderALentClaim:
             diagnostic.release()
             rig.close()
 
+    def test_a_plan_prepared_before_the_diagnostic_is_refused_naming_it(self, tmp_path):
+        """start() reads the holder before already-running too: a plan that
+        passed prepare() before the diagnostic took the scope, started while
+        a borrowed run is live, names the diagnostic, not that run."""
+        from modules.exceptions import ProtocolRunRefusedError
+
+        rig = _AfRig()
+        stale = rig.prepare_autofocus(tmp_path, save_data=False)
+        diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
+        try:
+            pending = rig.start_autofocus(
+                tmp_path, save_data=False, borrowed_claim=diagnostic.lend()
+            )
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                rig.runner.start(stale)
+            assert excinfo.value.holder == 'diagnostic', excinfo.value.holder
+            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
+        finally:
+            diagnostic.release()
+            rig.close()
+
     def test_a_borrow_whose_lender_has_released_is_refused(self, tmp_path):
         from modules.exceptions import ProtocolRunRefusedError
 
