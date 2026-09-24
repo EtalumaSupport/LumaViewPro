@@ -7,9 +7,16 @@
 # Pure MicroPython, nothing host-only, so the same file can be carried onto a
 # physical RP2350 later.
 #
-# SPI answers zeros here: no motor-driver chips are modelled yet, so the
-# firmware boots and answers, and anything that waits on a chip (homing)
-# runs to the firmware's own timeout.
+# SPI is the two TMC5072 drivers in `tmc5072.py`, built on the first
+# transfer from the unit config the firmware reads (`motorconfig.json`) and
+# the simulator's own settings (`sim_chip.json`), both in the working
+# directory the port gives the child. Chip select is read from the pins the
+# firmware drives, so the model needs no wiring of its own.
+
+import json
+import time
+
+_PINS = {}
 
 
 class Pin:
@@ -28,6 +35,7 @@ class Pin:
         self._v = 1 if pull == Pin.PULL_UP else 0
         if value is not None:
             self._v = 1 if value else 0
+        _PINS[id] = self
 
     def init(self, *a: object, **k: object) -> None:
         pass
@@ -88,6 +96,34 @@ class Timer:
         pass
 
 
+# The firmware's chip-select pins: XY_chip = Pin(1), ZT_chip = Pin(5), low
+# while a transfer is in flight.
+_CHIP_SELECT = ((1, 'XY'), (5, 'ZT'))
+
+_board = None
+
+
+def _selected_chip():
+    for pin_id, name in _CHIP_SELECT:
+        pin = _PINS.get(pin_id)
+        if pin is not None and pin._v == 0:
+            return name
+    return None
+
+
+def _the_board():
+    global _board
+    if _board is None:
+        import tmc5072
+
+        with open('motorconfig.json') as f:
+            motorconfig = json.load(f)
+        with open('sim_chip.json') as f:
+            sim = json.load(f)
+        _board = tmc5072.Board(motorconfig, sim, time.ticks_us, time.ticks_diff)
+    return _board
+
+
 class SPI:
     MSB = 0
     LSB = 1
@@ -95,19 +131,29 @@ class SPI:
     def __init__(self, *a: object, **k: object) -> None:
         pass
 
+    def _datagram(self, buf: bytes) -> bytes:
+        chip = _selected_chip()
+        if chip is None:
+            # No chip selected: nothing drives MISO.
+            return bytes(len(buf))
+        frame = bytes(buf[:5]) + bytes(max(0, 5 - len(buf)))
+        return _the_board().datagram(chip, frame)[: len(buf)]
+
     def write(self, buf: bytes) -> None:
-        pass
+        self._datagram(buf)
 
     def read(self, n: int, write: int = 0) -> bytes:
-        return bytes(n)
+        return self._datagram(bytes((write,) * n))
 
     def readinto(self, buf: bytearray, write: int = 0) -> None:
+        out = self._datagram(bytes((write,) * len(buf)))
         for i in range(len(buf)):
-            buf[i] = 0
+            buf[i] = out[i]
 
     def write_readinto(self, wb: bytes, rb: bytearray) -> None:
+        out = self._datagram(wb)
         for i in range(len(rb)):
-            rb[i] = 0
+            rb[i] = out[i] if i < len(out) else 0
 
 
 class _Mem:
