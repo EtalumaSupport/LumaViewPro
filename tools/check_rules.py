@@ -20,6 +20,9 @@ in untouched lines are not blocked. Use --all to flag every violation in
 every modified file (useful for cleanup sweeps).
 
 Checks implemented (universal -- both repos):
+    build_untracked -- nothing under build/ is committed (BLOCK on any staged
+                add, modify or rename into it): the directory is local evidence,
+                clones and toolchains; 1,020 files got in by convention alone
     rule_24  -- ASCII-only over the full source text per CLAUDE.md spec
                 ('every string ... every comment ... every docstring ...
                 every identifier in .py / .c / .h / .kv / similar files').
@@ -1384,6 +1387,42 @@ def _staged_files(suffix: str) -> list[str]:
     return [p for p in out.splitlines() if p.endswith(suffix)]
 
 
+def _staged_paths_entering() -> list[str]:
+    """Every path a commit would add, change or rename INTO; deletions and
+    rename sources are not entries."""
+    out = subprocess.check_output(
+        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AMR'],
+        text=True,
+    )
+    return out.splitlines()
+
+
+def _check_build_untracked(paths: list[str]) -> list[Violation]:
+    """BLOCK a commit that puts anything under build/.
+
+    build/ is local: bench evidence, pass reports, skeptic clones, the
+    MicroPython source and toolchain. The convention held it out of the
+    repo in prose only, and 1,020 files got in over five months; sources,
+    images and curated vendor docs that had landed there were moved to
+    boards/, tools/ and docs/vendor/ when the directory was untracked.
+    One violation names the first path and the count.
+    """
+    inside = [p for p in paths if p.replace('\\', '/').startswith('build/')]
+    if not inside:
+        return []
+    return [
+        Violation(
+            inside[0],
+            1,
+            0,
+            'build_untracked',
+            f'{len(inside)} staged path(s) under build/ (first: {inside[0]}); build/ is '
+            'local and never committed -- sources go to boards/ or tools/, curated '
+            'vendor docs to docs/vendor/, evidence stays on disk or in the archive',
+        )
+    ]
+
+
 def _staged_doc_files() -> list[str]:
     docs = _staged_files('.md')
     return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p) or _is_handover(p)]
@@ -1458,6 +1497,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.staged:
         merging = _merge_in_progress()
+        violations.extend(_check_build_untracked(_staged_paths_entering()))
         for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
