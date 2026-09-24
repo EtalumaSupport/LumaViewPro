@@ -8,6 +8,36 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 from typing import ClassVar
 
 
+class Refusal:
+    """A request the scope declined: nothing broke, and the person who asked can act on it.
+
+    Mixed into an exception whose message is written for that person. The
+    background executor shows a refusal as a warning under ``title``, in the
+    exception's own words, and logs one line for it with no traceback: an
+    ERROR and a traceback say something went wrong, and a refusal is a
+    designed outcome. Unmarked, a refusal raised inside a background task
+    read as a crash -- "Background operation failed" over its message, and a
+    traceback in the errors log.
+
+    Attributes:
+        title: The heading the person reads above the message.
+    """
+
+    title: str
+
+
+class Quiet:
+    """An outcome that is recorded and never shown: nothing failed and nothing was declined.
+
+    Mixed into an exception that tells a caller something it may need to act
+    on -- a script learning its handle is stale -- but that the person at the
+    instrument has no reason to see. It is logged at INFO in its own words and
+    never becomes a notification. Whether an outcome is quiet belongs to its
+    type, never to the code that raises or catches it, so every client reads
+    the same answer. A message on a quiet exception is written for the log.
+    """
+
+
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
 
@@ -20,7 +50,7 @@ class ConfigError(Exception):
     pass
 
 
-class ObjectiveUnknownError(ConfigError):
+class ObjectiveUnknownError(Refusal, ConfigError):
     """No one can say which objective is in the light path.
 
     On a turreted scope the active objective is the objective assigned to
@@ -43,6 +73,8 @@ class ObjectiveUnknownError(ConfigError):
         slot: The slot in the light path, or None when that is what is
             unknown.
     """
+
+    title = 'Objective Unknown'
 
     _SENTENCES: ClassVar[dict[str, str]] = {
         'slot_unknown': ('the turret is in no known slot -- home the turret or move it to a slot'),
@@ -167,7 +199,7 @@ class ProtocolRunRefusedError(ProtocolError):
         self.holder_trigger = holder_trigger
 
 
-class RunAlreadyEndedError(ProtocolError):
+class RunAlreadyEndedError(Quiet, ProtocolError):
     """A stop named a run that has ended, and no run is live.
 
     Not a refusal: nothing was refused -- the run ended on its own, and a
@@ -255,24 +287,6 @@ class HyperstackRefusedError(CaptureError):
     def __init__(self, message: str):
         super().__init__(message, 'hyperstack_refused')
         self.message = message
-
-
-class Refusal:
-    """A request the scope declined: nothing broke, and the person who asked can act on it.
-
-    Mixed into an exception whose message is written for that person. The
-    background executor shows a refusal as a warning under ``title``, in the
-    exception's own words, and logs one line for it with no traceback: an
-    ERROR and a traceback say something went wrong, and a refusal is a
-    designed outcome. Unmarked, a refusal raised inside a background task
-    read as a crash -- "Background operation failed" over its message, and a
-    traceback in the errors log.
-
-    Attributes:
-        title: The heading the person reads above the message.
-    """
-
-    title: str
 
 
 class HardwareCommandRefusedError(Refusal, Exception):
