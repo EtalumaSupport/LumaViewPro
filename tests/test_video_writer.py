@@ -286,7 +286,11 @@ class TestProtocolVideoDropNotification:
             protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
         )
 
+        written = []
+        self.written = written
+
         def _write_frame(**kwargs):
+            written.append(kwargs)
             if write_fails:
                 raise OSError('disk said no')
 
@@ -360,6 +364,22 @@ class TestProtocolVideoDropNotification:
         fired = self._capture_notifications(monkeypatch)
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
+
+    def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
+        self, tmp_path, monkeypatch
+    ):
+        # The protocol leg reads the scope's tracked state when the frame
+        # arrives, like the manual leg: with no LED reported lit the channel
+        # is the step's, the stage is not moving, and with no plate transform
+        # the frame states no plate position rather than a number.
+        self._capture_notifications(monkeypatch)
+        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        (kwargs,) = self.written
+        metadata = kwargs['metadata']
+        assert metadata['channel'] == 'Blue'
+        assert metadata['stage_moving'] is False
+        assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
+        assert kwargs['channel'] == 'Blue', 'rendered as the channel the frame records'
 
 
 class TestVideoBuilderDropAccounting:
