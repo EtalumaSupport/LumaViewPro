@@ -528,3 +528,69 @@ class TestARunUnderALentClaim:
         finally:
             diagnostic.release()
             rig.close()
+
+
+class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
+    """A sweep that gives up puts Z back and the run still ends 'completed'.
+
+    Before the focus field a caller could not tell that apart from a sweep
+    that focused: both settled 'completed' with the stage at a plausible Z.
+    A characterization would have counted every give-up as a converged
+    landing at its own starting Z.
+    """
+
+    def test_a_focused_sweep_reports_the_z_it_left_the_stage_at(self, tmp_path):
+        rig = _AfRig()
+        try:
+            outcome = rig.run_autofocus(tmp_path, save_data=False)
+            assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
+            stage_z = rig.scope.motion.get_current_position('Z')
+        finally:
+            rig.close()
+        assert outcome.status == 'completed'
+        assert outcome.af_focus_z_um is not None, 'a sweep that focused reported no focus'
+        assert abs(outcome.af_focus_z_um - stage_z) < 1.0, (outcome.af_focus_z_um, stage_z)
+
+    def test_a_sweep_that_chose_nothing_reports_none_though_the_run_completed(
+        self, tmp_path, monkeypatch
+    ):
+        import modules.autofocus_functions as autofocus_functions
+
+        # Every frame scores zero: the flat-curve branch, where the sweep
+        # chooses no focus and returns the stage to where it started.
+        monkeypatch.setattr(autofocus_functions, 'focus_function', lambda **kwargs: 0.0)
+        rig = _AfRig()
+        try:
+            outcome = rig.run_autofocus(tmp_path, save_data=False)
+        finally:
+            rig.close()
+        assert outcome.status == 'completed', (
+            'precondition: a step whose autofocus gave up does not fail the run'
+        )
+        assert outcome.af_focus_z_um is None
+
+
+class TestEverySettlePathCarriesTheRecordedFocus:
+    def test_cleanups_resolver_carries_it(self):
+        pending = PendingRunOutcome()
+        pending.record_autofocus_focus(4321.5)
+        assert pending.resolve_if_pending(_ending()) is True
+        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+
+    def test_teardowns_force_resolve_carries_it(self):
+        pending = PendingRunOutcome()
+        pending.record_autofocus_focus(4321.5)
+        assert pending.force_resolve('shutdown', fallback=_ending('failed')) is True
+        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+
+    def test_the_merge_threads_resolver_carries_it(self):
+        pending = PendingRunOutcome()
+        pending.record_autofocus_focus(4321.5)
+        token = pending.arm(_ending())
+        assert pending.resolve(token, merged=False, artifact_path=None, merge_reason='') is True
+        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+
+    def test_a_run_that_records_no_focus_reports_none(self):
+        pending = PendingRunOutcome()
+        assert pending.resolve_if_pending(_ending()) is True
+        assert pending.wait(timeout_s=1.0).af_focus_z_um is None

@@ -1586,6 +1586,11 @@ class SequencedCaptureRunner:
             if self._autofocus_runner is not None:
                 af_path = self._autofocus_runner.saved_data_path()
                 outcome.record_autofocus_data(str(af_path) if af_path is not None else None)
+                # Only a standalone autofocus run has one focus to report;
+                # the sweep clears its result per run, so a sweep that chose
+                # none reads None here rather than an earlier run's focus.
+                if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+                    outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
                 ending.status != 'completed'
                 or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE

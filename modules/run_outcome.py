@@ -142,6 +142,15 @@ class RunOutcome:
             whenever af_data_saved is False. Never the folder: that is
             allocated before the sweep runs and exists even when nothing
             was written, which is the answer a caller must not be given.
+        af_focus_z_um: The Z a standalone autofocus run chose as focus,
+            where it left the stage; None when it chose none (a degenerate
+            curve, an abort, an error), in which case the stage is back
+            where the run found it. A run that gave up still ends
+            'completed' -- a step's autofocus failing is not a run failure
+            -- so this, not the status, is how a caller tells "focused"
+            from "gave up". Set only by a standalone autofocus run: a run
+            that autofocuses at several steps has no one focus to report,
+            and reads None.
     """
 
     status: str
@@ -153,6 +162,7 @@ class RunOutcome:
     merge_reason: str
     af_data_saved: bool
     af_data_path: str | None
+    af_focus_z_um: float | None
 
     @classmethod
     def from_ending(
@@ -163,6 +173,7 @@ class RunOutcome:
         artifact_path: str | None,
         merge_reason: str,
         af_data_path: str | None = None,
+        af_focus_z_um: float | None = None,
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
@@ -186,6 +197,7 @@ class RunOutcome:
             merge_reason=merge_reason,
             af_data_saved=af_data_path is not None,
             af_data_path=af_data_path,
+            af_focus_z_um=af_focus_z_um,
         )
 
 
@@ -204,6 +216,7 @@ class PendingRunOutcome:
         self._ending: RunEnding | None = None
         self._outcome: RunOutcome | None = None
         self._af_data_path: str | None = None
+        self._af_focus_z_um: float | None = None
         self._settled = threading.Event()
 
     @property
@@ -229,6 +242,16 @@ class PendingRunOutcome:
         """
         with self._lock:
             self._af_data_path = path
+
+    def record_autofocus_focus(self, z_um: float | None) -> None:
+        """Record the focus a standalone autofocus run chose, if any.
+
+        Held here for the reason the data file is: every settle path
+        composes from this object, so all three report the same focus.
+        None records "chose none".
+        """
+        with self._lock:
+            self._af_focus_z_um = z_um
 
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
@@ -266,6 +289,7 @@ class PendingRunOutcome:
                 artifact_path=None,
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
+                af_focus_z_um=self._af_focus_z_um,
             )
             self._settled.set()
             return True
@@ -297,6 +321,7 @@ class PendingRunOutcome:
                 artifact_path=None,
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
+                af_focus_z_um=self._af_focus_z_um,
             )
             self._settled.set()
             return True
@@ -328,6 +353,7 @@ class PendingRunOutcome:
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
+                af_focus_z_um=self._af_focus_z_um,
             )
             self._settled.set()
             return True
