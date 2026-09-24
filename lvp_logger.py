@@ -312,11 +312,11 @@ serial_logger.propagate = False  # Keep serial traffic out of the main log
 
 
 class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp board command -> response (timing)."""
+    """Compact format for serial log: timestamp [thread] board command -> response (timing)."""
 
     def __init__(self):
         super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
             datefmt='%H:%M:%S',
         )
 
@@ -483,11 +483,11 @@ api_logger.addHandler(error_file_handler)
 
 
 class APIFormatter(logging.Formatter):
-    """Compact format for API log."""
+    """Compact format for API log: timestamp [thread] message."""
 
     def __init__(self):
         super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
             datefmt='%H:%M:%S',
         )
 
