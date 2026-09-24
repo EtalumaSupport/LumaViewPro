@@ -594,3 +594,16 @@ class TestEverySettlePathCarriesTheRecordedFocus:
         pending = PendingRunOutcome()
         assert pending.resolve_if_pending(_ending()) is True
         assert pending.wait(timeout_s=1.0).af_focus_z_um is None
+
+
+def test_the_reported_focus_is_a_plain_float(tmp_path):
+    """A caller serializes the outcome; a numpy scalar does not round-trip."""
+    import json
+
+    rig = _AfRig()
+    try:
+        outcome = rig.run_autofocus(tmp_path, save_data=False)
+    finally:
+        rig.close()
+    assert type(outcome.af_focus_z_um) is float, type(outcome.af_focus_z_um)
+    assert json.loads(json.dumps(outcome.af_focus_z_um)) == outcome.af_focus_z_um

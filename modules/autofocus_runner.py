@@ -851,7 +851,11 @@ class AutofocusRunner:
             # after camera state is restored, so callers polling
             # in_progress() do not race ahead before restoration.
 
-            self._best_focus_position = best_focus_position
+            # Stored as a plain float: the fit hands back a numpy/pandas
+            # scalar, and this value reaches callers that serialize it (a
+            # run's outcome, a script's JSON), where a numpy type does not
+            # round-trip.
+            self._best_focus_position = float(best_focus_position)
             return
 
         self._params['z_min'] = best_focus_position - prev_resolution
