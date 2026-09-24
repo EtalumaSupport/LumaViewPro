@@ -12,9 +12,24 @@
 # the simulator's own settings (`sim_chip.json`), both in the working
 # directory the port gives the child. Chip select is read from the pins the
 # firmware drives, so the model needs no wiring of its own.
+#
+# The control channel. The firmware blocks in stdin's readline() while idle,
+# so this code runs only inside the firmware's own SPI transfers:
+# - Faults come in on fd 3, a pipe the port writes, one line per change.
+#   It is read at every transfer: a pipe write the port has finished is
+#   readable at once, so a fault written before a command is in effect from
+#   its first transfer.
+# - With the oracle on, every register write goes out on stdout as a frame,
+#   in order with the firmware's own output; the port takes the frames out
+#   before the driver reads.
+# The messages themselves are `channel.py`'s.
 
 import json
+import select
+import sys
 import time
+
+import channel
 
 _PINS = {}
 
@@ -101,6 +116,23 @@ class Timer:
 _CHIP_SELECT = ((1, 'XY'), (5, 'ZT'))
 
 _board = None
+_oracle = False
+
+# Open for the life of the process: the port holds the other end.
+_faults_in = open('/dev/fd/3', 'rb')  # noqa: SIM115
+_faults_poll = select.poll()
+_faults_poll.register(_faults_in, select.POLLIN)
+
+
+def _read_faults(board) -> None:
+    while _faults_poll.poll(0):
+        line = _faults_in.readline()
+        if not line:
+            # The port closed its end; no fault can change any more.
+            _faults_poll.unregister(_faults_in)
+            return
+        on, axis, name = channel.parse_fault_line(line)
+        board.set_fault(axis, name, on)
 
 
 def _selected_chip():
@@ -112,7 +144,7 @@ def _selected_chip():
 
 
 def _the_board():
-    global _board
+    global _board, _oracle
     if _board is None:
         import tmc5072
 
@@ -121,6 +153,7 @@ def _the_board():
         with open('sim_chip.json') as f:
             sim = json.load(f)
         _board = tmc5072.Board(motorconfig, sim, time.ticks_us, time.ticks_diff)
+        _oracle = bool(sim.get('oracle', False))
     return _board
 
 
@@ -137,7 +170,14 @@ class SPI:
             # No chip selected: nothing drives MISO.
             return bytes(len(buf))
         frame = bytes(buf[:5]) + bytes(max(0, 5 - len(buf)))
-        return _the_board().datagram(chip, frame)[: len(buf)]
+        board = _the_board()
+        _read_faults(board)
+        out = board.datagram(chip, frame)
+        if _oracle and frame[0] & 0x80:
+            axis, reg = board.register_name(chip, frame[0] & 0x7F)
+            value = (frame[1] << 24) | (frame[2] << 16) | (frame[3] << 8) | frame[4]
+            sys.stdout.write(channel.write_frame(chip, axis, reg, value))
+        return out[: len(buf)]
 
     def write(self, buf: bytes) -> None:
         self._datagram(buf)

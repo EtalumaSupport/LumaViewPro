@@ -12,10 +12,19 @@
 # RAMP_STAT's status bits, and DRV_STATUS's standstill and open-load bits.
 # Not modelled: StallGuard, chopper and current, encoders, latching.
 #
-# Two frames per motor. The PHYSICAL position (microsteps from the reference
-# flag's edge) is what the switches see and never changes on a register
-# write; XACTUAL is physical plus an offset, and writing XACTUAL, as the
-# firmware does in hold mode during homing, moves the offset, not the stage.
+# Hardware faults a test can switch on per motor (`FAULTS`): a reference
+# switch that never trips, a motor that stalls, and a motor that is not
+# connected. A stalled or disconnected motor leaves the chip's ramp running
+# as an open-loop driver does: XACTUAL reaches the target while the stage,
+# and so the switch, stays where it was.
+#
+# Two frames per motor. The PHYSICAL position (`phys`, microsteps from the
+# reference flag's edge) is where the ramp has driven the motor and never
+# changes on a register write; XACTUAL is physical plus an offset, and
+# writing XACTUAL, as the firmware does in hold mode during homing, moves
+# the offset, not the stage. The switches see the stage, which is `slip`
+# behind the physical position; the two differ only once a stalled or
+# disconnected motor has been driven.
 
 try:
     from collections.abc import Callable
@@ -79,6 +88,13 @@ DRV_STST = 1 << 31
 # microsteps to clear it).
 TURRET_FLAG_WIDTH = 10000
 
+AXES = ('X', 'Y', 'Z', 'T')
+
+SWITCH_NEVER_TRIPS = 'switch_never_trips'
+STALL = 'stall'
+ABSENT = 'absent'
+FAULTS = (SWITCH_NEVER_TRIPS, STALL, ABSENT)
+
 # The integrator's largest step: the firmware polls every millisecond during
 # a wait, so a longer gap only happens when nobody is asking.
 _MAX_STEP_US = 1000
@@ -120,7 +136,12 @@ class Motor:
         # A rotary axis wraps and its flag is a slot; a linear axis has its
         # flag over everything left of the reference edge at physical 0.
         self.wrap_usteps = wrap_usteps
+        # `phys` is the position the ramp has driven the motor to. The stage
+        # is `slip` behind it: nonzero only once a stalled or disconnected
+        # motor has been driven without the stage following.
         self.phys = float(start_usteps)
+        self.slip = 0.0
+        self.faults = set()
         self.offset = -round(self.phys)
         self.velocity = 0.0  # microsteps per second, signed
         self.fclk = 16_000_000.0
@@ -130,7 +151,26 @@ class Motor:
 
     # --- reference switch inputs ---------------------------------------
 
+    def set_fault(self, name: str, on: bool) -> None:
+        if name not in FAULTS:
+            raise ValueError(f'unknown fault {repr(name)}; faults are {FAULTS}')
+        if on:
+            self.faults.add(name)
+        else:
+            self.faults.discard(name)
+
+    def stage_follows(self) -> bool:
+        return STALL not in self.faults and ABSENT not in self.faults
+
+    def _move_to(self, phys: float) -> None:
+        if not self.stage_follows():
+            self.slip += phys - self.phys
+        self.phys = phys
+
     def on_flag(self, phys: float) -> bool:
+        if SWITCH_NEVER_TRIPS in self.faults:
+            return False
+        phys -= self.slip
         if self.wrap_usteps:
             return 0 <= (phys % self.wrap_usteps) < TURRET_FLAG_WIDTH
         return phys <= 0
@@ -170,13 +210,19 @@ class Motor:
         return False
 
     def next_edge(self, direction: int) -> float | None:
-        """The nearest physical position ahead where the flag state changes."""
+        """The nearest position ahead where the flag state changes, or None
+        when the stage cannot reach one: it is not following the motor, or
+        the switch never changes."""
+        if not self.stage_follows() or SWITCH_NEVER_TRIPS in self.faults:
+            return None
+        stage = self.phys - self.slip
         if self.wrap_usteps:
             w = self.wrap_usteps
-            base = (self.phys // w) * w
+            base = (stage // w) * w
             edges = [base + k * w + e for k in (-1, 0, 1) for e in (0, TURRET_FLAG_WIDTH)]
         else:
             edges = [0.0]
+        edges = [e + self.slip for e in edges]
         ahead = [e for e in edges if (e - self.phys) * direction > 1e-9]
         if not ahead:
             return None
@@ -222,7 +268,7 @@ class Motor:
 
     def drv_status(self) -> int:
         value = 0
-        if not self.present:
+        if not self.present or ABSENT in self.faults:
             value |= DRV_OLA | DRV_OLB
         if self.velocity == 0.0:
             value |= DRV_STST
@@ -288,12 +334,12 @@ class Motor:
         while True:
             edge = self.next_edge(direction)
             if edge is not None and (edge - self.phys) * direction < (goal - self.phys) * direction:
-                self.phys = edge
+                self._move_to(edge)
                 if self.blocked(direction, edge + direction * _AHEAD):
                     self._switch_stop(direction, edge)
                     return
                 continue
-            self.phys = goal
+            self._move_to(goal)
             self._reached()
             return
 
@@ -328,15 +374,15 @@ class Motor:
         travel = speed * dt
         if edge is not None and abs(edge - self.phys) <= travel:
             travel -= abs(edge - self.phys)
-            self.phys = edge
+            self._move_to(edge)
             if self.blocked(direction, edge + direction * _AHEAD):
                 self._switch_stop(direction, edge)
                 return
         if goal is not None and abs(goal - self.phys) <= travel:
-            self.phys = goal
+            self._move_to(goal)
             self._reached()
             return
-        self.phys += direction * travel
+        self._move_to(self.phys + direction * travel)
         self.velocity = direction * speed
 
     def _decelerate_to_rest(self, dt: float) -> None:
@@ -344,7 +390,7 @@ class Motor:
             return
         dmax = self._accel(DMAX) or self._accel(AMAX)
         speed = max(0.0, abs(self.velocity) - dmax * dt)
-        self.phys += _sign(self.velocity) * speed * dt
+        self._move_to(self.phys + _sign(self.velocity) * speed * dt)
         self.velocity = _sign(self.velocity) * speed if speed else 0.0
 
     def _switch_stop(self, direction: int, edge: float | None = None) -> None:
@@ -355,7 +401,7 @@ class Motor:
         self.velocity = 0.0
         if edge is None:
             edge = self.phys
-        self.phys = edge if self.blocked(direction, edge) else edge + direction
+        self._move_to(edge if self.blocked(direction, edge) else edge + direction)
         self.events |= EVENT_STOP_L if direction < 0 else EVENT_STOP_R
 
     def _reached(self) -> None:
@@ -430,7 +476,7 @@ class Board:
         slots = motorconfig.get('TurretPosition', {})
         start = sim.get('start_usteps', {})
         motors = {}
-        for axis in ('X', 'Y', 'Z', 'T'):
+        for axis in AXES:
             wrap = 0
             if axis == 'T' and slots:
                 wrap = int(usteps['T']) * len(slots)
@@ -447,6 +493,22 @@ class Board:
             'XY': Chip((motors['X'], motors['Y']), fclk),
             'ZT': Chip((motors['T'], motors['Z']), fclk),
         }
+
+    def set_fault(self, axis: str, name: str, on: bool) -> None:
+        if axis not in self.motors:
+            raise ValueError(f'unknown axis {repr(axis)}')
+        self.motors[axis].set_fault(name, on)
+
+    def register_name(self, chip_name: str, addr: int) -> tuple:
+        """(axis, register offset) of an address on a chip, or (None, the
+        address) for a register no single motor owns."""
+        motor, reg = self.chips[chip_name]._locate(addr)
+        if motor is None or reg == 'drv':
+            return None, addr
+        for axis, candidate in self.motors.items():
+            if candidate is motor:
+                return axis, reg
+        return None, addr
 
     def advance(self) -> None:
         now = self.ticks_us()
