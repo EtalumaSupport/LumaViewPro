@@ -598,6 +598,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'objective_not_mounted': (
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
+    'positions_unreachable': ('tests/test_a_run_needs_the_axes_it_moves.py::test_the_rule'),
     'validation_failed': _FUNNEL_LOOP,
     'validation_crashed': _FUNNEL_LOOP,
     'hardware_state_unknown': _FUNNEL_LOOP,

@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING
 from modules.exceptions import ProtocolRunRefusedError, unknown_positions_sentence
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from modules.lumascope_api._lumascope import Lumascope
     from modules.protocol import Protocol
 
@@ -485,6 +487,49 @@ class ProtocolsAPI:
                         '\n\nSelect the mounted objective, or use a protocol made for it.'
                     ),
                 )
+
+    def refuse_unreachable_positions(self, steps: pd.DataFrame) -> None:
+        """Refuse a protocol that needs motion on an axis this scope does not have.
+
+        A move on an axis the scope lacks does nothing and reports nothing,
+        so a run whose steps sit at different places on that axis would
+        image one place and save each image under its step's name and
+        coordinates. A manual scope (no motor board) lacks every axis; a
+        Z-only scope lacks X and Y. Steps that all sit at one place on a
+        missing axis ask for no motion there and are admitted: a
+        single-location time lapse on a manual scope is the case this keeps.
+        Autofocus moves Z, so it needs a Z axis.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this rule by starting a run, which asks it here.
+
+        Args:
+            steps: The protocol's steps table (``Protocol.steps()``).
+
+        Raises:
+            ProtocolRunRefusedError: The steps need motion this scope cannot
+                make. It has been logged and shown before it is raised.
+        """
+        present = set(self._scope.capabilities.axes)
+        needed = []
+        if not {'X', 'Y'} <= present and len(steps[['X', 'Y']].round(3).drop_duplicates()) > 1:
+            needed.append('the steps are at different X/Y positions')
+        if 'Z' not in present:
+            if steps['Z'].round(3).nunique() > 1:
+                needed.append('the steps are at different Z positions')
+            if steps['Auto_Focus'].astype(bool).any():
+                needed.append('autofocus moves Z')
+        if needed:
+            missing = ', '.join(axis for axis in ('X', 'Y', 'Z') if axis not in present)
+            self._refuse(
+                reason='positions_unreachable',
+                title='Position Not Reachable',
+                message=(
+                    f'This protocol needs the scope to move, and this scope has no motor for '
+                    f'{missing}: {"; ".join(needed)}.\n\nUse a protocol whose steps are all at '
+                    'one position on those axes, without autofocus if there is no Z motor.'
+                ),
+            )
 
     @staticmethod
     def _render(objective_ids: set[object]) -> str:
