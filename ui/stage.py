@@ -496,6 +496,14 @@ class Stage(Widget):
             logger.debug('[Stage     ] Position not available yet, drawing labware only')
             position_available = False
 
+        if not position_available:
+            # This draw hides the crosshair, so what was last drawn is no
+            # longer on screen: the next known position must be drawn even
+            # when it is the same one, as it is when a Home ends where the
+            # crosshair was.
+            self._prev_x_target = self._prev_y_target = None
+            self._prev_x_current = self._prev_y_current = None
+
         if not full_redraw and not self._protocol_step_redraw and position_available:  # noqa: SIM102
             if (
                 x_target == self._prev_x_target
