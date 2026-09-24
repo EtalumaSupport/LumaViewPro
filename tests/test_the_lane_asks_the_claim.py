@@ -385,7 +385,7 @@ class TestTheHardwareMembersUseTheLanesDispatch:
         fut = getattr(sim_session, lane).put(
             IOTask(action=member, args=(scope,), silent_on_failure=True), return_future=True
         )
-        with pytest.raises(RuntimeError, match='never waits on a lane'):
+        with pytest.raises(RuntimeError, match='never waits on another lane'):
             fut.result(timeout=10.0)
 
 
@@ -448,4 +448,159 @@ class TestRunCleanupIsTheRunsOwnWork:
             assert seen['t'] is held
         finally:
             runner._held_claim = None
+            held.release()
+
+
+class TestTheHoldersWorkRunsOnTheLane:
+    def test_a_write_under_the_taking_runs_on_the_lanes_worker(self, claim, lane):
+        held = claim.try_claim('diagnostic')
+        try:
+            with acting(held):
+                fut = lane.put(
+                    IOTask(action=lambda: threading.current_thread().name), return_future=True
+                )
+            assert fut.result(timeout=_WAIT_S) == lane.executor_name
+        finally:
+            held.release()
+
+    def test_a_member_called_on_its_own_lanes_worker_runs_inline(self, tmp_path):
+        """A task already on the IO worker that moves the stage runs the move
+        there; waiting on the queue it is draining would deadlock."""
+        from modules.scope_session import ScopeSession
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            home_sim_scope(session.scope)
+            motion = session.scope.motion
+            seen = {}
+            real = motion._move_absolute_impl
+
+            def _move(*args, **kwargs):
+                seen['thread'] = threading.current_thread().name
+                return real(*args, **kwargs)
+
+            motion._move_absolute_impl = _move
+            fut = session.io_executor.put(
+                IOTask(
+                    action=motion.move_absolute,
+                    args=('Z', 1500.0),
+                    kwargs={'wait_until_complete': True},
+                ),
+                return_future=True,
+            )
+            fut.result(timeout=30.0)
+            assert seen['thread'] == session.io_executor.executor_name
+            assert motion.get_actual_position('Z') == pytest.approx(1500.0)
+        finally:
+            session.shutdown()
+
+
+class TestTheRunsOwnWorkRunsUnderItsClaim:
+    def test_a_protocol_with_autofocus_video_and_grease_completes(self, tmp_path, monkeypatch):
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.scope_session import ScopeSession
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+        from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
+        from tests.test_run_refusal_contract import (
+            _build_real_protocol,
+            _make_single_step_protocol,
+        )
+
+        # Grease runs after the hundredth autofocus; start one short so this
+        # run's own autofocus brings it round.
+        real_reset = SequencedCaptureRunner._reset_vars
+
+        def _reset_one_short(self):
+            real_reset(self)
+            self._autofocus_count = 99
+
+        monkeypatch.setattr(SequencedCaptureRunner, '_reset_vars', _reset_one_short)
+        greased = []
+        real_grease = ProtocolStepRunner._grease_redist_w_pos
+
+        def _grease(self):
+            greased.append(threading.current_thread().name)
+            return real_grease(self)
+
+        monkeypatch.setattr(ProtocolStepRunner, '_grease_redist_w_pos', _grease)
+
+        session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+        try:
+            home_sim_scope(session.scope)
+            base = _make_single_step_protocol().step(idx=0)
+            af_step = {**base, 'Name': 'A1_af', 'Label': 'A1_af', 'Auto_Focus': True}
+            video_step = {
+                **base,
+                'Name': 'A1_video',
+                'Label': 'A1_video',
+                'Acquire': 'video',
+                'Step Index': 1,
+            }
+            protocol = _build_real_protocol([af_step, video_step])
+            runner = session.create_protocol_runner()
+            files_written = threading.Event()
+            runner.run_single_scan(
+                protocol=protocol,
+                sequence_name='gating',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+                callbacks={
+                    'run_complete': lambda **kw: None,
+                    'files_complete': lambda **kw: files_written.set(),
+                },
+            )
+            assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
+            outcome = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            assert outcome.status == 'completed', outcome
+            assert greased == [session.io_executor.executor_name], greased
+        finally:
+            session.shutdown()
+
+
+class TestTheSupportReportUnderItsClaim:
+    def test_its_writing_steps_reach_the_hardware(self, tmp_path):
+        """The report's LED, fan and homing steps run under its diagnostic
+        claim on a real session, and none of them is refused by the lanes."""
+        from modules.scope_session import ScopeSession
+        from modules.tech_support_report import TechSupportReport
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            TechSupportReport(session=session)._run_scope_steps(tmp_path, lambda pct, msg: None)
+        finally:
+            session.shutdown()
+        homing = (tmp_path / 'motion_tests' / 'homing_test.txt').read_text()
+        for axis in ('X', 'Y', 'Z'):
+            block = homing.split(f'{axis} axis:')[1].split('axis:')[0]
+            assert 'Home response: OK' in block, homing
+        for rel in ('hardware_checks/led_leakage.txt', 'hardware_checks/fan_test.txt'):
+            text = (tmp_path / rel).read_text()
+            assert 'SKIPPED' not in text and 'refused' not in text.lower(), (rel, text)
+
+
+class TestAnInlineCallAsksTheClaim:
+    def test_a_task_running_when_a_hold_begins_is_refused_its_next_write(self, claim, lane):
+        """The inline path on a lane's own worker asks the claim like the queue
+        does: a task that started unheld cannot write after a hold began."""
+        started = threading.Event()
+        go_on = threading.Event()
+
+        def _outer():
+            started.set()
+            go_on.wait(_WAIT_S)
+            return lane.call(IOTask(action=lambda: 'wrote'), 'move_absolute', 5.0)
+
+        fut = lane.put(IOTask(action=_outer, silent_on_failure=True), return_future=True)
+        assert started.wait(_WAIT_S)
+        held = claim.try_claim('diagnostic')
+        try:
+            go_on.set()
+            with pytest.raises(HardwareCommandRefusedError):
+                fut.result(timeout=_WAIT_S)
+        finally:
             held.release()

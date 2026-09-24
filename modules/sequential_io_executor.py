@@ -169,8 +169,9 @@ class _ReusableTaskWaiter:
 
 
 # Which lane's worker this thread is, set by the worker as it starts. A lane
-# worker never waits on a lane: waiting on its own queue is a deadlock, and a
-# wait on another lane's is one half of the pair that makes one.
+# worker never waits on another lane: that wait is one half of the pair that
+# makes a deadlock. On its own lane it is already where the work belongs, so
+# the work runs inline rather than waiting on the queue it is draining.
 _lane_worker = threading.local()
 
 
@@ -723,17 +724,26 @@ class SequentialIOExecutor:
         value a caller could mistake for success; the task reports nothing
         itself, because the caller that waits is the one to report it.
 
+        Called on this lane's own worker -- from a task it is running -- the
+        work runs inline on that worker, under the claim the same way.
+
         Raises:
-            RuntimeError: called from a lane's worker, which never waits on
-                a lane.
+            RuntimeError: called from another lane's worker, which never
+                waits on a lane.
             HardwareCommandRefusedError: the lane is closed, or the scope is
                 held by an activity this call is not made under.
         """
         worker = getattr(_lane_worker, 'executor', None)
+        if worker is self:
+            self._stamp(task, None)
+            refusal = self._claim_refusal(task)
+            if refusal is not None:
+                raise refusal
+            return task.action(*task.args, **task.kwargs)
         if worker is not None:
             raise RuntimeError(
                 f'{member}: a blocking dispatch from the {worker.executor_name} lane worker '
-                f'onto {self.executor_name} -- a lane worker never waits on a lane'
+                f'onto {self.executor_name} -- a lane worker never waits on another lane'
             )
         task.silent_on_failure = True
         # Asked twice: a fence can land between the question and the submit,
