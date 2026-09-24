@@ -547,7 +547,6 @@ class SequentialIOExecutor:
         self._refusal_episodes = {_LANE_DEFAULT: None, _LANE_PROTOCOL: None}
         self._refusal_lock = threading.Lock()
 
-        self.blocker = threading.Event()
         self.last_task_done_monotonic = time.monotonic()
         # Stamped by the worker when it starts a task, cleared with
         # running_task. Tracked state (not an approximation) so a stall
@@ -627,12 +626,20 @@ class SequentialIOExecutor:
         )
         self._worker_thread.start()
 
-    def disable(self):
+    def disable(self) -> None:
+        """Refuse new work on the default lane; the worker finishes what it holds.
+
+        A run closes the camera lane this way and then drives the camera from
+        its own thread. The tasks already queued or running are not stopped
+        and not parked: they run to completion on the worker, and the run
+        waits for the lane to go idle before it touches the camera. Parking
+        the worker instead left a caller waiting on a queued task until the
+        run ended.
+        """
         self._disable = True
 
-    def enable(self):
+    def enable(self) -> None:
         self._disable = False
-        self.blocker.set()
 
     def _refuse_submit(self, lane: str, cause: str, task: IOTask):
         """Narrate a refused submit at episode granularity; always returns None.
@@ -1156,8 +1163,6 @@ class SequentialIOExecutor:
         while True:
             if self._worker_generation != my_generation:
                 return
-            if self._disable:
-                self.blocker.wait()
             try:
                 task = None
                 try:
@@ -1571,19 +1576,26 @@ class SequentialIOExecutor:
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
 
-    def protocol_drain_stalled(self, threshold_s: float) -> bool:
-        """True when the protocol queue still gates operations but its
-        in-flight task has run past the (per-task-aware) stall threshold.
+    def in_flight_task_stalled(self, floor_s: float) -> bool:
+        """True when the task the worker is running has run past the
+        (per-task-aware) stall threshold.
 
         The difference between "draining -- keep waiting" and "wedged --
-        offer recovery": a queue that is retiring tasks keeps the in-flight
+        offer recovery": a lane that is retiring tasks keeps the in-flight
         age short, and a worker between tasks is progress by definition, so
-        neither reads as stalled.
+        neither reads as stalled. The one judgement of "stuck" for every
+        waiter on this lane, so a run waiting for the camera lane and a
+        cleanup waiting for the file lane cannot disagree about it.
         """
+        in_flight_s = self._running_task_in_flight_s()
+        return in_flight_s is not None and in_flight_s >= self._stall_threshold_s(floor_s)
+
+    def protocol_drain_stalled(self, threshold_s: float) -> bool:
+        """True when the protocol queue still gates operations but its
+        in-flight task is stuck (``in_flight_task_stalled``)."""
         if not self.is_protocol_queue_active():
             return False
-        in_flight_s = self._running_task_in_flight_s()
-        return in_flight_s is not None and in_flight_s >= self._stall_threshold_s(threshold_s)
+        return self.in_flight_task_stalled(threshold_s)
 
     def recover_wedged_protocol_queue(self) -> None:
         """User-invoked recovery for a wedged protocol worker: discard

@@ -535,14 +535,14 @@ class TestStartCannotSilentlyHalfStart:
         self, executor, scope, tmp_path, monkeypatch
     ):
         def _boom(*args, **kwargs):
-            raise RuntimeError('camera rejected target brightness')
+            raise RuntimeError('the protocol thread refused the dispatch')
 
         completions = []
         with monkeypatch.context() as mp:
-            # The runner's commit-step write binds the impl (run-internal
-            # machinery never goes through the external dispatcher), so
-            # the fault is injected at the seam the runner actually calls.
-            mp.setattr(scope.imaging, '_update_auto_gain_target_brightness_impl', _boom)
+            # The dispatch is the last step of start()'s committed block
+            # (the camera writes that once followed it belong to the run
+            # loop now), so the fault is injected there.
+            mp.setattr(executor.protocol_thread, 'run_protocol', _boom)
             plan = _prepare(
                 executor,
                 _make_single_step_protocol(),

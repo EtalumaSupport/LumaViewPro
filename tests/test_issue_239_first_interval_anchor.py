@@ -52,6 +52,8 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     # The production predicate over the stub's own state, so the stub
     # cannot answer 'is a run live' differently from the runner.
     p._is_run_live = MethodType(SequencedCaptureRunner._is_run_live, p)
+    # The loop takes the camera first; a stub with a mock scope has no lane to wait for.
+    p._take_camera = lambda: None
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(seconds=period_s)

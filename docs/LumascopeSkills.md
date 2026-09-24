@@ -451,7 +451,9 @@ objective in the light path is unknown (nothing captured),
 `HardwareCommandRefusedError` when a run holds the camera, and `CaptureError`
 (reason `'no_frame_returned'`, the capture engine's cause as its message) when
 no frame passed. `session.manual_capture.in_flight` is True while a still is
-running.
+running. A run started while a still is in flight is not refused: it waits
+for the still to finish before it touches the camera, so the still saves
+under the state it started with and the run begins after it.
 
 To save a frame you already hold, capture it and call `save_image`:
 

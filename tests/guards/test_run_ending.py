@@ -91,6 +91,7 @@ COVERAGE = {
     'hardware_disconnected',
     'consecutive_scan_failures',
     'run_loop_crashed',
+    'camera_lane_stalled',
     'stopped',
     'force_reset',
     'capture_location_unusable',

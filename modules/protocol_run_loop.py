@@ -165,6 +165,19 @@ class ProtocolRunLoop:
         run_required_mb = None
         num_steps = 0
 
+        # The camera becomes the run's only once the lane has finished what
+        # it already held. A Stop during that wait returns with no ending
+        # and falls through to the while, which ends the run stopped with
+        # nothing to restore; a stuck lane is a fatal ending, shaped like
+        # the disconnect below.
+        stalled = p._take_camera()
+        if stalled is not None:
+            if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
+                p._set_state(ProtocolState.ERROR)
+            p.abort_run_fatal(stalled.reason, stalled.title, stalled.message)
+            p._cleanup(stalled)
+            return
+
         while p._is_run_live() and not p._aborted.is_set():
             try:
                 # Periodic hardware connection check (every 30 seconds)

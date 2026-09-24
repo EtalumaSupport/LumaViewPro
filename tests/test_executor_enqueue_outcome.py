@@ -14,6 +14,7 @@ None, and a caller asking for a waiter still gets a waiter.
 """
 
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -218,3 +219,30 @@ class TestWorkerAlive:
         finally:
             lane.shutdown()
         assert lane.worker_alive is False
+
+
+def test_a_task_queued_before_disable_still_runs_and_the_lane_goes_idle():
+    """A run closes the camera lane and then waits for it to go idle; what the
+    lane already held must run to completion, not sit parked until the run
+    ends holding its caller with it."""
+    ex = SequentialIOExecutor(name='TEST')
+    ex.start()
+    release = threading.Event()
+    ran = threading.Event()
+    try:
+        ex.put(IOTask(action=lambda: release.wait(5.0)))
+        ex.put(IOTask(action=ran.set))
+        ex.disable()
+        assert ex.is_busy(), 'the lane reported idle with two tasks on it'
+        release.set()
+        assert ran.wait(5.0), 'a task queued before disable() never ran'
+        deadline = time.monotonic() + 5.0
+        while ex.is_busy() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert not ex.is_busy(), 'the lane never went idle after draining'
+        assert ex.put(IOTask(action=lambda: None)) is None, (
+            'a new submit was accepted while disabled'
+        )
+    finally:
+        ex.enable()
+        ex.shutdown()

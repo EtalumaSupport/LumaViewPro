@@ -151,6 +151,11 @@ def bare_capture_runner(**overrides):
         kwargs['scope'].motion.axes_without_position.return_value = {}
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
+    # A run takes the camera only once the camera lane is idle; a bare mock
+    # answers "busy" and "stalled" with truthy mocks, so the default lane
+    # states the idle answer. A test about the lane passes its own executor.
+    runner.camera_executor.is_busy.return_value = False
+    runner.camera_executor.in_flight_task_stalled.return_value = False
     # The real executor returns an int drop count (0 on a clean run); the mock
     # must too, or run-end cleanup compares a MagicMock against an int.
     runner.file_io_executor.protocol_dropped_count.return_value = 0
@@ -208,7 +213,8 @@ def scan_ready_runner(step, **state):
     runner._n_scans = 1
     runner._scan_in_progress.set()
     runner._state = ProtocolState.RUNNING
-    runner._autogain_settings = {}
+    # prepare() always carries the target the takeover writes to the camera.
+    runner._autogain_settings = {'target_brightness': 0.5}
     runner._image_writer = MagicMock()
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
@@ -248,5 +254,10 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner._coordinate_transformer = MagicMock()
     runner._coordinate_transformer.plate_to_stage.return_value = (0.0, 0.0)
     runner._cleanup = MagicMock()
+    # The loop's first act takes the camera: it snapshots the camera and
+    # takes the auto-gain arm out of that snapshot. A bare mock snapshot
+    # answers the arm with a mock, which the arm take cannot apply, so the
+    # default snapshot states the common case: no standing arm.
+    runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
     runner._set_state(ProtocolState.RUNNING)
     return runner

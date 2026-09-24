@@ -53,6 +53,10 @@ from modules.config_helpers import AutofocusSnapshot
 # (a stack built mid-flush would silently miss planes), and queue-idle is
 # a poll-only signal.
 _HYPERSTACK_QUEUE_POLL_S = 0.5
+# How often the run loop re-asks whether the camera lane has gone idle
+# before the run takes the camera; a still's grab is tens to hundreds of
+# milliseconds, so this bounds how late the run starts after it.
+_CAMERA_LANE_POLL_S = 0.01
 
 # How long a composite merge waits for the run's own frames to reach disk
 # before giving up and reporting a typed timeout. Bounded because a wedged
@@ -1153,6 +1157,50 @@ class SequencedCaptureRunner:
             return
         self._scope.imaging._set_auto_gain_impl(False, dict(arm.settings))
 
+    def _take_camera(self) -> 'RunEnding | None':
+        """Wait for the camera lane to finish what it holds, then make the camera this run's.
+
+        The run drives the camera from its own thread for its whole life,
+        so start() closes the lane to new work; but a command already
+        running or queued there (a still, a gain write, a settings
+        widget's task) keeps running on the lane's worker. Taking the
+        camera before it has finished put two threads in the driver at
+        once and let the run's first LED land under a still's grab. So
+        every read and write of the camera the run makes for itself comes
+        after the lane is idle, snapshots included: a snapshot taken
+        before the lane's last command records the state that command was
+        about to replace, and the restore at the end would hand that stale
+        state back.
+
+        Runs on the protocol thread, so the wait never holds the caller
+        that clicked. Returns None once the camera is taken, or when a
+        Stop arrived during the wait (the loop's own tail ends the run,
+        and cleanup finds no snapshot to restore); an ending when the
+        lane's in-flight task is stuck past the threshold that already
+        calls the file lane wedged.
+        """
+        while self.camera_executor.is_busy():
+            if self._aborted.is_set():
+                return None
+            if self.camera_executor.in_flight_task_stalled(WRITE_STALL_FATAL_S):
+                return RunEnding(
+                    'failed',
+                    'camera_lane_stalled',
+                    'Camera Busy',
+                    'A camera command did not finish, so the run did not start. '
+                    'Restart LumaViewPro if the camera stays busy.',
+                )
+            time.sleep(_CAMERA_LANE_POLL_S)
+        self._original_led_states = self._scope.illumination.get_led_states()
+        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+        self._take_auto_gain_arm_for_run()
+        # The impl, not the dispatcher: the lane is closed to new work, so
+        # the public form would refuse the run's own bring-up write.
+        self._scope.imaging._update_auto_gain_target_brightness_impl(
+            self._autogain_settings['target_brightness']
+        )
+        return None
+
     def start(self, plan: RunPlan) -> 'PendingRunOutcome':
         """Commit to the prepared run and dispatch it.
 
@@ -1320,11 +1368,6 @@ class SequencedCaptureRunner:
 
             self._setup_run_dir()
 
-            # Snapshot hardware state for restoration after protocol
-            self._original_led_states = self._scope.illumination.get_led_states()
-            self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
-            self._take_auto_gain_arm_for_run()
-
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
             # consult self._aborted.is_set() each tick. PIW receives a callable
@@ -1349,15 +1392,12 @@ class SequencedCaptureRunner:
                 run_claim=self._held_claim.lend(),
             )
 
+            # Closed to new work from here; what the lane already holds
+            # finishes on its worker, and the run loop's first act waits
+            # for it before the run reads or writes the camera itself.
             self.camera_executor.disable()
             self._io_executor.protocol_start()
             self.file_io_executor.protocol_start()
-            # Not IO. The impl, not the dispatcher: the camera lane was
-            # disabled two lines up, so the public form would refuse the
-            # run's own bring-up write.
-            self._scope.imaging._update_auto_gain_target_brightness_impl(
-                self._autogain_settings['target_brightness']
-            )
 
             # Dispatch the main run loop onto protocol_thread. Completion is
             # signalled by the run phase returning to IDLE inside _cleanup.

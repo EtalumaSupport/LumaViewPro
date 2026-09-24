@@ -258,44 +258,55 @@ def run_cleanup(
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
     led_end_state_applied = False
-    try:
-        # A fatal abort's terminal LED state is DARK regardless of the user's
-        # end policy: force_off already darkened the sample at the fault
-        # site, and this forced-OFF RUN_END re-asserts dark against any step
-        # that raced the abort and re-lit a channel (the OFF diff serializes
-        # after such a re-light on the same FIFO protocol queue, so off
-        # wins). Asserting OFF -- not skipping the restore -- is the point: a
-        # skipped restore would leave a raced re-light on forever. User Stop
-        # keeps the configured policy.
-        end_policy, snapshot_lit = resolve_end_state(
-            'off' if forced_dark else leds_state_at_end,
-            original_led_states,
-            scope.illumination.state_color2ch,
-        )
-        if end_policy is None:
-            logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
-        else:
-            apply_led_transition_fn(
-                LedTransition.RUN_END,
-                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
+    # A run that ended before it took the camera (a Stop, or a stuck lane,
+    # during the wait for the lane) changed no LED and holds no snapshot,
+    # so there is nothing to return to: the resolver would read the missing
+    # snapshot as "nothing was lit" and darken a sample a still may be
+    # grabbing under right now.
+    if original_led_states is None:
+        logger.info(f'[{logger_name}] Cleanup: the run never took the camera; LEDs left as found')
+        # Decided, not undecided: "as found" is the end state, and the
+        # caller's fallback for an undecided one is to darken.
+        led_end_state_applied = True
+    else:
+        try:
+            # A fatal abort's terminal LED state is DARK regardless of the user's
+            # end policy: force_off already darkened the sample at the fault
+            # site, and this forced-OFF RUN_END re-asserts dark against any step
+            # that raced the abort and re-lit a channel (the OFF diff serializes
+            # after such a re-light on the same FIFO protocol queue, so off
+            # wins). Asserting OFF -- not skipping the restore -- is the point: a
+            # skipped restore would leave a raced re-light on forever. User Stop
+            # keeps the configured policy.
+            end_policy, snapshot_lit = resolve_end_state(
+                'off' if forced_dark else leds_state_at_end,
+                original_led_states,
+                scope.illumination.state_color2ch,
             )
-            led_end_state_applied = True
-    except CancelledError:
-        # The protocol queue was cleared and this restore task cancelled
-        # before it ran. A superseding run/abort cycle is one canceller --
-        # but so are executor shutdown, an unwedge/quarantine, and the
-        # end-of-protocol-mode drain, and none of those re-asserts LED
-        # state. So the end-state stays undecided and the caller darkens;
-        # a superseding run re-lights per step, costing at most a
-        # transient dark blip during rapid run cycling. Not surfaced as a
-        # failure -- doing so produced a popup per cycle when the run
-        # button was clicked rapidly.
-        logger.info(
-            f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
-        )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
-        cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
+            if end_policy is None:
+                logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+            else:
+                apply_led_transition_fn(
+                    LedTransition.RUN_END,
+                    LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
+                )
+                led_end_state_applied = True
+        except CancelledError:
+            # The protocol queue was cleared and this restore task cancelled
+            # before it ran. A superseding run/abort cycle is one canceller --
+            # but so are executor shutdown, an unwedge/quarantine, and the
+            # end-of-protocol-mode drain, and none of those re-asserts LED
+            # state. So the end-state stays undecided and the caller darkens;
+            # a superseding run re-lights per step, costing at most a
+            # transient dark blip during rapid run cycling. Not surfaced as a
+            # failure -- doing so produced a popup per cycle when the run
+            # button was clicked rapidly.
+            logger.info(
+                f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
+            )
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
+            cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
     logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
     # --- Restore layer shader / false-color (UI side) ---
