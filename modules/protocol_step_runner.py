@@ -630,11 +630,13 @@ class ProtocolStepRunner:
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt: p._callbacks.move_position('Y'), 0)
 
-            if z is not None:
-                self._move_axis_through_io('Z', z)
-                p._target_z_pos = z
-                if p._callbacks.move_position:
-                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
+        # Z does not depend on X/Y: a step whose plate position is unknown
+        # still has a focus, and its image records that Z.
+        if z is not None:
+            self._move_axis_through_io('Z', z)
+            p._target_z_pos = z
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
     def _move_axis_through_io(self, axis: str, position):
         """Submit a single-axis move to io_executor and wait for completion.
