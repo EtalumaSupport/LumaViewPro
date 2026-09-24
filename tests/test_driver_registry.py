@@ -19,7 +19,13 @@ import threading
 
 import pytest
 
-from drivers.registry import DriverRegistry, motor_registry, led_registry, camera_registry
+from drivers.registry import (
+    DriverNotLiveError,
+    DriverRegistry,
+    motor_registry,
+    led_registry,
+    camera_registry,
+)
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 
 
@@ -544,3 +550,46 @@ class TestRegistryAccommodatesCompositeHardware:
 
         _ = local_reg.create('lazy')
         assert FakeConn._instance is not None
+
+
+class TestTheRegistryNamePath:
+    def test_a_named_driver_that_is_not_live_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('dead', priority=50)
+        class Dead:
+            def __init__(self, **kw):
+                self.disconnected = False
+
+            def is_connected(self):
+                return False
+
+            def disconnect(self):
+                self.disconnected = True
+
+        with pytest.raises(DriverNotLiveError, match=r"fake driver Dead \('dead'\)"):
+            reg.create('dead')
+
+    def test_a_named_driver_that_is_mute_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('mute', priority=50)
+        class Mute:
+            def is_connected(self):
+                return True
+
+            def is_responsive(self):
+                return False
+
+        with pytest.raises(DriverNotLiveError, match='not responding'):
+            reg.create('mute')
+
+    def test_a_named_driver_that_reports_found_false_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('absent', priority=50)
+        class Absent:
+            found = False
+
+        with pytest.raises(DriverNotLiveError, match='found=False'):
+            reg.create('absent')

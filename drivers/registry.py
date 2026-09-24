@@ -69,6 +69,23 @@ from collections.abc import Callable
 logger = logging.getLogger('LVP.drivers.registry')
 
 
+class DriverNotLiveError(RuntimeError):
+    """A driver selected by name constructed, but its hardware is not live."""
+
+
+def _disconnect_quietly(instance: Any) -> None:
+    """Release a rejected driver's port and threads; a failure here is
+    secondary to the rejection already decided."""
+    try:
+        if hasattr(instance, 'disconnect'):
+            instance.disconnect()
+    except Exception as e:
+        logger.debug(
+            f'[registry] {type(instance).__name__} disconnect() after rejection raised '
+            f'({type(e).__name__}: {e})'
+        )
+
+
 @dataclass
 class _RegistryEntry:
     cls: type[Any]
@@ -126,6 +143,55 @@ class DriverRegistry:
 
         return decorator
 
+    @staticmethod
+    def _liveness_failure(instance: Any) -> tuple[str, str] | None:
+        """Why a constructed driver is not a live one, or None when it is.
+
+        Three ways a constructor returns without a working board, each a
+        (verdict, reason) pair:
+
+        - ``found``: the driver reports ``found=False`` instead of raising
+          (the serial-board pattern: no port matched its VID/PID).
+        - ``connected``: the port was discovered but ``open()`` failed
+          (another program holds it), and the driver swallowed that and
+          left itself half-built; handed on, it crashes later on its
+          first command rather than here.
+        - ``responsive``: the port opened and stayed open, but the board
+          answered zero bytes to the whole connect-time reset sequence and
+          will reject every command until a power cycle; selected anyway,
+          the operator gets one failure per command for the session.
+
+        A check the driver does not implement passes.
+        """
+        if getattr(instance, 'found', True) is False:
+            return 'found', 'found=False'
+        if hasattr(instance, 'is_connected'):
+            try:
+                connected = instance.is_connected()
+            except Exception as e:
+                connected = False
+                logger.debug(
+                    f'[registry] {type(instance).__name__} is_connected() raised '
+                    f'({type(e).__name__}: {e}); treating as not-connected'
+                )
+            if not connected:
+                return 'connected', 'constructed but is_connected()=False (port held / open failed)'
+        if hasattr(instance, 'is_responsive'):
+            try:
+                responsive = instance.is_responsive()
+            except Exception as e:
+                responsive = False
+                logger.debug(
+                    f'[registry] {type(instance).__name__} is_responsive() raised '
+                    f'({type(e).__name__}: {e}); treating as not-responsive'
+                )
+            if not responsive:
+                return (
+                    'responsive',
+                    'connected but not responding (zero bytes to the connect sequence)',
+                )
+        return None
+
     def get(self, name: str) -> type[Any]:
         """Return the class registered under `name`, or raise ValueError."""
         entry = self._entries.get(name)
@@ -161,20 +227,20 @@ class DriverRegistry:
                 or if 'auto' finds no candidates at all.
         """
         if name != 'auto':
-            # Selecting by NAME skips every liveness check the auto path
-            # runs below -- no `found` test, no `is_connected()` test, no
-            # null fallback. A driver whose constructor succeeds while its
-            # hardware never opened is handed straight back, and nothing
-            # raises, so the caller's except-clause never fires and a dead
-            # board reaches the API layer indistinguishable from a live one.
-            #
-            # Nothing production passes a name today: startup asks for
-            # 'auto'. The trap is for whoever changes that -- wire a caller
-            # that passes a name (the reconnect path is the one waiting to
-            # happen) and it inherits this hole. Give both branches the
-            # same validation before adding such a caller.
+            # Selecting by NAME has no fallback: the caller asked for this
+            # driver and nothing else, so a board that constructed but never
+            # came up is a failure to raise, not a null driver to hand back.
+            # The liveness verdict is the auto path's, so a dead board is
+            # refused the same way on both branches instead of reaching the
+            # API layer indistinguishable from a live one.
             cls = self.get(name)
-            return cls(**kwargs)
+            instance = cls(**kwargs)
+            failure = self._liveness_failure(instance)
+            if failure is not None:
+                _, why = failure
+                _disconnect_quietly(instance)
+                raise DriverNotLiveError(f'{self._kind} driver {cls.__name__} ({name!r}) {why}')
+            return instance
 
         # Auto mode -- pick by priority, filtered by simulate flag.
         candidates = sorted(
@@ -202,85 +268,28 @@ class DriverRegistry:
         for entry in real_candidates:
             try:
                 instance = entry.cls(**kwargs)
-                # Some drivers signal failure via a `.found` attribute
-                # instead of raising (SerialBoard pattern). Honor that.
-                if getattr(instance, 'found', True) is False:
-                    found_false_names.append(entry.cls.__name__)
-                    logger.debug(
-                        f'[registry] {self._kind}: {entry.cls.__name__} '
-                        f'found=False, trying next candidate'
-                    )
-                    continue
-                # Found-but-not-connected -- port discovered before open()
-                # raised (e.g. PermissionError because Thonny has the
-                # port). MotorBoard.connect() / LEDBoard.connect()
-                # swallow open() failures and leave self.driver = None,
-                # which means the constructor returns "successfully"
-                # with a half-broken instance. Without this check, that
-                # instance would be returned to the API layer and crash
-                # later (issue #632/#634 cluster: get_microscope_model
-                # indexes None info, home() burns its full 30s timeout
-                # on auto-reconnect, etc.). Reject the same way as
-                # found=False -- fall through to null fallback.
-                if hasattr(instance, 'is_connected'):
-                    try:
-                        connected = instance.is_connected()
-                    except Exception as e:
-                        logger.debug(
-                            f'[registry] {self._kind}: {entry.cls.__name__} '
-                            f'is_connected() raised ({type(e).__name__}: {e}); '
-                            f'treating as not-connected'
-                        )
-                        connected = False
-                    if not connected:
-                        not_connected_names.append(entry.cls.__name__)
-                        logger.debug(
-                            f'[registry] {self._kind}: {entry.cls.__name__} '
-                            f'constructed but is_connected()=False (port held / '
-                            f'open failed), trying next candidate'
-                        )
-                        # Best-effort cleanup so we don't leave dangling
-                        # serial handles or background threads.
-                        try:
-                            if hasattr(instance, 'disconnect'):
-                                instance.disconnect()
-                        except Exception:
-                            pass
-                        continue
-                # Open-but-mute -- the port opened and stayed open, so
-                # is_connected() above is true, but the board returned zero
-                # bytes to the whole connect-time reset sequence and will
-                # reject every command until a hardware power cycle. Without
-                # this check the driver is selected anyway and the operator
-                # gets one failure notification per command for the rest of
-                # the session instead of a single refusal here. Same
-                # rejection shape as found=False: fall through to the null
-                # fallback, which at least reports the subsystem as absent.
-                if hasattr(instance, 'is_responsive'):
-                    try:
-                        responsive = instance.is_responsive()
-                    except Exception as e:
-                        logger.debug(
-                            f'[registry] {self._kind}: {entry.cls.__name__} '
-                            f'is_responsive() raised ({type(e).__name__}: {e}); '
-                            f'treating as not-responsive'
-                        )
-                        responsive = False
-                    if not responsive:
-                        not_responsive_names.append(entry.cls.__name__)
+                failure = self._liveness_failure(instance)
+                if failure is not None:
+                    verdict, why = failure
+                    {
+                        'found': found_false_names,
+                        'connected': not_connected_names,
+                        'responsive': not_responsive_names,
+                    }[verdict].append(entry.cls.__name__)
+                    if verdict == 'responsive':
                         logger.warning(
-                            f'[registry] {self._kind}: {entry.cls.__name__} '
-                            f'connected but not responding (zero bytes to the '
-                            f'connect sequence); refusing it. The board needs a '
-                            f'power cycle.'
+                            f'[registry] {self._kind}: {entry.cls.__name__} {why}; '
+                            f'refusing it. The board needs a power cycle.'
                         )
-                        try:
-                            if hasattr(instance, 'disconnect'):
-                                instance.disconnect()
-                        except Exception:
-                            pass
-                        continue
-                # Every rejection below is logged; without this the
+                    else:
+                        logger.debug(
+                            f'[registry] {self._kind}: {entry.cls.__name__} {why}, '
+                            f'trying next candidate'
+                        )
+                    if verdict != 'found':
+                        _disconnect_quietly(instance)
+                    continue
+                # Every rejection above is logged; without this the
                 # SUCCESS path was the only silent one, so which driver
                 # actually won could only be inferred from the ABSENCE
                 # of a fallback warning -- and the Null* drivers
