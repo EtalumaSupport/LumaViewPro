@@ -15,7 +15,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from tools.install_hooks import _HOOK_SCRIPT, _POST_MERGE_SCRIPT, _STAMP_BLOCK
+from tools.install_hooks import _BRANCH_BLOCK, _HOOK_SCRIPT, _POST_MERGE_SCRIPT, _STAMP_BLOCK
 
 _WRITE = '> "$VERSION_FILE"'
 
@@ -119,3 +119,49 @@ def test_a_merge_commit_restamps_to_the_destination_branch(tmp_path):
     lines = (repo / 'version.txt').read_text().splitlines()
     assert len(lines) == 4
     assert lines[2] == 'dev/x'
+
+
+def _tracking_the_trunk_under_another_name(repo: Path, local: str) -> None:
+    """A worktree's shape: local branch `local`, upstream the remote trunk."""
+    origin = repo.parent / 'origin.git'
+    _git(repo, 'init', '-q', '--bare', str(origin))
+    _git(repo, 'remote', 'add', 'origin', str(origin))
+    _git(repo, 'push', '-q', 'origin', 'dev/x')
+    _git(repo, 'checkout', '-q', '-b', local)
+    _git(repo, 'branch', '-q', '-u', 'origin/dev/x')
+
+
+def test_the_branch_block_is_the_one_source_of_the_name_in_both_hooks():
+    assert _STAMP_BLOCK.count(_BRANCH_BLOCK) == 1
+    assert _POST_MERGE_SCRIPT.count(_BRANCH_BLOCK) == 2
+    assert 'symbolic-ref --short' not in _POST_MERGE_SCRIPT.replace(_BRANCH_BLOCK, '')
+
+
+def test_a_branch_tracking_the_trunk_stamps_the_trunk_not_its_own_name(tmp_path):
+    repo = _repo_with_version_file(tmp_path, 'dev/x')
+    _tracking_the_trunk_under_another_name(repo, 'triage/shape-a-5.3')
+    lines = _run_stamp(repo)
+    assert len(lines) == 4
+    assert lines[2] == 'dev/x'
+
+
+def test_an_upstream_on_a_local_branch_stamps_that_branch(tmp_path):
+    repo = _repo_with_version_file(tmp_path, 'dev/x')
+    _git(repo, 'checkout', '-q', '-b', 'feature/y')
+    _git(repo, 'branch', '-q', '-u', 'dev/x')
+    assert _run_stamp(repo)[2] == 'dev/x'
+
+
+def test_a_merge_on_a_tracking_branch_restamps_to_the_trunk(tmp_path):
+    repo = _repo_with_version_file(tmp_path, 'dev/x')
+    _tracking_the_trunk_under_another_name(repo, 'triage/z')
+    _git(repo, 'checkout', '-q', '-b', 'feature/y')
+    (repo / 'version.txt').write_text('1.0\n2000-01-01 00:00\nfeature/y\n11111111\n')
+    _git(repo, 'commit', '-q', '-am', 'on the feature')
+    _git(repo, 'checkout', '-q', 'triage/z')
+    (repo / 'other.txt').write_text('x\n')
+    _git(repo, 'add', 'other.txt')
+    _git(repo, 'commit', '-q', '-m', 'on the tracking branch')
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'feature/y')
+    _run_post_merge(repo)
+    assert (repo / 'version.txt').read_text().splitlines()[2] == 'dev/x'

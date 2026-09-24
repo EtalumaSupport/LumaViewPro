@@ -48,17 +48,32 @@ from pathlib import Path
 
 _HOOK_MARKER = '# managed by tools/install_hooks.py (CLAUDE.md Rule 31)'
 
+# The branch a commit is GOING TO, for line 3 of version.txt. Every track
+# commits to one trunk, several from worktrees whose local branch carries
+# its own name and tracks the trunk; the local name stamped the trunk with
+# `triage/shape-a-5.3`, and a build's startup banner and every bench bundle
+# named it. So the upstream wins when there is one, with its remote prefix
+# dropped; a branch with no upstream stamps its own name; a detached
+# checkout has neither ($LOCAL empty), and each hook decides what that
+# means for it. Asked with --symbolic-full-name, never --abbrev-ref, which
+# prints the literal HEAD for a detached checkout and reads as a branch.
+_BRANCH_BLOCK = """LOCAL=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
+UPSTREAM=$(git rev-parse -q --symbolic-full-name '@{u}' 2>/dev/null || true)
+case "$UPSTREAM" in
+    refs/remotes/*) BRANCH=${UPSTREAM#refs/remotes/}; BRANCH=${BRANCH#*/} ;;
+    refs/heads/*) BRANCH=${UPSTREAM#refs/heads/} ;;
+    *) BRANCH=$LOCAL ;;
+esac
+"""
+
 # The one writer of version.txt. Both hooks that stamp the file embed this
 # block verbatim, so a change to the format lands in both by construction;
 # nothing else in either script writes the file. Expects $VERSION_FILE set
-# and present. A detached checkout has no branch name to offer -- git
-# prints the literal HEAD for it, which then reads as a branch downstream
-# -- so line 3 keeps the value the checkout inherited from the tip it was
-# cut at.
-_STAMP_BLOCK = """VERSION=$(head -1 "$VERSION_FILE")
+# and present. A detached checkout has no branch name to offer, so line 3
+# keeps the value the checkout inherited from the tip it was cut at.
+_STAMP_BLOCK = f"""VERSION=$(head -1 "$VERSION_FILE")
 TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
-BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
-[ -z "$BRANCH" ] && BRANCH=$(sed -n '3p' "$VERSION_FILE")
+{_BRANCH_BLOCK}[ -z "$BRANCH" ] && BRANCH=$(sed -n '3p' "$VERSION_FILE")
 GUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])" 2>/dev/null \\
     || openssl rand -hex 4 2>/dev/null \\
     || echo "nogenuid")
@@ -198,8 +213,7 @@ set -e
 REPO_ROOT=$(git rev-parse --show-toplevel)
 VERSION_FILE="$REPO_ROOT/version.txt"
 [ -f "$VERSION_FILE" ] || exit 0
-BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
-[ -z "$BRANCH" ] && exit 0
+{_BRANCH_BLOCK}[ -z "$LOCAL" ] && exit 0
 git rev-parse -q --verify 'HEAD^2' >/dev/null 2>&1 || exit 0
 [ "$(sed -n '3p' "$VERSION_FILE")" = "$BRANCH" ] && exit 0
 {_STAMP_BLOCK}git commit -m "release: refresh version.txt after merge (branch=$BRANCH)" --no-verify
