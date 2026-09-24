@@ -117,3 +117,48 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
         assert errors == [('Motion', 'Motor board disconnected')]
     finally:
         session.shutdown()
+
+
+# A home after a cable pull: the firmware twin of the NullMotionBoard tests in
+# test_lumascope_api.py, which model a board that was never there. Here a
+# production board loses its port mid-session, and its next command meets it.
+
+_HOMES = {
+    'all': lambda motion: motion.home(),
+    'T': lambda motion: motion.home(axis='T'),
+    'Z': lambda motion: motion.home(axis='Z'),
+}
+
+
+def _pulled(scope, monkeypatch) -> list:
+    errors = []
+    monkeypatch.setattr(
+        notification_center.notifications,
+        'error',
+        lambda category, title, message, **kwargs: errors.append(title),
+    )
+    scope._motion_driver._backend.motor_board.unplug()
+    return errors
+
+
+@pytest.mark.parametrize('home', list(_HOMES))
+def test_a_home_after_a_cable_pull_fails_at_once(scope, monkeypatch, home):
+    # #632: a disconnected motor must not hold the caller while the driver
+    # waits out its timeouts and reconnect attempts.
+    _pulled(scope, monkeypatch)
+    started = time.monotonic()
+    assert _HOMES[home](scope.motion) is False
+    assert time.monotonic() - started < 0.5
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason='the first home after a pull meets the dead port as a failed command and says '
+    "'Homing Error', a homing fault; a turret home also says the safety Z move failed. "
+    'Only the next call knows the motor is disconnected',
+)
+@pytest.mark.parametrize('home', list(_HOMES))
+def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, monkeypatch, home):
+    errors = _pulled(scope, monkeypatch)
+    _HOMES[home](scope.motion)
+    assert errors == ['Motor Not Connected']
