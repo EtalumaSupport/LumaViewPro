@@ -66,7 +66,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
 from tests.scope_fakes import configure_turret_like_bringup, home_sim_scope
@@ -507,7 +507,9 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             raise OSError('labware config unreadable')
 
         monkeypatch.setattr(protocol2, 'validate_for_run', _crash)
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+        # A crashed check is a fault, not a refusal, and it too must leave
+        # the previous run's record alone.
+        with pytest.raises(RunCheckFailedError) as excinfo:
             _prepare(executor, protocol2, tmp_path)
         assert excinfo.value.reason == 'validation_crashed'
 
@@ -600,8 +602,16 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'positions_unreachable': ('tests/test_a_run_needs_the_axes_it_moves.py::test_the_rule'),
     'validation_failed': _FUNNEL_LOOP,
-    'validation_crashed': _FUNNEL_LOOP,
-    'hardware_state_unknown': _FUNNEL_LOOP,
+    # A check that crashed is a fault (RunCheckFailedError), not a refusal:
+    # it is not reported where it is raised, so it cannot ride the
+    # notify-once loop; the named tests pin the raise, the chained crash
+    # and the error its caller shows.
+    'validation_crashed': (
+        'tests/test_audit_fixes.py::TestRunPreValidationFiresNotificationOnException'
+    ),
+    'hardware_state_unknown': (
+        'tests/test_audit_fixes.py::TestRule14_A5_AreAllConnectedExceptionNotify'
+    ),
     'hardware_disconnected': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
@@ -698,22 +708,6 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(protocol, 'validate_for_run', lambda **kw: ['step 1: out of bounds'])
             return protocol
 
-        def validation_crashed(mp):
-            protocol = _make_single_step_protocol()
-
-            def _crash(**kw):
-                raise OSError('objectives.json missing')
-
-            mp.setattr(protocol, 'validate_for_run', _crash)
-            return protocol
-
-        def hardware_state_unknown(mp):
-            def _crash():
-                raise RuntimeError('usb enumeration failed')
-
-            mp.setattr(scope, 'are_all_connected', _crash)
-            return _make_single_step_protocol()
-
         def hardware_disconnected(mp):
             mp.setattr(scope, 'are_all_connected', lambda: False)
             return _make_single_step_protocol()
@@ -756,8 +750,6 @@ class TestRefusalNotifyOnceFunnel:
             ('empty_protocol', empty_protocol),
             ('turret_objectives_unassigned', turret_objectives_unassigned),
             ('validation_failed', validation_failed),
-            ('validation_crashed', validation_crashed),
-            ('hardware_state_unknown', hardware_state_unknown),
             ('hardware_disconnected', hardware_disconnected),
             ('position_unknown', position_unknown),
         ]
@@ -785,6 +777,9 @@ class TestRefusalNotifyOnceFunnel:
                 )
                 assert len(captured) == 1, (
                     f'refusal {reason!r} must notify exactly once; got {captured}'
+                )
+                assert captured[0][0] == 'warning', (
+                    f'refusal {reason!r} is a refusal, shown as a warning; got {captured}'
                 )
                 assert not executor.run_in_progress(), (
                     f'refusal {reason!r} must leave the runner idle'
@@ -1016,7 +1011,7 @@ def test_every_runner_refusal_reason_is_covered():
             # site naming its funnel for what it refuses would otherwise be
             # invisible to this census, which is the drift it exists to stop.
             is_funnel = callee is not None and callee.startswith('_refuse')
-            if is_funnel or callee == 'ProtocolRunRefusedError':
+            if is_funnel or callee in ('ProtocolRunRefusedError', 'RunCheckFailedError'):
                 for kw in node.keywords:
                     if kw.arg == 'reason' and isinstance(kw.value, ast.Constant):
                         raised.add(kw.value.value)

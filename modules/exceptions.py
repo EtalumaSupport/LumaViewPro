@@ -101,7 +101,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         self.slot = slot
 
 
-class SettingsSaveRefusedError(ConfigError):
+class SettingsSaveRefusedError(Refusal, ConfigError):
     """A settings save was refused: writing now would destroy real data.
 
     Raised by ``ScopeSession.save_settings`` instead of silently skipping
@@ -109,9 +109,9 @@ class SettingsSaveRefusedError(ConfigError):
     success on a write that never happened, which is how a whole session's
     changes get lost with nothing said.
 
-    Like the hardware-command refusal, this reaches an external API caller
-    that no notification path serves, so it carries no user-facing strings;
-    the caller that provoked it owns the response.
+    A refusal like any other: its message is the sentence a person reads
+    and ``title`` its heading, so whichever caller ends up telling someone
+    tells them the same thing.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
@@ -125,8 +125,23 @@ class SettingsSaveRefusedError(ConfigError):
         file: The destination whose write was refused.
     """
 
+    title = 'Settings Not Saved'
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'settings_provisional': (
+            'The settings were not saved to {file}: LumaViewPro is running on its '
+            'default settings because that file could not be read, and it is left '
+            'as it is until you decide what to do with it.'
+        ),
+        'no_hardware': (
+            'The settings were not saved to {file}: no microscope was connected '
+            'this session, so the per-channel values are defaults, not values '
+            'measured on this scope.'
+        ),
+    }
+
     def __init__(self, reason: str, file: str):
-        super().__init__(f'settings save to {file} refused: {reason}')
+        super().__init__(self._SENTENCES[reason].format(file=file))
         self.reason = reason
         self.file = file
 
@@ -150,27 +165,26 @@ class CaptureError(Exception):
         self.reason = reason
 
 
-class ProtocolRunRefusedError(ProtocolError):
-    """A sequenced run was refused before any state was committed.
+class ProtocolRunRefusedError(Refusal, ProtocolError):
+    """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
     Raised by SequencedCaptureRunner.prepare() when a run cannot start
     (already running, files still writing, empty protocol, validation
-    errors, hardware not connected). Raised THERE, it has already been
-    logged and notified to the user by the runner's refusal funnel, so
-    callers reconcile their own state without re-notifying.
+    errors, hardware not connected), by the protocols API when a protocol
+    or a step names something this scope cannot do, and by the protocol
+    builder for a z-stack asked for with no range. Each of those reports it
+    through the one reporter as it raises, so it has been logged and shown
+    once already; any later report of the same exception is a no-op, and a
+    caller reconciles its own state without telling anyone again.
 
-    Raised by the protocol BUILDER (Protocol.from_config, for a z-stack
-    asked for with no range), it has not been: the builder runs before
-    any run exists, so no funnel has seen it and those callers own the
-    telling. A headless caller has the exception itself, which is the
-    whole of what it needs; a widget renders title and message, never
-    the joined str(e) form this class builds for debugging.
+    Its message is the sentence a person reads, so a headless caller that
+    prints it prints what the GUI shows.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
-        title: The notification title already shown to the user.
-        message: The notification body already shown to the user.
+        title: The heading shown above the sentence.
+        message: The sentence; the same text as the exception's message.
         holder: What holds the microscope at refusal time
             ('protocol' or 'recording' for the exclusive-activity claim
             owner; 'autofocus' for a sweep in flight), or None when the
@@ -191,12 +205,38 @@ class ProtocolRunRefusedError(ProtocolError):
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ):
-        super().__init__(f'{reason}: {message}')
+        super().__init__(message)
         self.reason = reason
         self.title = title
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+
+
+class RunCheckFailedError(ProtocolError):
+    """A run could not be checked before it started: a check itself crashed.
+
+    Raised by SequencedCaptureRunner.prepare() when validating the protocol,
+    or reading whether the hardware is connected, raised instead of
+    answering. Not a refusal: nothing was declined -- the question could not
+    be asked, and the crash that stopped it is chained as ``__cause__`` so
+    its traceback is logged with this. Nothing is committed and nothing
+    needs unwinding, as for a refusal. Not reported where it is raised: the
+    caller that asked for the run reports it where its flight ends.
+
+    Attributes:
+        reason: Machine-readable cause ('validation_crashed',
+            'hardware_state_unknown').
+        title: Short heading for the user.
+        message: The sentence a user reads; the same text as the
+            exception's message.
+    """
+
+    def __init__(self, reason: str, title: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.title = title
+        self.message = message
 
 
 class RunAlreadyEndedError(Quiet, ProtocolError):
@@ -233,7 +273,7 @@ class RunStartError(ProtocolError):
         self.message = message
 
 
-class RecordingRefusedError(CaptureError):
+class RecordingRefusedError(Refusal, CaptureError):
     """A video recording start was refused before any state was committed.
 
     Raised when a recording cannot begin: by VideoRecordingEngine.start()
@@ -243,13 +283,15 @@ class RecordingRefusedError(CaptureError):
     refusals they own (a previous recording still finishing, an inactive
     camera, an unknown exposure, insufficient disk). Mirrors the
     ProtocolRunRefusedError shape so callers reconcile state the same way
-    in both directions.
+    in both directions. Nothing reports it as it is raised: the caller that
+    asked for the recording reports it where its flight ends.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
         title: Short user-facing refusal title.
-        message: One-sentence user-facing refusal body.
+        message: One-sentence user-facing refusal body; the same text as
+            the exception's message.
         holder: The exclusive-activity claim owner at refusal time, or
             None when the refusal is not claim-shaped.
         holder_trigger: The holding run's run_trigger_source when the
@@ -264,7 +306,7 @@ class RecordingRefusedError(CaptureError):
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ):
-        super().__init__(f'{reason}: {message}', reason)
+        super().__init__(message, reason)
         self.title = title
         self.message = message
         self.holder = holder

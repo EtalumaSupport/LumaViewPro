@@ -43,7 +43,7 @@ from modules.exceptions import (
     MoveNotCompletedError,
     PositionOutOfRangeError,
 )
-from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask, refuse_blocking_inline, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -447,9 +447,9 @@ class MotionAPI:
                 bookmark'``).
 
         Raises:
-            AxisStateUnknownError: Naming every refused axis. Logged and
-                notified once before it is raised; the caller catches it
-                and stops, and shows nothing more.
+            AxisStateUnknownError: Naming every refused axis. Reported once
+                through the one reporter before it is raised, so a caller
+                that reports it again shows nothing more.
         """
         wanted = set(axes)
         with self._axis_state_lock:
@@ -462,16 +462,9 @@ class MotionAPI:
         if not refused:
             return
         error = AxisStateUnknownError(refused, then=then)
-        _api_log.warning(f'[API] Gesture refused: {error}')
         # Solicited: the user just asked for this, so it reaches them even
         # while a run is in flight.
-        notifications.warning(
-            'Motion',
-            error.title,
-            str(error),
-            solicited=True,
-            operation_key=REFUSAL_OPERATION_KEY,
-        )
+        notifications.report_outcome(error, solicited=True, category='Motion')
         raise error
 
     # ------------------------------------------------------------------

@@ -1531,7 +1531,8 @@ class TestRule14_A4_PreRunValidationNotify:
         from modules.notification_center import notifications
 
         captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        # A validation failure is a refusal, shown as a warning.
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
@@ -1544,9 +1545,7 @@ class TestRule14_A4_PreRunValidationNotify:
         runner, protocol, captured = self._run_with_validation_errors(
             monkeypatch, ['step 1: X position outside axis limits']
         )
-        assert captured, (
-            'validation_errors return path must call notifications.error (A4 -- Rule 14)'
-        )
+        assert captured, 'validation_errors return path must post a warning (A4 -- Rule 14)'
         assert captured[0][1] == 'Validation failed', (
             f"notification title must be 'Validation failed'; got {captured[0]}"
         )
@@ -1575,19 +1574,25 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
     """A5: are_all_connected() exception branch must notify (Rule 14)."""
 
     def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
-        """A raising connectivity check must notify the user and abort the run."""
-        from modules.exceptions import ProtocolRunRefusedError
+        """A raising connectivity check aborts the run with a typed fault that shows as an error.
+
+        The fault is not reported where it is raised: the caller that asked
+        for the run reports it, and then the person sees it as an error.
+        """
+        from modules.exceptions import RunCheckFailedError
         from modules.notification_center import notifications
 
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
-        with pytest.raises(ProtocolRunRefusedError):
+        with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**_scr_run_kwargs())
-        assert captured, (
-            'are_all_connected exception path must call notifications.error (A5 -- Rule 14)'
-        )
+        assert not captured, 'the fault is reported by its caller, not where it is raised'
+        assert raised.value.reason == 'hardware_state_unknown'
+        assert isinstance(raised.value.__cause__, RuntimeError), 'the crash must stay chained'
+        notifications.report_outcome(raised.value, solicited=True, category='UI:RUN')
+        assert captured, 'a reported check fault must post an error (A5 -- Rule 14)'
         assert captured[0][1] == 'Cannot verify hardware state', (
             f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
@@ -11248,7 +11253,7 @@ class TestRunPreValidationFiresNotificationOnException:
     def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
         """A raising validate_for_run must pop a user-facing error and
         abort the run -- not log a warning and proceed anyway."""
-        from modules.exceptions import ProtocolRunRefusedError
+        from modules.exceptions import RunCheckFailedError
         from modules.notification_center import notifications
 
         captured = []
@@ -11256,11 +11261,14 @@ class TestRunPreValidationFiresNotificationOnException:
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
-        with pytest.raises(ProtocolRunRefusedError):
+        with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**kwargs)
+        assert isinstance(raised.value.__cause__, OSError), 'the crash must stay chained'
+        assert not captured, 'the fault is reported by its caller, not where it is raised'
+        notifications.report_outcome(raised.value, solicited=True, category='UI:RUN')
         assert captured, (
-            'validate_for_run exception path must fire notifications.error '
-            '(not just log warning) so the user sees the failure popup.'
+            'a reported validation crash must post an error, not only a log line, '
+            'so the user sees the failure popup.'
         )
         assert captured[0][1] == 'Cannot validate protocol', (
             f"notification title must be 'Cannot validate protocol'; got {captured[0]}"

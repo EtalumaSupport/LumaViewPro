@@ -178,6 +178,7 @@ class NotificationCenter:
         fatal: bool = False,
         operation_key: str = '',
         solicited: bool = False,
+        reason: str = '',
     ) -> None:
         """Post a notification.  Thread-safe.  Always logs.
 
@@ -193,15 +194,21 @@ class NotificationCenter:
         ``operation_key`` marks this as one of a sequence about a single piece
         of work, so a UI listener can replace the earlier message rather than
         stack on it.
+
+        ``reason`` is the machine-readable code of a refusal, written into
+        the log line and nowhere else: two refusals can share a title, and a
+        support bundle has to tell them apart from the one line a shown
+        refusal leaves.
         """
         # Always log at the matching level. Collapsed to one physical
         # line: message prose may span paragraphs, and raw continuation
         # lines carry no level/timestamp prefix.
         from modules import gui_logger
 
+        because = f' ({reason})' if reason else ''
         logger.log(
             int(severity),
-            f'[{category}] {gui_logger.one_line(title)}: {gui_logger.one_line(message)}',
+            f'[{category}] {gui_logger.one_line(title)}{because}: {gui_logger.one_line(message)}',
         )
 
         # Forensics: every notification (independent of any UI popup
@@ -319,7 +326,7 @@ class NotificationCenter:
         A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
         a refusal that is not shown at WARNING, with no traceback. A shown
         outcome's display line is ``notify()``'s own, so a shown refusal is one
-        WARNING line and a shown fault is its traceback line and that one. A
+        WARNING line, naming its reason code when it has one, and a shown fault is its traceback line and that one. A
         refusal is shown as a warning under its ``title``; a fault as an error,
         in its own words when its type writes them for a person and in a
         generic sentence when it does not, under its ``title`` or
@@ -362,6 +369,7 @@ class NotificationCenter:
                 str(exception),
                 solicited=solicited,
                 operation_key=REFUSAL_OPERATION_KEY,
+                reason=getattr(exception, 'reason', None) or '',
             )
             return
         body = (

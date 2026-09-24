@@ -155,10 +155,13 @@ def test_the_composite_funnel_delivers_its_refusal_during_an_unattended_run(monk
 
 
 def _functions_raising_the_typed_refusal():
-    """Every function in modules/ that raises ProtocolRunRefusedError.
+    """Every function in modules/ that builds a ProtocolRunRefusedError.
 
     Discovered rather than listed: a new refusal funnel added to a module
-    nobody remembered to enumerate is exactly the drift this guards.
+    nobody remembered to enumerate is exactly the drift this guards. Found
+    by the construction, not by a ``raise`` of it: a funnel builds the
+    refusal, hands it to the reporter and raises that same object, so an
+    inline ``raise ProtocolRunRefusedError(...)`` is no longer its shape.
     """
     found = []
     for path in sorted((REPO_ROOT / 'modules').rglob('*.py')):
@@ -166,15 +169,14 @@ def _functions_raising_the_typed_refusal():
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            raises = [
+            builds = [
                 n
                 for n in ast.walk(node)
-                if isinstance(n, ast.Raise)
-                and isinstance(n.exc, ast.Call)
-                and isinstance(n.exc.func, ast.Name)
-                and n.exc.func.id == 'ProtocolRunRefusedError'
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == 'ProtocolRunRefusedError'
             ]
-            if raises:
+            if builds:
                 found.append((path.relative_to(REPO_ROOT), node))
     return found
 

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
 from modules.exceptions import ConfigError, ProtocolError, ProtocolRunRefusedError
-from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
@@ -1643,27 +1643,19 @@ class Protocol:
                 f'Z-stack range ({zstack_params["range"]}) and step size '
                 f'({zstack_params["step_size"]}) must both be greater than zero.'
             )
-            # Solicited: a refusal answers something the caller just asked
-            # for, so it must reach the user even while a run is in flight.
-            # Raising alone would drop it exactly then. WARNING rather than
-            # ERROR because a refusal is a designed outcome; the two older
-            # refusal sites still log at ERROR and are their own queue row.
-            logger.warning(f'[Protocol] Build refused (zstack_not_configured): {message}')
-            notifications.warning(
-                'Protocol',
-                title,
-                message,
-                solicited=True,
-                operation_key=REFUSAL_OPERATION_KEY,
-            )
-            # The reason stays a LITERAL here, repeated from the log line
-            # above rather than hoisted into a variable: the refusal
-            # vocabulary is censused by reading this argument out of the
-            # source, and a name in its place makes the code invisible to
-            # that census -- a new reason then ships with no coverage.
-            raise ProtocolRunRefusedError(
+            # The reason stays a LITERAL here rather than hoisted into a
+            # variable: the refusal vocabulary is censused by reading this
+            # argument out of the source, and a name in its place makes the
+            # code invisible to that census -- a new reason then ships with no
+            # coverage.
+            refusal = ProtocolRunRefusedError(
                 reason='zstack_not_configured', title=title, message=message
             )
+            # Solicited: a refusal answers something the caller just asked
+            # for, so it must reach the user even while a run is in flight.
+            # Raising alone would drop it exactly then.
+            notifications.report_outcome(refusal, solicited=True, category='Protocol')
+            raise refusal
 
         # The objective is stamped into every step and sizes a spaced tiling
         # grid; a protocol with neither -- an empty one -- is built with no

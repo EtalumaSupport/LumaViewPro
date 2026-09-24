@@ -29,6 +29,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     ProtocolRunRefusedError,
     RunAlreadyEndedError,
+    RunCheckFailedError,
     RunStartError,
     describe_unknown_positions,
 )
@@ -515,7 +516,6 @@ class SequencedCaptureRunner:
         """
         with self._run_lock:
             if not self._is_run_live():
-                logger.info(f'[{self.LOGGER_NAME}] Stop of a run that has ended: no run is live')
                 raise RunAlreadyEndedError('That run has already ended; no run is live.')
             if not self._is_live_run_locked(run):
                 holder = self._run_trigger_source
@@ -740,34 +740,28 @@ class SequencedCaptureRunner:
         reason: str,
         title: str,
         message: str,
-        severity: str = 'warning',
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ) -> typing.NoReturn:
-        """Log, notify once, and raise the typed refusal.
+        """Report once, and raise, the typed refusal.
 
-        The single funnel every refusal gate routes through, so a refusal
-        is always exactly one log line + one user notification + one typed
-        exception -- callers reconcile their own state without re-notifying.
+        The single funnel every refusal gate routes through. The one
+        reporter logs and shows it -- one WARNING line naming the reason,
+        one warning, answered to whoever asked even during a run -- and the
+        same exception is raised, so a caller that reports it again changes
+        nothing and a caller that reconciles its own state tells no one.
         """
-        logger.error(f'[{self.LOGGER_NAME} ] Run refused ({reason}): {message}')
-        from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+        from modules.notification_center import notifications
 
-        notify = notifications.error if severity == 'error' else notifications.warning
-        notify(
-            'Protocol',
-            title,
-            message,
-            solicited=True,
-            operation_key=REFUSAL_OPERATION_KEY,
-        )
-        raise ProtocolRunRefusedError(
+        refusal = ProtocolRunRefusedError(
             reason=reason,
             title=title,
             message=message,
             holder=holder,
             holder_trigger=holder_trigger,
         )
+        notifications.report_outcome(refusal, solicited=True, category='Protocol')
+        raise refusal
 
     def prepare(
         self,
@@ -951,22 +945,20 @@ class SequencedCaptureRunner:
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
             # list -- e.g. labware loader OS error, missing objectives.json,
-            # pandas exception inside the steps DataFrame. Without a
-            # refusal the run would proceed past validation and hit
-            # hardware mid-run with bad coordinates.
-            logger.error(f'[PROTOCOL] Pre-run validation could not run: {ex}')
-            self._refuse(
+            # pandas exception inside the steps DataFrame. Without this the
+            # run would proceed past validation and hit hardware mid-run with
+            # bad coordinates.
+            raise RunCheckFailedError(
                 reason='validation_crashed',
                 title='Cannot validate protocol',
                 message=(
                     f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
                     f'Check the labware + objectives configuration and try again.'
                 ),
-                severity='error',
-            )
+            ) from ex
         if validation_errors:
             for err in validation_errors:
-                logger.error(f'[PROTOCOL] Validation: {err}')
+                logger.warning(f'[PROTOCOL] Validation: {err}')
             err_summary = '\n'.join(f'  - {err}' for err in validation_errors[:5])
             if len(validation_errors) > 5:
                 err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
@@ -976,7 +968,6 @@ class SequencedCaptureRunner:
                 message=(
                     f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}'
                 ),
-                severity='error',
             )
 
         # A protocol names glass and the turret carries glass; when they
@@ -1010,16 +1001,14 @@ class SequencedCaptureRunner:
         try:
             all_connected = self._scope.are_all_connected()
         except Exception as ex:
-            logger.error(f'[PROTOCOL] Error checking scope connection: {ex}')
-            self._refuse(
+            raise RunCheckFailedError(
                 reason='hardware_state_unknown',
                 title='Cannot verify hardware state',
                 message=(
                     f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
                     f'Reconnect the scope and try again.'
                 ),
-                severity='error',
-            )
+            ) from ex
         if not all_connected:
             self._refuse(
                 reason='hardware_disconnected',
@@ -1027,7 +1016,6 @@ class SequencedCaptureRunner:
                 message=(
                     'Not all hardware components are connected. Check connections and try again.'
                 ),
-                severity='error',
             )
 
         # After the connection gate, so a motorized scope whose board fell
@@ -1054,7 +1042,6 @@ class SequencedCaptureRunner:
                         else 'Home the scope, then start the run.'
                     )
                 ),
-                severity='error',
             )
 
         # The last gate, and the only one about where the run SAVES rather
@@ -1083,7 +1070,6 @@ class SequencedCaptureRunner:
                         'Reconnect the drive or choose an accessible save '
                         'location, then try again.'
                     ),
-                    severity='error',
                 )
 
         # Lightweight copy -- shares read-only loaders, copies only the

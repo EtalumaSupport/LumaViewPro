@@ -544,29 +544,20 @@ class ProtocolsAPI:
         return ', '.join(sorted(map(str, objective_ids)))
 
     def _refuse(self, reason: str, title: str, message: str) -> typing.NoReturn:
-        """Log, notify once, and raise the typed refusal.
+        """Report once, and raise, the typed refusal.
 
         The single funnel this surface's refusals route through, so one
-        refusal is always one log line, one notification and one typed
-        exception. Each caller passes its reason as a LITERAL rather than
-        through a variable: the refusal vocabulary is censused by reading
-        that argument out of the source, and a name in its place makes the
-        refusal invisible to the census, which is how a reason ships with
-        no coverage.
-
-        WARNING, not ERROR: a refusal is a designed outcome, and an error
-        log is where someone goes to find what went wrong.
+        refusal is always one report -- a WARNING line naming the reason and
+        one warning -- and one typed exception. Each caller passes its reason
+        as a LITERAL rather than through a variable: the refusal vocabulary
+        is censused by reading that argument out of the source, and a name
+        in its place makes the refusal invisible to the census, which is how
+        a reason ships with no coverage.
         """
-        from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+        from modules.notification_center import notifications
 
-        _api_log.warning(f'[API] Protocol refused ({reason}): {message}')
+        refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
         # Solicited: a refusal answers something the caller just asked
         # for, so it must reach the user even while a run is in flight.
-        notifications.warning(
-            'Protocol',
-            title,
-            message,
-            solicited=True,
-            operation_key=REFUSAL_OPERATION_KEY,
-        )
-        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+        notifications.report_outcome(refusal, solicited=True, category='Protocol')
+        raise refusal
