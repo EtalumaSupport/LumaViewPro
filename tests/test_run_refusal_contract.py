@@ -341,6 +341,9 @@ class TestHeadlessRefusalDoesNotHang:
             'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
+            # The objective this file's protocols name: a scope with no turret
+            # refuses a protocol for any glass other than the selected one.
+            'objective_id': '10x Oly',
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
@@ -590,6 +593,9 @@ RUNNER_REFUSAL_COVERAGE = {
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
     'objectives_require_turret': (
+        'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
+    ),
+    'objective_not_mounted': (
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
     'validation_failed': _FUNNEL_LOOP,

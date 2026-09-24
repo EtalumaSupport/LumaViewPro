@@ -35,6 +35,9 @@ def _settings(tmp_path, **extra):
     settings = {
         'stage_offset': {'x': 0.0, 'y': 0.0},
         'live_folder': str(tmp_path),
+        # The objective this file's protocols name: a scope with no turret
+        # refuses a protocol for any glass other than the selected one.
+        'objective_id': '10x Oly',
     }
     for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
         settings[layer] = {'autofocus': False}

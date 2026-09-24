@@ -408,9 +408,10 @@ class ProtocolsAPI:
         behind a popup that cannot be dismissed. A scope arriving here
         with every slot empty is one whose slots were CLEARED.
 
-        Without a turret, the objective in the light path is whichever one
-        is mounted and nothing can change it, so a protocol may name only
-        one.
+        Without a turret, the objective in the light path is the one
+        mounted, which is the one selected, and nothing can change it, so a
+        protocol may name only that one. With none selected nothing vouches
+        for the glass, so every objective named is refused.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by loading a protocol or starting a run, both of which
@@ -464,6 +465,26 @@ class ProtocolsAPI:
                     'Use a protocol that names a single objective.'
                 ),
             )
+        else:
+            # The glass is the selected objective, and a protocol for any
+            # other would still run: its images would carry the mounted
+            # objective's scale while autofocus and every post-processed
+            # output took the protocol's.
+            selected = self._scope.runtime_state.get_current_objective_id()
+            if named and named != {selected}:
+                mounted = (
+                    f'this scope has {selected} mounted'
+                    if selected is not None
+                    else 'no objective is selected on this scope'
+                )
+                self._refuse(
+                    reason='objective_not_mounted',
+                    title='Objective Not Mounted',
+                    message=(
+                        f'This protocol was made for {self._render(named)}, and {mounted}.'
+                        '\n\nSelect the mounted objective, or use a protocol made for it.'
+                    ),
+                )
 
     @staticmethod
     def _render(objective_ids: set[object]) -> str:

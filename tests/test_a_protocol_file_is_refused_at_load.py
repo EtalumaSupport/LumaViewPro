@@ -84,6 +84,16 @@ class TestTheLoadRefusesWhatTheRunWouldRefuse:
 
         assert refusal.value.reason == 'objectives_require_turret'
 
+    def test_a_turretless_scope_refuses_a_file_for_other_glass(self, scope, monkeypatch, tmp_path):
+        _turret(scope, monkeypatch, has_turret=False, carries=())
+        monkeypatch.setattr(scope.runtime_state, 'get_current_objective_id', lambda: ON_TURRET)
+        path = _write_protocol(tmp_path, NOT_ON_TURRET)
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            scope.protocols.load_protocol(file_path=path)
+
+        assert refusal.value.reason == 'objective_not_mounted'
+
     def test_an_admissible_file_still_loads(self, scope, monkeypatch, tmp_path):
         _turret(scope, monkeypatch, carries=(ON_TURRET, NOT_ON_TURRET))
         path = _write_protocol(tmp_path, ON_TURRET, NOT_ON_TURRET)

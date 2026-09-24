@@ -13,8 +13,10 @@ ONE rule, asked by every moment that admits a protocol:
 
 - With a turret, an objective is addressable when a slot is assigned to
   it. An unassigned turret addresses NOTHING, so it refuses everything.
-- Without a turret, the objective in the light path is whichever one is
-  mounted, so a protocol may name only one.
+- Without a turret, the objective in the light path is the one mounted,
+  which is the one selected, so a protocol may name only that one. A
+  scope with no objective selected cannot vouch for any glass, so it
+  refuses everything, the way an unassigned turret does.
 
 The unassigned turret refusing a single-objective protocol is the part
 that changed, and it is deliberate. The gate used to exempt that case to
@@ -52,6 +54,7 @@ NOT_ON_TURRET = '20x Oly'
 
 NOT_CARRIED = 'turret_objectives_unassigned'
 NEEDS_TURRET = 'objectives_require_turret'
+NOT_MOUNTED = 'objective_not_mounted'
 
 
 def _protocol(*objectives: str):
@@ -64,8 +67,11 @@ def _protocol(*objectives: str):
     )
 
 
-def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,)):
+def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,), selected=ON_TURRET):
     """Point the scope's turret state at a known set of objectives.
+
+    ``selected`` is the active objective the runtime answers, None when
+    none is known.
 
     ScopeCapabilities is a frozen dataclass, so the capability is swapped
     by replacing the whole record rather than assigning into it -- the
@@ -81,6 +87,7 @@ def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,)):
         'get_turret_config',
         lambda: dict(enumerate(carries, start=1)),
     )
+    monkeypatch.setattr(scope.runtime_state, 'get_current_objective_id', lambda: selected)
 
 
 def _prepare(executor, protocol, tmp_path):
@@ -99,45 +106,50 @@ def _prepare(executor, protocol, tmp_path):
 
 
 # Every cell of the rule: whether the scope has a turret, what the turret
-# carries, what the protocol names, and the answer. None is admitted; a
-# string is the reason code the refusal must carry.
+# carries, the selected objective, what the protocol names, and the answer.
+# None is admitted; a string is the reason code the refusal must carry.
 #
 # Written out rather than computed, because a table that derives its own
 # expectations from the same predicate the code uses cannot disagree with
 # the code, and so pins nothing.
 RULE_TABLE = [
     # A turret with nothing assigned addresses nothing.
-    (True, (), (ON_TURRET,), NOT_CARRIED),
-    (True, (), (NOT_ON_TURRET,), NOT_CARRIED),
-    (True, (), (ON_TURRET, NOT_ON_TURRET), NOT_CARRIED),
+    (True, (), ON_TURRET, (ON_TURRET,), NOT_CARRIED),
+    (True, (), ON_TURRET, (NOT_ON_TURRET,), NOT_CARRIED),
+    (True, (), ON_TURRET, (ON_TURRET, NOT_ON_TURRET), NOT_CARRIED),
     # A turret carrying one objective serves exactly that one.
-    (True, (ON_TURRET,), (ON_TURRET,), None),
-    (True, (ON_TURRET,), (NOT_ON_TURRET,), NOT_CARRIED),
-    (True, (ON_TURRET,), (ON_TURRET, NOT_ON_TURRET), NOT_CARRIED),
+    (True, (ON_TURRET,), ON_TURRET, (ON_TURRET,), None),
+    (True, (ON_TURRET,), ON_TURRET, (NOT_ON_TURRET,), NOT_CARRIED),
+    (True, (ON_TURRET,), ON_TURRET, (ON_TURRET, NOT_ON_TURRET), NOT_CARRIED),
     # A turret carrying both serves any combination of them.
-    (True, (ON_TURRET, NOT_ON_TURRET), (ON_TURRET,), None),
-    (True, (ON_TURRET, NOT_ON_TURRET), (NOT_ON_TURRET,), None),
-    (True, (ON_TURRET, NOT_ON_TURRET), (ON_TURRET, NOT_ON_TURRET), None),
-    # No turret: the mounted objective is whatever it is, so the count is
-    # the only question and the turret's contents never enter it.
-    (False, (), (ON_TURRET,), None),
-    (False, (), (NOT_ON_TURRET,), None),
-    (False, (), (ON_TURRET, NOT_ON_TURRET), NEEDS_TURRET),
-    (False, (ON_TURRET,), (ON_TURRET,), None),
-    (False, (ON_TURRET,), (NOT_ON_TURRET,), None),
-    (False, (ON_TURRET,), (ON_TURRET, NOT_ON_TURRET), NEEDS_TURRET),
-    (False, (ON_TURRET, NOT_ON_TURRET), (ON_TURRET,), None),
-    (False, (ON_TURRET, NOT_ON_TURRET), (NOT_ON_TURRET,), None),
-    (False, (ON_TURRET, NOT_ON_TURRET), (ON_TURRET, NOT_ON_TURRET), NEEDS_TURRET),
+    (True, (ON_TURRET, NOT_ON_TURRET), ON_TURRET, (ON_TURRET,), None),
+    (True, (ON_TURRET, NOT_ON_TURRET), ON_TURRET, (NOT_ON_TURRET,), None),
+    (True, (ON_TURRET, NOT_ON_TURRET), ON_TURRET, (ON_TURRET, NOT_ON_TURRET), None),
+    # The turret decides; the selected objective does not enter it.
+    (True, (ON_TURRET, NOT_ON_TURRET), None, (NOT_ON_TURRET,), None),
+    # No turret: the objective in the light path is the selected one, so a
+    # protocol may name that one only. The turret's contents never enter it.
+    (False, (), ON_TURRET, (ON_TURRET,), None),
+    (False, (), ON_TURRET, (NOT_ON_TURRET,), NOT_MOUNTED),
+    (False, (ON_TURRET, NOT_ON_TURRET), NOT_ON_TURRET, (NOT_ON_TURRET,), None),
+    (False, (ON_TURRET, NOT_ON_TURRET), NOT_ON_TURRET, (ON_TURRET,), NOT_MOUNTED),
+    # No objective selected: nothing vouches for the glass, so nothing is
+    # admitted.
+    (False, (), None, (ON_TURRET,), NOT_MOUNTED),
+    # Two objectives cannot both be the mounted one, whatever is selected.
+    (False, (), ON_TURRET, (ON_TURRET, NOT_ON_TURRET), NEEDS_TURRET),
+    (False, (), None, (ON_TURRET, NOT_ON_TURRET), NEEDS_TURRET),
 ]
 
 
 class TestTheRuleItself:
     """The rule through its owner, with no run and no protocol involved."""
 
-    @pytest.mark.parametrize('has_turret, carries, names, expected', RULE_TABLE)
-    def test_every_cell_of_the_rule(self, scope, monkeypatch, has_turret, carries, names, expected):
-        _turret(scope, monkeypatch, has_turret=has_turret, carries=carries)
+    @pytest.mark.parametrize('has_turret, carries, selected, names, expected', RULE_TABLE)
+    def test_every_cell_of_the_rule(
+        self, scope, monkeypatch, has_turret, carries, selected, names, expected
+    ):
+        _turret(scope, monkeypatch, has_turret=has_turret, carries=carries, selected=selected)
 
         if expected is None:
             scope.protocols.refuse_unaddressable_objectives(names)
@@ -147,7 +159,7 @@ class TestTheRuleItself:
             scope.protocols.refuse_unaddressable_objectives(names)
 
         assert refusal.value.reason == expected, (
-            f'has_turret={has_turret} carries={carries} names={names}: '
+            f'has_turret={has_turret} carries={carries} selected={selected} names={names}: '
             f'expected {expected}, got {refusal.value.reason}'
         )
 
@@ -172,6 +184,31 @@ class TestTheRuleItself:
         assert 'turret' not in refusal.value.message.lower(), (
             f'the message names hardware this scope lacks: {refusal.value.message!r}'
         )
+
+    def test_the_mounted_objective_refusal_names_both_and_no_turret(self, scope, monkeypatch):
+        """The user is told what the protocol wants and what is mounted.
+
+        A turretless scope has no turret screen to be sent to, so the
+        sentence must not mention one.
+        """
+        _turret(scope, monkeypatch, has_turret=False, carries=(), selected=ON_TURRET)
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            scope.protocols.refuse_unaddressable_objectives([NOT_ON_TURRET])
+
+        message = refusal.value.message
+        assert ON_TURRET in message, f'the refusal must say what is mounted: {message!r}'
+        assert NOT_ON_TURRET in message, f'the refusal must say what was asked for: {message!r}'
+        assert 'turret' not in message.lower(), f'names hardware this scope lacks: {message!r}'
+
+    def test_no_selected_objective_is_said_as_that(self, scope, monkeypatch):
+        """None is not an objective id and must not be printed as one."""
+        _turret(scope, monkeypatch, has_turret=False, carries=(), selected=None)
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            scope.protocols.refuse_unaddressable_objectives([ON_TURRET])
+
+        assert 'None' not in refusal.value.message, refusal.value.message
 
     def test_a_refusal_says_what_the_turret_carries(self, scope, monkeypatch):
         """A user told only 'not assigned' has to go and look."""
@@ -276,6 +313,22 @@ class TestTheEngineRefuses:
             _prepare(executor, _protocol(ON_TURRET, NOT_ON_TURRET), tmp_path)
 
         assert refusal.value.reason == NEEDS_TURRET
+
+    def test_a_turretless_run_for_other_glass_is_refused(
+        self, executor, scope, monkeypatch, tmp_path
+    ):
+        """The defect: this run completed and its records disagreed.
+
+        With 10x mounted and a protocol naming 20x, the images carried the
+        10x scale while autofocus ran with the 20x settings and every
+        post-processed output read 20x from the protocol.
+        """
+        _turret(scope, monkeypatch, has_turret=False, carries=(), selected=ON_TURRET)
+
+        with pytest.raises(ProtocolRunRefusedError) as refusal:
+            _prepare(executor, _protocol(NOT_ON_TURRET), tmp_path)
+
+        assert refusal.value.reason == NOT_MOUNTED
 
     def test_a_protocol_whose_objectives_are_all_assigned_runs(
         self, executor, scope, monkeypatch, tmp_path

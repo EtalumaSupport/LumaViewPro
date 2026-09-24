@@ -49,6 +49,9 @@ COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
 def _make_session_settings(tmp_path):
     return {
+        # The objective this file's protocols name: a scope with no turret
+        # refuses a protocol for any glass other than the selected one.
+        'objective_id': '10x Oly',
         'BF': {'autofocus': False},
         'PC': {'autofocus': False},
         'DF': {'autofocus': False},

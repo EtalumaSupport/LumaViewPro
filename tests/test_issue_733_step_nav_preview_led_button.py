@@ -84,6 +84,9 @@ def stepnav_env(monkeypatch):
     scope = SimpleNamespace(
         motion=SimpleNamespace(),
         capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
+        # With no turret the rule admits only the selected objective, so the
+        # stand has the step's glass selected.
+        runtime_state=SimpleNamespace(get_current_objective_id=lambda: 'obj1'),
         motor_connected=False,
         imaging=SimpleNamespace(active_cached=False),
         illumination=SimpleNamespace(
