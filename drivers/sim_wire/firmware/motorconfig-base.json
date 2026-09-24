@@ -1,8 +1,8 @@
 {
-    "Microscope": "",
+    "Microscope": "LS850T",
     "Serial Number": "SIM-0000",
-    "Mainboard": "EL-0940-05 Integrated Mainboard",
-    "HardwareRev": "5",
+    "Mainboard": "EL-0940-01 Integrated Mainboard",
+    "HardwareRev": "2",
     "Manufacture Date": "2026-01-01",
     "OpticsSN": "SIM",
     "IniFiles": {
@@ -15,10 +15,10 @@
         "IniFiles": 1
     },
     "Axis Present": {
-        "X": 0,
-        "Y": 0,
-        "Z": 0,
-        "T": 0
+        "X": 1,
+        "Y": 1,
+        "Z": 1,
+        "T": 1
     },
     "Axis Offset": {
         "X": 10078,
@@ -29,7 +29,7 @@
     "Axis Microsteps per mm / Objective": {
         "X": 20157,
         "Y": 20157,
-        "Z": 80630,
+        "Z": 170666,
         "T": 80000
     },
     "Axis Timeout": {
@@ -54,21 +54,16 @@
     "Initial Position after home": {
         "X": 1221838,
         "Y": 818342,
-        "Z": 322520
+        "Z": 682666
     },
     "Fan Behavior": {
-        "Present": 1,
         "Startup": 1,
         "Speed": 1,
         "InvertedPower": 1
     },
-    "Fan PWM Behavior": {
-        "Present": 1,
-        "Startup": 50
-    },
     "ImageCenter": {
-        "X": 37,
-        "Y": -42
+        "X": 0,
+        "Y": 0
     },
     "Axis antibacklash": {
         "X": 0,
@@ -83,7 +78,7 @@
         "4": 240000
     },
     "Optics": {
-        "LensFocalLength": 47.97,
+        "LensFocalLength": 47.8,
         "PixelSize": 2.0
     }
 }
