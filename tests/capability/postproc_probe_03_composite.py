@@ -33,6 +33,10 @@ def main() -> int:
             positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
         )
         print('run outcome:', outcome)
+        # The outcome answers before the run's files drain, so under load
+        # the composite below can read a record still missing a row. Say
+        # which state it read, so a failure names its cause.
+        print('files still draining when the outcome answered:', session.protocol_files_draining)
         print('folder:', folder)
         if folder is None:
             print('PROBE RESULT: no run folder produced')
@@ -54,6 +58,12 @@ def main() -> int:
         )
         print('composite result:', result)
         print('folder after:', sorted(str(p.relative_to(folder)) for p in folder.rglob('*.tif*')))
+        if not result.get('status'):
+            # Composite groups by the run's record, not by the files on
+            # disk: the rows it read are the evidence for a failed merge.
+            print('files still draining at the merge:', session.protocol_files_draining)
+            print('protocol_record.tsv:')
+            print((folder / 'protocol_record.tsv').read_text())
         print('PROBE RESULT:', 'SUCCESS' if result.get('status') else 'FAIL')
         return 0 if result.get('status') else 1
 
