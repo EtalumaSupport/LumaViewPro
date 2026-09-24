@@ -25,6 +25,86 @@ from modules.exceptions import (
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
 
+def run_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
+) -> None:
+    """Run an API call a person asked for, here, and report its outcome; then redraw.
+
+    The one place in the GUI where an API call's exception is caught. The
+    exception is the API's answer, and the reporter shows it as its type says
+    -- a refusal as a warning under its own title, a fault as an error -- so
+    no widget writes its own popup or decides what an outcome means. The
+    redraw then shows the scope's state read back from the API, whatever the
+    call did; a widget changes nothing ahead of that answer.
+
+    For members that do not wait on a lane: the call runs on this thread,
+    before the next thing this thread does, so a continuation that reads what
+    the call applied sees it. A member that waits on a lane raises here, by
+    name, instead of freezing the window; it goes through submit_reported.
+
+    Args:
+        call: The API call, closed over any value a widget holds. Its return
+            is ignored: nothing in the GUI branches on it.
+        redraw: Shows the API's state, or None when the call's own callback
+            already does.
+        label: The gesture's interaction-log label; the outcome's category.
+    """
+    from modules.sequential_io_executor import inline_outcome
+
+    with inline_outcome():
+        _reported(call, label)
+    _reported(redraw, label)
+
+
+def submit_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
+) -> None:
+    """Run an API call that may block on the worker pool and report its outcome; then redraw.
+
+    run_reported's twin for members that wait on a lane (hardware, a lane's
+    answer): the call runs on the GUI's worker pool -- one worker, so a
+    person's actions run in the order they were made, and a Stop submitted
+    at high priority goes first -- and the redraw is scheduled back onto the
+    GUI thread afterwards, whatever the outcome. The call reads no widget and
+    touches nothing in the GUI: any value a widget holds is read before this
+    is called and closed over.
+
+    A pool that is not taking work (closing down) still gets its redraw; the
+    pool's own narration is the record of the dropped call.
+    """
+    from modules.sequential_io_executor import ENQUEUED, PRIORITY_MED, IOTask
+
+    def _on_the_pool():
+        _reported(call, label)
+        _schedule_ui(lambda dt: _reported(redraw, label))
+
+    queued = _app_ctx.ctx.worker_pool.put(IOTask(action=_on_the_pool, priority=PRIORITY_MED))
+    if queued is not ENQUEUED:
+        _schedule_ui(lambda dt: _reported(redraw, label))
+
+
+def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
+    """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
+
+    The reporting core both boundary forms share: the only place in the GUI
+    that catches an API call's exception. A redraw goes through it too, so a
+    widget that fails to draw is reported as a fault rather than exiting the
+    app from a clock callback.
+    """
+    if fn is None:
+        return
+    from modules.notification_center import notifications
+
+    try:
+        fn()
+    except Exception as e:
+        notifications.report_outcome(e, solicited=True, category=f'UI:{label}')
+
+
 def run_with_refusal_boundary(
     start_fn: typing.Callable[[], None],
     on_refused: typing.Callable[[], None],
@@ -312,14 +392,6 @@ def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, the
     except AxisStateUnknownError:
         return True
     return False
-
-
-def show_jog_refusal(label: str, error: Exception) -> None:
-    """Display a jog the API refused, and why (e.g. home the turret)."""
-    from modules.notification_center import notifications
-
-    logger.warning(f'[Motion] {label} refused: {error}')
-    notifications.warning('Motion', 'Jog refused', str(error))
 
 
 def move_relative(

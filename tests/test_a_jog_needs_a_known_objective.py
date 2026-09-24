@@ -78,6 +78,8 @@ def test_the_buttons_ask_the_api_and_show_its_refusal(rel_path, class_name, meth
         for node in ast.walk(fn)
         if isinstance(node, ast.Call)
     }
+    # The step and the move go to the API together, through the one GUI
+    # boundary that shows the API's refusal as it is typed.
     assert 'jog_step' in calls
-    assert 'show_jog_refusal' in calls
+    assert 'run_reported' in calls
     assert 'get_current_objective_info' not in calls

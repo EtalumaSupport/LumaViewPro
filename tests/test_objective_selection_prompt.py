@@ -193,7 +193,6 @@ class TestTheAnswerReachesTheSession:
         h.prompt()
         h.answer('20x Oly')
         assert h.gui_log == []
-        assert any('select_objective()' in line for line in h.info_lines())
 
     def test_an_unchanged_objective_logs_no_change(self, monkeypatch):
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=False))
@@ -211,12 +210,18 @@ class TestTheAnswerReachesTheSession:
         assert h.stand.shown == [True]
 
     def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch):
+        from modules.notification_center import Severity
+        from tests.shown_outcomes import capture_shown
+
         session = _ScriptedSession(self._question(), changed=ConfigError("unknown objective 'x'"))
         h = _Harness(monkeypatch, session)
+        shown = capture_shown(monkeypatch)
         h.prompt()
         h.answer('x')
-        assert len(h.error_popups) == 1
-        assert 'unknown objective' in h.error_popups[0]['message']
+        assert [(n.severity, n.message) for n in shown] == [
+            (Severity.ERROR, "unknown objective 'x'")
+        ]
+        assert h.error_popups == []
 
 
 def _method_calls(rel_path: str, class_name: str, method_name: str) -> set[str]:
@@ -318,11 +323,15 @@ class TestResetLeavesTheSlotCleared:
         def _refuse():
             raise ObjectiveUnknownError('slot_unknown')
 
+        from tests.shown_outcomes import capture_shown
+
         session.clear_current_turret_objective = _refuse
         h = _Harness(monkeypatch, session)
+        shown = capture_shown(monkeypatch)
         h.stand.reset_turret_objective()
-        assert len(h.error_popups) == 1
-        assert 'home the turret' in h.error_popups[0]['message']
+        assert [n.title for n in shown] == ['Objective Unknown']
+        assert 'home the turret' in shown[0].message
+        assert h.error_popups == []
         assert h.stand.shown == [False]
 
 

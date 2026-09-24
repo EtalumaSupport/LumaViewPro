@@ -10,14 +10,13 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
-from modules.exceptions import ObjectiveUnknownError
 from modules.sequential_io_executor import IOTask
 from ui.image_settings import AccordionItemXyStageControl
 from ui.ui_helpers import (
     move_absolute,
     move_home,
     move_relative,
-    show_jog_refusal,
+    run_reported,
     unknown_position_refused,
 )
 
@@ -445,12 +444,11 @@ class XYStageControl(BoxLayout):
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
-        try:
-            step = ctx.scope.motion.jog_step(axis, coarse)
-        except ObjectiveUnknownError as e:
-            show_jog_refusal(label, e)
-            return
-        move_relative(axis, direction * step)
+        run_reported(
+            lambda: move_relative(axis, direction * ctx.scope.motion.jog_step(axis, coarse)),
+            redraw=None,
+            label=label,
+        )
 
     @debounce(0.2)
     def fine_left(self):

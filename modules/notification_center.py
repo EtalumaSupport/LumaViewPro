@@ -23,12 +23,39 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+from drivers.exceptions import HardwareError
 from lib import profile_trace
+from modules.exceptions import (
+    CaptureError,
+    ConfigError,
+    MoveNotCompletedError,
+    ProtocolError,
+    Quiet,
+    Refusal,
+)
 
 logger = logging.getLogger('LVP.notifications')
+# The reporter's own record -- what happened, with the traceback when it
+# is a fault -- kept apart from the display line notify() writes, so the
+# two are never read as one event twice.
+_outcome_logger = logging.getLogger('LVP.outcomes')
+
+# Faults whose message is written for the person. Any other exception's
+# str() is a developer's words -- a Python class name, a repr -- so the
+# person reads a generic sentence and the log carries the rest.
+_TYPED_FAULTS = (CaptureError, ProtocolError, ConfigError, HardwareError, MoveNotCompletedError)
+
+_UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
+
+# Set on an exception object once each half of its report is done, so the
+# same object reported again -- by the lane that raised it and then by the
+# caller that waited on it -- is logged once and shown at most once.
+_LOGGED_MARK = '_lvp_outcome_logged'
+_SHOWN_MARK = '_lvp_outcome_shown'
 
 
 class Severity(IntEnum):
@@ -269,6 +296,81 @@ class NotificationCenter:
                     cb(n)
                 except Exception as ex:
                     logger.debug(f'notification listener error: {ex}')
+
+    def report_outcome(
+        self,
+        exception: BaseException,
+        *,
+        solicited: bool,
+        category: str,
+        log_only: bool = False,
+        fault_title: str = 'Operation failed',
+    ) -> None:
+        """Log an outcome once and show it at most once, as its type says.
+
+        The one place an exception that ended its flight becomes a log record
+        and a notification. What it is -- a refusal (``Refusal``), a quiet
+        outcome (``Quiet``, or a by-contract cancel) or a fault (anything
+        else) -- and the words, title and level all come from the exception's
+        type; the caller says only whether a person just asked (``solicited``),
+        which ``category`` it belongs to, and, with ``log_only``, that no one
+        is to be shown it.
+
+        A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
+        a refusal that is not shown at WARNING, with no traceback. A shown
+        outcome's display line is ``notify()``'s own, so a shown refusal is one
+        WARNING line and a shown fault is its traceback line and that one. A
+        refusal is shown as a warning under its ``title``; a fault as an error,
+        in its own words when its type writes them for a person and in a
+        generic sentence when it does not, under its ``title`` or
+        ``fault_title``. A quiet outcome is never shown.
+
+        Each half happens once per exception object, whoever reports it and
+        from whichever thread.
+        """
+        refusal = isinstance(exception, Refusal)
+        quiet = isinstance(exception, (Quiet, CancelledError))
+        # Check-and-mark only: notify() takes this same lock, so logging and
+        # notifying happen after it is released.
+        with self._lock:
+            do_log = not getattr(exception, _LOGGED_MARK, False)
+            do_show = not log_only and not quiet and not getattr(exception, _SHOWN_MARK, False)
+            if do_log:
+                setattr(exception, _LOGGED_MARK, True)
+            if do_show:
+                setattr(exception, _SHOWN_MARK, True)
+
+        kind = type(exception).__name__
+        if do_log:
+            if quiet:
+                _outcome_logger.info(f'[{category}] {kind}: {exception}')
+            elif refusal:
+                if not do_show:
+                    reason = getattr(exception, 'reason', None)
+                    because = f', {reason}' if reason else ''
+                    _outcome_logger.warning(f'[{category}] refused ({kind}{because}): {exception}')
+            else:
+                _outcome_logger.error(
+                    f'[{category}] raised {kind}: {exception}', exc_info=exception
+                )
+        if not do_show:
+            return
+        if refusal:
+            self.warning(
+                category,
+                exception.title,
+                str(exception),
+                solicited=solicited,
+                operation_key=REFUSAL_OPERATION_KEY,
+            )
+            return
+        body = (
+            str(exception)
+            if isinstance(exception, _TYPED_FAULTS) and str(exception)
+            else _UNTYPED_FAULT_BODY
+        )
+        title = getattr(exception, 'title', None) or fault_title
+        self.error(category, title, body, solicited=solicited)
 
     # Convenience methods
     def debug(self, category: str, title: str, message: str, **kw) -> None:

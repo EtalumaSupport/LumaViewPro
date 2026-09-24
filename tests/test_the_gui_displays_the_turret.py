@@ -182,10 +182,14 @@ class TestAPickReachesTheSessionOnce:
         assert stand.ids['objective_spinner2'].text == '20x Oly'
         assert _down(stand) == [3]
 
-    def test_a_pick_at_an_unknown_slot_is_refused_and_shown(self, stand, session):
+    def test_a_pick_at_an_unknown_slot_is_refused_and_shown(self, stand, session, monkeypatch):
+        from tests.shown_outcomes import capture_shown
+
+        shown = capture_shown(monkeypatch)
         stand.pick_objective('20x Oly')
-        assert len(stand.popups) == 1
-        assert 'home the turret' in stand.popups[0]['message']
+        assert [n.title for n in shown] == ['Objective Unknown']
+        assert 'home the turret' in shown[0].message
+        assert stand.popups == []
         assert stand.ids['objective_spinner2'].text == 'Unknown'
         assert session.settings['turret_objectives'][3] is None
 

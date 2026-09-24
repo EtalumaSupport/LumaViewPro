@@ -27,14 +27,17 @@ from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
 from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
+# Each case builds its refusal fresh, as a press does: an outcome is logged
+# once and shown at most once per exception object, so one object shared by
+# every test would be spent by the first that reported it.
 REFUSALS = [
     pytest.param(
-        AxisStateUnknownError({'Y': 'unknown'}),
+        lambda: AxisStateUnknownError({'Y': 'unknown'}),
         'Scope Not Homed',
         id='unknown_position',
     ),
     pytest.param(
-        PositionOutOfRangeError('X', 90000.0, 0.0, 80000.0),
+        lambda: PositionOutOfRangeError('X', 90000.0, 0.0, 80000.0),
         'Position Out of Range',
         id='outside_travel',
     ),
@@ -95,27 +98,28 @@ def _task_records(caplog, action='_move_absolute_impl'):
     return [r for r in caplog.records if action in r.getMessage() and r.name != FORENSIC_LOGGER]
 
 
-@pytest.mark.parametrize(('error', 'title'), REFUSALS)
+@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
 class TestAFireAndForgetRefusal:
-    def test_is_shown_once_as_a_warning_under_its_own_title_in_its_own_words(self, error, title):
+    def test_is_shown_once_as_a_warning_under_its_own_title_in_its_own_words(
+        self, make_error, title
+    ):
+        error = make_error()
         shown = _run_on_the_lane(_move_absolute_impl, error)
 
         assert [(n.severity, n.title, n.message) for n in shown] == [
             (Severity.WARNING, title, str(error))
         ]
 
-    def test_is_logged_as_a_warning_with_no_traceback(self, error, title, caplog):
+    def test_is_logged_as_a_warning_with_no_traceback(self, make_error, title, caplog):
         with caplog.at_level(logging.DEBUG):
-            _run_on_the_lane(_move_absolute_impl, error)
+            _run_on_the_lane(_move_absolute_impl, make_error())
 
+        # A shown refusal's record is the notification's own line, which
+        # names the action in its category: one WARNING, no traceback.
         records = _task_records(caplog)
-        assert records, 'the refusal left no log line'
-        assert all(r.levelno == logging.WARNING for r in records), [
-            (r.levelname, r.getMessage()) for r in records
+        assert [(r.levelno, bool(r.exc_info)) for r in records] == [(logging.WARNING, False)], [
+            (r.name, r.levelname, r.getMessage()) for r in records
         ]
-        assert not any(r.exc_info for r in records), 'a refusal was logged with a traceback'
-        raised = [r for r in records if r.name != 'LVP.notifications']
-        assert len(raised) == 1, 'one line where it was raised, naming the action'
 
 
 @pytest.fixture
@@ -130,10 +134,11 @@ def scope():
         session.shutdown()
 
 
-@pytest.mark.parametrize(('error', 'title'), REFUSALS)
+@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
 def test_a_waited_refusal_reaches_its_caller_and_is_logged_once_without_a_traceback(
-    scope, caplog, error, title
+    scope, caplog, make_error, title
 ):
+    error = make_error()
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(type(error)):
             scope.motion._dispatch_motion(
@@ -141,27 +146,30 @@ def test_a_waited_refusal_reaches_its_caller_and_is_logged_once_without_a_traceb
             )
         scope._io_executor.put(IOTask(action=lambda: None), return_future=True).result(timeout=5.0)
 
-    records = _task_records(caplog)
-    assert [r.levelno for r in records] == [logging.WARNING]
-    assert not records[0].exc_info
+    # The refusal is its waiter's: the raise reaches the caller, and the
+    # caller -- here the test -- is where it is reported. The lane logs
+    # nothing for it, so it is never logged twice.
+    assert _task_records(caplog) == []
 
 
-@pytest.mark.parametrize(('error', 'title'), REFUSALS)
-def test_a_refusal_with_no_executor_still_leaves_one_line(scope, caplog, monkeypatch, error, title):
+@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
+def test_a_refusal_with_no_executor_still_leaves_one_line(
+    scope, caplog, monkeypatch, make_error, title
+):
     # A script on a bare scope runs the task on its own thread and nothing
-    # posts a notification, so the line where it was raised is the record.
+    # posts a notification: the raise it receives is the record.
     monkeypatch.setattr(scope, '_io_executor', None)
+    error = make_error()
 
-    with caplog.at_level(logging.DEBUG), pytest.raises(type(error)):
+    with caplog.at_level(logging.DEBUG), pytest.raises(type(error)) as raised:
         scope.motion._submit_motion(_move_absolute_impl, 'move_absolute', kwargs={'error': error})
 
-    records = _task_records(caplog)
-    assert [r.levelno for r in records] == [logging.WARNING]
-    assert not records[0].exc_info
+    assert raised.value is error
+    assert _task_records(caplog) == []
 
 
-@pytest.mark.parametrize(('error', 'title'), REFUSALS)
-def test_every_refused_press_is_shown_however_soon_it_repeats(error, title):
+@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
+def test_every_refused_press_is_shown_however_soon_it_repeats(make_error, title):
     """Eric, 2026-09-23: *"i do not want a 10 second filter on user buttons.
     Every time you try to go out of range, you should get the dialog."*
     A task outside a run was asked for by someone, so its refusal is an
@@ -169,20 +177,20 @@ def test_every_refused_press_is_shown_however_soon_it_repeats(error, title):
     centre, shown = _watched_centre()
 
     for _ in range(3):
-        _run_task(centre, _move_absolute_impl, error)
+        _run_task(centre, _move_absolute_impl, make_error())
 
     assert [n.title for n in shown] == [title, title, title]
     # Each replaces the last refusal popup rather than stacking on it.
     assert {n.operation_key for n in shown} == {REFUSAL_OPERATION_KEY}
 
 
-@pytest.mark.parametrize(('error', 'title'), REFUSALS)
-def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(error, title):
+@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
+def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(make_error, title):
     # Mid-run only a fatal error may pop up; the run owns its refusals.
     centre, shown = _watched_centre()
     centre.set_unattended_run(True)
 
-    _run_task(centre, _move_absolute_impl, error, protocol=True)
+    _run_task(centre, _move_absolute_impl, make_error(), protocol=True)
 
     assert shown == []
 

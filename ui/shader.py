@@ -11,7 +11,6 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
-from modules.exceptions import ObjectiveUnknownError
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -117,7 +116,9 @@ void main (void) {
         Window.bind(mouse_pos=self._on_mouse_pos)
 
         # Scroll-to-focus: accumulate scroll ticks and debounce into single move
-        self._scroll_z_pending = 0.0  # Accumulated Z delta (um)
+        # The last tick's (signed speed factor, coarse), or None: the step
+        # itself is asked for when the debounced move fires.
+        self._scroll_z_pending = None
         self._scroll_z_trigger = Clock.create_trigger(self._flush_scroll_z, 0.05)
         self._scroll_last_time = 0.0  # monotonic time of last scroll event
         self._scroll_inertia_window = 0.15  # seconds -- scrolls faster than this get multiplied
@@ -147,15 +148,12 @@ void main (void) {
                 if ctx.session.controls_locked:
                     return
 
-                # The step scales with the objective, so an unknown one
-                # refuses, visibly, exactly as the jog buttons do.
-                try:
-                    step_um = ctx.scope.motion.jog_step('Z', coarse='shift' in Window.modifiers)
-                except ObjectiveUnknownError as e:
-                    from ui.ui_helpers import show_jog_refusal
-
-                    show_jog_refusal('SCROLL_TO_FOCUS', e)
-                    return
+                # The tick records only the gesture: its direction, how fast
+                # it came, and whether shift made it coarse. The step scales
+                # with the objective, so it is asked for once, when the
+                # debounced move fires -- where an unknown objective refuses,
+                # visibly, exactly as the jog buttons do.
+                coarse = 'shift' in Window.modifiers
 
                 # Inertial scaling: faster scrolling = larger steps
                 now = time.monotonic()
@@ -175,11 +173,10 @@ void main (void) {
                 # when the user stops -- fast scrolling still produces a bigger
                 # move per tick (via speed_factor) but no leftover motion after
                 # the user stops, and sign flips become immediate.
-                delta = step_um * speed_factor
                 if touch.button == 'scrolldown':
-                    self._scroll_z_pending = delta
+                    self._scroll_z_pending = (speed_factor, coarse)
                 elif touch.button == 'scrollup':
-                    self._scroll_z_pending = -delta
+                    self._scroll_z_pending = (-speed_factor, coarse)
 
                 # Reset the debounce trigger -- fires 50ms after last scroll event
                 self._scroll_z_trigger()
@@ -207,16 +204,22 @@ void main (void) {
             super().on_touch_down(touch)
 
     def _flush_scroll_z(self, dt):
-        """Debounced scroll-to-focus: send one accumulated Z move."""
-        from ui.ui_helpers import move_relative
+        """Debounced scroll-to-focus: send the last tick's Z move."""
+        from ui.ui_helpers import move_relative, run_reported
 
-        delta = self._scroll_z_pending
-        self._scroll_z_pending = 0.0
-
-        if delta == 0.0:
+        pending = self._scroll_z_pending
+        self._scroll_z_pending = None
+        if pending is None:
             return
-
-        move_relative('Z', delta, overshoot_enabled=False)
+        factor, coarse = pending
+        scope = _app_ctx.ctx.scope
+        run_reported(
+            lambda: move_relative(
+                'Z', factor * scope.motion.jog_step('Z', coarse=coarse), overshoot_enabled=False
+            ),
+            redraw=None,
+            label='SCROLL_TO_FOCUS',
+        )
 
     def _on_mouse_pos(self, window, pos):
         """Convert window mouse position to image pixel coordinates."""

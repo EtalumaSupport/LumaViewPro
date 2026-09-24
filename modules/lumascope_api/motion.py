@@ -44,7 +44,7 @@ from modules.exceptions import (
     PositionOutOfRangeError,
 )
 from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
-from modules.sequential_io_executor import IOTask, slow_task_budget
+from modules.sequential_io_executor import IOTask, refuse_blocking_inline, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
 # class-body time and cannot reach a class attribute defined further down.
@@ -538,6 +538,8 @@ class MotionAPI:
             if exception is not None:
                 raise exception
             return result
+        if wait_timeout is not None:
+            refuse_blocking_inline(name)
         waiter = ex.put(task, return_future=True)
         if waiter is None:
             logger.warning(

@@ -18,7 +18,6 @@ from modules.config_ui_getters import (
     get_selected_labware,
 )
 from modules.debounce import debounce
-from modules.exceptions import ObjectiveUnknownError
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import PRIORITY_HIGH, IOTask
@@ -33,8 +32,8 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     reset_with_refusal_boundary,
+    run_reported,
     run_with_refusal_boundary,
-    show_jog_refusal,
     unknown_position_refused,
 )
 
@@ -159,12 +158,15 @@ class VerticalControl(BoxLayout):
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
-        try:
-            step = ctx.scope.motion.jog_step('Z', coarse)
-        except ObjectiveUnknownError as e:
-            show_jog_refusal(label, e)
-            return
-        move_relative('Z', direction * step, overshoot_enabled=overshoot_enabled)
+        run_reported(
+            lambda: move_relative(
+                'Z',
+                direction * ctx.scope.motion.jog_step('Z', coarse),
+                overshoot_enabled=overshoot_enabled,
+            ),
+            redraw=None,
+            label=label,
+        )
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -301,15 +303,11 @@ class VerticalControl(BoxLayout):
         a refused pick never stays on screen as if it had been taken.
         """
         gui_logger.select('OBJECTIVE', objective_id)
-        try:
-            if _app_ctx.ctx.session.select_objective(objective_id):
-                logger.info('[LVP Main  ] VerticalControl.pick_objective()')
-        except Exception as e:
-            logger.error(f'[UI] objective pick refused: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Objective not set', message=str(e))
-        self.show_turret_state(prompt=False)
+        run_reported(
+            lambda: _app_ctx.ctx.session.select_objective(objective_id),
+            redraw=lambda: self.show_turret_state(prompt=False),
+            label='OBJECTIVE',
+        )
 
     def show_turret_state(self, prompt=True):
         """Show what the API says: the turret slot in the light path, each
@@ -644,14 +642,11 @@ class VerticalControl(BoxLayout):
         API either way.
         """
         gui_logger.button('RESET_TURRET_OBJECTIVE')
-        try:
-            _app_ctx.ctx.session.clear_current_turret_objective()
-        except Exception as e:
-            logger.error(f'[UI] turret objective reset refused: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Objective not reset', message=str(e))
-        self.show_turret_state(prompt=False)
+        run_reported(
+            _app_ctx.ctx.session.clear_current_turret_objective,
+            redraw=lambda: self.show_turret_state(prompt=False),
+            label='RESET_TURRET_OBJECTIVE',
+        )
 
         # No prompt follows, deliberately. The press IS the user saying
         # this slot is empty, and the objective prompt has no cancel
@@ -745,23 +740,24 @@ class VerticalControl(BoxLayout):
 
     def _apply_objective_answer(self, chosen, turret_position, on_resolved=None):
         """Hand the answer to the Session and render what it did."""
-        try:
-            if _app_ctx.ctx.session.confirm_objective(chosen, turret_position=turret_position):
-                logger.info('[LVP Main  ] VerticalControl.select_objective()')
-            # Asks again only if the objective is still unknown -- the
-            # turret moved to an unassigned slot while this question was on
-            # screen -- and then about that slot, not this one.
-            self.show_turret_state()
-        except Exception as e:
-            logger.error(f'[UI] objective answer failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
-        finally:
-            # Whatever the rendering above did, the objective question is
-            # answered and the Session has it. A startup step waiting on
-            # that must not be stranded by a widget write that failed.
-            self._resolve_objective(on_resolved)
+        def _redraw():
+            try:
+                # Asks again only if the objective is still unknown -- the
+                # turret moved to an unassigned slot while this question was
+                # on screen -- and then about that slot, not this one.
+                self.show_turret_state()
+            finally:
+                # Whatever the rendering above did, the objective question
+                # is answered and the Session has it. A startup step waiting
+                # on that must not be stranded by a widget write that failed.
+                self._resolve_objective(on_resolved)
+
+        run_reported(
+            lambda: _app_ctx.ctx.session.confirm_objective(chosen, turret_position=turret_position),
+            redraw=_redraw,
+            label='OBJECTIVE_ANSWER',
+        )
 
     @debounce(0.5)
     def turret_gesture(self, selected_position):
