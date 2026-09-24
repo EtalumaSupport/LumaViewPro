@@ -62,12 +62,30 @@ class HeldClaim:
 
 class _Borrowing:
     """What a borrower holds: it acts under the lender's claim, and its
-    release leaves that claim held -- the lender releases at its own end."""
+    release leaves that claim held -- the lender releases at its own end.
 
-    __slots__ = ()
+    It answers the rest of a held claim's questions from its lender, so work
+    that runs under it (a run inside a diagnostic, and a recording inside
+    that run) needs no branch on whether it borrowed: it holds while the
+    lender holds, and what it lends on is the lender's claim.
+    """
+
+    __slots__ = ('_lender',)
+
+    def __init__(self, lender: HeldClaim) -> None:
+        self._lender = lender
+
+    @property
+    def holds(self) -> bool:
+        """Whether the lender's taking still holds the claim."""
+        return self._lender.holds
 
     def release(self) -> None:
         return None
+
+    def lend(self) -> 'BorrowedClaim':
+        """Lend the lender's claim onward to work nested inside this one."""
+        return self._lender.lend()
 
 
 class BorrowedClaim:
@@ -89,11 +107,29 @@ class BorrowedClaim:
         """The claim's current holder, as ActivityClaim.holder answers it."""
         return self._lender._claim.holder
 
+    @property
+    def blocking_holder(self) -> 'ActivityHolder | None':
+        """The holder that would refuse a taking through this borrow.
+
+        None while the lender holds: the lender is the activity this work
+        runs inside, not one in its way. Once the lender has released, the
+        claim's current holder, whoever took it since.
+        """
+        if self._lender.holds:
+            return None
+        return self.holder
+
     def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
         """Act under the lender's claim; None once the lender no longer holds it."""
         if not self._lender.holds:
             return None
-        return _Borrowing()
+        return _Borrowing(self._lender)
+
+
+# What a taker holds: its own taking, or a borrowing of someone else's.
+# Both answer ``holds``, ``release`` and ``lend`` the same way, so the work
+# they cover is written once for either.
+Taking = HeldClaim | _Borrowing
 
 
 class ActivityClaim:
@@ -128,6 +164,15 @@ class ActivityClaim:
 
         One attribute read of an immutable object, so every read stays
         lock-free and a reader cannot see a half-written holder.
+        """
+        return self._holder
+
+    @property
+    def blocking_holder(self) -> ActivityHolder | None:
+        """The holder that would refuse a taking: the current holder.
+
+        The same question BorrowedClaim answers, so a caller that may hold
+        either asks it once without knowing which it holds.
         """
         return self._holder
 

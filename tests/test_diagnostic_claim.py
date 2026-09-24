@@ -148,3 +148,79 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
             assert excinfo.value.holder_trigger == 'scan'
         finally:
             run.release()
+
+
+class TestALentClaim:
+    """Work inside a diagnostic acts under its claim and cannot end it."""
+
+    def test_a_borrowing_holds_while_its_lender_holds(self):
+        from modules.activity_claim import ActivityClaim
+
+        claim = ActivityClaim()
+        held = claim.try_claim('diagnostic')
+        borrowing = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+        assert borrowing.holds
+        borrowing.release()
+        assert held.holds, "a borrowing's release must leave the lender's claim held"
+        held.release()
+        assert not borrowing.holds, 'a borrowing outlived the claim it borrowed'
+
+    def test_a_borrowing_lends_onward_under_the_same_lender(self):
+        """A run inside a diagnostic lends its claim to its own recordings."""
+        from modules.activity_claim import ActivityClaim
+
+        claim = ActivityClaim()
+        held = claim.try_claim('diagnostic')
+        run_taking = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+        recording_taking = run_taking.lend().try_claim('recording')
+        assert recording_taking is not None and recording_taking.holds
+        recording_taking.release()
+        run_taking.release()
+        assert claim.owner == 'diagnostic'
+        held.release()
+
+    def test_the_lender_is_not_in_its_own_borrowers_way(self):
+        from modules.activity_claim import ActivityClaim
+
+        claim = ActivityClaim()
+        held = claim.try_claim('diagnostic')
+        borrow = held.lend()
+        assert claim.blocking_holder.kind == 'diagnostic'
+        assert borrow.blocking_holder is None
+        held.release()
+        later = claim.try_claim('recording')
+        assert borrow.blocking_holder.kind == 'recording', (
+            "once the lender released, whoever took the claim since is in the borrow's way"
+        )
+        assert borrow.try_claim('protocol') is None
+        later.release()
+
+
+class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
+    def test_a_run_still_live_past_the_wait_keeps_the_claim_and_raises(self, monkeypatch):
+        session = _make_session()
+        monkeypatch.setattr(
+            session.sequenced_capture_runner, 'wait_for_run_idle', lambda timeout_s: False
+        )
+        with (
+            pytest.raises(RuntimeError, match='still live'),
+            session.diagnostic_claim(),
+        ):
+            pass
+        assert session.exclusive_activity == 'diagnostic', (
+            'the claim was released underneath a run still acting under it'
+        )
+
+    def test_it_waits_for_the_run_before_it_releases(self, monkeypatch):
+        session = _make_session()
+        order = []
+
+        def _wait(timeout_s):
+            order.append(('wait', session.exclusive_activity))
+            return True
+
+        monkeypatch.setattr(session.sequenced_capture_runner, 'wait_for_run_idle', _wait)
+        with session.diagnostic_claim():
+            pass
+        assert order == [('wait', 'diagnostic')], order
+        assert session.exclusive_activity is None

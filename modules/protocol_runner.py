@@ -29,6 +29,7 @@ import pathlib
 import typing
 
 import modules.image_mode as image_mode_module
+from modules.activity_claim import HeldClaim
 from modules.exceptions import CaptureError, ConfigError
 from modules.protocol import Protocol
 from modules.run_outcome import PendingRunOutcome, RunOutcome
@@ -282,6 +283,7 @@ class ProtocolRunner:
         sequence_name: str = 'autofocus',
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
+        claim: HeldClaim | None = None,
     ) -> PendingRunOutcome:
         """Autofocus once on *layer*, at the current stage position.
 
@@ -317,6 +319,12 @@ class ProtocolRunner:
                 'Autofocus Characterization' under the live folder, where
                 the button already puts it.
             callbacks: Optional dict of callback functions.
+            claim: A claim the caller holds -- the one
+                ``session.diagnostic_claim()`` yields -- to run under
+                instead of taking the scope. The run acts inside the
+                caller's activity and cannot release its claim; it is
+                refused if that claim no longer holds. None takes the scope
+                for this run alone.
 
         Returns:
             The run's outcome, to wait on or to ignore.
@@ -374,6 +382,7 @@ class ProtocolRunner:
             leds_state_at_end='return_to_original',
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
+            claim=claim,
         )
 
     def run_zstack(
@@ -562,6 +571,7 @@ class ProtocolRunner:
         engineering_mode: bool | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
+        claim: HeldClaim | None = None,
     ) -> PendingRunOutcome:
         """Internal: configure and launch the sequenced capture executor.
 
@@ -647,6 +657,7 @@ class ProtocolRunner:
             # inside the engine until a run kind needed to ask for them.
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
+            borrowed_claim=claim.lend() if claim is not None else None,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock
             ),

@@ -51,6 +51,11 @@ from modules.scheduler import Scheduler, ThreadingTimerScheduler
 # is not here -- focusing and moving stay open during one.
 _SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
 
+# How long a diagnostic's end waits for a run it lent its claim to. The
+# window of one autofocus inside a characterization. Per
+# PERFORMANCE_BUDGETS.md row diagnostic_exit_run_idle_wait_s.
+DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S = 120.0
+
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
@@ -358,12 +363,22 @@ class ScopeSession:
         run. The claim is released when the block ends, including on a
         raise, so no caller owns the release path.
 
+        A run the diagnostic lent its claim to (``run_autofocus(claim=...)``)
+        may still be live when the block ends -- a caller that raised
+        between starting it and waiting on it. The release waits for that
+        run to go idle first: its LED lease lives under this claim, and
+        releasing underneath a live run hands the scope to the next taker
+        mid-sweep. If the run is still live after the wait, the claim is
+        kept with it, as a stuck run keeps its own claim, and this raises.
+
         Yields:
             The held claim.
 
         Raises:
             DiagnosticRefusedError: A run, a recording or another
                 diagnostic holds the scope. Nothing was taken.
+            RuntimeError: At the block's end, a run under this claim was
+                still live after the wait; the claim stays held.
         """
         held = self.activity_claim.try_claim('diagnostic')
         if held is None:
@@ -382,6 +397,11 @@ class ScopeSession:
         try:
             yield held
         finally:
+            if not self.sequenced_capture_runner.wait_for_run_idle(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S):
+                raise RuntimeError(
+                    'diagnostic_claim: a run under this claim is still live after '
+                    f'{DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S:.0f} s; the claim stays held with it'
+                )
             held.release()
 
     @property

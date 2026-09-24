@@ -24,7 +24,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
-from modules.activity_claim import ActivityClaim, ActivityHolder, HeldClaim
+from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     ProtocolRunRefusedError,
@@ -159,6 +159,11 @@ class RunPlan:
     # where reading live settings is both unavailable headless and a
     # different value than the run was configured with.
     composite_thresholds_percent: dict | None = None
+    # A claim the run acts under instead of taking the session's: a
+    # diagnostic's, lent so the run can neither be refused by the activity
+    # it runs inside nor release that activity's claim when it ends. None
+    # for a run that takes the scope for itself.
+    borrowed_claim: BorrowedClaim | None = None
 
 
 # Constructor sentinel: distinguishes "omitted -- build a local loader"
@@ -239,7 +244,7 @@ class SequencedCaptureRunner:
         # own that nothing else contends for.
         self._activity_claim = activity_claim
         # The taking this runner holds, or None; only it releases the claim.
-        self._held_claim: HeldClaim | None = None
+        self._held_claim: Taking | None = None
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
@@ -672,6 +677,17 @@ class SequencedCaptureRunner:
             holder_trigger=holder_trigger,
         )
 
+    def _refuse_foreign_holder(self, claim: 'ActivityClaim | BorrowedClaim') -> None:
+        """Refuse when an activity other than a run holds the scope.
+
+        Shared by prepare()'s look and start()'s commit, so the two read the
+        same holder the same way. A 'protocol' holder is left to the
+        already-running and file-drain gates, which describe a run better.
+        """
+        holder = claim.blocking_holder
+        if holder is not None and holder.kind != 'protocol':
+            self._refuse_exclusive_activity(holder)
+
     def _refuse_exclusive_activity(self, holder: 'ActivityHolder | None') -> None:
         """Refuse this run because an exclusive activity holds the session claim.
 
@@ -768,6 +784,7 @@ class SequencedCaptureRunner:
         ag_ae_max_exposure_ms: dict | None = None,
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool = False,
+        borrowed_claim: BorrowedClaim | None = None,
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
@@ -793,25 +810,29 @@ class SequencedCaptureRunner:
             TypeError: image_capture_config is not an ImageCaptureConfig
                 -- same class of call-site programming error.
         """
+        # A foreign exclusive activity (a video recording, a diagnostic) is
+        # the durable, user-actionable reason a run cannot start, and
+        # start()'s claim is the only thing that used to see it -- so a
+        # prepare() refused for the transient file drain below reported
+        # "files still writing, please wait" while the recording was the
+        # real blocker and waiting could never clear it. Look before every
+        # other gate so the refusal names what the user has to act on --
+        # including before already-running: a run inside a diagnostic is
+        # live under the diagnostic's claim, and "a run is using the
+        # microscope, stop it from the control that started it" names a run
+        # the user never started and has no control for. Only a FOREIGN
+        # holder is read here: a 'protocol' holder is this run subsystem's
+        # own claim, which already_running and the file-drain gates describe
+        # with better messages. A run that borrows a claim asks the borrow,
+        # which does not count its own lender as in the way. The claim is
+        # still TAKEN in start() under the run lock -- prepare() stays a
+        # no-op, and an activity that begins after this look is caught there.
+        claim = borrowed_claim if borrowed_claim is not None else self._activity_claim
+        self._refuse_foreign_holder(claim)
+
         with self._run_lock:
             if self._is_run_live():
                 self._refuse_already_running()
-
-        # A foreign exclusive activity (a video recording) is the durable,
-        # user-actionable reason a run cannot start, and start()'s claim is
-        # the only thing that used to see it -- so a prepare() refused for
-        # the transient file drain below reported "files still writing,
-        # please wait" while the recording was the real blocker and waiting
-        # could never clear it. Look before the transient gates so the
-        # refusal names what the user has to act on. Only a FOREIGN holder
-        # is read here: a 'protocol' holder is this run subsystem's own
-        # claim, which already_running and the file-drain gates describe
-        # with better messages. The claim is still TAKEN in start() under
-        # the run lock -- prepare() stays a no-op, and an activity that
-        # begins after this look is caught there.
-        activity_holder = self._activity_claim.holder
-        if activity_holder is not None and activity_holder.kind != 'protocol':
-            self._refuse_exclusive_activity(activity_holder)
 
         if self.file_io_executor.is_protocol_queue_active():
             # Module layer must not popup-with-buttons, so the refusal only
@@ -1052,6 +1073,7 @@ class SequencedCaptureRunner:
             disable_saving_artifacts = True
 
         return RunPlan(
+            borrowed_claim=borrowed_claim,
             protocol=execution_protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -1145,11 +1167,17 @@ class SequencedCaptureRunner:
                 the session's activity claim is held (e.g. a video
                 recording in progress); 'holder' names it.
         """
+        # The session's claim, or the one this run was lent. Taken and
+        # released the same way either way: a borrowed taking's release
+        # leaves the lender's claim held, so neither release site below can
+        # end the activity this run runs inside.
+        claim = plan.borrowed_claim if plan.borrowed_claim is not None else self._activity_claim
         # Gate and commit under ONE lock hold: releasing between the
         # already-running check and the event set would let two
         # concurrently-prepared plans both pass the gate and interleave
         # their field writes onto the same runner.
         with self._run_lock:
+            self._refuse_foreign_holder(claim)
             if self._is_run_live():
                 self._refuse_already_running()
 
@@ -1157,11 +1185,9 @@ class SequencedCaptureRunner:
             # same call that takes it: the holder question has one store,
             # and it is the one that already knows whether anything holds
             # the scope at all.
-            held = self._activity_claim.try_claim(
-                'protocol', run_trigger_source=plan.run_trigger_source
-            )
+            held = claim.try_claim('protocol', run_trigger_source=plan.run_trigger_source)
             if held is None:
-                self._refuse_exclusive_activity(self._activity_claim.holder)
+                self._refuse_exclusive_activity(claim.holder)
             self._held_claim = held
 
             # The LED lease covers the whole scan so live UI illumination

@@ -25,7 +25,7 @@ from modules.exceptions import ConfigError, HardwareCommandRefusedError
 from modules.sequential_io_executor import ENQUEUED, IOTask
 
 if TYPE_CHECKING:
-    from modules.activity_claim import HeldClaim
+    from modules.activity_claim import Taking
     from modules.lumascope_api._lumascope import Lumascope
     from drivers.protocols import LEDBoardProtocol
 
@@ -179,7 +179,7 @@ class LedLease:
         api: IlluminationAPI,
         purpose: str,
         *,
-        claim: HeldClaim | None,
+        claim: Taking | None,
         parent: LedLease | None,
     ) -> None:
         self._api = api
@@ -1188,7 +1188,7 @@ class IlluminationAPI:
             return 'its activity claim is no longer held'
         return None
 
-    def acquire_led_lease(self, purpose: str, *, claim: HeldClaim) -> LedLease:
+    def acquire_led_lease(self, purpose: str, *, claim: Taking) -> LedLease:
         """Acquire the exclusive LED-ownership lease under a held claim.
 
         Internal run-exclusivity machinery -- not part of the L2 API
@@ -1232,7 +1232,7 @@ class IlluminationAPI:
         return lease
 
     def _acquire_led_lease(
-        self, purpose: str, *, claim: HeldClaim | None, parent: LedLease | None
+        self, purpose: str, *, claim: Taking | None, parent: LedLease | None
     ) -> LedLease | None:
         """Push a lease onto the stack: a root under *claim*, or a child of *parent*."""
         with self._led_lease_lock:

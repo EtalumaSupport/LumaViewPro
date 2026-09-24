@@ -637,6 +637,13 @@ is refused (`RecordingRefusedError`, `holder='diagnostic'`), and an objective
 change raises `HardwareCommandRefusedError`. `is_protocol_running` stays
 False: a diagnostic is not a run.
 
+A diagnostic that needs autofocus runs the public one under its own claim,
+`runner.run_autofocus(layer, claim=held)` with the `held` the block yields.
+That run acts inside the diagnostic: it is not refused by it and cannot end
+it. When the block ends with such a run still live, the release waits for
+the run first; if it is still live after the wait, the claim stays held and
+the block's end raises `RuntimeError`.
+
 ### Configuration queries
 
 ```python

@@ -31,6 +31,8 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
 # sequenced_capture_runner imports it. (Harness mirrors
@@ -163,11 +165,24 @@ class _AfRig:
         self.runner._wellplate_loader = WellPlateLoader()
         self.runner._coordinate_transformer = CoordinateTransformer()
 
-    def run_autofocus(self, parent_dir: pathlib.Path, *, save_data: bool) -> RunOutcome:
+    def run_autofocus(
+        self, parent_dir: pathlib.Path, *, save_data: bool, borrowed_claim=None
+    ) -> RunOutcome:
         """Drive one standalone AF run to its settled outcome."""
-        done = threading.Event()
-        files_done = threading.Event()
-        plan = self.runner.prepare(
+        pending = self.start_autofocus(
+            parent_dir, save_data=save_data, borrowed_claim=borrowed_claim
+        )
+        assert self._done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
+        assert self._files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_complete did not fire'
+        outcome = pending.wait(timeout_s=COMPLETION_TIMEOUT)
+        assert outcome is not None, 'the AF run never settled its outcome'
+        return outcome
+
+    def prepare_autofocus(self, parent_dir: pathlib.Path, *, save_data: bool, borrowed_claim=None):
+        """Prepare one standalone AF run; the plan, not yet started."""
+        done = self._done = threading.Event()
+        files_done = self._files_done = threading.Event()
+        return self.runner.prepare(
             protocol=_make_af_step_protocol(),
             run_trigger_source='autofocus',
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
@@ -202,13 +217,17 @@ class _AfRig:
                     'Lumi': False,
                 },
             ),
+            borrowed_claim=borrowed_claim,
         )
-        pending = self.runner.start(plan)
-        assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
-        assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_complete did not fire'
-        outcome = pending.wait(timeout_s=COMPLETION_TIMEOUT)
-        assert outcome is not None, 'the AF run never settled its outcome'
-        return outcome
+
+    def start_autofocus(
+        self, parent_dir: pathlib.Path, *, save_data: bool, borrowed_claim=None
+    ) -> PendingRunOutcome:
+        """Start one standalone AF run and return without waiting."""
+        plan = self.prepare_autofocus(
+            parent_dir, save_data=save_data, borrowed_claim=borrowed_claim
+        )
+        return self.runner.start(plan)
 
     def close(self):
         self.af_thread.stop()
@@ -427,3 +446,85 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         runner._await_data_write()
 
         assert runner._data_write_future is None
+
+
+class TestARunUnderALentClaim:
+    """A run inside a diagnostic acts under the diagnostic's claim.
+
+    The diagnostic holds the session's claim for its whole length; a run it
+    starts must neither be refused by it nor release it when the run ends.
+    """
+
+    def test_it_runs_to_completion_and_leaves_the_diagnostic_holding(self, tmp_path):
+        rig = _AfRig()
+        claim = rig.runner._activity_claim
+        diagnostic = claim.try_claim('diagnostic')
+        try:
+            outcome = rig.run_autofocus(tmp_path, save_data=False, borrowed_claim=diagnostic.lend())
+            assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
+            assert outcome.status == 'completed', (outcome.status, outcome.reason, outcome.message)
+            assert diagnostic.holds, "the run released the diagnostic's claim when it ended"
+            assert claim.owner == 'diagnostic'
+            assert rig.scope.illumination.led_lease_purpose is None, (
+                'the run left its LED lease on the stack'
+            )
+        finally:
+            diagnostic.release()
+            rig.close()
+
+    def test_a_second_run_during_it_is_refused_naming_the_diagnostic(self, tmp_path):
+        from modules.exceptions import ProtocolRunRefusedError
+
+        rig = _AfRig()
+        diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
+        try:
+            pending = rig.start_autofocus(
+                tmp_path, save_data=False, borrowed_claim=diagnostic.lend()
+            )
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                rig.prepare_autofocus(tmp_path, save_data=False)
+            assert excinfo.value.reason == 'exclusive_activity_running', excinfo.value.reason
+            assert excinfo.value.holder == 'diagnostic'
+            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
+        finally:
+            diagnostic.release()
+            rig.close()
+
+    def test_a_borrow_whose_lender_has_released_is_refused(self, tmp_path):
+        from modules.exceptions import ProtocolRunRefusedError
+
+        rig = _AfRig()
+        diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
+        borrow = diagnostic.lend()
+        diagnostic.release()
+        try:
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                rig.start_autofocus(tmp_path, save_data=False, borrowed_claim=borrow)
+            assert excinfo.value.reason == 'exclusive_activity_running'
+            assert rig.runner._activity_claim.owner is None, (
+                'a refused borrowed start took the claim'
+            )
+        finally:
+            rig.close()
+
+    def test_a_lease_failure_at_start_leaves_the_diagnostic_holding(self, tmp_path, monkeypatch):
+        rig = _AfRig()
+        diagnostic = rig.runner._activity_claim.try_claim('diagnostic')
+
+        def _refuse(*args, **kwargs):
+            raise RuntimeError('lease refused')
+
+        try:
+            plan = rig.prepare_autofocus(
+                tmp_path, save_data=False, borrowed_claim=diagnostic.lend()
+            )
+            monkeypatch.setattr(rig.scope.illumination, 'acquire_led_lease', _refuse)
+            with pytest.raises(RuntimeError, match='lease refused'):
+                rig.runner.start(plan)
+            assert diagnostic.holds, (
+                "the start's lease-failure path released the diagnostic's claim"
+            )
+        finally:
+            diagnostic.release()
+            rig.close()
