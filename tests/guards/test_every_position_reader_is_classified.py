@@ -37,7 +37,6 @@ CLASSIFIED = {
     'modules/autofocus_runner.py::AutofocusRunner._iterate': RUN,
     'modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
-    'modules/manual_recording.py::_recording_position': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/layer_control.py::LayerControl.execute_save_focus': SAVES,

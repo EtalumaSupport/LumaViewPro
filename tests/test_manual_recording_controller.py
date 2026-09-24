@@ -1060,7 +1060,8 @@ class TestHealthCheckArming:
 
 class TestTheRecordedPosition:
     """The hyperstack labels X and Y as plate millimetres, so that is what is
-    recorded; and a position the scope does not know is not recorded at all."""
+    recorded; an axis the scope does not know is not recorded, the others
+    are; and every row is its own frame's, not the recording's first."""
 
     def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
@@ -1074,13 +1075,15 @@ class TestTheRecordedPosition:
         assert list(captured['df']['Y']) == [2.5, 2.5]
         assert list(captured['df']['Z']) == [3.0, 3.0]
 
-    def test_an_unknown_position_is_not_recorded_and_says_so_once(self, tmp_path, monkeypatch):
+    def test_an_unknown_axis_is_not_recorded_the_others_are_and_it_says_so_once(
+        self, tmp_path, monkeypatch
+    ):
         captured = _capture_hyperstack_df(monkeypatch)
         shown = []
         monkeypatch.setattr(
             manual_recording_module.notifications,
             'warning',
-            lambda category, title, message, **kwargs: shown.append(title),
+            lambda category, title, message, **kwargs: shown.append((title, message)),
         )
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
@@ -1090,8 +1093,84 @@ class TestTheRecordedPosition:
         finish(controller)
 
         assert captured['df']['X'].isna().all()
-        assert captured['df']['Z'].isna().all()
+        assert captured['df']['Y'].isna().all(), 'X and Y travel as a pair'
+        assert list(captured['df']['Z']) == [3.0, 3.0], 'Z is independent of the pair'
+        titles = [title for title, _ in shown]
+        assert titles.count('Position Not Recorded') == 1
+        (message,) = [m for t, m in shown if t == 'Position Not Recorded']
+        assert 'X position' in message and 'once it is known' in message
+
+    def test_an_axis_known_later_is_recorded_from_then_on(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'X': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        xs = captured['df']['X'].tolist()
+        assert xs[0] != xs[0], 'the first frame has no X (NaN)'
+        assert xs[1] == 1.5
+
+    def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller.start(layer='Blue', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.positions['X'] = 3000.0
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 3.5]
+        assert list(captured['df']['Color']) == ['Blue', 'Green']
+
+    def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(title),
+        )
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.motion.unknown = {'Z': 'homing'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
         assert shown.count('Position Not Recorded') == 1
+
+    def test_no_labware_is_said_once_and_an_mp4_recording_says_nothing(self, tmp_path, monkeypatch):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(message),
+        )
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert [m for m in shown if 'No labware' in m] == [
+            'No labware or stage offset is selected, so frames record no plate position.'
+        ]
+
+        shown.clear()
+        controller, scope, clock = make_controller(tmp_path, lit='BF', video_as_frames=False)
+        scope.motion.unknown = {'X': 'unknown'}
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert shown == [], 'an MP4 recording has no per-frame record to warn about'
 
     def test_an_unknown_turret_does_not_drop_the_stage_position(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)

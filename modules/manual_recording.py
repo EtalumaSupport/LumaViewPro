@@ -417,18 +417,11 @@ class ManualRecordingController:
             capture_depth=capture_config.capture_depth,
             tick_freq_hz=identity['timestamp_tick_frequency_hz'],
             hyperstack=hyperstack,
-            # One position snapshot for the whole recording: the stage
-            # does not move during a manual record, and the writer lane
-            # must never query hardware per frame.
-            stage_position=(_recording_position(scope) if hyperstack else None),
             pixel_size_um=resolve_recording_pixel_size(scope),
             to_plate=(scope.runtime_state.plate_transform() if video_as_frames else None),
         )
-        if video_as_frames and plan.to_plate is None:
-            logger.warning(
-                '[ManualRecord] No labware or stage offset is registered; frames will '
-                'record no plate position'
-            )
+        if video_as_frames:
+            _say_what_the_frames_cannot_record(scope, plan.to_plate)
 
         writer = None
         if not video_as_frames:
@@ -688,11 +681,14 @@ class ManualRecordingController:
         )
 
         if self._hyperstack_rows is not None:
-            position = plan.stage_position or {}
             # 'Scan Count' is the T-axis ordinal per the execution-record
             # contract; within one recording the temporal ordinal IS the
             # frame number (this dataframe never mixes with scan-indexed
             # rows -- it feeds only the per-recording hyperstack build).
+            # The row is THIS frame's fact, the same one its file carries:
+            # the stage and the LEDs are open to other callers while a
+            # manual recording runs, so a start-time snapshot would be a
+            # claim about frames it never saw.
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,
@@ -700,11 +696,11 @@ class ManualRecordingController:
                     # Channel identity: what was imaged. Independent of the
                     # false-color toggle, which governs display only, so it
                     # is recorded on every frame regardless of rendering.
-                    'Color': plan.layer,
+                    'Color': fact.channel,
                     'Z-Slice': 0,
-                    'X': position.get('X'),
-                    'Y': position.get('Y'),
-                    'Z': position.get('Z'),
+                    'X': fact.plate_x_mm,
+                    'Y': fact.plate_y_mm,
+                    'Z': fact.z_um,
                 }
             )
         return file_loc
@@ -860,35 +856,35 @@ class ManualRecordingController:
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
 
 
-def _recording_position(scope) -> dict | None:
-    """Where the recording is, in the frames the hyperstack writes: plate mm, Z um.
+def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
+    """Tell the user, once at start, what a frames recording cannot yet record.
 
-    The hyperstack labels X and Y as plate millimetres, as a protocol's
-    stack does, so the stage micrometres the motion API answers are
-    converted here. None when any axis does not know its position -- an
-    axis that lost its reference keeps answering the last number it
-    reported -- and the recording is still made, without a position, and
-    says so once. An axis the scope does not have is left out. The turret
-    is not part of the position, so an unknown turret does not drop it.
+    Each frame records the position the scope knows when the frame
+    arrives, so an axis unknown now is recorded from the moment it is
+    known -- a home during the recording makes the later frames say where
+    they were. The user still hears it once, in the axis's own name,
+    because a file with no position for its first frames is a surprise
+    without it. The turret is not part of the position. With no labware
+    or stage offset selected there is no plate frame to state X and Y in,
+    and no home will change that, so that is said too.
     """
-    if {'X', 'Y', 'Z'} & set(scope.motion.axes_without_position()):
-        logger.warning('[ManualRecord] Recording without a position: an axis is unknown')
-        notifications.warning(
-            'Recording',
-            'Position Not Recorded',
-            'The stage position is unknown, so this recording will be saved without '
-            'a position. Home the scope to record it.',
+    unknown = [ax for ax in ('X', 'Y', 'Z') if ax in scope.motion.axes_without_position()]
+    if not unknown and to_plate is not None:
+        return
+    reasons = []
+    if unknown:
+        axes = ', '.join(unknown)
+        reasons.append(
+            f'The scope does not know its {axes} position, so frames record it only '
+            'once it is known. Home the scope to record it.'
         )
-        return None
-    stage = scope.motion.get_current_position()
-    position = {}
-    if 'X' in stage and 'Y' in stage:
-        position['X'], position['Y'] = scope.runtime_state.stage_to_plate(
-            sx=stage['X'], sy=stage['Y']
+    if to_plate is None:
+        reasons.append(
+            'No labware or stage offset is selected, so frames record no plate position.'
         )
-    if 'Z' in stage:
-        position['Z'] = stage['Z']
-    return position
+    message = ' '.join(reasons)
+    logger.warning(f'[ManualRecord] {message}')
+    notifications.warning('Recording', 'Position Not Recorded', message)
 
 
 @dataclass(frozen=True)
@@ -907,7 +903,6 @@ class _RecordingPlan:
     capture_depth: int
     tick_freq_hz: float | None
     hyperstack: bool
-    stage_position: dict | None
     # Resolved once at start(), not per frame: the objective cannot change
     # mid-recording, and a per-frame resolve would let one stack hold frames
     # that disagree about their own scale.
