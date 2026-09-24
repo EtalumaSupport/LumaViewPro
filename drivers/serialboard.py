@@ -12,7 +12,6 @@ import logging
 import re
 import time
 import serial
-import serial.tools.list_ports as list_ports
 from enum import Enum
 from lvp_logger import logger
 from lib.profile_trace import TimedLock
@@ -28,6 +27,7 @@ from drivers.raw_repl import (
 )
 
 from lib import profile_trace
+from drivers.serial_backend import PYSERIAL, SerialBackend
 
 _serial_log = logging.getLogger('LVP.serial')
 
@@ -38,7 +38,16 @@ class ProtocolVersion(Enum):
 
 
 class SerialBoard:
-    def __init__(self, vid, pid, label, timeout=0.1, write_timeout=0.1, port=None):
+    def __init__(
+        self,
+        vid,
+        pid,
+        label,
+        timeout=0.1,
+        write_timeout=0.1,
+        port=None,
+        backend: SerialBackend = PYSERIAL,
+    ):
         # Threading audit -- TimedLock records acquire-wait + hold time to
         # lock_trace.csv when profile_trace_enabled is set in settings.json
         # (zero overhead when off). The label (`[LED Class ]` / `[XYZ Class ]`)
@@ -47,6 +56,7 @@ class SerialBoard:
         # sessions and surfaces outliers.
         _lock_label = (label or 'SerialBoard').strip(' []') or 'SerialBoard'
         self._lock = TimedLock(threading.RLock(), name=f'SerialBoard._lock.{_lock_label}')
+        self._backend = backend
         self._vid = vid
         self._pid = pid
         self._label = label
@@ -95,7 +105,7 @@ class SerialBoard:
 
     def _find_port(self):
         """Search for serial port matching VID/PID."""
-        ports = list_ports.comports(include_links=True)
+        ports = self._backend.comports()
         for port in ports:
             if port.vid == self._vid and port.pid == self._pid:
                 self.port = port.device
@@ -111,7 +121,7 @@ class SerialBoard:
         if self.port is None:
             raise ValueError(f'No port found for {self._label}')
         try:
-            self.driver = serial.Serial(
+            self.driver = self._backend.open(
                 port=self.port,
                 baudrate=self.baudrate,
                 bytesize=self.bytesize,
@@ -129,7 +139,7 @@ class SerialBoard:
             self._find_port()
             if self.port and self.port != old_port:
                 logger.info(f'{self._label} Found at new port {self.port}')
-                self.driver = serial.Serial(
+                self.driver = self._backend.open(
                     port=self.port,
                     baudrate=self.baudrate,
                     bytesize=self.bytesize,
