@@ -47,6 +47,11 @@ REPL_PROMPT = b'>>> '
 # is reading the port.
 RX_LIMIT_BYTES = 1 << 20
 
+# How long a Ctrl-C may take to reach the REPL before the rest of a write goes
+# on anyway. The traceback and prompt arrive within milliseconds; the bound
+# only stops a firmware that swallows the interrupt from hanging the write.
+INTERRUPT_SETTLE_S = 1.0
+
 # Runs the firmware with a watcher beside it. The watcher polls this
 # interpreter's pid and kills the firmware (whose pid is the shell's, via
 # exec) when this interpreter is gone, or exits when the firmware is.
@@ -241,7 +246,7 @@ class EmulatedPort(SerialBase):
         for i, byte in enumerate(data):
             if byte == CTRL_C:
                 self._send(data[start:i])
-                self._signal(signal.SIGINT)
+                self._interrupt()
                 start = i + 1
             elif byte == CTRL_D and self._at_repl():
                 self._send(data[start:i])
@@ -250,7 +255,21 @@ class EmulatedPort(SerialBase):
         self._send(data[start:])
         return len(data)
 
-    def _send(self, data: bytes):
+    def _interrupt(self) -> None:
+        """Ctrl-C. On the board the interrupt lands before the next byte does,
+        so the rest of the write waits for the firmware to reach the REPL: a
+        Ctrl-D sent after it must meet the REPL (a soft reset), not the
+        runtime's stdin (end of input, which ends the process)."""
+        self._signal(signal.SIGINT)
+        deadline = time.monotonic() + INTERRUPT_SETTLE_S
+        with self._cond:
+            while self._tail != REPL_PROMPT and self._failure is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                self._cond.wait(remaining)
+
+    def _send(self, data: bytes) -> None:
         if not data:
             return
         with self._cond:
