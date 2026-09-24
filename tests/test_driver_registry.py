@@ -570,6 +570,26 @@ class TestTheRegistryNamePath:
         with pytest.raises(DriverNotLiveError, match=r"fake driver Dead \('dead'\)"):
             reg.create('dead')
 
+    def test_a_named_driver_that_is_not_live_is_disconnected_before_the_refusal(self):
+        reg = DriverRegistry('fake')
+        built = []
+
+        @reg.register('dead', priority=50)
+        class Dead:
+            def __init__(self, **kw):
+                self.disconnected = False
+                built.append(self)
+
+            def is_connected(self):
+                return False
+
+            def disconnect(self):
+                self.disconnected = True
+
+        with pytest.raises(DriverNotLiveError):
+            reg.create('dead')
+        assert [driver.disconnected for driver in built] == [True]
+
     def test_a_named_driver_that_is_mute_raises(self):
         reg = DriverRegistry('fake')
 
