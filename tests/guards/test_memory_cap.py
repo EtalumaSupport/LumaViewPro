@@ -16,6 +16,11 @@ import pytest
 from tests import conftest
 from tests.ast_seams import REPO_ROOT
 
+# The tests share build/memcap_*.txt and each clears it, so two running at
+# once on different xdist workers delete each other's report: one group
+# keeps them on one worker (`--dist loadgroup`, in the pytest addopts).
+pytestmark = pytest.mark.xdist_group('memcap_reports')
+
 VICTIM = 'tests/guards/memcap_victim.py'
 SMALL_CAP = 256 * 1024 * 1024
 
