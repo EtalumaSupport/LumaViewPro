@@ -291,6 +291,8 @@ class ProtocolRunner:
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
         claim: HeldClaim | None = None,
+        run_trigger_source: str = 'api_autofocus',
+        engineering_mode: bool | None = None,
     ) -> PendingRunOutcome:
         """Autofocus once on *layer*, at the current stage position.
 
@@ -324,7 +326,9 @@ class ProtocolRunner:
             sequence_name: Name for the run.
             parent_dir: Where characterization data goes. Defaults to
                 'Autofocus Characterization' under the live folder, where
-                the button already puts it.
+                the button already puts it. Unused when no data is saved:
+                that run writes nowhere, so where it would have written
+                cannot refuse it.
             callbacks: Optional dict of callback functions.
             claim: A claim the caller holds -- the one
                 ``session.diagnostic_claim()`` yields -- to run under
@@ -332,6 +336,12 @@ class ProtocolRunner:
                 caller's activity and cannot release its claim; it is
                 refused if that claim no longer holds. None takes the scope
                 for this run alone.
+            run_trigger_source: Who asked for the run. The Autofocus button
+                passes its own, which the engine treats as attended; a
+                script keeps the default.
+            engineering_mode: Whether the run follows engineering-mode
+                behaviour. None takes the session's; the GUI passes its live
+                flag, which its plugin can change after the session exists.
 
         Returns:
             The run's outcome, to wait on or to ignore.
@@ -361,22 +371,25 @@ class ProtocolRunner:
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 
-        if parent_dir is None:
+        # Resolved only when data is saved, and then resolved rather than
+        # left empty: the autofocus engine raises outright when asked to save
+        # with nowhere to save to. Suppressing artifacts and delivering data
+        # are not in conflict -- the run directory setup returns early on
+        # suppression while the parent directory is still taken from the
+        # plan. A run that saves nothing is given no directory at all, so
+        # prepare()'s save-location gate never refuses it over a folder it
+        # would never write to.
+        if not save_characterization_data:
+            parent_dir = None
+        elif parent_dir is None:
             parent_dir = (
                 pathlib.Path(settings.get('live_folder', '.')).resolve()
                 / 'Autofocus Characterization'
             )
-
-        # Resolved here rather than left empty: the prepare boundary reads an
-        # empty parent directory as "suppress artifacts", and the autofocus
-        # engine raises outright when asked to save with nowhere to save to.
-        # Suppressing artifacts and delivering data are not in conflict --
-        # the run directory setup returns early on suppression while the
-        # parent directory is still taken from the plan.
         return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-            run_trigger_source='api_autofocus',
+            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -390,6 +403,7 @@ class ProtocolRunner:
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
             claim=claim,
+            engineering_mode=engineering_mode,
         )
 
     def run_zstack(
@@ -626,11 +640,15 @@ class ProtocolRunner:
                 "run's capture depth and save encoding are explicit."
             )
 
+        # A run that saves no artifacts and was given no directory writes
+        # nowhere, and keeps None: prepare() reads it that way and does not
+        # ask whether a folder it will never write to is usable.
         if parent_dir is None:
-            parent_dir = (
-                pathlib.Path(self.session.settings.get('live_folder', '.')).resolve()
-                / 'ProtocolData'
-            )
+            if not disable_saving_artifacts:
+                parent_dir = (
+                    pathlib.Path(self.session.settings.get('live_folder', '.')).resolve()
+                    / 'ProtocolData'
+                )
         else:
             parent_dir = pathlib.Path(parent_dir)
 

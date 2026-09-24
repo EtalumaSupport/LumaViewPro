@@ -116,6 +116,33 @@ class TestCharacterizationDataIsOptIn:
         assert _prepared(runner)['parent_dir'] == tmp_path
 
 
+class TestTheButtonRunsThroughThisMember:
+    """What the Autofocus button needs so it can run through this member, not its own copy."""
+
+    def test_a_caller_names_its_trigger(self):
+        runner = _runner()
+        runner.run_autofocus(layer='BF', run_trigger_source='autofocus')
+        assert _prepared(runner)['run_trigger_source'] == 'autofocus'
+
+    def test_the_callers_engineering_flag_reaches_the_boundary(self):
+        runner = _runner()
+        runner.run_autofocus(layer='BF', engineering_mode=True)
+        assert _prepared(runner)['engineering_mode'] is True
+
+    def test_without_a_flag_the_session_decides(self):
+        runner = _runner()
+        runner.session.engineering_mode = False
+        runner.run_autofocus(layer='BF')
+        assert _prepared(runner)['engineering_mode'] is False
+
+    def test_a_run_that_saves_nothing_is_given_nowhere_to_write(self, tmp_path):
+        # No directory, so prepare() does not refuse the run over a folder
+        # it would never write to -- as the button has always asked.
+        runner = _runner()
+        runner.run_autofocus(layer='BF', parent_dir=tmp_path)
+        assert _prepared(runner)['parent_dir'] is None
+
+
 class TestTheLayerIsTheCallersToName:
     def test_the_named_layer_is_the_only_one_configured(self):
         runner = _runner(acquiring=())
