@@ -5,10 +5,10 @@ CompositeCapture -- shared image capture capabilities extracted from lumaviewpro
 Provides live_capture() and composite_capture() methods inherited by MainDisplay.
 """
 
-import functools
 import logging
 
 from kivy.clock import Clock
+from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
@@ -16,16 +16,14 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
 from modules.run_outcome import PendingRunOutcome
-from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
 from ui.ui_helpers import (
     live_display_callbacks,
     live_histo_off,
     live_histo_reverse,
     reset_title,
-    reset_with_refusal_boundary,
-    run_with_refusal_boundary,
     set_last_save_folder,
     set_title_event_text,
+    submit_reported,
 )
 
 logger = logging.getLogger('LVP.ui.composite_capture')
@@ -35,6 +33,9 @@ class CompositeCapture(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
     _composite_run: PendingRunOutcome | None = None
+    # True while this button's own request is on its way to the engine; the
+    # button is disabled until that request's redraw.
+    composite_pending = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -74,7 +75,7 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
-        """Start a composite run, or stop the one already running.
+        """Start a composite run, or stop the one this button started.
 
         A composite is a sequenced run like a scan or a z-stack, so this
         is a run starter and nothing more. It states no run parameters,
@@ -82,109 +83,72 @@ class CompositeCapture(FloatLayout):
         needs is settings the engine already reads, and every refusal --
         a rival run, files still draining, too few channels, a camera
         that is absent, an unknown objective -- is the engine's to raise
-        and this button's to display, once. A still mid-capture is not a
-        refusal at all: the run waits for it. The one thing decided here
-        is what only a toggle can know, that this click is the second of
-        a pair.
+        and the boundary's to show, once. A still mid-capture is not a
+        refusal at all: the run waits for it.
+
+        Whether the press means Stop is the engine's answer -- is the run
+        this button started still live -- never the toggle's, which Kivy
+        has already flipped. The button changes nothing ahead of the
+        engine's answer; draw_composite_button shows it.
         """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
-        composite_btn = self.ids['composite_btn']
         runner = ctx.session.create_protocol_runner()
+        run = self._composite_run
+        # The button is disabled until this request's own redraw, so a
+        # second press cannot race the first one to the pool.
+        self.composite_pending = True
 
-        # The button is its own stop control, so a second click means stop.
-        # It reads as one of two things: a toggle already back to 'normal',
-        # or a click arriving while this starter's own run is live. The
-        # handle this button's start returned is what separates the second
-        # case from a click during someone ELSE's run, which the engine
-        # refuses rather than aborting a run this button never started.
-        #
-        # Reset goes onto the worker pool at high priority because the pool
-        # runs exactly one worker: a stop that queued behind ordinary work
-        # would not arrive until that work finished, which is the thing the
-        # user is trying to interrupt.
-        if composite_btn.state == 'normal' or runner.is_live_run(self._composite_run):
-            ctx.worker_pool.put(
-                IOTask(
-                    # Through the boundary, like every run control's Stop: a
-                    # Stop after the run ended is nothing left to do, and a
-                    # stale one while another run is live is the engine's
-                    # refusal, already notified once.
-                    action=functools.partial(
-                        reset_with_refusal_boundary,
-                        ctx.sequenced_capture_runner,
-                        self._composite_run,
-                    ),
-                    # The executor's generic failure popup would be a second
-                    # notification titled with this partial's repr.
-                    silent_on_failure=True,
-                    priority=PRIORITY_HIGH,
-                )
+        if ctx.sequenced_capture_runner.is_live_run(run):
+            submit_reported(
+                lambda: ctx.sequenced_capture_runner.reset(run),
+                self._composite_request_done,
+                'COMPOSITE_CAPTURE',
+                stop=True,
             )
             return
 
-        # Every path that does not reach a live run hands the UI back in
-        # the finally below, toggle included: left 'down', the NEXT click
-        # reads as the second click of a pair and is swallowed as an abort
-        # of a run that was never started. The finally rather than each
-        # exit because the refusal boundary catches only the typed
-        # refusal, and a programming error at the call site raises
-        # straight past it.
-        started = False
-        try:
+        engineering_mode = ctx.engineering_mode
+        callbacks = {**live_display_callbacks()}
+
+        def _start():
+            self._composite_run = runner.start_composite(
+                sequence_name='composite',
+                callbacks=callbacks,
+                run_trigger_source='composite',
+                engineering_mode=engineering_mode,
+            )
+            # Only reachable once the run is committed, so the saved
+            # folder can only ever name THIS run's directory.
+            set_last_save_folder(dir=runner.run_dir())
+
+        submit_reported(_start, self._composite_request_done, 'COMPOSITE_CAPTURE')
+
+    def _composite_request_done(self):
+        self.composite_pending = False
+        self.draw_composite_button()
+
+    def draw_composite_button(self):
+        """Show the composite this button started, as the engine reports it.
+
+        The only code that styles the button: after each of its own
+        requests, and on every run-state edge -- including the run's return
+        to idle -- so a run that ends on its own and a start that was
+        refused land on the same drawing.
+        """
+        ctx = _app_ctx.ctx
+        live = ctx.sequenced_capture_runner.is_live_run(self._composite_run)
+        self.ids['composite_btn'].state = 'down' if live else 'normal'
+        if live:
             live_histo_off()
             set_title_event_text('Compositing...')
-
-            def _start():
-                nonlocal started
-                self._composite_run = runner.start_composite(
-                    sequence_name='composite',
-                    callbacks={
-                        **live_display_callbacks(),
-                        'run_complete': self._composite_finished,
-                    },
-                    run_trigger_source='composite',
-                    engineering_mode=ctx.engineering_mode,
-                )
-                started = True
-                # Only reachable once the run is committed, so the saved
-                # folder can only ever name THIS run's directory.
-                set_last_save_folder(dir=runner.run_dir())
-
-            # A refusal is logged and shown once by the engine's funnel
-            # (solicited, so it reaches the user during a run of any
-            # kind); the finally below undoes the cosmetics.
-            run_with_refusal_boundary(_start, on_refused=lambda: None)
-        except Exception as e:
-            logger.error(f'[LVP Main  ] composite_capture failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-        finally:
-            if not started:
-                self._composite_finished()
-
-    def _composite_finished(self, **kwargs):
-        """Hand the UI back after a composite ends or never starts.
-
-        One handler for both, because every step is level-based rather
-        than a guess about what the run did: the reconcile reads the LED
-        driver instead of assuming, and the histogram and title helpers
-        are idempotent. A second handler for the not-started path would
-        be the same five lines with one omitted.
-
-        This fires at RUN end, not merge end. The merged file lands about
-        a second later, exactly as it does for every other run kind; a
-        button that waited for it would be the only one in the app that
-        did.
-        """
-        self.ids['composite_btn'].state = 'normal'
+            return
         reset_title()
         live_histo_reverse()
-        # The run's LED restore has settled by now, so reconcile every
-        # enable toggle to what the driver actually reports: a restore that
-        # emits no LED events leaves the buttons stale otherwise.
-        _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
+        # The run's LED restore has settled once it is idle, so reconcile
+        # every enable toggle to what the driver actually reports: a
+        # restore that emits no LED events leaves the buttons stale.
+        ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
 def _show_capture_outcome(future) -> None:

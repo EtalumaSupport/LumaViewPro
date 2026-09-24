@@ -488,6 +488,17 @@ class LumaViewProApp(TooltipMixin, App):
             self.run_lockout = run_lockout
             self.recording_active = recording
             self.controls_locked = False
+        self._draw_run_controls()
+
+    def _draw_run_controls(self) -> None:
+        """Redraw each run control from its own run, on the same edge.
+
+        A run control's button shows what the engine says of the run it
+        started, and this edge is the one that fires after a run is back
+        to idle -- so a run that ends on its own is drawn ended here, and
+        nowhere else has to guess when.
+        """
+        ctx.lumaview.draw_composite_button()
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
