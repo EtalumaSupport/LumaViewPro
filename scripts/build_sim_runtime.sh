@@ -29,6 +29,12 @@
 #   firing; the patch makes it fire, as on the board.
 # - 1.19 predates the compilers on current machines, so its warnings are not
 #   errors.
+# - Floats are single precision, as on the board: the RP2040 port builds
+#   MicroPython that way and the unix port defaults to double, so the same
+#   firmware arithmetic gives different results (47.92 prints as
+#   47.92000000000001 in double).
+# - Each unix build starts clean: make does not rebuild objects when only the
+#   flags change, so a changed flag would otherwise link the old objects.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -67,9 +73,10 @@ build_one() {
     local version="${tag#v}"
     local src="$SRC_CACHE/micropython-$version"
     local flags=(MICROPY_PY_FFI=0)
+    local cflags=""
     case "$version" in
         1.28.*) flags+=(MICROPY_PY_THREAD_GIL=1) ;;
-        1.19.*) flags+=(CFLAGS_EXTRA=-Wno-error) ;;
+        1.19.*) cflags="-Wno-error" ;;
         *)
             echo "no build recipe for MicroPython $tag" >&2
             exit 1
@@ -92,24 +99,28 @@ build_one() {
         [ -e "$patch" ] && git -C "$src" apply "$patch"
     done
 
-    make -C "$src/mpy-cross" -j8 "${flags[@]}" >/dev/null
+    make -C "$src/mpy-cross" -j8 "${flags[@]}" CFLAGS_EXTRA="$cflags" >/dev/null
     if [ -x "$src/mpy-cross/build/mpy-cross" ]; then
         cp "$src/mpy-cross/build/mpy-cross" "$TOOLS/mpy-cross-$tag"
     else
         cp "$src/mpy-cross/mpy-cross" "$TOOLS/mpy-cross-$tag"
     fi
     make -C "$src/ports/unix" submodules "${flags[@]}" >/dev/null
+    local runtime_cflags="$cflags -DMICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT"
 
     if [ "$PLATFORM" = darwin ]; then
         local arch
         for arch in arm64 x86_64; do
-            make -C "$src/ports/unix" -j8 BUILD="build-$arch" "${flags[@]}" CC="clang -arch $arch" >/dev/null
+            make -C "$src/ports/unix" BUILD="build-$arch" clean >/dev/null
+            make -C "$src/ports/unix" -j8 BUILD="build-$arch" "${flags[@]}" \
+                CFLAGS_EXTRA="$runtime_cflags" CC="clang -arch $arch" >/dev/null
             unix_binary "$src" "build-$arch" "$TOOLS/micropython-$tag-$arch"
         done
         lipo -create -output "$OUT/micropython-$tag" \
             "$TOOLS/micropython-$tag-arm64" "$TOOLS/micropython-$tag-x86_64"
     else
-        make -C "$src/ports/unix" -j8 BUILD=build-linux "${flags[@]}" >/dev/null
+        make -C "$src/ports/unix" BUILD=build-linux clean >/dev/null
+        make -C "$src/ports/unix" -j8 BUILD=build-linux "${flags[@]}" CFLAGS_EXTRA="$runtime_cflags" >/dev/null
         unix_binary "$src" build-linux "$OUT/micropython-$tag"
     fi
     cp "$src/LICENSE" "$OUT/LICENSE-micropython-$tag"
