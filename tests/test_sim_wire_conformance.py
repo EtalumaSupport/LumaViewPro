@@ -28,6 +28,7 @@ import functools
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import time
 
@@ -227,9 +228,8 @@ _REPLY_GAPS = {
     'query STATUS_RY': _STALLGUARD,
     'query STATUS_RZ': _STALLGUARD,
     'query STATUS_RT': f"{_STALLGUARD}, nor the turret's two switch bits at power-up",
-    'query CONFIG': 'the runtime computes in double precision where the board computes in '
-    'single (47.92 prints as 47.92000000000001), and the key order follows the '
-    "unit's own motorconfig.json file, which the simulator does not have",
+    'query CONFIG': "the key order follows the unit's own motorconfig.json file, which the "
+    'simulator does not have',
 }
 # A gap whose outcome varies from run to run cannot be strict.
 _STOP_REST = (
@@ -314,3 +314,15 @@ def test_a_unit_config_for_another_scope_is_refused():
         ValueError, match="unit config is a LS850T with axes \\['T', 'X', 'Y', 'Z'\\]"
     ):
         sim_backend.MotorBoardSpec('LS820', frozenset('Z'), unit_config=_UNIT_CONFIG)
+
+
+@pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
+def test_the_runtime_computes_in_single_precision_as_the_board_does(dialect):
+    # 2**24 + 1 is the smallest integer a single-precision float cannot hold.
+    out = subprocess.run(
+        [str(sim_backend.runtime_path(dialect)), '-c', 'print(16777217.0 == 16777216.0, 47.92)'],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert out == ['True', '47.92']
