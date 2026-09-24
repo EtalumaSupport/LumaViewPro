@@ -1709,6 +1709,21 @@ class SequencedCaptureRunner:
         with self._run_lock:
             return self._is_live_run_locked(run)
 
+    def is_stopping(self, run: 'PendingRunOutcome | None') -> bool:
+        """Whether *run* is live and a Stop of it has been accepted.
+
+        A stopped run stays live until its teardown finishes -- the LEDs,
+        the camera and the lanes are put back first -- so "live" alone
+        cannot tell a stop control whether to say the run is running or
+        stopping. The answer is the run's own recorded ending: someone asked
+        for it to end, and it has not finished ending yet.
+        """
+        with self._run_lock:
+            if not self._is_live_run_locked(run):
+                return False
+            ending = self._ending.get()
+            return ending is not None and ending.status == 'aborted'
+
     def _is_live_run_locked(self, run: 'PendingRunOutcome | None') -> bool:
         return run is not None and run is self.run_outcome() and self._is_run_live()
 

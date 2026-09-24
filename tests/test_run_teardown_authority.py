@@ -210,3 +210,57 @@ class TestTheRunIsRequired:
     def test_reset_without_a_run_is_a_type_error(self, executor, scope, tmp_path):
         with pytest.raises(TypeError):
             executor.reset()
+
+
+class TestAStopControlCanSayTheRunIsStopping:
+    """is_stopping(run): live, and a Stop of it accepted -- what a stop control shows.
+
+    A stopped run stays live through its teardown, so liveness alone makes a
+    stop control say "running" until the LEDs, camera and lanes are put
+    back. The run's recorded ending is the answer instead.
+    """
+
+    @staticmethod
+    def _runner(live, monkeypatch):
+        from modules.run_outcome import EndingLatch
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        runner = object.__new__(SequencedCaptureRunner)
+        runner._run_lock = threading.RLock()
+        runner._ending = EndingLatch()
+        monkeypatch.setattr(runner, '_is_live_run_locked', lambda run: live)
+        return runner
+
+    def test_a_live_run_nobody_stopped_is_not_stopping(self, monkeypatch):
+        assert self._runner(True, monkeypatch).is_stopping(object()) is False
+
+    def test_a_live_run_with_an_accepted_stop_is_stopping(self, monkeypatch):
+        from modules.run_outcome import RunEnding
+
+        runner = self._runner(True, monkeypatch)
+        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'))
+        assert runner.is_stopping(object()) is True
+
+    def test_a_run_the_instrument_ended_is_not_stopping(self, monkeypatch):
+        from modules.run_outcome import RunEnding
+
+        runner = self._runner(True, monkeypatch)
+        runner._ending.set_if_unset(RunEnding('failed', 'motion_timeout', 'T', 'M'))
+        assert runner.is_stopping(object()) is False
+
+    def test_a_run_that_is_not_live_is_not_stopping(self, monkeypatch):
+        from modules.run_outcome import RunEnding
+
+        runner = self._runner(False, monkeypatch)
+        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'))
+        assert runner.is_stopping(object()) is False
+
+    def test_a_real_stop_reads_stopping_until_the_run_has_ended(self, executor, tmp_path):
+        done = threading.Event()
+        run = _start_run(executor, tmp_path, done)
+        assert executor.is_stopping(run) is False
+        executor.reset(run)
+        assert executor.is_stopping(run) or not executor.is_live_run(run)
+        assert done.wait(timeout=COMPLETION_TIMEOUT)
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
+        assert executor.is_stopping(run) is False

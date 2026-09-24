@@ -739,6 +739,14 @@ class ProtocolRunner:
         """Whether *run*, a handle a run call returned, is the live run."""
         return self._executor.is_live_run(run)
 
+    def is_stopping(self, run: PendingRunOutcome | None) -> bool:
+        """Whether *run* is live and a Stop of it has been accepted.
+
+        True from the accepted Stop until the run's teardown has finished;
+        then the run is no longer live and this is False.
+        """
+        return self._executor.is_stopping(run)
+
     def remaining_scans(self) -> int:
         return self._executor.remaining_scans()
 
