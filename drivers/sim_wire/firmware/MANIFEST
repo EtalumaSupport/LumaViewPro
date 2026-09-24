@@ -1,0 +1,4 @@
+motor-3.0.mpy  Firmware 3.0-firmware @ 678d3757  FirmwareDate 2026-04-01  FirmwareVersion 3.0.9  mpy-cross v1.28.0
+motor-field.mpy  Firmware main @ e6ff53a1  FirmwareDate 2024-09-10  FirmwareVersion (none)  mpy-cross v1.19.1
+field-ini/  Firmware main @ e6ff53a1
+motorconfig-base.json  Firmware 3.0-firmware:base_EL0940-05.json

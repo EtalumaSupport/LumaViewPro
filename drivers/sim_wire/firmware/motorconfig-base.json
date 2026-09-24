@@ -1,0 +1,89 @@
+{
+    "Microscope": "",
+    "Serial Number": "SIM-0000",
+    "Mainboard": "EL-0940-05 Integrated Mainboard",
+    "HardwareRev": "5",
+    "Manufacture Date": "2026-01-01",
+    "OpticsSN": "SIM",
+    "IniFiles": {
+        "XY": "xymotorconfig.ini",
+        "ZT": "ztmotorconfig.ini"
+    },
+    "Overwritable": {
+        "uf2": 1,
+        "Main": 1,
+        "IniFiles": 1
+    },
+    "Axis Present": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0,
+        "T": 0
+    },
+    "Axis Offset": {
+        "X": 10078,
+        "Y": 10078,
+        "Z": 42666,
+        "T": -9000
+    },
+    "Axis Microsteps per mm / Objective": {
+        "X": 20157,
+        "Y": 20157,
+        "Z": 80630,
+        "T": 80000
+    },
+    "Axis Timeout": {
+        "XY": 10,
+        "X": 10,
+        "Y": 10,
+        "Z": 15,
+        "T": 15
+    },
+    "Axis Flag Invert": {
+        "X": 1,
+        "Y": 1,
+        "Z": 0,
+        "T": 0
+    },
+    "Axis Travel Limit": {
+        "X": 120,
+        "Y": 80,
+        "Z": 14,
+        "T": 360
+    },
+    "Initial Position after home": {
+        "X": 1221838,
+        "Y": 818342,
+        "Z": 322520
+    },
+    "Fan Behavior": {
+        "Present": 1,
+        "Startup": 1,
+        "Speed": 1,
+        "InvertedPower": 1
+    },
+    "Fan PWM Behavior": {
+        "Present": 1,
+        "Startup": 50
+    },
+    "ImageCenter": {
+        "X": 37,
+        "Y": -42
+    },
+    "Axis antibacklash": {
+        "X": 0,
+        "Y": 0,
+        "Z": 25,
+        "T": 0
+    },
+    "TurretPosition": {
+        "1": 0,
+        "2": 80000,
+        "3": 160000,
+        "4": 240000
+    },
+    "Optics": {
+        "LensFocalLength": 47.97,
+        "PixelSize": 2.0
+    }
+}

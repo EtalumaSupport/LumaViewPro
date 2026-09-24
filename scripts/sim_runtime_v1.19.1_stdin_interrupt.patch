@@ -1,0 +1,77 @@
+diff --git a/extmod/vfs_posix_file.c b/extmod/vfs_posix_file.c
+index 837c548..eeece62 100644
+--- a/extmod/vfs_posix_file.c
++++ b/extmod/vfs_posix_file.c
+@@ -35,6 +35,45 @@
+ #include <fcntl.h>
+ #include <unistd.h>
+ 
++#if !defined(_WIN32)
++#include <errno.h>
++#include <signal.h>
++#include <sys/select.h>
++
++// Wait for stdin with SIGINT deliverable only inside the wait. A SIGINT only
++// schedules KeyboardInterrupt, and the VM checks for it at jumps and on EINTR,
++// so one that lands between the last check and a blocking read() stays pending
++// until the next input byte arrives. Checking with SIGINT blocked and then
++// waiting in pselect(), which unblocks it atomically, closes that window: the
++// interrupt fires while the program waits for input, as it does on a board.
++STATIC void vfs_posix_stdin_wait(int fd) {
++    for (;;) {
++        sigset_t sigint, orig;
++        sigemptyset(&sigint);
++        sigaddset(&sigint, SIGINT);
++        sigprocmask(SIG_BLOCK, &sigint, &orig);
++        if (MP_STATE_THREAD(mp_pending_exception) != MP_OBJ_NULL) {
++            sigprocmask(SIG_SETMASK, &orig, NULL);
++            mp_handle_pending(true);
++            continue;
++        }
++        fd_set rfds;
++        FD_ZERO(&rfds);
++        FD_SET(fd, &rfds);
++        MP_THREAD_GIL_EXIT();
++        int ret = pselect(fd + 1, &rfds, NULL, NULL, NULL, &orig);
++        int err = errno;
++        MP_THREAD_GIL_ENTER();
++        sigprocmask(SIG_SETMASK, &orig, NULL);
++        if (ret > 0 || (ret < 0 && err != EINTR)) {
++            // Readable, or an error the read itself will report.
++            return;
++        }
++        mp_handle_pending(true);
++    }
++}
++#endif
++
+ #ifdef _WIN32
+ #define fsync _commit
+ #else
+@@ -138,6 +177,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(vfs_posix_file___exit___obj, 4, 4, vf
+ STATIC mp_uint_t vfs_posix_file_read(mp_obj_t o_in, void *buf, mp_uint_t size, int *errcode) {
+     mp_obj_vfs_posix_file_t *o = MP_OBJ_TO_PTR(o_in);
+     check_fd_is_open(o);
++    #if !defined(_WIN32)
++    if (o->fd == STDIN_FILENO) {
++        vfs_posix_stdin_wait(o->fd);
++    }
++    #endif
+     ssize_t r;
+     MP_HAL_RETRY_SYSCALL(r, read(o->fd, buf, size), {
+         *errcode = err;
+diff --git a/ports/unix/mpconfigport.h b/ports/unix/mpconfigport.h
+index a483c3e..9fc357c 100644
+--- a/ports/unix/mpconfigport.h
++++ b/ports/unix/mpconfigport.h
+@@ -212,7 +212,9 @@ extern const struct _mp_print_t mp_stderr_print;
+ 
+ #define MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF   (1)
+ #define MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE  (256)
+-#define MICROPY_ASYNC_KBD_INTR      (1)
++// Scheduled, not raised from inside the signal handler: raising there lands
++// wherever the VM is (mid-GC, mid-print) and can kill the runtime.
++#define MICROPY_ASYNC_KBD_INTR      (0)
+ 
+ #define mp_type_fileio mp_type_vfs_posix_fileio
+ #define mp_type_textio mp_type_vfs_posix_textio

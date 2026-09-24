@@ -1,0 +1,4 @@
+# The MicroPython each firmware dialect runs on, as its boards run it.
+# dialect  tag      commit
+3.0        v1.28.0  e0e9fbb17ed6fd06bb76e266ae554784c9c80804
+field      v1.19.1  9b486340da22931cde82872f79e1c34db959548b
