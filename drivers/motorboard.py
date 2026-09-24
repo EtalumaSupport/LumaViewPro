@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
+from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import motor_registry
 from drivers.exceptions import ConfigReadError, HardwareError
 from drivers.motorconfig import MotorConfig, read_only_axes_config
@@ -118,7 +119,12 @@ class MotorBoard(SerialBoard):
     # ----------------------------------------------------------
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
-    def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None, **kwargs):
+    def __init__(
+        self,
+        motorconfig_defaults_file: pathlib.Path | None = None,
+        backend: SerialBackend = PYSERIAL,
+        **kwargs,
+    ):
         self._state_lock = threading.Lock()
         self.overshoot = False
         self._has_turret = False
@@ -135,7 +141,14 @@ class MotorBoard(SerialBoard):
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
-        super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]', timeout=5, write_timeout=5)
+        super().__init__(
+            vid=0x2E8A,
+            pid=0x0005,
+            label='[XYZ Class ]',
+            timeout=5,
+            write_timeout=5,
+            backend=backend,
+        )
 
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock

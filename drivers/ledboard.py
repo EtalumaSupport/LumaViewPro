@@ -9,6 +9,7 @@ from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
+from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
 
 # The firmware's CH_MAX: the absolute per-channel current limit the
@@ -28,8 +29,8 @@ class LEDBoard(SerialBoard):
     # ----------------------------------------------------------
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
-    def __init__(self, **kwargs):
-        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
+    def __init__(self, backend: SerialBackend = PYSERIAL, **kwargs):
+        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=backend)
 
         self._state_lock = threading.Lock()
         self.led_ma = {
