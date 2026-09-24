@@ -9,6 +9,7 @@ from lvp_logger import logger
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
+from modules.lumascope_api._constants import SIMULATOR_TIERS
 import modules.image_mode as image_mode
 
 try:
@@ -316,6 +317,41 @@ class Lumascope:
         # leaves it None.
         self.metrics_logger = None
 
+    @staticmethod
+    def _build_simulated_motor_board(model: str, sim_tier: str) -> MotorBoardProtocol:
+        """The simulated scope's motor board, on the tier asked for.
+
+        The fast tier goes through the registry's simulator selection as
+        every simulated build did before there was a second tier. The
+        firmware tier asks the catalogue which axes the model has and
+        builds the production driver by name against the emulator: a
+        model with no axes has no motor board, so it gets the null driver
+        directly, and a model with axes whose emulator does not come up
+        raises, because the registry's auto path would fall back to the
+        null driver and a dead emulator would then look exactly like a
+        manual scope.
+        """
+        if sim_tier == 'fast':
+            board = motor_registry.create('auto', simulate=True, model=model)
+            logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
+            return board
+        if sim_tier != 'firmware':
+            raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
+        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+        from modules.layer_record import load_scope_models, model_axes
+
+        axes = model_axes(load_scope_models(), model)
+        if not axes:
+            logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
+            return NullMotionBoard()
+        backend = SimWireBackend(MotorBoardSpec(model, axes))
+        board = motor_registry.create('rp2040', backend=backend)
+        logger.info(
+            f'[SCOPE API ] Using the motor FIRMWARE in simulation '
+            f'(model={model}, axes={"".join(sorted(axes))})'
+        )
+        return board
+
     def __init__(
         self,
         simulate: bool = False,
@@ -325,6 +361,7 @@ class Lumascope:
         sim_model: str | None = None,
         warn_pre_release: bool = True,
         configured_model: str | None = None,
+        sim_tier: str = 'fast',
     ):
         """Initialize Microscope.
 
@@ -369,6 +406,15 @@ class Lumascope:
                 a unit that also reports no model, layer identity
                 resolves empty and LED use fails loudly by name rather
                 than silently guessing.
+            sim_tier: Which simulated motor board a simulated scope gets.
+                ``'fast'`` (default) is ``SimulatedMotorBoard``, a Python
+                stand-in with no timing, for routine tests. ``'firmware'``
+                is the production ``MotorBoard`` driver connected to the
+                real motor firmware running in a MicroPython process
+                behind an emulated serial port, so every line of the
+                driver runs; it costs the driver's real connect (about a
+                second) and needs a runtime built for this platform.
+                Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
                 code may break under a future release, which is only
@@ -402,19 +448,16 @@ class Lumascope:
         # -- 'auto' tries real drivers in descending priority order and
         # falls back to NullMotionBoard if all fail, so no manual
         # try/except needed.
-        motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
 
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
-            motor_kwargs['model'] = sim_model or configured_model or default_model
-        self._motion_driver: MotorBoardProtocol = motor_registry.create(
-            'auto', simulate=simulate, **motor_kwargs
-        )
-        if simulate:
-            logger.info(
-                f'[SCOPE API ] Using SIMULATED Motor Board (model={motor_kwargs.get("model")})'
+            model = sim_model or configured_model or default_model
+            self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
+                model, sim_tier
             )
+        else:
+            self._motion_driver = motor_registry.create('auto')
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.

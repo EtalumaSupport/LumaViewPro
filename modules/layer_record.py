@@ -163,6 +163,27 @@ def load_scope_models(data_file: str | None = None) -> dict:
     return models
 
 
+# The catalogue's three hardware flags and the motor axes each one stands
+# for: a focus drive is Z, a stage is X and Y, a turret is T.
+_AXES_BY_FLAG = (('Focus', 'Z'), ('XYStage', 'XY'), ('Turret', 'T'))
+
+
+def model_axes(models: dict, model: str) -> frozenset[str]:
+    """The motor axes the catalogue says a model has, or a refusal.
+
+    A model the catalogue does not list is refused rather than answered
+    as axis-less: an axis-less answer builds a manual scope, and a typo in
+    the model name would then look like a scope with no motor board.
+    """
+    entry = models.get(model)
+    if not isinstance(entry, dict):
+        raise ConfigError(
+            f'scopes.json lists no model {model!r} (known: {sorted(models)}); '
+            'the microscope setting names a model the catalogue lacks'
+        )
+    return frozenset(axis for flag, axes in _AXES_BY_FLAG if entry.get(flag) for axis in axes)
+
+
 def load_layer_catalogue(scopes_data: dict) -> tuple[str, ...]:
     """The release's layer vocabulary, in display order.
 

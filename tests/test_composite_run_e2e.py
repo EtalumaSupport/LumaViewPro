@@ -66,6 +66,11 @@ def headless_settings(
             settings[layer]['composite_brightness_threshold'] = 25
     settings['live_folder'] = str(tmp_path)
     settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
+    # A prepared settings dict carries the simulated motor board's tier
+    # from the template, and the session refuses one that does not; this
+    # hand-built dict says so itself, on the fast tier like the rest of
+    # the suite.
+    settings['simulator_tier'] = 'fast'
     # The slots a brought-up scope carries. Empty is not the neutral
     # value it looks like: bring-up pushes these into the runtime store
     # (and skips the push entirely when the dict is falsy), and a turret
