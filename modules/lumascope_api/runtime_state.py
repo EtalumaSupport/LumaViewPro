@@ -28,6 +28,7 @@ See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.5 and sec 10.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import modules.coord_transformations as coord_transformations
@@ -315,6 +316,36 @@ class RuntimeState:
             sx=sx,
             sy=sy,
         )
+
+    def plate_transform(self) -> Callable[[float, float], tuple[float, float]] | None:
+        """The stage-to-plate transform bound to the labware and offset registered now.
+
+        ``stage_to_plate`` reads the registered labware and stage offset on
+        every call, so a caller converting many positions over time -- a
+        recording writing one per frame -- would record its later frames
+        against a labware selected mid-way, or raise mid-stream when one is
+        cleared. The transform returned here is bound to the objects
+        registered at the moment of the call, so every position it
+        converts is stated in one frame of reference and it cannot raise.
+
+        Returns:
+            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``,
+            or None when no labware or no stage offset is registered: the
+            caller then has no plate frame to state positions in, and says
+            so, rather than being handed a transform that raises.
+        """
+        labware = self.get_labware()
+        stage_offset = self.get_stage_offset()
+        if labware is None or stage_offset is None:
+            return None
+        transformer = self._coordinate_transformer
+
+        def to_plate(sx: float, sy: float) -> tuple[float, float]:
+            return transformer.stage_to_plate(
+                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+            )
+
+        return to_plate
 
     def _require_stage_offset(self) -> dict:
         """The stage offset, or a refusal naming why a transform cannot run.

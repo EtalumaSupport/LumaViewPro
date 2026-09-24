@@ -95,7 +95,9 @@ class SingleFileWriterStub:
                 return candidate
             n += 1
 
-    def __call__(self, image, timestamp_s, frame_number, config, chunks=None) -> pathlib.Path:
+    def __call__(
+        self, image, timestamp_s, frame_number, config, chunks=None, fact=None
+    ) -> pathlib.Path:
         if self.output_path is None:
             self.output_path = self._resolve()
             self.output_path.write_bytes(b'')
@@ -118,7 +120,7 @@ def feed_uniform(engine, clock, feed, *, delivery_fps, duration_s, chunks=True):
     for _ in range(n):
         clock.advance(step)
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=chunks)
-        engine.ingest_frame(image, ts, chunk)
+        engine.ingest_frame(image, ts, chunk, fact=None)
 
 
 class TestBudgetContract:
@@ -399,7 +401,7 @@ class TestManifestNamesTheArtifactItDescribes:
         for _ in range(frames):
             clock.advance(1.0 / 5)
             image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
-            engine.ingest_frame(image, ts, chunk)
+            engine.ingest_frame(image, ts, chunk, fact=None)
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
         return engine.result(), writer

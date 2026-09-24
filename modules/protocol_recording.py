@@ -49,6 +49,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.recording_frames import (
     CameraTickRebaser,
+    frame_fact,
     orient_and_fit,
     protocol_frame_filename_template,
     resolve_recording_pixel_size,
@@ -256,6 +257,15 @@ class ProtocolVideoStep:
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
         self._pixel_size_um = resolve_recording_pixel_size(scope)
+        # The plate transform bound now, so every frame is stated in the
+        # frame of reference the step began in. A run always has labware;
+        # a step without one records no plate position and says so.
+        self._to_plate = scope.runtime_state.plate_transform() if self._video_as_frames else None
+        if self._video_as_frames and self._to_plate is None:
+            logger.warning(
+                f'[ProtocolVideo] {self._name}: no labware or stage offset is '
+                'registered; frames will record no plate position'
+            )
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
 
@@ -485,18 +495,29 @@ class ProtocolVideoStep:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, image, timestamp, chunks) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine."""
+        """SDK-thread listener: rebase the timestamp, offer to the engine.
+
+        The frame's fact is read HERE, when the frame arrives, and rides
+        the queue with it: the write runs later, behind the backlog, and
+        a read then would put a stage move on the wrong frames. Only the
+        frames leg writes a per-frame file, so only it pays.
+        """
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
         self._frames_seen += 1
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks)
+        fact = (
+            frame_fact(self._scope, channel_tiebreak=self._step['Color'], to_plate=self._to_plate)
+            if self._video_as_frames
+            else None
+        )
+        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
@@ -507,14 +528,16 @@ class ProtocolVideoStep:
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
             metadata, _ts_filename = tiff_frame_metadata(
-                timestamp_s, frame_number, chunks, self._tick_freq_hz, self._pixel_size_um
+                timestamp_s, frame_number, chunks, self._tick_freq_hz, self._pixel_size_um, fact
             )
             file_loc = config.output_dir / config.filename_template.format(n=frame_number)
             image_save.write_video_frame(
                 frame=image,
                 file_loc=file_loc,
                 metadata=metadata,
-                channel=step['Color'],
+                # Rendered as the channel that lit THIS frame, so the file
+                # never states one channel and is coloured as another.
+                channel=fact.channel,
                 false_color_on=bool(step['False_Color']),
                 save_encoding=self._capture_config.save_encoding,
                 capture_depth=self._capture_config.capture_depth,

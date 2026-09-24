@@ -583,6 +583,7 @@ Per recording (one per well per scan), the run produces:
 - a frames folder (`<step>_video/`) of per-frame TIFFs, numbered in capture order;
 - `recording_manifest.json` in that folder -- the measured truth: delivered frame count, measured frame rate, per-frame timestamps, and the recording's end reason. Downstream consumers (including Create Video's `auto` rate) read the manifest, not the configured rate;
 - one variable-frame-rate MP4 per recording;
+- when the recording is saved as frames, each frame's TIFF carries its own record of when it arrived: the plate position (`plate_pos_mm`, `x_pos`, `y_pos`) and Z (`z_pos_um`) as the scope tracked them, each absent when the scope did not know it; `stage_moving`, true when any axis was moving or homing at delivery; and `channel`, the channel that lit the frame. These are the same keys a still capture writes, and the frame is false-coloured as its recorded channel;
 - after the run completes, one OME-TIFF hyperstack per (well, scan): `T` = frame capture order, `C` = channel, per-plane `DeltaT` from the frames' own timestamps. Hyperstacks build at run completion on every host -- headless and REST runs included, no GUI involved.
 
 Rate and duration come from the run's settings snapshot at start: `video.max_fps` (0 = uncapped; the effective rate is measured, not assumed) and `video.max_duration_seconds`. Mid-run settings edits do not affect a run in flight.
@@ -748,6 +749,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
 scope.motion.get_current_position()              # dict of all axes
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
+scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
 scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 

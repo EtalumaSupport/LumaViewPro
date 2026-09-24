@@ -52,6 +52,7 @@ from modules.notification_center import notifications
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
     CameraTickRebaser,
+    frame_fact,
     manual_frame_filename_template,
     orient_and_fit,
     resolve_recording_pixel_size,
@@ -421,7 +422,13 @@ class ManualRecordingController:
             # must never query hardware per frame.
             stage_position=(_recording_position(scope) if hyperstack else None),
             pixel_size_um=resolve_recording_pixel_size(scope),
+            to_plate=(scope.runtime_state.plate_transform() if video_as_frames else None),
         )
+        if video_as_frames and plan.to_plate is None:
+            logger.warning(
+                '[ManualRecord] No labware or stage offset is registered; frames will '
+                'record no plate position'
+            )
 
         writer = None
         if not video_as_frames:
@@ -623,17 +630,29 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, image, timestamp, chunks) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine."""
+        """SDK-thread listener: rebase the timestamp, offer to the engine.
+
+        The frame's fact is read HERE, when the frame arrives, and rides
+        the queue with it: the write runs later, behind the backlog, and
+        a read then would put a stage move on the wrong frames. Only a
+        frames recording writes a per-frame file, so only it pays.
+        """
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks)
+        plan = self._plan
+        fact = (
+            frame_fact(self._scope, channel_tiebreak=plan.layer, to_plate=plan.to_plate)
+            if plan.video_as_frames
+            else None
+        )
+        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
@@ -641,16 +660,16 @@ class ManualRecordingController:
 
         plan = self._plan
         if plan.video_as_frames:
-            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks)
+            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks, fact)
         return self._write_mp4_frame(image, timestamp_s)
 
-    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         plan = self._plan
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
         metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um
+            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um, fact
         )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
@@ -660,7 +679,9 @@ class ManualRecordingController:
             frame=image,
             file_loc=file_loc,
             metadata=metadata,
-            channel=plan.layer,
+            # Rendered as the channel that lit THIS frame, so the file never
+            # states one channel and is coloured as another.
+            channel=fact.channel,
             false_color_on=plan.false_color_on,
             save_encoding=plan.save_encoding,
             capture_depth=plan.capture_depth,
@@ -891,3 +912,7 @@ class _RecordingPlan:
     # mid-recording, and a per-frame resolve would let one stack hold frames
     # that disagree about their own scale.
     pixel_size_um: float | None
+    # The plate transform bound at start(), so every frame is stated in the
+    # frame of reference the recording began in; None when the scope had
+    # no labware or offset then, and frames record no plate position.
+    to_plate: Callable[[float, float], tuple[float, float]] | None

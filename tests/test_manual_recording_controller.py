@@ -22,6 +22,7 @@ from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
+from modules.lumascope_api import AxisPosition, AxisState
 
 TICK_HZ = 1_000_000_000
 
@@ -73,12 +74,24 @@ class _FakeMotion:
     def __init__(self):
         # Every axis knows its position unless a test loses one.
         self.unknown = {}
+        # Stage micrometres; a test moves the stage by writing here.
+        self.positions = {'X': 1000.0, 'Y': 2000.0, 'Z': 3.0}
+        # 'moving' / 'homing' per axis when a test sets it; idle otherwise.
+        self.states = {}
 
     def axes_without_position(self):
         return dict(self.unknown)
 
     def get_current_position(self):
-        return {'X': 1000.0, 'Y': 2000.0, 'Z': 3.0}
+        return dict(self.positions)
+
+    def axis_positions(self):
+        out = {}
+        for ax, pos in self.positions.items():
+            state = self.unknown.get(ax) or self.states.get(ax, AxisState.IDLE)
+            known = state in (AxisState.IDLE, AxisState.MOVING)
+            out[ax] = AxisPosition(state, pos if known else None)
+        return out
 
 
 class _FakeIllumination:
@@ -119,6 +132,9 @@ class _FakeRuntimeState:
         # A stand-in transform, distinct from the identity so a stage number
         # recorded as a plate one shows.
         return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
+
+    def plate_transform(self):
+        return self.stage_to_plate
 
 
 class _FakeScope:
@@ -1087,3 +1103,92 @@ class TestTheRecordedPosition:
         finish(controller)
 
         assert list(captured['df']['X']) == [1.5, 1.5]
+
+
+class TestEachFrameRecordsItsOwnMoment:
+    """A frames recording writes, into each frame's own file, the stage
+    position, the moving flag and the lit channel as the scope tracked them
+    when THAT frame arrived -- not what the recording started with. The
+    stage and the LEDs are open to other callers while a manual recording
+    runs, so the start-time snapshot was a claim about frames it never saw.
+    """
+
+    @staticmethod
+    def _described_frames(tmp_path):
+        import tifffile as tf
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        described = []
+        for path in folder.glob('*.tiff'):
+            with tf.TiffFile(path) as t:
+                described.append(json.loads(t.pages[0].tags['ImageDescription'].value))
+        return sorted(described, key=lambda d: d['frame_num'])
+
+    def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.positions['X'] = 3000.0
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        first, second = self._described_frames(tmp_path)
+        assert first['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+        assert second['plate_pos_mm'] == {'x': 3.5, 'y': 2.5}
+
+    def test_an_axis_unknown_at_one_frame_is_unknown_on_that_frame_only(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {'X': 'unknown'}
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        known, lost, regained = self._described_frames(tmp_path)
+        assert known['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+        assert 'plate_pos_mm' not in lost and 'x_pos' not in lost
+        assert lost['z_pos_um'] == 3.0, 'Z is independent of the X/Y pair'
+        assert regained['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+
+    def test_a_moving_stage_is_marked_on_that_frame(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.states = {'Z': AxisState.MOVING}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        still, moving = self._described_frames(tmp_path)
+        assert still['stage_moving'] is False
+        assert moving['stage_moving'] is True
+        assert moving['z_pos_um'] == 3.0, 'a moving axis still knows its frame of reference'
+
+    def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller.start(layer='Blue', false_color_on=True)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        blue, green = self._described_frames(tmp_path)
+        assert blue['channel'] == 'Blue'
+        assert green['channel'] == 'Green'
+
+    def test_without_labware_frames_record_no_plate_position_but_keep_z(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        (only,) = self._described_frames(tmp_path)
+        assert 'plate_pos_mm' not in only
+        assert only['z_pos_um'] == 3.0

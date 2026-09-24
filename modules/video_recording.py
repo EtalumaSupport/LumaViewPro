@@ -177,10 +177,13 @@ class VideoRecordingEngine:
     Args:
         write_frame: Writer edge invoked on the writer lane once per kept
             frame: ``write_frame(image, timestamp_s, frame_number, config,
-            chunks) -> pathlib.Path``. ``chunks`` is the frame's camera
-            chunk metadata (or None) -- frame identity travels WITH the
-            frame so the write edge never re-derives it. Raising costs
-            exactly that frame.
+            chunks, fact) -> pathlib.Path``. ``chunks`` is the frame's
+            camera chunk metadata (or None) and ``fact`` is whatever the
+            caller recorded about the scope when the frame arrived (or
+            None) -- both travel WITH the frame, because the write runs
+            later, behind the backlog, and a write-time read would
+            describe a different moment. The engine reads neither.
+            Raising costs exactly that frame.
         claim: The session's exclusivity claim, which ``start`` takes and
             refuses when an exclusive activity already holds it -- or,
             for a recording inside a run, the run's claim lent to it,
@@ -336,13 +339,19 @@ class VideoRecordingEngine:
                 self._drained.set()
                 raise
 
-    def ingest_frame(self, image: Any, timestamp_s: float, chunks: Any = None) -> None:
+    def ingest_frame(
+        self, image: Any, timestamp_s: float, chunks: Any = None, *, fact: Any
+    ) -> None:
         """Offer one delivered camera frame: select + enqueue only.
 
         Runs on the camera ingest thread; must stay cheap. A kept frame
         is enqueued unconditionally -- writer lag never causes a
         capture-side drop. Frame numbers derive from enqueue order
         (contiguous ordinals), so holes are unrepresentable.
+
+        ``fact`` is required, with no default, so a caller that records
+        frames cannot forget to say what was true when this one arrived;
+        a caller with nothing to record passes None and says so.
         """
         with (
             profile_trace.timer(
@@ -376,10 +385,10 @@ class VideoRecordingEngine:
             # Enqueue the delivered array as-is: no copy (pypylon's
             # GetArray already returns an owned array) and no flip --
             # orientation and contiguity are the write edge's business,
-            # never paid per-frame in the callback. Chunk metadata rides
-            # the queue with its frame so identity and pixels never
-            # separate.
-            self._queue.put((image, timestamp_s, frame_number, chunks))
+            # never paid per-frame in the callback. Chunk metadata and
+            # the caller's fact ride the queue with their frame so
+            # identity, pixels and the moment never separate.
+            self._queue.put((image, timestamp_s, frame_number, chunks, fact))
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
 
@@ -480,7 +489,7 @@ class VideoRecordingEngine:
                 item = self._queue.get()
                 if item is _END_OF_RECORDING:
                     break
-                image, timestamp_s, frame_number, chunks = item
+                image, timestamp_s, frame_number, chunks, fact = item
                 try:
                     with profile_trace.timer(
                         'video_write_trace.csv',
@@ -488,7 +497,7 @@ class VideoRecordingEngine:
                         lambda n=frame_number: [n, self._pending],
                     ):
                         written_path = self._write_frame(
-                            image, timestamp_s, frame_number, self._config, chunks
+                            image, timestamp_s, frame_number, self._config, chunks, fact
                         )
                 except Exception as ex:
                     with self._lock:

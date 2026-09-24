@@ -22,6 +22,9 @@ import tifffile as tf
 import modules.image_utils as image_utils
 import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -70,6 +73,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         chunks=None,
         tick_freq_hz=None,
         pixel_size_um=None,
+        fact=_FACT,
     )
     if not include_iso:
         # Older recordings predate the ISO timestamp; drop it to exercise the

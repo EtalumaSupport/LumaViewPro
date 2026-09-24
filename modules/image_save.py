@@ -242,6 +242,44 @@ def generate_image_save_path(
     return path
 
 
+def position_metadata_fields(
+    plate_x_mm: float | None, plate_y_mm: float | None, stage_z_um: float | None
+) -> dict:
+    """The position keys a captured file carries, for the position it has.
+
+    A capture that has no position states none, the same way the metadata
+    builders decline to state a pixel size they cannot compute, a gain or
+    exposure whose read failed, and a well label on labware that has no
+    wells. A missing value used to be defaulted to zero and written, so
+    files carried a real point on the plate in a key whose siblings are
+    all measurements.
+
+    X and Y travel as a pair because half a plate coordinate is not one.
+    Z is independent: a focus-only capture knows its depth and not its
+    place. One builder for the still and for a recording's frames, so the
+    two can never spell a position differently.
+
+    Args:
+        plate_x_mm: Plate X in mm, or None when unknown.
+        plate_y_mm: Plate Y in mm, or None when unknown.
+        stage_z_um: Stage Z in um, or None when unknown.
+
+    Returns:
+        dict: ``plate_pos_mm`` / ``x_pos`` / ``y_pos`` when X and Y are
+            both known, ``z_pos_um`` when Z is; empty otherwise.
+    """
+    fields: dict = {}
+    if plate_x_mm is not None and plate_y_mm is not None:
+        px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
+        py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
+        fields['plate_pos_mm'] = {'x': px, 'y': py}
+        fields['x_pos'] = px
+        fields['y_pos'] = py
+    if stage_z_um is not None:
+        fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
+    return fields
+
+
 def generate_image_metadata(
     scope: Lumascope,
     channel: str,
@@ -310,26 +348,7 @@ def generate_image_metadata(
 
     well_label = scope.runtime_state.get_well_label()
 
-    # A capture that has no position states none, the same way this function
-    # already declines to state a pixel size it cannot compute, a gain or
-    # exposure whose read failed, and a well label on labware that has no
-    # wells. Three of the four callers -- the manual live capture and both
-    # composite captures -- have no coordinate to pass, and the missing value
-    # used to be defaulted to zero and written, so those files carried a real
-    # point on the plate in a key whose siblings are all measurements.
-    #
-    # X and Y travel as a pair because half a plate coordinate is not one.
-    # Z is independent: a focus-only capture knows its depth and not its
-    # place.
-    _position_fields: dict = {}
-    if plate_x_mm is not None and plate_y_mm is not None:
-        px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
-        py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
-        _position_fields['plate_pos_mm'] = {'x': px, 'y': py}
-        _position_fields['x_pos'] = px
-        _position_fields['y_pos'] = py
-    if stage_z_um is not None:
-        _position_fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
+    _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],

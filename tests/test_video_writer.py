@@ -294,6 +294,11 @@ class TestProtocolVideoDropNotification:
 
         listeners = {}
         scope = MagicMock()
+        # The frames leg reads the scope's tracked state per frame; a
+        # MagicMock answers a MagicMock, which is not a position.
+        scope.motion.axis_positions = lambda: {}
+        scope.runtime_state.plate_transform = lambda: None
+        scope.illumination.get_led_states = lambda: {}
         scope.imaging.frames_until_valid.return_value = 0
         scope.imaging.active_cached = True
         scope.imaging.camera_identity = {
