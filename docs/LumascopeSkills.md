@@ -583,7 +583,7 @@ Rate and duration come from the run's settings snapshot at start: `video.max_fps
 
 Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape, with machine-readable `reason` codes `recording_active` (another recording is live) and `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim).
 
-Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'` or `'recording'` for the exclusive-activity owner, `'autofocus'` for a sweep in flight, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
+Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'` or `'diagnostic'` for the exclusive-activity owner, `'autofocus'` for a sweep in flight, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
@@ -597,10 +597,10 @@ the same derivations LVP's own GUI mirrors into kv properties
 (alongside the run predicates shown under Running protocols):
 
 ```python
-session.run_lockout              # True during a run OR its post-run file drain
+session.run_lockout              # True during a run, a diagnostic, OR a run's post-run file drain
 session.is_protocol_running      # True while a protocol-class run holds the claim
 session.protocol_files_draining  # run files still writing after a run finished
-session.exclusive_activity       # None | 'protocol' | 'recording'
+session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
@@ -611,6 +611,31 @@ def on_run_state():              # called on EVERY run-state transition;
 session.add_run_state_listener(on_run_state)
 session.notify_run_state()       # force a level-sync of all listeners
 ```
+
+### Holding the scope for a diagnostic
+
+A script that drives the hardware directly -- a characterization, a
+bench measurement, anything that homes, moves, lights or grabs outside a
+run -- holds the scope for its duration, so a run or a recording cannot
+start in the middle of it:
+
+```python
+from modules.exceptions import DiagnosticRefusedError
+
+try:
+    with session.diagnostic_claim():   # the claim, released when the block ends, even on a raise
+        ...                            # drive the hardware
+except DiagnosticRefusedError as e:    # a run, a recording or another diagnostic holds the scope
+    print(e.reason, e.holder, e.message)
+```
+
+While the diagnostic holds the claim it counts as holding the whole scope:
+`exclusive_activity` reads `'diagnostic'`, `run_lockout` and
+`controls_locked` read True, a run start is refused
+(`ProtocolRunRefusedError`, `exclusive_activity_running`), a recording start
+is refused (`RecordingRefusedError`, `holder='diagnostic'`), and an objective
+change raises `HardwareCommandRefusedError`. `is_protocol_running` stays
+False: a diagnostic is not a run.
 
 ### Configuration queries
 

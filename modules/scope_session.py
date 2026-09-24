@@ -16,6 +16,7 @@ Usage
     session = ScopeSession.create(ScopeSession.load_user_settings(source_path), simulate=True)
 """
 
+import contextlib
 import copy
 import dataclasses
 import json
@@ -23,16 +24,17 @@ import os
 import threading
 import time
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules.activity_claim import ActivityClaim
+from modules.activity_claim import ActivityClaim, HeldClaim
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     ConfigError,
+    DiagnosticRefusedError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     SettingsSaveRefusedError,
@@ -42,6 +44,12 @@ from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
+
+# The activity kinds that hold the WHOLE scope: a run and a diagnostic both
+# drive every axis, the LEDs and the camera, so while one holds the claim
+# the controls lock and the objective cannot change under it. A recording
+# is not here -- focusing and moving stay open during one.
+_SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -339,6 +347,43 @@ class ScopeSession:
         # the derivations against the new scope's world.
         self.notify_run_state()
 
+    @contextlib.contextmanager
+    def diagnostic_claim(self) -> Iterator[HeldClaim]:
+        """Hold the scope for a diagnostic for the length of a ``with`` block.
+
+        A diagnostic -- a characterization, the support report's hardware
+        steps -- drives every axis, the LEDs and the camera directly. While
+        it holds the claim, a run or a recording start is refused, the
+        controls lock and the objective cannot change, exactly as during a
+        run. The claim is released when the block ends, including on a
+        raise, so no caller owns the release path.
+
+        Yields:
+            The held claim.
+
+        Raises:
+            DiagnosticRefusedError: A run, a recording or another
+                diagnostic holds the scope. Nothing was taken.
+        """
+        held = self.activity_claim.try_claim('diagnostic')
+        if held is None:
+            holder = self.activity_claim.holder
+            kind = holder.kind if holder is not None else None
+            # The holder can release between the failed take and this read;
+            # the refusal still stands, it just cannot name who refused it.
+            named = f'A {kind} activity' if kind else 'Another exclusive activity'
+            raise DiagnosticRefusedError(
+                reason='exclusive_activity_running',
+                title='Another Activity Running',
+                message=f'{named} is using the microscope. Let it finish, then start the diagnostic.',
+                holder=kind,
+                holder_trigger=(holder.run_trigger_source if holder is not None else None),
+            )
+        try:
+            yield held
+        finally:
+            held.release()
+
     @property
     def is_protocol_running(self) -> bool:
         """True while a protocol-class run holds the exclusive claim.
@@ -362,8 +407,8 @@ class ScopeSession:
 
     @property
     def exclusive_activity(self) -> 'str | None':
-        """The current exclusive-activity owner: None, 'protocol', or
-        'recording'."""
+        """The current exclusive-activity owner: None, 'protocol',
+        'recording', or 'diagnostic'."""
         return self.activity_claim.owner
 
     @property
@@ -389,13 +434,14 @@ class ScopeSession:
 
     @property
     def run_lockout(self) -> bool:
-        """True while a run OR its post-run file drain owns the scope.
+        """True while a run, a diagnostic, or a run's post-run file drain
+        owns the scope.
 
         The drain term encodes a deliberate asymmetry: a finished
         protocol frees its claim while its files drain, but the control
         surface stays locked until the queue empties.
         """
-        return self.activity_claim.owner == 'protocol' or self.protocol_files_draining
+        return self.activity_claim.owner in _SCOPE_HOLDING_KINDS or self.protocol_files_draining
 
     @property
     def controls_locked(self) -> bool:
@@ -1495,8 +1541,10 @@ class ScopeSession:
     def _refuse_objective_change_during_run(self, member: str) -> None:
         # A run reads the active objective at every capture, so a change
         # mid-run would stamp a different scale into the rest of the run's
-        # files than the objective its steps were built for.
-        if self.is_protocol_running:
+        # files than the objective its steps were built for. A diagnostic
+        # holds the scope the same way: its measurements are taken against
+        # the objective it started under.
+        if self.activity_claim.owner in _SCOPE_HOLDING_KINDS:
             raise HardwareCommandRefusedError('exclusive_activity_running', member)
 
     @staticmethod

@@ -292,6 +292,41 @@ class Refusal:
     title: str
 
 
+class DiagnosticRefusedError(Refusal, Exception):
+    """A diagnostic could not take the scope: another activity holds it.
+
+    Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording
+    or another diagnostic already holds the session's activity claim. A
+    diagnostic drives the hardware directly (homes, LED modes, forced
+    grabs), so it runs only on a scope nothing else is using, and a caller
+    told why can wait for the holder or stop it. Nothing was committed.
+
+    Attributes:
+        reason: Machine-readable refusal code for callers that map refusals
+            to responses (REST status codes, SDK branches).
+        title: Short user-facing refusal title.
+        message: One-sentence user-facing refusal body.
+        holder: The activity kind holding the claim at refusal time.
+        holder_trigger: The holding run's run_trigger_source when the
+            holder is a run; None otherwise.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
+        super().__init__(f'{reason}: {message}')
+        self.reason = reason
+        self.title = title
+        self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
+
+
 class PositionOutOfRangeError(Refusal, ValueError):
     """An absolute move was commanded beyond the axis's travel.
 

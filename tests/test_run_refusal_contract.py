@@ -817,6 +817,26 @@ class TestRefusalNotifyOnceFunnel:
         # Not wedged: with the claim released, the next run completes.
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
 
+    def test_start_refused_while_a_diagnostic_holds_activity_claim(
+        self, executor, tmp_path, monkeypatch
+    ):
+        """A diagnostic holds the scope the way a run does, so a run start
+        during one is refused, names it, and leaves its claim alone."""
+        with monkeypatch.context() as mp:
+            captured = _capture_notifications(mp)
+            plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+            diagnostic = executor._activity_claim.try_claim('diagnostic')
+            assert diagnostic
+            try:
+                with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                    executor.start(plan)
+                assert diagnostic.holds, "a refused start must not touch the diagnostic's claim"
+            finally:
+                diagnostic.release()
+        assert excinfo.value.reason == 'exclusive_activity_running'
+        assert 'diagnostic' in excinfo.value.message, excinfo.value.message
+        assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
+
 
 # ---------------------------------------------------------------------------
 # 5. A run cannot be prepared without the autofocus snapshot it restores from.
