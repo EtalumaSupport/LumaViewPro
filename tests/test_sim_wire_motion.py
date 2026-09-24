@@ -14,7 +14,7 @@ import time
 import pytest
 
 from drivers.motorboard import MotorBoard
-from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -24,8 +24,10 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
 
 @pytest.fixture
 def board(request):
-    model, axes, timing = getattr(request, 'param', ('LS850T', 'XYZT', 'instant'))
-    b = MotorBoard(backend=SimWireBackend(MotorBoardSpec(model, frozenset(axes), timing=timing)))
+    model, axes, timing, *named = getattr(request, 'param', ('LS850T', 'XYZT', 'instant'))
+    dialect = named[0] if named else DEFAULT_DIALECT
+    spec = MotorBoardSpec(model, frozenset(axes), timing=timing, dialect=dialect)
+    b = MotorBoard(backend=SimWireBackend(spec))
     try:
         yield b
     finally:
@@ -87,14 +89,17 @@ class TestRealisticMode:
         elapsed = time.monotonic() - started
         assert 0.6 <= elapsed <= 1.0, elapsed
 
-    def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(self, board):
-        assert board.home()
-        start = board.current_pos('X')
-        target = start + 60000.0
-        board.move_abs_pos('X', target, overshoot_enabled=False)
-        time.sleep(0.4)
-        assert board.motor_stop() is True
-        time.sleep(0.3)
-        stopped = board.current_pos('X')
-        assert start < stopped < target - 10000.0, (start, stopped, target)
-        assert board.limit_switch_status('X') == (0, 0)
+
+# The field firmware has no STOP; the 3.0 firmware, which has one, is named.
+@pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic', '3.0')], indirect=True)
+def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(board):
+    assert board.home()
+    start = board.current_pos('X')
+    target = start + 60000.0
+    board.move_abs_pos('X', target, overshoot_enabled=False)
+    time.sleep(0.4)
+    assert board.motor_stop() is True
+    time.sleep(0.3)
+    stopped = board.current_pos('X')
+    assert start < stopped < target - 10000.0, (start, stopped, target)
+    assert board.limit_switch_status('X') == (0, 0)

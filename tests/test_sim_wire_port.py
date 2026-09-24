@@ -89,6 +89,16 @@ def test_the_production_driver_connects_through_the_emulator(dialect):
         board.disconnect()
 
 
+def test_a_board_whose_firmware_is_not_named_runs_the_firmware_that_ships():
+    # Every shipped motor board runs the 2024-09-10 field build; a simulated
+    # scope that ran anything else would hide what the field firmware does.
+    board = MotorBoard(backend=SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES)))
+    try:
+        assert board.firmware_date == '2024-09-10'
+    finally:
+        board.disconnect()
+
+
 def test_the_axes_the_board_reports_are_the_axes_it_was_given():
     board = MotorBoard(backend=SimWireBackend(MotorBoardSpec('LS820', frozenset('Z'))))
     try:
@@ -216,8 +226,8 @@ def test_the_board_boots_and_takes_faults_under_dash_with_a_high_fault_fd(monkey
         for fd in padding:
             os.close(fd)
     try:
-        backend.motor_board.inject('Z', tmc5072.ABSENT)
-        assert 'OPEN_A OPEN_B' in board.exchange_command('DRVSTAT_Z')
+        backend.motor_board.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
+        assert board.exchange_command('ZHOME') == 'ERROR: Z home timeout'
     finally:
         board.disconnect()
 

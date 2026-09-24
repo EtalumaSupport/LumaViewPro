@@ -66,8 +66,9 @@ def _runtime_tags() -> dict[str, str]:
 
 RUNTIME_TAGS = _runtime_tags()
 DIALECTS = tuple(RUNTIME_TAGS)
-# The firmware a simulated scope's board runs unless a caller names another.
-DEFAULT_DIALECT = '3.0'
+# The firmware a simulated scope's board runs unless a caller names another:
+# the one the shipped boards run.
+DEFAULT_DIALECT = 'field'
 
 
 def runtime_platform() -> str | None:
