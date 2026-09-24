@@ -1,5 +1,6 @@
 {
     "microscope": "LS850",
+    "simulator_tier": "firmware",
     "image_mode": "8bit",
     "image_output_format": {
         "live": "TIFF",

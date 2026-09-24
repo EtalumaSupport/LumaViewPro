@@ -53,14 +53,23 @@ RUNTIME_TAGS = _runtime_tags()
 DIALECTS = tuple(RUNTIME_TAGS)
 
 
+def runtime_platform() -> str | None:
+    """The runtime directory this machine's MicroPython builds live in, or
+    None where no runtime is built for it. The platforms are the ones the
+    runtime build script produces; a machine outside them can still run
+    the fast tier, so this answers rather than raises."""
+    if sys.platform == 'darwin':
+        return 'darwin'
+    if sys.platform.startswith('linux') and platform.machine() == 'x86_64':
+        return 'linux-x86_64'
+    return None
+
+
 def runtime_path(dialect: str) -> pathlib.Path:
     """The MicroPython runtime a dialect runs on, for this machine, or a
     refusal naming why."""
-    if sys.platform == 'darwin':
-        platform_tag = 'darwin'
-    elif sys.platform.startswith('linux') and platform.machine() == 'x86_64':
-        platform_tag = 'linux-x86_64'
-    else:
+    platform_tag = runtime_platform()
+    if platform_tag is None:
         raise SerialException(
             f'no simulator runtime for {sys.platform}/{platform.machine()}; '
             'the firmware-backed simulator runs on macOS and Linux x86_64'

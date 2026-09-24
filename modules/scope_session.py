@@ -549,7 +549,9 @@ class ScopeSession:
 
         Keyword arguments, each with the one consumer it feeds:
             simulate: build a simulated scope (the model from
-                ``settings['microscope']``). Ignored when ``scope`` is passed.
+                ``settings['microscope']``, the motor board's tier from
+                ``settings['simulator_tier']``). Ignored when ``scope`` is
+                passed.
             warn_pre_release: whether this construction fires the
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
@@ -581,6 +583,7 @@ class ScopeSession:
                 simulate=simulate,
                 warn_pre_release=warn_pre_release,
                 configured_model=settings.get('microscope'),
+                sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
             )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,
@@ -643,6 +646,37 @@ class ScopeSession:
         if built_scope:
             cls._bring_up(session)
         return session
+
+    @staticmethod
+    def _simulator_tier(settings: dict) -> str:
+        """The simulated motor board's tier from the settings, resolved for
+        this machine.
+
+        The setting is the user's choice and is refused when it names no
+        tier. The firmware tier needs a MicroPython runtime built for the
+        platform; where there is none the session runs the fast tier and
+        says so, because a simulated scope that cannot start on a
+        developer's machine is worse than one on the lighter tier. On a
+        platform that has a runtime, a broken one raises further down.
+        """
+        from drivers.sim_wire.backend import runtime_platform
+        from modules.lumascope_api._constants import SIMULATOR_TIERS
+
+        if 'simulator_tier' not in settings:
+            raise ConfigError(
+                "settings have no 'simulator_tier'; a prepared settings dict carries it "
+                'from the shipped template'
+            )
+        tier = settings['simulator_tier']
+        if tier not in SIMULATOR_TIERS:
+            raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
+        if tier == 'firmware' and runtime_platform() is None:
+            logger.warning(
+                '[Session  ] simulator_tier is firmware, but no MicroPython runtime is '
+                'built for this platform: running the fast tier'
+            )
+            return 'fast'
+        return tier
 
     @staticmethod
     def load_user_settings(source_path: str) -> dict:
