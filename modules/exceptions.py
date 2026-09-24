@@ -239,6 +239,24 @@ class RecordingRefusedError(CaptureError):
         self.holder_trigger = holder_trigger
 
 
+class HyperstackRefusedError(CaptureError):
+    """The hyperstack builder declined to build a recording's frames into one file.
+
+    Raised by the manual recording's finish when the builder answers
+    status=False: the frames are on disk as recorded, and no file exists
+    to announce. The builder's own sentence rides in ``message`` so the
+    notification the user sees says why, in the builder's words, rather
+    than telling them to read a log.
+
+    Attributes:
+        message: The builder's one-paragraph reason, user-facing.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message, 'hyperstack_refused')
+        self.message = message
+
+
 class HardwareCommandRefusedError(Exception):
     """A hardware command was refused: an exclusive activity holds the executor.
 

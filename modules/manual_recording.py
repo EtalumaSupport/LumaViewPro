@@ -47,7 +47,7 @@ from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
 )
-from modules.exceptions import RecordingRefusedError
+from modules.exceptions import HyperstackRefusedError, RecordingRefusedError
 from modules.notification_center import notifications
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
@@ -788,6 +788,12 @@ class ManualRecordingController:
 
             if self._hyperstack_rows is not None:
                 self._build_hyperstack()
+        except HyperstackRefusedError as refused:
+            # The builder's reason is the whole answer, in its own words:
+            # "check the log" is no answer to a REST caller or to a user who
+            # cannot read one. The frames are on disk as recorded.
+            logger.error(f'[ManualRecord] Hyperstack not built: {refused.message}')
+            notifications.error('Recording', 'Hyperstack Not Built', refused.message)
         except Exception:
             logger.exception('[ManualRecord] Post-drain finish failed')
             notifications.error(
@@ -848,11 +854,11 @@ class ManualRecordingController:
             output_file_loc=output,
         )
         # The builder reports refusal in its return value rather than by
-        # raising. Re-raise it so the finish handler's existing failure
-        # notification carries it to the user; announcing a hyperstack the
-        # builder declined to write would name a file that does not exist.
+        # raising. Raise it as the typed refusal so the finish handler tells
+        # the user the builder's reason; announcing a hyperstack the builder
+        # declined to write would name a file that does not exist.
         if not result['status']:
-            raise RuntimeError(f'hyperstack refused: {result["error"]}')
+            raise HyperstackRefusedError(result['error'])
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
 
 

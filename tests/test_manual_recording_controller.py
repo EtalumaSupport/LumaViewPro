@@ -1271,3 +1271,37 @@ class TestEachFrameRecordsItsOwnMoment:
         (only,) = self._described_frames(tmp_path)
         assert 'plate_pos_mm' not in only
         assert only['z_pos_um'] == 3.0
+
+
+class TestARecordingThatCannotBeOneHyperstackSaysWhy:
+    """A channel change during a hyperstack recording leaves frames that no
+    single T x C cube can hold. The rows tell the truth, the builder refuses,
+    and the user reads the builder's reason, in the builder's words, in its
+    own notification -- not a KeyError on a well column a recording never
+    had, and not "check the log".
+    """
+
+    def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
+        self, tmp_path, monkeypatch
+    ):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'error',
+            lambda category, title, message, **kwargs: shown.append((title, message)),
+        )
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller.start(layer='Blue', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        assert len(list(folder.glob('*.tiff'))) == 4, 'the frames are saved as recorded'
+        assert not (folder / MANUAL_HYPERSTACK_FILENAME).exists()
+        (message,) = [m for t, m in shown if t == 'Hyperstack Not Built']
+        assert message.startswith('Cannot build a hyperstack for this recording')
+        assert '2 channels' in message
+        assert 'Recording Finalize Failed' not in [t for t, _ in shown]
