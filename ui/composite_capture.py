@@ -187,14 +187,6 @@ class CompositeCapture(FloatLayout):
         _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
-# A refusal carries a reason code for callers that branch on it, and no
-# words: the caller that provoked it writes them.
-_REFUSAL_TEXT = {
-    'exclusive_activity_running': 'A run is using the camera. Capture again when it ends.',
-    'capture_in_flight': 'A capture is still being saved. Try again in a moment.',
-}
-
-
 def _show_capture_outcome(future) -> None:
     exc = future.exception()
     if exc is None:
@@ -208,7 +200,7 @@ def _show_capture_failure(exc: BaseException) -> None:
 
     logger.error(f'[LVP Main  ] manual capture saved nothing: {exc!r}')
     if isinstance(exc, HardwareCommandRefusedError):
-        notifications.warning('Capture', 'Capture refused', _REFUSAL_TEXT[exc.reason])
+        notifications.warning('Capture', exc.title, str(exc))
     elif isinstance(exc, (CaptureError, ObjectiveUnknownError)):
         # Both are written for the user: the capture engine's cause, or what
         # to do about the objective in the light path.

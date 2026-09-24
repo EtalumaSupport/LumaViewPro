@@ -40,7 +40,6 @@ from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
     AxisStateUnknownError,
-    HardwareCommandRefusedError,
     MoveNotCompletedError,
     PositionOutOfRangeError,
 )
@@ -2200,11 +2199,9 @@ class MotionAPI:
         is `put` returning None and the command disappearing with nothing
         raised and nothing logged.
 
-        The refusal asks only WHETHER work is accepted, and asks twice: once
-        before submitting, and again on `put` returning None -- a protocol
-        fence can land between the check and the submit, and without the
-        second check that race surfaces as an AttributeError on the missing
-        future instead of the typed refusal.
+        The lane's ``call`` decides a refusal and raises it to the caller:
+        the lane is closed, or a run or a diagnostic holds the scope and this
+        call is not made under its taking.
 
         slow_task_threshold_sec declares how long this command may take
         before the elapsed-time WARNING means anything. Left None the task
@@ -2217,23 +2214,16 @@ class MotionAPI:
         ex = self._scope._io_executor
         if ex is None:
             return impl(*args, **kwargs)
-        if not ex.accepts_work():
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        # The caller blocks on this future and receives the exception, so it
-        # is the one to report it; the lane's generic notice would say it twice.
-        fut = ex.put(
+        return ex.call(
             IOTask(
                 action=impl,
                 args=args,
                 kwargs=kwargs,
                 slow_task_threshold_sec=slow_task_threshold_sec,
-                silent_on_failure=True,
             ),
-            return_future=True,
+            name,
+            timeout_s,
         )
-        if fut is None:
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        return fut.result(timeout=timeout_s)
 
     def move_absolute(
         self,

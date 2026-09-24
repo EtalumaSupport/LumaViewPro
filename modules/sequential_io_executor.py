@@ -6,13 +6,15 @@
 # the ui_dispatcher parameter when constructing executors.
 
 from concurrent.futures import CancelledError
+import heapq
 import itertools
 import queue
 from collections.abc import Callable, Sequence
 from lvp_logger import logger
 from lib import profile_trace
 from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
-from modules.exceptions import Refusal
+from modules.activity_claim import ActivityClaim, acting, current_taking
+from modules.exceptions import HardwareCommandRefusedError, Refusal
 import threading
 import time
 
@@ -166,6 +168,12 @@ class _ReusableTaskWaiter:
         return True
 
 
+# Which lane's worker this thread is, set by the worker as it starts. A lane
+# worker never waits on a lane: waiting on its own queue is a deadlock, and a
+# wait on another lane's is one half of the pair that makes one.
+_lane_worker = threading.local()
+
+
 # Per-thread waiter cache. Each calling thread that submits with
 # return_future=True gets one waiter for its lifetime; the same waiter
 # is reset and reused on every subsequent submission from that thread.
@@ -307,6 +315,12 @@ class IOTask:
         self.callback = callback
         self.protocol = None
         self.name = ''
+        # The taking the submitter acted under, stamped by the lane at submit.
+        # The lane runs a task while the scope is held only if this is the
+        # holder's, and its worker acts under it while the task runs.
+        self.taking = None
+        # Set only by the lane, for a submitter holding its override key.
+        self.override = False
 
         # Per-task slow threshold. None -> use class default at run-time
         # (allows the class default to be tuned without per-instance
@@ -488,6 +502,7 @@ class SequentialIOExecutor:
         ui_dispatcher=None,
         protocol_queue_maxsize: int = 0,
         priority_aware: bool = False,
+        lane: bool = True,
     ):
         # priority_aware=True swaps the default queue for a priority
         # wrapper; protocol_queue stays FIFO so step ordering inside
@@ -575,6 +590,16 @@ class SequentialIOExecutor:
         # above is consume-once and owned by run cleanup).
         self._protocol_idle_listeners = []
 
+        # A lane (IO, CAMERA, FILE) serves one device or store in order; its
+        # worker may not wait on a lane. The worker pool is not one: its
+        # teardown work waits on the lanes, one way.
+        self.lane = lane
+        # The activity claim this lane asks before running work, and the key
+        # whose holder may submit a named override past it. None until
+        # ask_claim: a lane nobody wired to a claim runs what it is given.
+        self._claim = None
+        self._override_key = None
+
         # UI dispatcher -- executors don't import GUI frameworks.
         # GUI layer passes Clock.schedule_once; tests/headless use default.
         self._ui_dispatch = ui_dispatcher or _direct_dispatch
@@ -640,6 +665,86 @@ class SequentialIOExecutor:
 
     def enable(self) -> None:
         self._disable = False
+
+    def ask_claim(self, claim: ActivityClaim) -> object:
+        """Make this lane ask ``claim`` before it runs work; returns the override key.
+
+        While a run or a diagnostic holds the scope, a task that was not
+        made under the holder's taking is refused -- at submit and again
+        when the worker takes it off the queue -- with
+        ``HardwareCommandRefusedError``, whoever made it and however. The
+        key is the one way past that: the composition root keeps it for the
+        named overrides, so a caller holding this executor cannot mark its
+        own work as one.
+        """
+        self._claim = claim
+        self._override_key = object()
+        return self._override_key
+
+    def _claim_refusal(self, task: IOTask) -> HardwareCommandRefusedError | None:
+        """The refusal the claim gives ``task`` right now, or None."""
+        if self._claim is None or task.override:
+            return None
+        holder = self._claim.refusing_holder(task.taking)
+        if holder is None:
+            return None
+        who = getattr(task.action, '__name__', None) or repr(task.action)
+        return HardwareCommandRefusedError('exclusive_activity_running', who, holder.kind)
+
+    def _stamp(self, task: IOTask, override: object | None) -> None:
+        task.set_name(self.executor_name)
+        task.taking = current_taking()
+        task.override = override is not None and override is self._override_key
+
+    def _refused_at_submit(self, task: IOTask, refusal, return_future: bool):
+        """Answer a submit the claim refused, as the worker answers a task that failed.
+
+        The waiter carries the refusal and the task's callback is told, so a
+        caller that waits, one that passes a callback and one that ignores
+        the return all hear it -- a raw put whose return nobody reads gets the
+        lane's refusal notice rather than silence.
+        """
+        logger.warning(f'[{self.executor_name}] REFUSED {refusal.member} -- {refusal}')
+        task._ui_dispatch = self._ui_dispatch
+        task.protocol = False
+        self._report_task_failure(task, refusal)
+        task.on_complete(None, refusal)
+        if return_future:
+            fut = _claim_waiter()
+            fut.set_exception(refusal)
+            return fut
+        return refusal
+
+    def call(self, task: IOTask, member: str, timeout_s: float | None) -> object:
+        """Run ``task`` on this lane and wait for its result: the blocking dispatch.
+
+        The public hardware members come through here. Refused work raises
+        ``HardwareCommandRefusedError`` to the caller rather than returning a
+        value a caller could mistake for success; the task reports nothing
+        itself, because the caller that waits is the one to report it.
+
+        Raises:
+            RuntimeError: called from a lane's worker, which never waits on
+                a lane.
+            HardwareCommandRefusedError: the lane is closed, or the scope is
+                held by an activity this call is not made under.
+        """
+        worker = getattr(_lane_worker, 'executor', None)
+        if worker is not None:
+            raise RuntimeError(
+                f'{member}: a blocking dispatch from the {worker.executor_name} lane worker '
+                f'onto {self.executor_name} -- a lane worker never waits on a lane'
+            )
+        task.silent_on_failure = True
+        # Asked twice: a fence can land between the question and the submit,
+        # and put answers a closed lane with None.
+        fut = self.put(task, return_future=True) if self.accepts_work() else None
+        if fut is None:
+            holder = self._claim.holder if self._claim is not None else None
+            raise HardwareCommandRefusedError(
+                'exclusive_activity_running', member, holder.kind if holder is not None else None
+            )
+        return fut.result(timeout=timeout_s)
 
     def _refuse_submit(self, lane: str, cause: str, task: IOTask):
         """Narrate a refused submit at episode granularity; always returns None.
@@ -716,7 +821,9 @@ class SequentialIOExecutor:
             return False
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
-    def put(self, task: IOTask, return_future: bool = False) -> object | None:
+    def put(
+        self, task: IOTask, return_future: bool = False, *, override: object | None = None
+    ) -> object | None:
         """Add an IOTask to the default execution queue.
 
         Return value reports the enqueue outcome so a caller can tell whether
@@ -726,16 +833,18 @@ class SequentialIOExecutor:
         - return_future False, enqueued: ENQUEUED.
         - executor disabled or fenced by a running protocol: None (dropped).
         - droppable_live task over the in-flight cap: LIVE_FRAME_DROPPED.
+        - the scope is held and the task is not the holder's: the refusal
+          (a waiter already carrying it, when return_future).
 
-        The two non-ENQUEUED / non-waiter outcomes both mean the task did not
-        enter the queue and will never run. Success and drop returned the same
+        Every non-ENQUEUED / non-waiter outcome means the task did not enter
+        the queue and will never run. Success and drop returned the same
         None until the enqueued case got its own sentinel, so every successful
         fire-and-forget submit was logged and reported as dropped.
         """
         # Naming precedes every queue insertion below: once a task is on a
         # queue the worker may already be running it, and an unnamed task
         # renames its worker thread to the empty string.
-        task.set_name(self.executor_name)
+        self._stamp(task, override)
         if not self.accepts_work():
             # accepts_work stays the single written-down copy of the gate; the
             # flag is read again only to attribute the cause, not to re-derive
@@ -747,6 +856,9 @@ class SequentialIOExecutor:
                 else 'a protocol run has this lane fenced',
                 task,
             )
+        refusal = self._claim_refusal(task)
+        if refusal is not None:
+            return self._refused_at_submit(task, refusal, return_future)
 
         # Selective backpressure: cap in-flight frame-carrying tasks so a
         # stalled single worker can't pin GBs of frame buffers (the
@@ -842,17 +954,23 @@ class SequentialIOExecutor:
         - return_future False, enqueued: PROTOCOL_ENQUEUED.
         - queue full (bounded queue at cap): PROTOCOL_QUEUE_FULL.
         - executor disabled or protocol not running: None (task dropped).
+        - the scope is held and the task is not the holder's: the refusal
+          (a waiter already carrying it, when return_future).
 
-        The three non-PROTOCOL_ENQUEUED / non-Future outcomes all mean the task
-        did not enter the queue and will never run. Callers whose task must
+        Every non-PROTOCOL_ENQUEUED / non-Future outcome means the task did
+        not enter the queue and will never run. Callers whose task must
         not be droppable use protocol_put_wait instead.
         """
-        task.set_name(self.executor_name)
+        self._stamp(task, None)
         if self._disable:
             return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
 
         if not self.protocol_running.is_set():
             return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
+
+        refusal = self._claim_refusal(task)
+        if refusal is not None:
+            return self._refused_at_submit(task, refusal, return_future)
 
         fut = self._claim_protocol_future(task, return_future)
         if profile_trace.ENABLE_PROFILE_TRACE:
@@ -937,6 +1055,8 @@ class SequentialIOExecutor:
           enter the queue; the caller owns the user-facing consequence.
         - None: should_abort() went true while waiting (cancelled, not
           dropped), or the executor is disabled / no protocol in session.
+        - the refusal, on a lane that asks the claim, when the scope is held
+          and the task is not the holder's.
 
         A queue that is still retiring tasks never trips the wedge return;
         the wait simply continues and the run paces to the disk.
@@ -948,12 +1068,16 @@ class SequentialIOExecutor:
             stall_timeout_s: minimum full-queue wait before a wedge may be
                 declared; also the floor for the no-retirement window.
         """
-        task.set_name(self.executor_name)
+        self._stamp(task, None)
         if self._disable:
             return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
 
         if not self.protocol_running.is_set():
             return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
+
+        refusal = self._claim_refusal(task)
+        if refusal is not None:
+            return self._refused_at_submit(task, refusal, return_future)
 
         fut = self._claim_protocol_future(task, return_future)
         if profile_trace.ENABLE_PROFILE_TRACE:
@@ -1160,11 +1284,15 @@ class SequentialIOExecutor:
 
     def _run_loop(self):
         my_generation = self._worker_generation
+        if self.lane:
+            _lane_worker.executor = self
         while True:
             if self._worker_generation != my_generation:
                 return
             try:
                 task = None
+                if self._claim is not None and not self.queue.empty():
+                    self._refuse_queued()
                 try:
                     if self.protocol_running.is_set() or self.protocol_finish.is_set():
                         task = self.protocol_queue.get(block=True, timeout=0.2)
@@ -1238,10 +1366,22 @@ class SequentialIOExecutor:
 
                 task._ui_dispatch = self._ui_dispatch
 
+                # Asked again as it leaves the queue: a hold can begin while
+                # the task waits, and the holder's restore must not be run
+                # over by work queued before it.
+                refusal = self._claim_refusal(task)
+                if refusal is not None:
+                    logger.warning(
+                        f'[{self.executor_name}] REFUSED {refusal.member} at dequeue -- {refusal}'
+                    )
+                    self._on_task_done(task, None, refusal)
+                    continue
+
                 run_result = None
                 run_exc = None
                 try:
-                    run_result = task.run()
+                    with acting(task.taking):
+                        run_result = task.run()
                 except BaseException as e:
                     run_exc = e
 
@@ -1275,104 +1415,156 @@ class SequentialIOExecutor:
                     exc_info=True,
                 )
 
+    def _refuse_queued(self) -> None:
+        """Refuse the default-queue tasks the claim now refuses, in place.
+
+        A hold begins while work waits: on a lane in protocol mode the
+        worker serves only the run's queue, so that work would wait out the
+        whole run and then run on top of its restore. Each is answered with
+        the refusal now instead -- waiter, callback, notice -- and the
+        tasks the claim admits keep their places. Runs on the worker, where
+        a task's epilogue always runs.
+        """
+        refused = []
+        q = self.queue
+        inner = q._q if isinstance(q, _PriorityFifoQueue) else q
+        with inner.mutex:
+            kept = []
+            for item in inner.queue:
+                task = item[2] if isinstance(q, _PriorityFifoQueue) else item
+                refusal = self._claim_refusal(task)
+                if refusal is None:
+                    kept.append(item)
+                else:
+                    refused.append((task, refusal))
+            if not refused:
+                return
+            inner.queue.clear()
+            inner.queue.extend(kept)
+            if isinstance(q, _PriorityFifoQueue):
+                heapq.heapify(inner.queue)
+            inner.unfinished_tasks -= len(refused)
+            inner.not_full.notify_all()
+        for task, refusal in refused:
+            if task.droppable_live:
+                with self._live_lock:
+                    self._live_inflight -= 1
+            logger.warning(
+                f'[{self.executor_name}] REFUSED {refusal.member} while queued -- {refusal}'
+            )
+            task._ui_dispatch = self._ui_dispatch
+            task.protocol = False
+            with self._caller_futures_lock:
+                fut = self.caller_futures.pop(task, None)
+                if fut is not None:
+                    self._caller_futures_pop_count += 1
+            if fut is not None:
+                fut.set_exception(refusal)
+            self._report_task_failure(task, refusal)
+            task.on_complete(None, refusal)
+
+    def _report_task_failure(self, task: IOTask, exception: BaseException) -> None:
+        """Tell the person about a task that failed or was refused, unless its caller will."""
+        if isinstance(exception, CancelledError):
+            logger.debug(
+                f'[{self.name}] '
+                f'{getattr(task.action, "__name__", str(task.action))} '
+                f'cancelled (by-contract)'
+            )
+        elif getattr(task, 'silent_on_failure', False):
+            # Caller opted in to handle its own notification (API/caller
+            # decides, not the executor). Exception is still logged at
+            # ERROR via IOTask.run() and captured in the exception
+            # passed to the callback. Suppress the generic "Task failed"
+            # popup. Used for the protocol image-writer retry path
+            # where per-failure popups would stack
+            # (see protocol_image_writer.execute_step).
+            pass
+        elif isinstance(exception, Refusal):
+            # Its own title and words, as a warning: the person asked
+            # for something the scope declined, and nothing failed.
+            #
+            # Outside a run, someone asked for this task, so the refusal
+            # is an answer: never filtered as a repeat -- a second
+            # out-of-range press that showed nothing looked like a dead
+            # button -- and replacing the last refusal popup, as every
+            # other refusal does. A run's own task keeps the run's mute:
+            # mid-run only a fatal error may pop up. The worker marks
+            # which queue a task came off, and serves only the run's
+            # queue while a run is going.
+            action_name = getattr(task.action, '__name__', str(task.action))
+            notifications.warning(
+                f'Task:{action_name}',
+                exception.title,
+                str(exception),
+                solicited=not task.protocol,
+                operation_key=REFUSAL_OPERATION_KEY,
+            )
+        else:
+            # Typed exceptions (CaptureError / ProtocolError / etc.)
+            # carry a user-friendly message in str(exception); show
+            # that directly. Untyped exceptions get a generic message
+            # so the popup doesn't leak raw Python class names; the
+            # full trace is already in the log via _run_task above.
+            from modules.exceptions import (
+                CaptureError,
+                ConfigError,
+                MoveNotCompletedError,
+                ProtocolError,
+            )
+
+            try:
+                from drivers.exceptions import HardwareError
+
+                typed = (
+                    CaptureError,
+                    ProtocolError,
+                    ConfigError,
+                    HardwareError,
+                    MoveNotCompletedError,
+                )
+            except ImportError:
+                typed = (
+                    CaptureError,
+                    ProtocolError,
+                    ConfigError,
+                    MoveNotCompletedError,
+                )
+            action_name = getattr(task.action, '__name__', str(task.action))
+            if isinstance(exception, typed) and str(exception):
+                body = str(exception)
+            else:
+                # Says only what the queue proves. Calling it a "step"
+                # and warning that one may have been skipped described
+                # end-of-scan maintenance, camera restore and data saves
+                # as steps, and fired 81 times in a run where nothing was
+                # skipped and every frame wrote. Which queue a task came
+                # off is not evidence about steps, so it no longer
+                # changes what the body claims -- only the title, which
+                # says where the failure happened and nothing more.
+                body = 'The operation did not complete. Check the main log for details.'
+            # What the user reads has to be prose. The action is a
+            # Python symbol, and for a partial or a lambda str() yields
+            # a repr carrying a heap address. A refusal that brought its
+            # own title already said this better than a generic line.
+            title = getattr(exception, 'title', None) or (
+                'Protocol operation failed' if task.protocol else 'Background operation failed'
+            )
+            # Identity rides in the CATEGORY. Dedup keys on
+            # (category, title) and no popup renders the category, so
+            # distinct actions keep distinct keys -- a refused stage
+            # move and an unrelated camera failure seconds apart must
+            # not collapse into one event -- while a genuine repeat of
+            # one action still dedups. Carrying that identity in the
+            # TITLE instead is what put Python identifiers, and for a
+            # partial a heap address, in front of the user; an address
+            # also made the key unmatchable, silently disabling dedup.
+            notifications.error(f'Task:{action_name}', title, body)
+
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
         if exception is not None:
-            if isinstance(exception, CancelledError):
-                logger.debug(
-                    f'[{self.name}] '
-                    f'{getattr(task.action, "__name__", str(task.action))} '
-                    f'cancelled (by-contract)'
-                )
-            elif getattr(task, 'silent_on_failure', False):
-                # Caller opted in to handle its own notification (API/caller
-                # decides, not the executor). Exception is still logged at
-                # ERROR via IOTask.run() and captured in the exception
-                # passed to the callback. Suppress the generic "Task failed"
-                # popup. Used for the protocol image-writer retry path
-                # where per-failure popups would stack
-                # (see protocol_image_writer.execute_step).
-                pass
-            elif isinstance(exception, Refusal):
-                # Its own title and words, as a warning: the person asked
-                # for something the scope declined, and nothing failed.
-                #
-                # Outside a run, someone asked for this task, so the refusal
-                # is an answer: never filtered as a repeat -- a second
-                # out-of-range press that showed nothing looked like a dead
-                # button -- and replacing the last refusal popup, as every
-                # other refusal does. A run's own task keeps the run's mute:
-                # mid-run only a fatal error may pop up. The worker marks
-                # which queue a task came off, and serves only the run's
-                # queue while a run is going.
-                action_name = getattr(task.action, '__name__', str(task.action))
-                notifications.warning(
-                    f'Task:{action_name}',
-                    exception.title,
-                    str(exception),
-                    solicited=not task.protocol,
-                    operation_key=REFUSAL_OPERATION_KEY,
-                )
-            else:
-                # Typed exceptions (CaptureError / ProtocolError / etc.)
-                # carry a user-friendly message in str(exception); show
-                # that directly. Untyped exceptions get a generic message
-                # so the popup doesn't leak raw Python class names; the
-                # full trace is already in the log via _run_task above.
-                from modules.exceptions import (
-                    CaptureError,
-                    ConfigError,
-                    MoveNotCompletedError,
-                    ProtocolError,
-                )
-
-                try:
-                    from drivers.exceptions import HardwareError
-
-                    typed = (
-                        CaptureError,
-                        ProtocolError,
-                        ConfigError,
-                        HardwareError,
-                        MoveNotCompletedError,
-                    )
-                except ImportError:
-                    typed = (
-                        CaptureError,
-                        ProtocolError,
-                        ConfigError,
-                        MoveNotCompletedError,
-                    )
-                action_name = getattr(task.action, '__name__', str(task.action))
-                if isinstance(exception, typed) and str(exception):
-                    body = str(exception)
-                else:
-                    # Says only what the queue proves. Calling it a "step"
-                    # and warning that one may have been skipped described
-                    # end-of-scan maintenance, camera restore and data saves
-                    # as steps, and fired 81 times in a run where nothing was
-                    # skipped and every frame wrote. Which queue a task came
-                    # off is not evidence about steps, so it no longer
-                    # changes what the body claims -- only the title, which
-                    # says where the failure happened and nothing more.
-                    body = 'The operation did not complete. Check the main log for details.'
-                # What the user reads has to be prose. The action is a
-                # Python symbol, and for a partial or a lambda str() yields
-                # a repr carrying a heap address. A refusal that brought its
-                # own title already said this better than a generic line.
-                title = getattr(exception, 'title', None) or (
-                    'Protocol operation failed' if task.protocol else 'Background operation failed'
-                )
-                # Identity rides in the CATEGORY. Dedup keys on
-                # (category, title) and no popup renders the category, so
-                # distinct actions keep distinct keys -- a refused stage
-                # move and an unrelated camera failure seconds apart must
-                # not collapse into one event -- while a genuine repeat of
-                # one action still dedups. Carrying that identity in the
-                # TITLE instead is what put Python identifiers, and for a
-                # partial a heap address, in front of the user; an address
-                # also made the key unmatchable, silently disabling dedup.
-                notifications.error(f'Task:{action_name}', title, body)
+            self._report_task_failure(task, exception)
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit -- emit per-IOTask timing row when opt-in tracing

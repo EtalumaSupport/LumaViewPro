@@ -38,6 +38,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any
 
+from modules.activity_claim import acting, current_taking
 from modules.exceptions import AutofocusAborted
 
 logger = logging.getLogger('LVP.modules.autofocus_thread')
@@ -184,8 +185,10 @@ class AutofocusThread:
             # Same-lock pairing makes the new-sweep-with-cleared-aborted
             # publication atomic w.r.t. abort().
             self._aborted.clear()
+        # The sweep's moves, LED and camera writes are its caller's -- the run
+        # that dispatched it -- so this thread acts under the caller's taking.
         try:
-            self._request_queue.put_nowait((request_kwargs, future))
+            self._request_queue.put_nowait((request_kwargs, future, current_taking()))
         except queue.Full:
             # Queue full despite the state lock guard above; should not
             # happen but degrade gracefully by failing the new Future.
@@ -256,9 +259,10 @@ class AutofocusThread:
             if req is _SHUTDOWN_SENTINEL:
                 return
 
-            kwargs, future = req
+            kwargs, future, taking = req
             try:
-                result = self._afe.run(**kwargs, abort_event=self._aborted)
+                with acting(taking):
+                    result = self._afe.run(**kwargs, abort_event=self._aborted)
                 future.set_result(result)
             except AutofocusAborted as ex:
                 logger.info(f'autofocus run aborted: {ex}')

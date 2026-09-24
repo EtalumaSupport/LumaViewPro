@@ -1,8 +1,42 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Atomic compare-and-claim for the session's one exclusive activity."""
 
+import contextlib
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
+
+# The activity kinds that hold the WHOLE scope: a run and a diagnostic both
+# drive every axis, the LEDs and the camera, so while one holds the claim a
+# lane runs only work made under its taking, the controls lock and the
+# objective cannot change under it. A recording is not here -- focusing,
+# moving, LED, gain and exposure stay open to anyone during one.
+SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
+
+_acting = threading.local()
+
+
+def current_taking() -> 'Taking | None':
+    """The taking this thread is acting under, or None."""
+    return getattr(_acting, 'taking', None)
+
+
+@contextlib.contextmanager
+def acting(taking: 'Taking | None') -> Iterator[None]:
+    """Act under ``taking`` on this thread for the length of a ``with`` block.
+
+    A lane stamps each task with the taking its submitter acts under, and
+    while the scope is held it runs only the holder's; so every thread that
+    does a holder's work enters its taking here. None acts under nothing,
+    which lets a caller hand on whatever taking it was given without a
+    branch. Nests: the previous taking is restored on exit.
+    """
+    previous = current_taking()
+    _acting.taking = taking
+    try:
+        yield
+    finally:
+        _acting.taking = previous
 
 
 @dataclass(frozen=True)
@@ -37,6 +71,11 @@ class HeldClaim:
         self._claim = claim
 
     @property
+    def claim(self) -> 'ActivityClaim':
+        """The claim this taking was taken from."""
+        return self._claim
+
+    @property
     def holds(self) -> bool:
         """Whether this taking still holds the claim.
 
@@ -64,28 +103,38 @@ class _Borrowing:
     """What a borrower holds: it acts under the lender's claim, and its
     release leaves that claim held -- the lender releases at its own end.
 
-    It answers the rest of a held claim's questions from its lender, so work
+    It answers the rest of a held claim's questions the same way, so work
     that runs under it (a run inside a diagnostic, and a recording inside
-    that run) needs no branch on whether it borrowed: it holds while the
-    lender holds, and what it lends on is the lender's claim.
+    that run) needs no branch on whether it borrowed. It holds until it is
+    released or its lender stops holding, and it lends itself: what it lent
+    ends when it does, so a recording inside a borrowed run cannot outlive
+    the run, and a lane stops taking an ended run's work while the lender
+    still holds the scope.
     """
 
-    __slots__ = ('_lender',)
+    __slots__ = ('_ended', '_lender')
 
-    def __init__(self, lender: HeldClaim) -> None:
+    def __init__(self, lender: 'Taking') -> None:
         self._lender = lender
+        self._ended = False
+
+    @property
+    def claim(self) -> 'ActivityClaim':
+        """The claim the lender took, at the root of the lending chain."""
+        return self._lender.claim
 
     @property
     def holds(self) -> bool:
-        """Whether the lender's taking still holds the claim."""
-        return self._lender.holds
+        """Whether this borrowing has not ended and its lender still holds."""
+        return not self._ended and self._lender.holds
 
     def release(self) -> None:
-        return None
+        """End this borrowing and everything lent from it; the lender keeps its claim."""
+        self._ended = True
 
     def lend(self) -> 'BorrowedClaim':
-        """Lend the lender's claim onward to work nested inside this one."""
-        return self._lender.lend()
+        """Lend this borrowing to work nested inside it."""
+        return BorrowedClaim(self)
 
 
 class BorrowedClaim:
@@ -99,13 +148,13 @@ class BorrowedClaim:
 
     __slots__ = ('_lender',)
 
-    def __init__(self, lender: HeldClaim) -> None:
+    def __init__(self, lender: 'HeldClaim | _Borrowing') -> None:
         self._lender = lender
 
     @property
     def holder(self) -> 'ActivityHolder | None':
         """The claim's current holder, as ActivityClaim.holder answers it."""
-        return self._lender._claim.holder
+        return self._lender.claim.holder
 
     @property
     def blocking_holder(self) -> 'ActivityHolder | None':
@@ -120,7 +169,7 @@ class BorrowedClaim:
         return self.holder
 
     def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
-        """Act under the lender's claim; None once the lender no longer holds it."""
+        """Act under the lender's taking; None once the lender no longer holds."""
         if not self._lender.holds:
             return None
         return _Borrowing(self._lender)
@@ -206,6 +255,21 @@ class ActivityClaim:
         if self._on_transition is not None:
             self._on_transition()
         return held
+
+    def refusing_holder(self, taking: Taking | None) -> ActivityHolder | None:
+        """The holder that refuses work made under ``taking``, or None.
+
+        While a run or a diagnostic holds the scope, only work under its
+        taking -- the HeldClaim, or a borrowing of it that has not ended --
+        is the holder's. Anything else is refused, and the holder is named
+        so the refusal can say who has the scope.
+        """
+        holder = self._holder
+        if holder is None or holder.kind not in SCOPE_HOLDING_KINDS:
+            return None
+        if taking is not None and taking.claim is self and taking.holds:
+            return None
+        return holder
 
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held

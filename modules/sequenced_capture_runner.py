@@ -24,7 +24,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
-from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking
+from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     ProtocolRunRefusedError,
@@ -1409,7 +1409,7 @@ class SequencedCaptureRunner:
             # run_protocol also clears _aborted under its state lock
             # atomically with publishing the new Future, mirroring the
             # AutofocusThread fix.
-            dispatch_future = self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
+            dispatch_future = self.protocol_thread.run_protocol(self._run_loop_under_claim)
             # A dispatch refusal is synchronous: run_protocol seals the
             # returned Future with its error BEFORE returning, while a
             # genuinely dispatched run loop leaves it unresolved for the
@@ -1596,9 +1596,30 @@ class SequencedCaptureRunner:
         if not self._cleanup_lock.acquire(blocking=False):
             return  # Another thread is already cleaning up
         try:
-            self._cleanup_inner(ending)
+            # Cleanup runs on whichever thread ended the run -- the protocol
+            # thread, a stop pressed in the GUI, a script's reset -- and its
+            # restores and return moves are the run's own writes, so it acts
+            # under the run's taking wherever it runs. A cleanup with no
+            # taking left keeps the thread's own.
+            held = self._held_claim
+            if held is None:
+                self._cleanup_inner(ending)
+            else:
+                with acting(held):
+                    self._cleanup_inner(ending)
         finally:
             self._cleanup_lock.release()
+
+    def _run_loop_under_claim(self) -> None:
+        """The run loop, on the protocol thread, acting under the run's taking.
+
+        Every move, LED and camera task the run submits is stamped with the
+        taking its thread acts under, and a lane refuses one that is not the
+        holder's while the scope is held -- this is what makes the run's own
+        work its own.
+        """
+        with acting(self._held_claim):
+            self._run_loop_executor.run_loop()
 
     def _release_scan_led_lease(self):
         """Release the scan's LED lease (idempotent), leaving the LEDs as-is.

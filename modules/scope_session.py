@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules.activity_claim import ActivityClaim, HeldClaim
+from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     ConfigError,
@@ -44,12 +44,6 @@ from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
-
-# The activity kinds that hold the WHOLE scope: a run and a diagnostic both
-# drive every axis, the LEDs and the camera, so while one holds the claim
-# the controls lock and the objective cannot change under it. A recording
-# is not here -- focusing and moving stay open during one.
-_SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -218,6 +212,12 @@ class ScopeSession:
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
         self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
+        # The device lanes ask the claim before running work, so while a run
+        # or a diagnostic holds the scope only its own work reaches the
+        # hardware, whoever submits. The IO key is kept for the one named
+        # override on that lane, shutdown's LED drain.
+        self._io_override_key = self.io_executor.ask_claim(self.activity_claim)
+        self.camera_executor.ask_claim(self.activity_claim)
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
@@ -395,7 +395,8 @@ class ScopeSession:
                 holder_trigger=(holder.run_trigger_source if holder is not None else None),
             )
         try:
-            yield held
+            with acting(held):
+                yield held
         finally:
             if not self.sequenced_capture_runner.wait_for_run_idle(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S):
                 raise RuntimeError(
@@ -461,7 +462,7 @@ class ScopeSession:
         protocol frees its claim while its files drain, but the control
         surface stays locked until the queue empties.
         """
-        return self.activity_claim.owner in _SCOPE_HOLDING_KINDS or self.protocol_files_draining
+        return self.activity_claim.owner in SCOPE_HOLDING_KINDS or self.protocol_files_draining
 
     @property
     def controls_locked(self) -> bool:
@@ -833,7 +834,17 @@ class ScopeSession:
             True when a recovery was dispatched; False when this session
             holds no file-IO executor (the hosting GUI owns the bundle,
             and its own recovery surface applies).
+
+        Raises:
+            HardwareCommandRefusedError: a run or a diagnostic holds the
+                scope. The pending writes are that run's own captures, and
+                ending protocol mode under it discards them mid-run.
         """
+        holder = self.activity_claim.owner
+        if holder in SCOPE_HOLDING_KINDS:
+            raise HardwareCommandRefusedError(
+                'exclusive_activity_running', 'recover_file_writer', holder
+            )
         if self.file_io_executor is None:
             return False
         self.file_io_executor.recover_wedged_protocol_queue()
@@ -1564,8 +1575,9 @@ class ScopeSession:
         # files than the objective its steps were built for. A diagnostic
         # holds the scope the same way: its measurements are taken against
         # the objective it started under.
-        if self.activity_claim.owner in _SCOPE_HOLDING_KINDS:
-            raise HardwareCommandRefusedError('exclusive_activity_running', member)
+        holder = self.activity_claim.owner
+        if holder in SCOPE_HOLDING_KINDS:
+            raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
     @staticmethod
     def _check_turret_slot(position) -> None:
@@ -1759,6 +1771,7 @@ class ScopeSession:
                 fut = self.io_executor.put(
                     IOTask(action=self.scope.illumination._leds_off_impl),
                     return_future=True,
+                    override=self._io_override_key,
                 )
                 if fut is None:
                     logger.warning('[Session  ] io lane refused the shutdown leds_off')

@@ -24,7 +24,7 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from modules.exceptions import CameraSettingRejected
 from modules.frame_validity import FrameValidity
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
@@ -1000,10 +1000,9 @@ class ImagingAPI:
         alternative is `put` returning None and the command disappearing
         with nothing raised and nothing logged.
 
-        The refusal asks only WHETHER work is accepted. A run disables the
-        camera executor outright (io and file are fenced instead), and `put`
-        reports both states the same way, so a branch that asked WHY would
-        need a list of executor states kept in sync with the executor.
+        The lane's ``call`` decides a refusal and raises it to the caller:
+        the lane is closed, or a run or a diagnostic holds the scope and this
+        call is not made under its taking.
 
         Unlike the LED dispatcher there is no connected pre-check here: the
         camera slot holds None when no camera is present -- there is no Null
@@ -1014,20 +1013,7 @@ class ImagingAPI:
         ex = self._scope._camera_executor
         if ex is None:
             return impl(*args, **kwargs)
-        if not ex.accepts_work():
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        # The caller blocks on this future and receives the exception, so it
-        # is the one to report it; the lane's generic notice would say it twice.
-        fut = ex.put(
-            IOTask(action=impl, args=args, kwargs=kwargs, silent_on_failure=True),
-            return_future=True,
-        )
-        if fut is None:
-            # A protocol fence can land between the check above and the
-            # submit; without this the race surfaces as an AttributeError on
-            # the missing future instead of the typed refusal.
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        return fut.result(timeout=timeout_s)
+        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, timeout_s)
 
     def set_gain_db(self, gain_db: float) -> bool | None:
         """Set the camera gain, and wait for it.

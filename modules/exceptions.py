@@ -257,41 +257,6 @@ class HyperstackRefusedError(CaptureError):
         self.message = message
 
 
-class HardwareCommandRefusedError(Exception):
-    """A hardware command was refused: an exclusive activity holds the executor.
-
-    Raised by the public hardware members (LED, camera and motion commands)
-    when the executor that would carry the work will not accept it -- because
-    a protocol run fenced it, or because the run disabled it outright. Both
-    executor states make ``put()`` return None, and the caller cannot tell
-    which one applies; asking whether work is accepted covers both, while
-    asking why would need a list of reasons kept in sync with the executor.
-
-    Distinct from the run and recording refusals, which are raised when an
-    ACTIVITY is refused at start and which carry the title and body already
-    shown to the user. This refusal reaches an external API caller that no
-    notification path serves, so it carries no user-facing strings -- the
-    caller that provoked it owns the response. Without it the command would
-    be dropped silently, which is how a fenced write reaches no hardware and
-    reports success.
-
-    The Session's objective writers (select, slot assign and slot clear)
-    raise it too while a run holds the scope, with the same reason: the run
-    stamps the active objective's scale into each capture, so a change
-    mid-run is a command against the run's hardware state.
-
-    Attributes:
-        reason: Machine-readable refusal code for callers that map refusals
-            to responses (REST status codes, SDK branches).
-        member: The public member that was refused, for the log and message.
-    """
-
-    def __init__(self, reason: str, member: str):
-        super().__init__(f'{member} refused: {reason}')
-        self.reason = reason
-        self.member = member
-
-
 class Refusal:
     """A request the scope declined: nothing broke, and the person who asked can act on it.
 
@@ -308,6 +273,56 @@ class Refusal:
     """
 
     title: str
+
+
+class HardwareCommandRefusedError(Refusal, Exception):
+    """A hardware command was refused: something else has the scope, or the lane is closed.
+
+    Raised to whoever made the command -- a public hardware member (LED,
+    camera and motion commands), a raw task on a lane, the Session's
+    objective writers -- and never dropped: a command refused without a
+    raise reaches no hardware and reports success. While a run or a
+    diagnostic holds the scope, a lane refuses any task not made under
+    the holder's taking with this; so do the run's own executor fences,
+    which cannot say who closed them.
+
+    The Session's objective writers (select, slot assign and slot clear)
+    raise it too while a run or a diagnostic holds the scope: the run
+    stamps the active objective's scale into each capture, so a change
+    mid-run is a command against the run's hardware state.
+
+    A declined request, not a fault, so it is a ``Refusal``: the lane shows
+    it as a warning in its own words and logs one line without a
+    traceback. The message is written for the person at the scope and
+    names the holder; ``reason`` and ``member`` are for code that maps a
+    refusal to a response (REST status codes, SDK branches) and for the
+    log.
+
+    Attributes:
+        reason: Machine-readable refusal code.
+        member: The member or task that was refused, for the log.
+        holder: The kind of activity holding the scope, when known.
+    """
+
+    title = 'Microscope Busy'
+
+    def __init__(self, reason: str, member: str, holder: str | None = None):
+        super().__init__(_command_refused_sentence(reason, holder))
+        self.reason = reason
+        self.member = member
+        self.holder = holder
+
+
+_HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
+
+
+def _command_refused_sentence(reason: str, holder: str | None) -> str:
+    if reason == 'capture_in_flight':
+        return 'A capture is still being saved. Try again in a moment.'
+    if reason == 'protocol_queue_refused':
+        return 'The run is ending, so the command was not sent.'
+    who = _HOLDER_NOUNS.get(holder, 'Another activity')
+    return f'{who} is using the microscope. Try again when it ends.'
 
 
 class DiagnosticRefusedError(Refusal, Exception):

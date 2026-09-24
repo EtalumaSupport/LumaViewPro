@@ -19,6 +19,7 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays
+from modules.activity_claim import Taking, acting, current_taking
 from modules.exceptions import CaptureError, HardwareCommandRefusedError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
@@ -128,9 +129,12 @@ class ManualCaptureController:
             )
             future: concurrent.futures.Future = concurrent.futures.Future()
             future.set_running_or_notify_cancel()
+            # The still is its caller's: a diagnostic holding the scope takes
+            # one under its own taking, so the thread acts under whatever
+            # taking the caller acts under.
             threading.Thread(
                 target=self._run,
-                args=(request, future),
+                args=(request, future, current_taking()),
                 name='manual-capture',
                 daemon=True,
             ).start()
@@ -139,17 +143,23 @@ class ManualCaptureController:
             raise
         return future
 
-    def _run(self, request: '_StillRequest', future: concurrent.futures.Future) -> None:
+    def _run(
+        self,
+        request: '_StillRequest',
+        future: concurrent.futures.Future,
+        taking: 'Taking | None',
+    ) -> None:
         # The camera executor's own future is a per-thread waiter reused on
         # that thread's next submit, so it cannot be handed to a caller; this
         # thread waits on it and settles a standard Future instead.
         try:
-            paths = request.scope.imaging._dispatch_camera(
-                self._still_body,
-                _MEMBER,
-                args=(request,),
-                timeout_s=None,
-            )
+            with acting(taking):
+                paths = request.scope.imaging._dispatch_camera(
+                    self._still_body,
+                    _MEMBER,
+                    args=(request,),
+                    timeout_s=None,
+                )
         except BaseException as exc:
             if not request.body_started.is_set():
                 # Refused or cancelled before the lane ran the body, so the

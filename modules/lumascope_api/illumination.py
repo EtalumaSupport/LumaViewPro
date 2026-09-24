@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import ConfigError, HardwareCommandRefusedError
+from modules.exceptions import ConfigError
 from modules.sequential_io_executor import ENQUEUED, IOTask
 
 if TYPE_CHECKING:
@@ -765,10 +765,9 @@ class IlluminationAPI:
         is `put` returning None and the command disappearing with nothing
         raised and nothing logged.
 
-        The refusal asks only WHETHER work is accepted. A run disables the
-        camera executor while io and file are fenced instead, and `put`
-        reports both the same way, so a branch that asked WHY would need a
-        list of executor states kept in sync with the executor.
+        The lane's ``call`` decides a refusal and raises it to the caller:
+        the lane is closed, or a run or a diagnostic holds the scope and this
+        call is not made under its taking.
         """
         kwargs = kwargs or {}
         # The board check has to live here, not be left to the body. Each
@@ -785,20 +784,7 @@ class IlluminationAPI:
         ex = self._scope._io_executor
         if ex is None:
             return impl(*args, **kwargs)
-        if not ex.accepts_work():
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        # The caller blocks on this future and receives the exception, so it
-        # is the one to report it; the lane's generic notice would say it twice.
-        fut = ex.put(
-            IOTask(action=impl, args=args, kwargs=kwargs, silent_on_failure=True),
-            return_future=True,
-        )
-        if fut is None:
-            # A protocol fence can land between the check above and the
-            # submit; without this the race surfaces as an AttributeError on
-            # the missing future instead of the typed refusal.
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        return fut.result(timeout=_LED_WRITE_TIMEOUT_S)
+        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S)
 
     def led_on(
         self,
