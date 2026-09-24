@@ -44,6 +44,11 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
         'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
     )
 
+# The replay is a module fixture of about a minute; under xdist each worker
+# that draws one of these tests would run it again. One group sends them all
+# to one worker (`--dist loadgroup`, in the pytest addopts).
+pytestmark = pytest.mark.xdist_group('sim_wire_conformance')
+
 FIXTURE = pathlib.Path(__file__).parent / 'data' / 'sim_wire_conformance_ls850t_field.json'
 _BENCH = json.loads(FIXTURE.read_text())
 _RUNS = _BENCH['runs']
