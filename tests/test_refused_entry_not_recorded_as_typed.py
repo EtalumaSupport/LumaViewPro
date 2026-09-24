@@ -136,17 +136,41 @@ def _declares_before_write(rel, class_name, method, record, widget_id):
 
 
 def test_a_refused_binning_pick_is_not_recorded_as_a_selection():
-    """Restoring the spinner dispatches its event; the restore must be declared."""
+    """Restoring the spinner dispatches its event; the restore must be declared.
+
+    A refused pick is answered by the Session, and the redraw that runs after
+    it, whatever the outcome, puts the spinner back to the stored binning.
+    """
     declare_at, write_at = _declares_before_write(
         'ui/microscope_settings.py',
         'MicroscopeSettings',
-        'select_binning_size',
+        '_redraw_framing',
         'BINNING',
         'binning_spinner',
     )
     assert declare_at is not None, (
-        'the binning reject path restores the spinner without declaring it, so a '
+        'the binning redraw restores the spinner without declaring it, so a '
         'refused pick records a SELECT BINNING the user never chose'
+    )
+    assert write_at is not None and declare_at < write_at, (
+        'the declaration must precede the spinner write -- a spinner dispatches '
+        'synchronously, so a declaration made afterwards arrives too late'
+    )
+
+
+def test_a_refused_image_mode_pick_is_not_recorded_as_a_selection():
+    """The image-mode twin: the redraw after a refused format puts the spinner
+    back to the stored mode, and that write must be declared as the app's."""
+    declare_at, write_at = _declares_before_write(
+        'ui/microscope_settings.py',
+        'MicroscopeSettings',
+        '_redraw_image_mode',
+        'IMAGE_MODE',
+        'image_mode_spinner',
+    )
+    assert declare_at is not None, (
+        'the image-mode redraw restores the spinner without declaring it, so a '
+        'refused format records a SELECT IMAGE_MODE the user never chose'
     )
     assert write_at is not None and declare_at < write_at, (
         'the declaration must precede the spinner write -- a spinner dispatches '

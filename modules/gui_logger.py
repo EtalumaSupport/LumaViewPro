@@ -95,14 +95,14 @@ def select(name: str, value: object) -> None:
     _log.info(f'SELECT {name} {value}')
 
 
-def frame_size(width, height, binning):
+def frame_size(width: int, height: int, binning: int) -> None:
     """Log a framing change -- the displayed (post-binning) frame size + binning.
 
-    Wired from ``MicroscopeSettings._apply_displayed_frame``, the single
-    chokepoint both the frame-field edit (``frame_size``) and the binning
-    toggle (``select_binning_size``) flow through, so one call covers every
-    framing change the user makes -- including the frame-box resize that was
-    previously absent from the GUI log.
+    Wired from ``MicroscopeSettings._framing_applied``, the redraw both the
+    frame-field edit (``frame_size``) and the binning pick
+    (``select_binning_size``) end in, so one call covers every framing change
+    the user makes -- including the frame-box resize that was once absent
+    from the GUI log. It records the framing stored once the camera answered.
     """
     _log.info(f'FRAME_SIZE {width}x{height} binning={binning}')
 

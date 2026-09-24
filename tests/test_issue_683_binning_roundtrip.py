@@ -17,52 +17,11 @@ alignment. Because that derivation depends only on native + binning, every
 binning level is reproducible and the cycle round-trips exactly.
 """
 
-import ast
-import pathlib
 from typing import ClassVar
 
 import modules.binning as binning
 from drivers.camera_profiles import lookup_profile
 from drivers.simulated_camera import SimulatedCamera
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-
-
-def _method_node(path: pathlib.Path, name: str) -> ast.FunctionDef:
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f'{name} not found in {path}')
-
-
-def test_select_binning_size_persists_native_roi():
-    """select_binning_size must persist the native ROI, not just derive
-    the displayed size from it.
-
-    The helper round-trip tests above assume a FIXED native ROI. In
-    production that holds only if native_width/native_height are actually
-    stored. They are written on a frame-field edit (frame_size) but were
-    NOT written on a binning change, so settings that never had them fall
-    through _native_roi's reconstruction (displayed * binning) every
-    binning change -- and at a coarse binning the displayed value is
-    already floored, so native shrinks a little each step and the cycle
-    drifts (the SN12062 bench saw 1900 -> 1888). Guard that the binning
-    path persists the source of truth like the edit path does.
-    """
-    method = _method_node(REPO_ROOT / 'ui' / 'microscope_settings.py', 'select_binning_size')
-    stores = [
-        n
-        for n in ast.walk(method)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == '_store_native_roi'
-    ]
-    assert stores, (
-        'select_binning_size must call self._store_native_roi(...) so a '
-        'binning change locks the native source of truth; without it the '
-        'binning cycle drifts via _native_roi reconstruction. (#683)'
-    )
 
 
 # Mimics the buggy pre-fix derivation: iterate on the displayed value, and
@@ -210,30 +169,36 @@ class TestDeliverableAlignmentFloor:
         assert disp['height'] == 950
         assert disp['height'] != 948
 
-    def test_ui_callers_source_alignment_from_driver_not_hardcoded(self):
-        # Pin the fix at the call site: both frame-size paths must floor to the
-        # ACTIVE driver's deliverable granularity via imaging.get_pixel_alignment(),
-        # not a hardcoded grid -- else a non-cropping driver persists an
-        # undeliverable size (the reviewed regression).
-        for name in ('frame_size', 'select_binning_size'):
-            method = _method_node(REPO_ROOT / 'ui' / 'microscope_settings.py', name)
-            calls = [
-                n
-                for n in ast.walk(method)
-                if isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Attribute)
-                and n.func.attr == 'native_to_displayed'
-            ]
-            assert calls, f'{name} must derive the displayed size via native_to_displayed'
-            for call in calls:
-                assert len(call.args) >= 3, (
-                    f'{name}: native_to_displayed must receive an explicit alignment arg'
-                )
-                align_src = ast.dump(call.args[2])
-                assert 'get_pixel_alignment' in align_src, (
-                    f'{name} must floor to imaging.get_pixel_alignment() (per-driver), '
-                    f'not a hardcoded alignment'
-                )
+    def test_the_frame_and_binning_members_floor_to_the_drivers_alignment(self, tmp_path):
+        # Pin the fix where the displayed size is derived: both frame-size
+        # paths (a frame edit and a binning change, ScopeSession.set_frame_size
+        # / set_binning_size) floor to the ACTIVE driver's deliverable
+        # granularity via imaging.get_pixel_alignment(), not a hardcoded grid
+        # -- else a non-cropping driver persists an undeliverable size (the
+        # reviewed regression). The simulator's own grid is 48x4; the driver
+        # here reports the IDS even grid, so a request floored to anything
+        # but the driver's answer is visible.
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+        try:
+            imaging = session.scope.imaging
+            imaging.get_pixel_alignment = lambda: IDS_DELIVERABLE_ALIGN
+            requests = []
+            real = imaging.set_frame_size
+            imaging.set_frame_size = lambda w, h: requests.append((w, h)) or real(w, h)
+
+            session.set_frame_size(1150, 802)
+            session.set_binning_size(2)
+        finally:
+            session.shutdown()
+
+        assert requests == [(1150, 802), (574, 400)], (
+            'set_frame_size and set_binning_size must floor to '
+            'imaging.get_pixel_alignment() (per-driver), not a hardcoded alignment; '
+            f'the camera was asked for {requests}'
+        )
 
 
 class TestSimPostBinningContract:

@@ -651,6 +651,30 @@ class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it 
         self.title = title
 
 
+class CameraSettingUnsupportedError(Refusal, ValueError):
+    """A camera setting this camera does not offer was asked for.
+
+    Declined before anything reaches the camera: the value is outside the
+    list the camera itself reports (its binning factors), so nothing
+    broke and the person can pick one it offers. A ``ValueError`` too,
+    for a caller that treats it as the bad argument it is.
+
+    Attributes:
+        reason: Machine-readable refusal code, ``'<setting>_unsupported'``.
+        setting: Machine-readable setting name (e.g. 'binning').
+        requested: The value asked for.
+        offered: The values the camera reports it supports.
+    """
+
+    def __init__(self, setting: str, requested, offered, *, title: str, message: str):
+        super().__init__(message)
+        self.reason = f'{setting}_unsupported'
+        self.setting = setting
+        self.requested = requested
+        self.offered = offered
+        self.title = title
+
+
 class FrameDepthError(Exception):
     """A frame carries a payload value above its declared significant-bits depth.
 

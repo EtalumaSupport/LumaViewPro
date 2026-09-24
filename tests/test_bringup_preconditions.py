@@ -110,7 +110,8 @@ class TestImageModeHandlerDuringInit:
     def test_select_image_mode_returns_before_its_camera_push_during_init(self):
         """Its sibling `select_binning_size` carries the same guard for the
         same reason; this pins that the image-mode handler reads
-        `ctx.initializing` before it reaches `camera_executor.put`."""
+        `ctx.initializing` before it submits the Session apply to the camera
+        lane (`submit_reported`)."""
         import ast
 
         node = ast_seams.find_def(
@@ -124,8 +125,8 @@ class TestImageModeHandlerDuringInit:
                 guard_line = guard_line or sub.lineno
             if (
                 isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == 'put'
+                and isinstance(sub.func, ast.Name)
+                and sub.func.id == 'submit_reported'
             ):
                 put_line = put_line or sub.lineno
         assert guard_line is not None, 'select_image_mode has no ctx.initializing guard'

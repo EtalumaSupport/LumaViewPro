@@ -12,18 +12,17 @@ driver still reported the previous factor, so ``displayed * stale_binning``
 rebuilt a skewed (and, with a prior off-square displayed, non-square) native.
 
 Fix:
-  - ``_native_roi`` / ``frame_size`` reconstruct against the synchronous UI
-    binning (``settings['binning']['size']`` via ``_ui_binning_size``), never
-    ``imaging.get_binning_size()``.
-  - ``select_binning_size`` captures + stores the native ROI BEFORE it
-    overwrites ``settings['binning']['size']``, so the reconstruction reads
-    the OLD binning the current displayed value corresponds to.
+  - The native ROI is reconstructed against the stored binning
+    (``settings['binning']['size']``), never ``imaging.get_binning_size()``.
+  - A binning change captures + stores the native ROI at the OLD binning the
+    current displayed value corresponds to, before the new factor is stored.
   - The stored native pair is the unconditional source of truth.
 
-The UI methods touch Kivy widgets and cannot be imported under the test
-mocks (see test_issue_683_binning_roundtrip), so the production change is
-pinned structurally with AST guards, and the resulting math invariant is
-exercised with the pure binning functions the fixed code calls.
+The reconstruction now lives in ``ScopeSession`` (``set_binning_size`` /
+``set_frame_size``) and is exercised behaviourally in
+tests/test_the_session_applies_and_stores_camera_settings.py. What stays here
+pins that the GUI frame handler reads no hardware binning, and the math
+invariant, exercised with the pure binning functions the fixed code calls.
 """
 
 import ast
@@ -58,27 +57,11 @@ def _calls_named(method: ast.FunctionDef, attr: str) -> list[ast.Call]:
 class TestProductionSourcesSyncBinning:
     """Pin the fix in production source so it cannot silently regress."""
 
-    def test_native_roi_does_not_read_async_hardware_binning(self):
-        # The whole bug: reconstructing against imaging.get_binning_size()
-        # (applied async via the camera executor) instead of the UI binning.
-        method = _method_node('_native_roi')
-        assert not _calls_named(method, 'get_binning_size'), (
-            '_native_roi must NOT read imaging.get_binning_size() (the async '
-            'hardware binning); reconstruct against the sync UI binning.'
-        )
-
     def test_frame_size_does_not_read_async_hardware_binning(self):
         method = _method_node('frame_size')
         assert not _calls_named(method, 'get_binning_size'), (
             'frame_size must reconstruct native against the sync UI binning '
             '(_ui_binning_size), not imaging.get_binning_size().'
-        )
-
-    def test_native_roi_uses_ui_binning_helper(self):
-        method = _method_node('_native_roi')
-        assert _calls_named(method, '_ui_binning_size'), (
-            '_native_roi must source the reconstruction binning from '
-            'self._ui_binning_size() (the settings SSOT).'
         )
 
     def test_ui_binning_helper_reads_settings_binning(self):
@@ -87,28 +70,6 @@ class TestProductionSourcesSyncBinning:
         assert "'binning'" in body and "'size'" in body, (
             "_ui_binning_size must read settings['binning']['size'] (the "
             'synchronous UI binning), the SSOT the displayed value matches.'
-        )
-
-    def test_select_binning_stores_native_before_overwriting_binning(self):
-        # The ordering IS the fix for the toggle path: _native_roi reconstructs
-        # against settings['binning']['size'], so native must be captured while
-        # that still holds the OLD binning the current displayed value matches.
-        method = _method_node('select_binning_size')
-        store_calls = _calls_named(method, '_store_native_roi')
-        assert store_calls, 'select_binning_size must persist the native ROI'
-        store_line = min(c.lineno for c in store_calls)
-
-        binning_assign_lines = [
-            node.lineno
-            for node in ast.walk(method)
-            if isinstance(node, ast.Assign)
-            and any(ast.unparse(t) == "settings['binning']['size']" for t in node.targets)
-        ]
-        assert binning_assign_lines, "select_binning_size must assign settings['binning']['size']"
-        assert store_line < min(binning_assign_lines), (
-            'select_binning_size must capture + store the native ROI BEFORE it '
-            "overwrites settings['binning']['size'], or _native_roi rebuilds "
-            'native against the new binning factor (the non-square 2x bug).'
         )
 
 

@@ -185,10 +185,9 @@ _ROSTER = {
     'MainDisplay.one2one_btn': ('ONE_TO_ONE_IMAGE',),
     'MainDisplay.open_last_save_folder': ('OPEN_SAVE_FOLDER',),
     'MainDisplay.record_btn': ('RECORD',),
-    'MicroscopeSettings.binning_spinner': (
-        'BINNING',
-        _D('select_binning_size'),
-    ),
+    # The FRAME_SIZE record now comes from the redraw after the camera answers
+    # (_framing_applied), passed as a callback the static census does not follow.
+    'MicroscopeSettings.binning_spinner': ('BINNING',),
     'MicroscopeSettings.btn_advanced_settings': ('OPEN_ADVANCED_SETTINGS',),
     'MicroscopeSettings.btn_support_report': ('GENERATE_SUPPORT_REPORT',),
     'MicroscopeSettings.btn_zip_logs': ('ZIP_LOGS',),

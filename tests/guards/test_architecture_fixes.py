@@ -573,7 +573,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/advanced_settings.py': 3,
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 6,
-    'ui/microscope_settings.py': 6,
+    'ui/microscope_settings.py': 5,
     'ui/motion_settings.py': 3,
     'ui/post_processing.py': 1,
     'ui/protocol_settings.py': 22,
@@ -601,9 +601,9 @@ _UI_ANSWERER_CALL_PIN = {
 # is recomputed by whichever rule ships today and gains no discontinuity here.
 # `_private_reaches_in_source` carries the rule.
 _UI_PRIVATE_REACH_PIN = {
-    ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
-    ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
-    ('ui/microscope_settings.py', '_set_pixel_format_impl'): 1,
+    ('ui/microscope_settings.py', '_set_binning_size_impl'): 0,
+    ('ui/microscope_settings.py', '_set_frame_size_impl'): 0,
+    ('ui/microscope_settings.py', '_set_pixel_format_impl'): 0,
 }
 
 # Every entry is an `except` handler in the GUI: a place the GUI catches an
@@ -627,7 +627,7 @@ _UI_EXCEPT_PIN = {
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,
     ('ui/listener_bridge.py', 'Exception'): 2,
     ('ui/main_display.py', 'Exception'): 2,
-    ('ui/microscope_settings.py', 'Exception'): 12,
+    ('ui/microscope_settings.py', 'Exception'): 11,
     ('ui/microscope_settings.py', 'FileNotFoundError'): 2,
     ('ui/microscope_settings.py', 'JSONDecodeError'): 2,
     ('ui/microscope_settings.py', 'KeyError'): 1,

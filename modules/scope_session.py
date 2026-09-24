@@ -29,10 +29,12 @@ from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
+from modules import binning, image_mode
 from lvp_logger import logger
 from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
+    CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
@@ -1652,6 +1654,184 @@ class ScopeSession:
             self.wellplate_loader,
         )
 
+    # ------------------------------------------------------------------
+    # The camera's capture settings: applied, then stored
+    # ------------------------------------------------------------------
+
+    def set_image_mode(self, mode: str) -> bool:
+        """Capture in ``mode``: apply the camera format it needs, then store it.
+
+        The one writer of ``settings['image_mode']`` for every host. The mode
+        names a capture depth, and the format is chosen from the ones this
+        camera reports, so a sensor is never asked for a format it lacks. A
+        camera that reports none (none is connected) has nothing to apply;
+        the mode is stored and bring-up applies it.
+
+        Returns:
+            True when the mode is stored. False when the camera went away
+            between the format query and the apply; nothing is stored.
+
+        Raises:
+            ConfigError: ``mode`` is not an image mode. Nothing is stored.
+            CameraSettingRejected: The camera refused the format. Nothing is
+                stored, so captures are never tagged with a depth the camera
+                is not delivering.
+        """
+        capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
+        imaging = self.scope.imaging
+        target = image_mode.select_capture_pixel_format(
+            capture_depth, imaging.get_supported_pixel_formats()
+        )
+        if target is not None and not imaging.set_pixel_format(target):
+            return False
+        with self.settings_lock:
+            self.settings['image_mode'] = mode
+        return True
+
+    def set_binning_size(self, size: int) -> 'dict | None':
+        """Bin the camera by ``size``, keep the framed region, and store both.
+
+        The one writer of the binning for every host. The framed region is
+        held unbinned (``frame['native_width'/'native_height']``), so a new
+        binning divides that region by the new factor rather than rescaling
+        the last displayed size, and cycling the binning round-trips. The
+        binning goes first and the frame after it, because the camera's frame
+        limits depend on the binning in force; one caller running both in
+        order is what keeps a frame edit from being worked out against a
+        binning the camera has not reached.
+
+        Returns:
+            The frame the camera delivers, ``{'width', 'height'}``. None when
+            no camera is connected; nothing is stored.
+
+        Raises:
+            CameraSettingUnsupportedError: This camera does not offer
+                ``size``. Nothing reaches the camera.
+            CameraSettingRejected: The camera refused the binning (nothing is
+                stored) or the frame after it (the binning is stored, with the
+                frame the camera reports holding at it).
+        """
+        imaging = self.scope.imaging
+        offered = imaging.get_available_binning_sizes()
+        label = binning.binning_size_int_to_str(size)
+        if size not in offered:
+            raise CameraSettingUnsupportedError(
+                'binning',
+                size,
+                offered,
+                title='Binning not supported',
+                message=f'This camera does not support {label} binning.',
+            )
+        native = self._native_frame()
+        if not imaging.set_binning_size(size):
+            return None
+        with self.settings_lock:
+            self.settings['binning']['size'] = label
+            held = imaging.frame_size_cached
+            self.settings['frame']['width'] = int(held['width'])
+            self.settings['frame']['height'] = int(held['height'])
+        return self._apply_frame(native, size)
+
+    def set_frame_size(self, width: int, height: int) -> 'dict | None':
+        """Frame the camera at ``width`` x ``height`` at the stored binning, and store it.
+
+        The one writer of the frame for every host. The size is what the
+        person sees and captures (post-binning); the unbinned region it
+        implies is stored beside it, capped at the sensor. A size the camera
+        already delivers is not written again.
+
+        Returns:
+            The frame the camera delivers, which may differ from the request
+            (the camera's grid, its minimum). None when no camera is
+            connected; nothing is stored.
+
+        Raises:
+            CameraSettingRejected: The camera refused the frame. Nothing is
+                stored.
+        """
+        factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
+        typed = {'width': int(width), 'height': int(height)}
+        native_max = self.scope.imaging.get_native_resolution() or {
+            'width': typed['width'] * factor,
+            'height': typed['height'] * factor,
+        }
+        return self._apply_frame(binning.displayed_to_native(typed, factor, native_max), factor)
+
+    def frame_at_binning(self, size: int) -> dict:
+        """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
+
+        The same arithmetic the apply uses, answered from the store and the
+        camera's cached limits, so a display can show the new frame beside
+        the new binning while the apply is still running. The camera's own
+        answer (its grid, its minimum at the new binning) can differ; the
+        stored frame after the apply is the truth.
+        """
+        return self._target_frame(self._native_frame(), size)
+
+    def _native_frame(self) -> dict:
+        """The stored unbinned region, or one rebuilt from the displayed frame.
+
+        The stored pair is returned as it is, never re-capped against the
+        live sensor size: a small reading during a reconnect would otherwise
+        shrink the stored region for good. Settings saved before the pair
+        existed hold only the displayed size, so the region is rebuilt as
+        displayed x stored binning, capped at the sensor.
+        """
+        frame = self.settings['frame']
+        if 'native_width' in frame and 'native_height' in frame:
+            native = {'width': int(frame['native_width']), 'height': int(frame['native_height'])}
+            source = 'stored'
+        else:
+            factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
+            displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
+            cap = self.scope.imaging.get_native_resolution() or {
+                'width': displayed['width'] * factor,
+                'height': displayed['height'] * factor,
+            }
+            native = binning.displayed_to_native(displayed, factor, cap)
+            source = f'rebuilt from {displayed["width"]}x{displayed["height"]} at {factor}x'
+        # Whether the region came from the store or was rebuilt, and from
+        # what: a rebuild against the wrong binning is how the region once
+        # drifted, so the inputs stay in the log.
+        logger.info(f'[Session  ] native frame: {source} -> {native["width"]}x{native["height"]}')
+        return native
+
+    def _target_frame(self, native: dict, factor: int) -> dict:
+        """The displayed frame ``native`` gives at ``factor``.
+
+        The region divided by the binning and floored to the camera's grid,
+        so it follows from the region alone. It is raised to the camera's
+        minimum: a Pylon camera floors only to its maximum and refuses a
+        smaller request outright.
+        """
+        imaging = self.scope.imaging
+        target = binning.native_to_displayed(native, factor, imaging.get_pixel_alignment())
+        minimum = imaging.min_frame_size_cached
+        if minimum is not None:
+            target = {
+                'width': max(target['width'], minimum['width']),
+                'height': max(target['height'], minimum['height']),
+            }
+        return target
+
+    def _apply_frame(self, native: dict, factor: int) -> 'dict | None':
+        """Apply the frame ``native`` gives at ``factor``, then store both."""
+        imaging = self.scope.imaging
+        target = self._target_frame(native, factor)
+        if target == imaging.frame_size_cached:
+            delivered = target
+        else:
+            delivered = imaging.set_frame_size(target['width'], target['height'])
+            if delivered is None:
+                return None
+        with self.settings_lock:
+            frame = self.settings['frame']
+            frame['native_width'] = int(native['width'])
+            frame['native_height'] = int(native['height'])
+            frame['width'] = int(delivered['width'])
+            frame['height'] = int(delivered['height'])
+        return dict(delivered)
+
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command
     # forwarders. L2 callers reach hardware through the composition
@@ -1661,8 +1841,9 @@ class ScopeSession:
     # public spelling and the Session owns only what is session-scoped:
     # lifecycle (create / shutdown /
     # start_application_session / start_metrics / stop_metrics), the
-    # protocol runner, run-state queries, and the settings-composition
-    # getters above.
+    # protocol runner, run-state queries, the settings-composition
+    # getters above, and the members that apply a setting and store it
+    # (a setting has one store, and it is the Session's).
 
     # ------------------------------------------------------------------
     # Protocol runner

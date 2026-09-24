@@ -329,6 +329,24 @@ session.start_application_session(disable_homing=True)  # skip homing; no startu
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step and, with it, every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
+### Camera capture settings
+
+The image mode, the binning and the frame each have one writer, on the Session: it applies the setting to the camera and stores it in `session.settings` only once the camera took it. A refusal or a rejection leaves the store as it was, so the settings never describe a camera state that is not in force. Call them from the camera's own lane or any thread; each waits for the camera.
+
+```python
+session.set_image_mode('12bit_scientific')   # True once stored; ConfigError for an unknown mode;
+                                             # CameraSettingRejected if the camera refuses the format
+session.set_binning_size(2)                  # the delivered frame {'width', 'height'}; the framed
+                                             # region is kept and divided by the new factor.
+                                             # CameraSettingUnsupportedError (a refusal) for a size
+                                             # the camera does not list
+session.set_frame_size(960, 600)             # a displayed (post-binning) size at the stored binning;
+                                             # returns what the camera delivered (its grid, its minimum)
+session.frame_at_binning(2)                  # the frame set_binning_size(2) will ask for; applies nothing
+```
+
+With no camera connected, `set_binning_size` and `set_frame_size` return `None` and store nothing. `set_image_mode` stores the mode for bring-up to apply.
+
 ### Reading and persisting configuration
 
 ```python

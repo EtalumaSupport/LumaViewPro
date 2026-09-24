@@ -25,9 +25,9 @@ from modules.config_ui_getters import (
 )
 from modules.path_utils import resolve_data_file
 from modules.memory_profiler import MemoryLeakProfiler
-from modules.sequential_io_executor import IOTask
 import modules.image_mode as image_mode
 from modules.zstack_config import ZStackConfig
+from ui.ui_helpers import submit_reported
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
@@ -45,50 +45,37 @@ _FRAME_BOXES = {
 class _CoalescingApplier:
     """One-at-a-time worker that keeps only the LATEST pending value.
 
-    Used by MicroscopeSettings.frame_size to prevent the camera_executor
-    queue from stacking up slow Pylon set_frame_size calls (issue #624).
-    On large frames each stop_grabbing/start_grabbing cycle blocks the
-    CAMERA_WORKER for ~11s; naive queueing of rapid user edits
-    (committing width, then height, while the first apply still runs)
-    produced multi-minute backlogs that made the UI feel frozen.
+    Used by MicroscopeSettings.frame_size so rapid frame edits do not stack
+    up slow resizes on the camera lane (issue #624). On large frames each
+    Pylon stop_grabbing/start_grabbing cycle blocks the camera worker for
+    ~11s; naive queueing of rapid user edits (committing width, then
+    height, while the first apply still runs) produced multi-minute
+    backlogs that made the UI feel frozen.
 
     Pattern:
-      - submit(value) stashes value in a single pending slot and
-        returns True only when the caller should enqueue the worker
-        task (i.e. no task already in flight and the value is not a
-        repeat of what the hardware already holds).
-      - apply_pending(fn) drains the pending slot and calls fn(value)
-        for each value. Loops until pending is empty so late-arriving
-        updates during an apply() are picked up in the SAME task
-        rather than spawning a new one.
+      - submit(value) stashes value in a single pending slot and returns
+        True only when the caller should enqueue the worker task (no task
+        already in flight).
+      - apply_pending(fn) drains the pending slot and calls fn(value) for
+        each value. Loops until pending is empty so late-arriving updates
+        during an apply() are picked up in the SAME task rather than
+        spawning a new one.
 
-    Exact repeats of the last successfully applied value are absorbed.
-    The handler reads BOTH fields every call, so committing width and
-    then height computes the same pair twice when only one of them
-    changed, and a retype of the displayed size is a repeat as well.
-    On a slow camera the in-flight gate folds
-    them; on a fast camera (FX2 applies in milliseconds) the gate
-    closes between events and every repeat became a real hardware
-    apply. A failed apply does not update the last-applied record, so
-    a retry with the same value still goes through -- and "failed"
-    covers BOTH failure shapes: a raising fn and a falsy return (the
-    camera-absent no-op, or any apply whose acceptance is signaled by
-    returning the applied value). Recording is gated on a truthy
-    return, so a rejection can never poison the dedupe record and
-    absorb the user's retry.
+    Whether a value is already in force is not decided here: the apply
+    itself skips a size the camera already delivers, against the camera's
+    own record. A record kept here went stale whenever something else
+    framed the camera (a binning change applies its own frame) and then
+    swallowed a real edit as a repeat.
     """
 
     def __init__(self, name='coalescing_applier'):
         self._name = name
         self._pending = None
         self._in_flight = False
-        self._last_applied = None
         self._lock = threading.Lock()
 
     def submit(self, value):
         with self._lock:
-            if not self._in_flight and self._pending is None and value == self._last_applied:
-                return False
             self._pending = value
             if self._in_flight:
                 return False
@@ -96,37 +83,28 @@ class _CoalescingApplier:
             return True
 
     def apply_pending(self, fn):
+        """Apply each pending value in turn; raise the first failure.
+
+        A failure does not stop the drain: an edit that arrived while a
+        refused one was applying is still the person's latest request. The
+        first exception is raised once the slot is empty, so the caller
+        reports it; the gate is open again by then.
+        """
+        failure = None
         while True:
             with self._lock:
                 val = self._pending
                 self._pending = None
                 if val is None:
                     self._in_flight = False
-                    return
-                if val == self._last_applied:
-                    # A repeat of what the hardware already holds arrived
-                    # while an apply was in flight; nothing new to send.
-                    continue
+                    break
             try:
-                result = fn(val)
+                fn(val)
             except Exception as e:
-                # The typed rejection was already logged + notified at the
-                # API layer; this line ties it to the coalescer's value.
-                logger.error(f'[{self._name}] apply failed for {val!r}: {e}', exc_info=True)
-            else:
-                if result:
-                    # The recorded key is what the hardware actually holds:
-                    # an fn that returns the APPLIED value (e.g. a clamped
-                    # delivered size) records that, so a user retyping the
-                    # original request after seeing the clamp is not
-                    # absorbed against a value the camera never took. A
-                    # bare True records the request itself. An fn returning
-                    # a value must return it in the SAME shape submit()
-                    # receives (the frame push returns a (w, h) tuple) --
-                    # a mismatched shape would never equal a submitted key
-                    # and dedupe would silently stop absorbing.
-                    with self._lock:
-                        self._last_applied = val if result is True else result
+                if failure is None:
+                    failure = e
+        if failure is not None:
+            raise failure
 
 
 class MicroscopeSettings(BoxLayout):
@@ -338,10 +316,9 @@ class MicroscopeSettings(BoxLayout):
 
             # settings['frame'] holds the DISPLAYED (post-binning) size, and the
             # box shows that size unscaled -- the unbinned ROI is carried
-            # separately as frame['native_width'/'native_height']. Both the other
-            # writers of these boxes agree: the delivered-size callback writes the
-            # same number to the store and the box, and the binning handler writes
-            # native_to_displayed(native, binning). Multiplying by the binning
+            # separately as frame['native_width'/'native_height']. The framing
+            # redraw agrees: it writes the box from the same stored number, which
+            # the Session stores from what the camera delivered. Multiplying by the binning
             # factor here contradicted all of that and would show a 2x2 user twice
             # the size the camera delivers.
             self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
@@ -534,79 +511,33 @@ class MicroscopeSettings(BoxLayout):
             return  # 'Select' placeholder or an unknown label -- ignore
         gui_logger.select('IMAGE_MODE', mode)
 
-        # The mode mirrors commit SYNCHRONOUSLY (display consumers read
-        # scope_display.image_mode on the next frame; the depth hint reads
-        # settings); a rejected format apply is corrected by the failure
-        # callback below -- commit-then-revert, so a rejected depth cannot
-        # STAY recorded with captures tagged at a depth the camera never
-        # took. The prior mode is captured first for the revert.
-        settings = ctx.settings
-        prior_mode = settings.get('image_mode')
-        ctx.scope_display.image_mode = mode
-        settings['image_mode'] = mode
-        self._refresh_binning_depth_hint()
-
-        # During app init, scope.initialize() applies the pixel format
-        # synchronously while the camera start gate is still closed; the
-        # mirrors above just reflect the settings being loaded. Pushing a
-        # second apply from here would race that one on the camera lane.
+        # During app init, bring-up applies the stored format while the
+        # camera start gate is still closed, and the spinner is only being
+        # set from the store; a second apply from here would race it.
         if ctx.initializing:
+            self._redraw_image_mode()
             return
 
-        # Apply the capture depth to the camera. Resolve to a format the
-        # sensor actually supports BEFORE pushing, so we never request a
-        # format it lacks (e.g. Mono8 on an IDS sensor that exposes only
-        # Mono10/12 -- that logs a spurious 'Unsupported' warning). Route
-        # through the camera executor to avoid racing the live-view grab loop.
-        capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
-
-        def _set_pixel_format():
-            imaging = ctx.lumaview.scope.imaging
-            target = image_mode.select_capture_pixel_format(
-                capture_depth, imaging.get_supported_pixel_formats()
-            )
-            if target is None:
-                # No matching format is a display-mode-only change:
-                # nothing to apply, the mode commit stands.
-                return True
-            # The absent-camera False propagates to the callback so the
-            # mode commit is reverted -- a format that never reached the
-            # hardware must not stay recorded as the capture depth.
-            # This closure runs ON the camera worker: bind the impl, or
-            # the public dispatcher stalls against its own lane.
-            return imaging._set_pixel_format_impl(target)
-
-        ctx.camera_executor.put(
-            IOTask(
-                action=_set_pixel_format,
-                callback=self._on_image_mode_outcome,
-                cb_args=(mode, prior_mode),
-                pass_result=True,
-                # The rejection is already notified at the API layer; the
-                # callback owns the UI revert.
-                silent_on_failure=True,
-            )
+        session = ctx.session
+        submit_reported(
+            lambda: session.set_image_mode(mode),
+            self._redraw_image_mode,
+            'IMAGE_MODE',
+            lane=ctx.camera_executor,
         )
 
-    def _on_image_mode_outcome(self, mode, prior_mode, result=None, exception=None):
-        """UI-thread landing for an image-mode apply: no-op on success (the
-        mirrors committed synchronously at select time); on failure, revert
-        spinner, settings, and the display mode to the captured prior state."""
-        if exception is None and result:
-            return
+    def _redraw_image_mode(self):
+        """Show the stored image mode: the display mode, the selector, the depth hint."""
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        if prior_mode is not None:
-            settings['image_mode'] = prior_mode
-            ctx.scope_display.image_mode = prior_mode
-            prior_label = image_mode.IMAGE_MODE_LABELS.get(prior_mode)
-            if prior_label:
-                self.ids['image_mode_spinner'].text = prior_label
+        mode = image_mode.resolve_settings_image_mode(ctx.settings)
+        ctx.scope_display.image_mode = mode
+        label = image_mode.IMAGE_MODE_LABELS[mode]
+        if self.ids['image_mode_spinner'].text != label:
+            # The selector going back to the stored mode is the app's write,
+            # not a pick.
+            gui_logger.note_write_back('IMAGE_MODE', mode)
+            self.ids['image_mode_spinner'].text = label
         self._refresh_binning_depth_hint()
-        logger.error(
-            f'[LVP Main  ] image mode {mode} not applied '
-            f'({exception or "no result"}); reverted to {prior_mode}'
-        )
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
@@ -725,197 +656,55 @@ class MicroscopeSettings(BoxLayout):
         spinner.values = [f'{s}x{s}' for s in sizes]
 
     def _ui_binning_size(self) -> int:
-        """The binning factor the UI currently shows (the settings SSOT).
-
-        Native-ROI reconstruction multiplies the displayed frame size by the
-        binning it was entered at, so it must read the SYNCHRONOUS UI binning
-        (``settings['binning']['size']``), NOT ``imaging.get_binning_size()``.
-        The hardware binning is applied asynchronously through the camera
-        executor, so right after a binning change the driver still reports the
-        previous factor; reconstructing displayed * that stale factor rebuilds
-        a wrong (and, when only one axis was previously off-square, non-square)
-        native ROI -- the 1056x950-instead-of-950x950 bench bug.
-        """
+        """The binning factor the store holds, which the panel shows."""
         settings = _app_ctx.ctx.settings
         return binning.binning_size_str_to_int(settings['binning']['size'])
 
-    def _native_roi(self) -> dict:
-        """Return the unbinned ROI -- the source of truth for frame sizing.
-
-        Persisted as ``settings['frame']['native_width']/['native_height']``.
-        The stored pair is the unconditional source of truth (binning never
-        changes it). Only when absent (older settings files that stored just
-        the displayed size) is it reconstructed from the displayed frame size
-        times the UI binning, capped at the sensor native resolution.
-        """
-        ctx = _app_ctx.ctx
-        frame = ctx.settings['frame']
-        imaging = ctx.lumaview.scope.imaging
-        native_max = imaging.get_native_resolution()
-        if 'native_width' in frame and 'native_height' in frame:
-            native = {
-                'width': int(frame['native_width']),
-                'height': int(frame['native_height']),
-            }
-            src = 'stored'
-        else:
-            cur_binning = self._ui_binning_size()
-            displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
-            cap = native_max or {
-                'width': displayed['width'] * cur_binning,
-                'height': displayed['height'] * cur_binning,
-            }
-            # displayed_to_native already caps the reconstruction at the cap
-            # (native_max when known), so no separate clamp is needed here.
-            native = binning.displayed_to_native(displayed, cur_binning, cap)
-            src = (
-                f'reconstructed displayed={displayed["width"]}x{displayed["height"]} '
-                f'ui_binning={cur_binning}'
-            )
-        # The stored pair is returned verbatim -- the unconditional source of
-        # truth. It is deliberately NOT re-capped against the live native_max: a
-        # transient small reading (a camera reconnect / init race) would
-        # otherwise shrink the persisted native_* permanently when a binning
-        # toggle re-stores it. The driver's set_frame_size is the real clamp to
-        # the current sensor max.
-        # Forensic line: whether the native ROI came from the stored source of
-        # truth or was rebuilt from displayed*binning, and at which binning.
-        # A reconstruction against a stale binning is how the native size
-        # silently drifted, so the src + inputs stay visible in the log.
-        logger.info(f'[LVP Main  ] native_roi: src={src} -> {native["width"]}x{native["height"]}')
-        return native
-
-    def _store_native_roi(self, native: dict) -> None:
-        """Persist the native ROI source of truth into settings['frame']."""
-        frame = _app_ctx.ctx.settings['frame']
-        frame['native_width'] = int(native['width'])
-        frame['native_height'] = int(native['height'])
-
     def select_binning_size(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        lumaview = ctx.lumaview
-        imaging = lumaview.scope.imaging
+        label = self.ids['binning_spinner'].text
+        gui_logger.select('BINNING', label)
 
-        new_binning_size_str = self.ids['binning_spinner'].text
-        new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
-
-        # The pick, before anything judges it. Recorded below the refusal, a
-        # rejected binning left the bundle with a warning and no line saying
-        # what the user had picked -- and the startup populate's declarations
-        # are still absorbed here, because this is the call select() consults.
-        gui_logger.select('BINNING', new_binning_size_str)
-
-        # Reject a binning level this camera does not support and restore the
-        # spinner to the camera's actual binning.
-        if new_binning_size not in imaging.get_available_binning_sizes():
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Camera',
-                'Binning not supported',
-                f'This camera does not support {new_binning_size_str} binning.',
-            )
-            # Restoring the spinner dispatches its text event, which would read
-            # as the user choosing the value the camera reported -- the opposite
-            # of what happened, since their pick was refused.
-            restored = binning.binning_size_int_to_str(imaging.get_binning_size())
-            gui_logger.note_write_back('BINNING', restored)
-            self.ids['binning_spinner'].text = restored
-            return
-
-        # Capture the native ROI BEFORE overwriting the binning setting.
-        # _native_roi reconstruction multiplies the displayed value by the UI
-        # binning (settings['binning']['size']), so it must read the OLD binning
-        # the current displayed value corresponds to; reading it after the
-        # overwrite would rebuild native against the new factor and skew it (the
-        # non-square frame at 2x). Storing it locks the source of truth so this
-        # and every later binning change round-trips exactly -- without it,
-        # settings that never had native_* fall through reconstruction
-        # (displayed * binning) on every change, and at a coarse binning the
-        # already-floored displayed value shrinks native a little each step so
-        # the cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller).
-        native = self._native_roi()
-        self._store_native_roi(native)
-
-        # The displayed/captured size is native / binning, floored to the active
-        # driver's DELIVERABLE granularity: get_pixel_alignment reports the
-        # camera grid for floor-only drivers (Pylon/FX2/sim) and just 'even' for
-        # the IDS driver, which crops back to the exact request -- so a 1900
-        # frame stays 1900 on IDS but floors to the real grid elsewhere.
-        new_frame = binning.native_to_displayed(
-            native, new_binning_size, imaging.get_pixel_alignment()
-        )
-
-        # The binning settings value commits SYNCHRONOUSLY: _ui_binning_size
-        # (native-ROI reconstruction) and the FOV math both document that
-        # they read the synchronous UI binning, so deferring this write to
-        # the apply's completion would let a frame edit made during the
-        # (multi-second Pylon) apply reconstruct against the wrong epoch.
-        # A rejected factor is corrected by the failure callback below --
-        # commit-then-revert, not defer-and-diverge. The prior value is
-        # captured first so the revert restores the exact pre-select state.
-        prior_binning_size_str = settings['binning']['size']
-        prior_frame = {
-            'width': int(settings['frame']['width']),
-            'height': int(settings['frame']['height']),
-        }
-        settings['binning']['size'] = new_binning_size_str
-        self._refresh_binning_depth_hint()
-        self._write_frame_text(new_frame['width'], new_frame['height'])
-
-        # During app init, scope.initialize() handles all hardware calls;
-        # the mirrors just reflect the settings being loaded.
+        # During app init, bring-up applies the stored binning and frame;
+        # the spinner is only being set from the store.
         if ctx.initializing:
+            self._redraw_framing()
             return
 
-        # Route through camera executor to prevent race with live view grab
-        # loop. The frame push is enqueued after, so it lands once the new
-        # binning is applied and the driver can clamp to the right max. The
-        # completion callback acts ONLY on failure, reverting every mirror
-        # to the captured prior state -- a rejected factor must not stay
-        # recorded (it feeds every native-ROI / FOV / stitch derivation).
-        ctx.camera_executor.put(
-            IOTask(
-                # Bind the impl, not the public setter: this task ALREADY runs
-                # on the camera worker, and the public setter dispatches onto
-                # that same lane and blocks on the result -- so it waits for a
-                # queue it is itself holding, and every apply died on the
-                # geometry timeout instead of reaching the camera. The failure
-                # callback then rewrote the selector, which re-entered here and
-                # queued the next doomed apply, so one selection became an
-                # endless timeout cycle. The pixel-format apply below binds its
-                # impl for exactly this reason.
-                action=imaging._set_binning_size_impl,
-                kwargs={'size': new_binning_size},
-                callback=self._on_binning_apply_outcome,
-                cb_args=(new_binning_size_str, prior_binning_size_str, prior_frame),
-                pass_result=True,
-                # The rejection is already notified at the API layer; the
-                # callback owns the UI revert.
-                silent_on_failure=True,
-            )
+        size = binning.binning_size_str_to_int(label)
+        session = ctx.session
+        # The boxes show the frame the new binning will give while the apply
+        # runs, so an edit typed meanwhile is read against the binning the
+        # spinner shows; the redraw then shows what the camera delivered.
+        preview = session.frame_at_binning(size)
+        self._write_frame_text(preview['width'], preview['height'])
+        submit_reported(
+            lambda: session.set_binning_size(size),
+            self._framing_applied,
+            'BINNING',
+            lane=ctx.camera_executor,
         )
-        self._apply_displayed_frame(new_frame)
 
-    def _on_binning_apply_outcome(
-        self, new_binning_size_str, prior_binning_size_str, prior_frame, result=None, exception=None
-    ):
-        """UI-thread landing for a binning apply: no-op on success (all
-        mirrors committed synchronously at select time); on failure, revert
-        settings, spinner, and the frame derivation to the captured prior
-        state so a rejected factor cannot stay recorded."""
-        if exception is None and result:
-            return
-        ctx = _app_ctx.ctx
-        ctx.settings['binning']['size'] = prior_binning_size_str
-        self.ids['binning_spinner'].text = prior_binning_size_str
+    def _framing_applied(self) -> None:
+        """Record the framing a person's binning pick or frame edit left, then show it."""
+        settings = _app_ctx.ctx.settings
+        gui_logger.frame_size(
+            settings['frame']['width'], settings['frame']['height'], self._ui_binning_size()
+        )
+        self._redraw_framing()
+
+    def _redraw_framing(self) -> None:
+        """Show the stored binning and frame: the selector, the boxes, the hint, the field of view."""
+        settings = _app_ctx.ctx.settings
+        label = settings['binning']['size']
+        if self.ids['binning_spinner'].text != label:
+            # The selector going back to the stored binning is the app's
+            # write, not a pick.
+            gui_logger.note_write_back('BINNING', label)
+            self.ids['binning_spinner'].text = label
+        self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
         self._refresh_binning_depth_hint()
-        self._apply_displayed_frame(prior_frame)
-        logger.error(
-            f'[LVP Main  ] binning {new_binning_size_str} not applied '
-            f'({exception or "no result"}); reverted to {prior_binning_size_str}'
-        )
+        self.refresh_fov_labels()
 
     def reconfigure_for_scope(self) -> None:
         """Apply the current scope to the UI in the canonical order.
@@ -1083,24 +872,18 @@ class MicroscopeSettings(BoxLayout):
         defaulted because a caller that cannot answer cannot log the edit
         either.
 
-        The typed value is a displayed (post-binning) size, so the native ROI
-        becomes ``displayed * binning`` capped at the sensor native resolution.
-        The displayed size is then re-derived from that native ROI and applied,
-        keeping the native source of truth and the camera in sync.
+        The typed value is a displayed (post-binning) size; the Session works
+        out the region it implies at the stored binning, applies it, and the
+        boxes then show what the camera delivered.
         """
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
         ctx = _app_ctx.ctx
-        lumaview = ctx.lumaview
 
         record, axis = _FRAME_BOXES[committed_id]
-        # First act, and before the connected check: the user typed it whether
-        # or not a camera is there to hear about it.
+        # First act: the user typed it whether or not a camera is there to
+        # hear about it.
         gui_logger.text_input(record, self.ids[committed_id].text)
 
-        if not lumaview.scope.camera_connected:
-            return
-
-        imaging = lumaview.scope.imaging
         try:
             typed = self._typed_frame_dimensions()
         except ValueError:
@@ -1114,121 +897,17 @@ class MicroscopeSettings(BoxLayout):
             self._write_frame_text(frame['width'], frame['height'])
             return
 
-        # The typed value is a displayed size at the UI binning, so reconstruct
-        # native against the synchronous UI binning, not the async hardware
-        # binning (see _ui_binning_size).
-        cur_binning = self._ui_binning_size()
-        native_max = imaging.get_native_resolution() or {
-            'width': int(typed['width']) * cur_binning,
-            'height': int(typed['height']) * cur_binning,
-        }
-        native = binning.displayed_to_native(typed, cur_binning, native_max)
-        self._store_native_roi(native)
-
-        # Floor to the active driver's deliverable granularity (see
-        # select_binning_size): the IDS driver crops to the exact request, so
-        # get_pixel_alignment reports 'even' for it and the real grid elsewhere.
-        displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
-        self._apply_displayed_frame(displayed)
-
-    def _apply_displayed_frame(self, frame: dict) -> None:
-        """Persist a displayed frame size, update the UI + FOV, push to camera.
-
-        Does NOT change the native ROI -- callers that change native (a binning
-        change or a frame-field edit) do so before calling this. The size is
-        already native-anchored and aligned; the driver's set_frame_size does
-        the final clamp to the camera max at the active binning, so no live
-        max clamp is applied here (it would read a stale max during a binning
-        change before the executor applies it).
-        """
-        ctx = _app_ctx.ctx
-        lumaview = ctx.lumaview
-
-        if not lumaview.scope.camera_connected:
-            return
-
-        width = int(frame['width'])
-        height = int(frame['height'])
-        try:
-            min_frame_size = lumaview.scope.imaging.min_frame_size_cached
-            if min_frame_size is not None:
-                width = max(width, min_frame_size['width'])
-                height = max(height, min_frame_size['height'])
-        except Exception:
-            logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
-
-        # The single framing chokepoint: both the frame-field edit and the
-        # binning toggle reach the camera through here, so one log call records
-        # every framing change the user makes (the prior gap that left the
-        # frame-box resize invisible in the GUI log).
-        gui_logger.frame_size(width, height, get_binning_from_ui())
-
-        # Every mirror of "current geometry" (settings, text fields, FOV
-        # labels) is written from the DELIVERED size in the completion
-        # callback, never from this request: a rejected or clamped apply
-        # once left the mirrors claiming a size the camera never held, so
-        # tiling/FOV math disagreed with the frames on disk. The typed
-        # text stays visible during the (up to ~11 s Pylon) apply, then
-        # snaps to what the camera delivered.
-
-        # Coalesce rapid frame_size() calls -- see _CoalescingApplier
-        # + issue #624. The UI can fire this method several times in
-        # quick succession when the user commits width and then height
-        # (each box commits on focus loss and the handler reads both),
-        # and Pylon's stop_grabbing/start_grabbing
-        # cycle takes ~11s on large frames, so naive queueing creates
-        # minute-scale UI freezes.
-        if self._frame_size_applier.submit((width, height)):
-            ctx.camera_executor.put(
-                IOTask(
-                    action=self._frame_size_applier.apply_pending,
-                    args=(self._push_frame_size,),
-                )
+        # Rapid edits (width, then height, each committing on focus loss)
+        # fold into one apply while one is in flight -- see _CoalescingApplier.
+        if self._frame_size_applier.submit((typed['width'], typed['height'])):
+            session = ctx.session
+            applier = self._frame_size_applier
+            submit_reported(
+                lambda: applier.apply_pending(lambda wh: session.set_frame_size(*wh)),
+                self._framing_applied,
+                'FRAME_SIZE',
+                lane=ctx.camera_executor,
             )
-        # FOV is derived state (settings frame x binning), and both inputs
-        # are current right here -- settings['frame'] is delivered-sourced
-        # and the binning committed synchronously. Refreshing now covers
-        # the dedupe-absorbed case (binning changed, same displayed size:
-        # no push, no delivered callback, but the FOV still halves).
-        self.refresh_fov_labels()
-
-    def _push_frame_size(self, wh):
-        """Camera-executor side of a frame-size apply: push to the camera
-        and marshal the DELIVERED geometry back to the UI mirrors.
-
-        Returns the DELIVERED (width, height) tuple so the coalescer
-        records what the camera actually holds as its dedupe key -- a
-        clamped delivery recorded under the request key would absorb the
-        user's retype of the original size while the field showed the
-        clamped one. A rejection raises out of here (contained by
-        apply_pending, already notified at the API layer) and an
-        absent-camera no-op returns None -- neither is recorded, so a
-        retry of the same size still reaches the hardware. The scope slot
-        is None for the whole reconnect window; that is the absent shape,
-        not an error.
-        """
-        scope = getattr(_app_ctx.ctx.lumaview, 'scope', None)
-        if scope is None:
-            return None
-        # Runs on the camera worker (apply_pending is camera-lane work):
-        # bind the impl, never the dispatcher.
-        delivered = scope.imaging._set_frame_size_impl(*wh)
-        if not delivered:
-            return None
-        Clock.schedule_once(lambda dt: self._on_frame_size_applied(delivered), 0)
-        return (int(delivered['width']), int(delivered['height']))
-
-    def _on_frame_size_applied(self, delivered: dict) -> None:
-        """UI-thread landing for an ACCEPTED frame-size apply: write every
-        geometry mirror from the size the camera actually delivered."""
-        settings = _app_ctx.ctx.settings
-
-        width = int(delivered['width'])
-        height = int(delivered['height'])
-        settings['frame']['width'] = width
-        settings['frame']['height'] = height
-        self._write_frame_text(width, height)
-        self.refresh_fov_labels()
 
     def refresh_fov_labels(self) -> None:
         """Recompute the FOV readout from the current delivered-sourced
