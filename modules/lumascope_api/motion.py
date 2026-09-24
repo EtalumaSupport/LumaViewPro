@@ -69,6 +69,7 @@ _TURRET_MOVE_SLOW_TASK_S = 15.0
 _api_log = _logging.getLogger('LVP.api')
 
 from modules.lumascope_api._constants import (
+    AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
     TURRET_SLOT_MAX,
@@ -783,9 +784,15 @@ class MotionAPI:
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 return False
+            # The position is read BEFORE an axis says IDLE: a reader that
+            # samples at frame rate would otherwise pair "known" with the
+            # pre-home number for the length of the serial round-trips.
+            read = self._refresh_position_cache()
             for ax in present_axes:
-                self._set_axis_state(ax, AxisState.IDLE)
-            self._refresh_position_cache()
+                if ax in read:
+                    self._set_axis_state(ax, AxisState.IDLE)
+            if not self._report_unread_axes(present_axes, read):
+                return False
             # The firmware homes the turret to slot 1. Recording it also lets
             # a following move_turret(1) -- e.g. the startup select-slot-1 --
             # recognise the turret is already there instead of running a
@@ -917,7 +924,9 @@ class MotionAPI:
                     'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
                 )
                 return False
-            self._refresh_position_cache()
+            read = self._refresh_position_cache()
+            if not self._report_unread_axes(('T',), read):
+                return False
             # Turret homes to slot 1 (see home() for why it is recorded). A
             # home a stop cut short did not reach it.
             if not self._stopped_since(stop_generation):
@@ -1484,8 +1493,11 @@ class MotionAPI:
                 )
                 self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
-            self._set_axis_state('Z', AxisState.IDLE)
-            self._refresh_position_cache()
+            read = self._refresh_position_cache()
+            if 'Z' in read:
+                self._set_axis_state('Z', AxisState.IDLE)
+            if not self._report_unread_axes(('Z',), read):
+                return False
             _api_log.info('Z home DONE')
             return True
         except Exception:
@@ -1548,25 +1560,87 @@ class MotionAPI:
                 if not self._position_known(state)
             }
 
-    def _refresh_position_cache(self) -> None:
-        """Fetch all axis positions from hardware and update the cache.
+    def axis_positions(self) -> dict[str, AxisPosition]:
+        """Every axis's state and its position, or None where the position is not known.
 
-        Called after homing completes to sync the cache with actual hardware
-        positions. During normal operation the cache is updated directly
-        by move commands -- no polling needed.
+        One snapshot: the state and the cache are read together, so a
+        caller writing a position into a file cannot pair a number with a
+        state that changed between two reads. An axis is answered with a
+        position only while it is IDLE or MOVING; UNKNOWN and HOMING
+        answer None whatever the cache holds, because the cache keeps the
+        last number an axis reported after its reference is lost. um for
+        X/Y/Z, the slot for T. No serial I/O.
+
+        The state lock is taken first and the cache lock inside it. No
+        other path nests the two, so this order cannot meet its reverse.
+
+        Returns:
+            dict[str, AxisPosition]: Axis name to (state, position), in
+                the scope's axis order.
+        """
+        with self._axis_state_lock:
+            states = dict(self._axis_state)
+            with self._pos_cache_lock:
+                cache = dict(self._pos_cache)
+        return {
+            ax: AxisPosition(state, cache.get(ax) if self._position_known(state) else None)
+            for ax, state in states.items()
+        }
+
+    def _report_unread_axes(self, homed: tuple | list, read: set[str]) -> bool:
+        """After a home: say which homed axes could not be read, if any.
+
+        A home whose mechanics succeeded but whose position could not be
+        read has not established a reference: the axis is already UNKNOWN
+        (the refresh set it) and the caller must hear False, not a True
+        that every consumer reads as "the scope knows where it is".
+
+        Returns:
+            bool: True when every homed axis was read.
+        """
+        unread = [ax for ax in homed if ax not in read]
+        if not unread:
+            return True
+        axes = ', '.join(unread)
+        logger.error(f'[SCOPE API ] Homed, but the position of {axes} could not be read')
+        notifications.error(
+            'Motion',
+            'Homing Failed',
+            f'Homing finished but the position of {axes} could not be read. Position is unknown.',
+        )
+        return False
+
+    def _refresh_position_cache(self) -> set[str]:
+        """Read every axis's position from the hardware into the cache.
+
+        Called after a home, and once at construction, to sync the cache
+        with the hardware; during normal operation the cache is updated
+        by move commands and the motion monitor. An axis whose read fails
+        or answers None is set UNKNOWN and its cache entry is left alone:
+        a number nobody read is not a position, and a caller that writes
+        positions into a file would otherwise record it as one.
+
+        Returns:
+            set[str]: The axes whose position was read.
         """
         positions = {}
         for ax in self._scope.capabilities.axes:
             try:
                 pos = self._driver.target_pos(axis=ax)
-                positions[ax] = pos if pos is not None else 0.0
             except Exception:
-                positions[ax] = 0.0
+                logger.exception(f'[SCOPE API ] Position read failed on axis {ax}')
+                pos = None
+            if pos is None:
+                _api_log.warning(f'position read on {ax} answered nothing; axis UNKNOWN')
+                self._set_axis_state(ax, AxisState.UNKNOWN)
+                continue
+            positions[ax] = pos
 
         with self._pos_cache_lock:
             self._pos_cache.update(positions)
         for ax in positions:
             self._fire_position_listeners(ax)
+        return set(positions)
 
     def _read_position_cache(self, axis: str | None) -> float | dict:
         """Shared cache-read primitive for the position-query methods.

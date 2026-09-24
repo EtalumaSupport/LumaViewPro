@@ -11,6 +11,7 @@ Existing imports `from modules.lumascope_api import Lumascope` and
 re-exports below.
 """
 
+from modules.lumascope_api._constants import AxisPosition
 from modules.lumascope_api._lumascope import (
     AxisState,
     Lumascope,
@@ -26,6 +27,7 @@ from modules.lumascope_api.runtime_state import RuntimeState
 
 __all__ = [
     'IOAPI',
+    'AxisPosition',
     'AxisState',
     'Capabilities',
     'DiagnosticsAPI',

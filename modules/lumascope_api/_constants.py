@@ -12,6 +12,8 @@ so existing callers (`scope._VALID_AXIS_NAMES`, tests reading the
 class attribute) keep working.
 """
 
+from typing import NamedTuple
+
 # Structural axis-name vocabulary used only for input sanity checks
 # ("did the caller pass a real axis letter?"). NOT a capability query --
 # use `scope.capabilities.axes` for "what does this scope have?".
@@ -51,3 +53,16 @@ class AxisState:
     IDLE = 'idle'  # At known position, not moving
     MOVING = 'moving'  # Move commanded, not yet arrived
     HOMING = 'homing'  # Homing sequence in progress
+
+
+class AxisPosition(NamedTuple):
+    """One axis's state and its position, read together.
+
+    ``position`` is None unless the axis is IDLE or MOVING: an axis whose
+    reference is lost or still being established keeps answering the last
+    number it reported, and a caller writing a position into a file must
+    not be handed it.
+    """
+
+    state: str
+    position: float | int | None

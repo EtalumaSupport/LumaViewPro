@@ -17,7 +17,7 @@ import ast
 
 from tests.ast_seams import production_modules, walk_defs
 
-_READERS = frozenset({'get_current_position', 'get_target_position'})
+_READERS = frozenset({'get_current_position', 'get_target_position', 'axis_positions'})
 
 # Saves the position into a setting or a step. Must ask
 # ui_helpers.unknown_position_refused(..., recording=True) before reading.

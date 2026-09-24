@@ -734,6 +734,12 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 #   if not scope.motion.move_home_and_wait('ALL'):
 #       ...  # do not command moves; the reference frame is not established
 #
+# A home reads every axis's position from the board before it marks the
+# axis known. When the mechanics succeeded but an axis's position could
+# not be read, the home returns False, that axis is UNKNOWN, and the
+# notification says so; its last cached number is never re-labelled as
+# a position.
+#
 # has_homed() / position_is_known(axis) answer from that same live state, so they
 # report False after a fault revokes a reference that was previously
 # good -- not merely "a home once succeeded".
@@ -741,6 +747,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
 scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
 scope.motion.get_current_position()              # dict of all axes
+scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 
