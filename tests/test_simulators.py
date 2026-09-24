@@ -1517,11 +1517,10 @@ class TestFailureInjection:
         """Mid-protocol disconnect: move starts OK, then fails."""
         m = SimulatedMotorBoard(fail_after=5, timing='instant')
         m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # uses multiple commands
-        # Eventually commands fail
-        result = m.exchange_command('ACTUAL_RZ')  # noqa: F841 -- deferred
-        # After enough commands, should get None
-        # (exact count depends on internal commands used by move_abs_pos)
+        m.move_abs_pos('Z', 5000)  # cmds 2-3
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
+        assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth
 
     # --- LED board ---
 
