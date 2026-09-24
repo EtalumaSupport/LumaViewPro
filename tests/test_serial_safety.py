@@ -516,7 +516,7 @@ class TestMotorBoardCommands:
         board.timeout = 30
         board.write_timeout = 5
         board.driver = _make_mock_serial()
-        board._fullinfo = None
+        board._fullinfo = {'model': 'unknown', 'serial_number': 'unknown', 'present_axes': []}
         board._connect_fails = 0
         board.axes_config = {
             'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},
@@ -1942,7 +1942,7 @@ class TestMotorBoardStateLock:
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
-        board._fullinfo = {'model': 'LS720', 'serial_number': '12345'}
+        board._fullinfo = {'model': 'LS720', 'serial_number': '12345', 'present_axes': []}
         board.port = '/dev/fake'
         board._lock = threading.RLock()
         board._label = '[XYZ Class ]'

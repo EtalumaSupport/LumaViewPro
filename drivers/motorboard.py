@@ -39,6 +39,15 @@ logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
 # Axis order the firmware reports and the driver answers in.
 _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
 
+# How long the stage may still be travelling after a home's reply. The
+# field firmware answers HOME and then drives X, Y and Z to the centre of
+# travel, and answers THOME and then drives Z back, without waiting. The
+# longest of those is Z's climb to centre, 682666 microsteps at the field Z
+# INI's VMAX of 400000 on a 16 MHz chip clock: about two seconds. The bound
+# is generous against that and well inside the motion API's own wait on a
+# home.
+_HOME_ARRIVAL_TIMEOUT_S = 30.0
+
 # The acceleration limit a caller may ask for, as a percentage of the
 # firmware's own maximum. Public because callers that build a value BEFORE a
 # board is connected -- a settings load, a headless session -- have to bound it
@@ -856,6 +865,7 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
+            self._wait_for_arrival(self.detect_present_axes(), 'home()')
             with self._state_lock:
                 self.initial_homing_complete = True
             return True
@@ -868,6 +878,25 @@ class MotorBoard(SerialBoard):
                 self.initial_homing_complete = True
             return True
         raise HardwareError(f'home(): firmware error: {resp}')
+
+    def _wait_for_arrival(self, axes, what: str) -> None:
+        """Return once every axis has reached its target.
+
+        The field firmware answers HOME before its move to the centre of
+        travel ends and THOME before its Z restore ends, so the reply says
+        the home is done, not that the stage has stopped. The 3.0 firmware
+        waits before it answers, and there the first poll returns.
+
+        Raises:
+            HardwareError: An axis did not arrive within the bound.
+        """
+        deadline = time.monotonic() + _HOME_ARRIVAL_TIMEOUT_S
+        for axis in axes:
+            if not self.wait_for_position(axis, timeout=max(0.0, deadline - time.monotonic())):
+                raise HardwareError(
+                    f'{what}: {axis} did not reach its target within '
+                    f'{_HOME_ARRIVAL_TIMEOUT_S:.0f} s of the reply'
+                )
 
     def has_homed(self) -> bool:
         """Whether the board has completed an initial XY/Z home cycle.
@@ -965,6 +994,9 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
+            self._wait_for_arrival(
+                [axis for axis in ('Z', 'T') if axis in self.detect_present_axes()], 'thome()'
+            )
             with self._state_lock:
                 self.initial_t_homing_complete = True
             return True
