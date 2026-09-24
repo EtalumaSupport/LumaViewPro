@@ -18,7 +18,8 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
-from modules.exceptions import AxisStateUnknownError, ObjectiveUnknownError
+from modules.exceptions import ObjectiveUnknownError
+from modules.sequential_io_executor import ENQUEUED
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -48,8 +49,8 @@ class _Stand:
 
 class _RunNowExecutor:
     """The io lane as the display sees it: the task runs, then its
-    callback, whether the task raised or not. What it raised is kept, as
-    the real lane reports it rather than dropping it."""
+    callback when it has one, whether the task raised or not. What it
+    raised is kept, as the real lane reports it rather than dropping it."""
 
     def __init__(self):
         self.raised = []
@@ -59,7 +60,9 @@ class _RunNowExecutor:
             task.action(*task.args, **task.kwargs)
         except Exception as e:
             self.raised.append(e)
-        task.callback(*task.cb_args, **task.cb_kwargs)
+        if task.callback is not None:
+            task.callback(*task.cb_args, **task.cb_kwargs)
+        return ENQUEUED
 
 
 @pytest.fixture
@@ -161,12 +164,14 @@ class TestTheDisplayIsTheApisAnswer:
 
 
 class TestAFailedMoveShowsNoSlot:
-    def test_a_refused_move_leaves_no_button_down(self, stand, session):
-        # Never homed: the API refuses the move. The display must not show
-        # the slot that was asked for.
+    def test_a_refused_move_leaves_no_button_down(self, stand, session, monkeypatch):
+        # Never homed: the API refuses the move, and the boundary shows the
+        # refusal. The display must not show the slot that was asked for.
+        from tests.shown_outcomes import capture_shown
+
+        shown = capture_shown(monkeypatch)
         stand.turret_select(3)
-        raised = _app_ctx.ctx.io_executor.raised
-        assert [type(e) for e in raised] == [AxisStateUnknownError]
+        assert [n.title for n in shown] == ['Scope Not Homed']
         assert _down(stand) == []
         assert stand.ids['objective_spinner2'].text == 'Unknown'
 

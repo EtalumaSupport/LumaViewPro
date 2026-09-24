@@ -579,7 +579,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/protocol_settings.py': 22,
     'ui/scope_display.py': 2,
     'ui/shader.py': 3,
-    'ui/stage.py': 5,
+    'ui/stage.py': 4,
     'ui/ui_helpers.py': 2,
     'ui/zstack.py': 1,
 }
@@ -601,13 +601,9 @@ _UI_ANSWERER_CALL_PIN = {
 # is recomputed by whichever rule ships today and gains no discontinuity here.
 # `_private_reaches_in_source` carries the rule.
 _UI_PRIVATE_REACH_PIN = {
-    ('ui/advanced_settings.py', '_set_conversion_gain_mode_impl'): 1,
-    ('ui/advanced_settings.py', '_set_line_noise_reduction_impl'): 1,
-    ('ui/layer_control.py', '_apply_layer_camera_settings_impl'): 1,
     ('ui/microscope_settings.py', '_set_binning_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_pixel_format_impl'): 1,
-    ('ui/vertical_control.py', '_move_turret_impl'): 1,
 }
 
 # Every entry is an `except` handler in the GUI: a place the GUI catches an
@@ -649,7 +645,7 @@ _UI_EXCEPT_PIN = {
     ('ui/protocol_settings.py', 'ValueError'): 2,
     ('ui/scope_display.py', 'Exception'): 3,
     ('ui/shader.py', 'Exception'): 2,
-    ('ui/stage.py', 'Exception'): 7,
+    ('ui/stage.py', 'Exception'): 5,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
     ('ui/ui_helpers.py', 'AxisStateUnknownError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,

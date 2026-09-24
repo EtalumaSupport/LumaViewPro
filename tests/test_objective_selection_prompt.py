@@ -250,8 +250,9 @@ class TestUnknownObjectiveEventsReachThePrompt:
     cannot quietly drop a trigger)."""
 
     def test_turret_select_wires_the_prompt(self):
-        # One hop: the move hands its outcome to show_turret_state as the IO
-        # callback, which runs on success and on failure alike, and that asks.
+        # One hop: the move hands its outcome to show_turret_state as the
+        # boundary's redraw, which runs on success and on failure alike, and
+        # that asks.
         module = parse_module('ui/vertical_control.py')
         cls = next(
             node
@@ -263,14 +264,16 @@ class TestUnknownObjectiveEventsReachThePrompt:
             for node in cls.body
             if isinstance(node, ast.FunctionDef) and node.name == 'turret_select'
         )
-        callbacks = [
-            kw.value.attr
+        redraws = [
+            node.args[1].attr
             for node in ast.walk(turret_select)
             if isinstance(node, ast.Call)
-            for kw in node.keywords
-            if kw.arg == 'callback' and isinstance(kw.value, ast.Attribute)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == 'submit_reported'
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Attribute)
         ]
-        assert callbacks == ['show_turret_state']
+        assert redraws == ['show_turret_state']
         outcome = _method_calls('ui/vertical_control.py', 'VerticalControl', 'show_turret_state')
         assert 'prompt_if_objective_unknown' in outcome
 

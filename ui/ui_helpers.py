@@ -17,6 +17,9 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 
+if typing.TYPE_CHECKING:
+    from modules.sequential_io_executor import SequentialIOExecutor
+
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
 
@@ -59,19 +62,33 @@ def submit_reported(
     label: str,
     *,
     stop: bool = False,
+    lane: 'SequentialIOExecutor | None' = None,
 ) -> None:
-    """Run an API call that may block on the worker pool and report its outcome; then redraw.
+    """Run an API call that may block off the GUI thread and report its outcome; then redraw.
 
     run_reported's twin for members that wait on a lane (hardware, a lane's
-    answer): the call runs on the GUI's worker pool -- one worker, so a
-    person's actions run in the order they were made, and a Stop submitted
-    at high priority goes first -- and the redraw is scheduled back onto the
-    GUI thread afterwards, whatever the outcome. The call reads no widget and
-    touches nothing in the GUI: any value a widget holds is read before this
-    is called and closed over.
+    answer). The redraw is scheduled back onto the GUI thread afterwards,
+    whatever the outcome. The call reads no widget and touches nothing in
+    the GUI: any value a widget holds is read before this is called and
+    closed over.
 
-    A pool that is not taking work (closing down) still gets its redraw; the
-    pool's own narration is the record of the dropped call.
+    Where the call runs:
+        lane: The one lane every member in *call* dispatches to (the camera
+            lane for camera members, the IO lane for motion and LED ones).
+            The call runs on that lane's worker, where its members run
+            inline, so a person's actions on one device run in the order
+            they were made while the other device's lane keeps working -- a
+            gain change does not wait behind a home. Only a call whose
+            members all dispatch to this one lane may name it: a member
+            that dispatches elsewhere raises on the lane worker rather than
+            wait on another lane.
+        None: the GUI's worker pool, for a call that spans lanes (a run's
+            start or Stop). One worker, so actions run in the order they
+            were made, and a Stop submitted at high priority goes first.
+
+    An executor that is not taking work (closing down, or held by a run)
+    still gets its redraw; the executor's own narration is the record of
+    the dropped call.
 
     ``stop`` is for a Stop: it goes ahead of every queued request, so a
     person stopping a run is never kept waiting behind work they asked for
@@ -79,12 +96,13 @@ def submit_reported(
     """
     from modules.sequential_io_executor import ENQUEUED, PRIORITY_HIGH, PRIORITY_MED, IOTask
 
-    def _on_the_pool():
+    def _off_the_gui_thread():
         _reported(call, label)
         _schedule_ui(lambda dt: _reported(redraw, label))
 
+    executor = lane if lane is not None else _app_ctx.ctx.worker_pool
     priority = PRIORITY_HIGH if stop else PRIORITY_MED
-    queued = _app_ctx.ctx.worker_pool.put(IOTask(action=_on_the_pool, priority=priority))
+    queued = executor.put(IOTask(action=_off_the_gui_thread, priority=priority))
     if queued is not ENQUEUED:
         _schedule_ui(lambda dt: _reported(redraw, label))
 
@@ -162,26 +180,6 @@ def sync_layer_widgets_from_settings():
 
 def find_nearest_step(x, y, protocol):
     return config_helpers.find_nearest_step(x, y, protocol)
-
-
-# ============================================================================
-# LED / Illumination Helpers
-# ============================================================================
-
-# _handle_ui_for_leds_off and _handle_ui_for_led removed --
-# LED observer handles UI sync. See Phase 1 commit 96defe3.
-
-
-def scope_leds_off(no_callback: bool = False):
-    """Turn off all LEDs. UI sync is handled by the LED observer."""
-    ctx = _app_ctx.ctx
-    if ctx.session.run_lockout:
-        return
-
-    # LED observer handles UI button sync -- no manual callback needed.
-    # The no_callback parameter is kept for API compatibility but is now
-    # effectively always True (observer replaces the callback).
-    ctx.scope.illumination.leds_off_async()
 
 
 # ============================================================================

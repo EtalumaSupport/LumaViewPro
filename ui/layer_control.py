@@ -21,7 +21,7 @@ from modules.config_ui_getters import (
 )
 from modules.exceptions import ProtocolError
 from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import run_reported
+from ui.ui_helpers import run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -1421,20 +1421,19 @@ class LayerControl(BoxLayout):
                 # lock can say whether exposure bottomed out of the
                 # usable range (AT_MINIMUM), not only whether it topped.
                 autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
-            camera_executor.put(
-                IOTask(
-                    # The task runs ON the camera worker: bind the impl --
-                    # the public dispatcher would self-dispatch on this
-                    # same lane and stall against its own queue slot.
-                    action=lumaview.scope.imaging._apply_layer_camera_settings_impl,
-                    kwargs={
-                        'layer': self.layer,
-                        'gain_db': gain,
-                        'exposure_ms': exposure,
-                        'auto_gain': auto_gain_enabled,
-                        'auto_gain_settings': autogain_settings,
-                    },
-                )
+            imaging = lumaview.scope.imaging
+            layer = self.layer
+            submit_reported(
+                lambda: imaging.apply_layer_camera_settings(
+                    layer=layer,
+                    gain_db=gain,
+                    exposure_ms=exposure,
+                    auto_gain=auto_gain_enabled,
+                    auto_gain_settings=autogain_settings,
+                ),
+                None,
+                f'CAMERA_SETTINGS_{layer}',
+                lane=camera_executor,
             )
 
         # update false color to currently selected settings and shader

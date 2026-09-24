@@ -10,7 +10,6 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.debounce import debounce
 from modules.run_outcome import PendingRunOutcome
-from modules.sequential_io_executor import IOTask
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
@@ -61,15 +60,10 @@ class VerticalControl(BoxLayout):
         if ctx.sequenced_capture_runner.run_in_progress():
             return
         if not vertical_control:
-            ctx.io_executor.put(
-                IOTask(
-                    action=ctx.lumaview.scope.motion.get_target_position,
-                    args=('Z'),
-                    callback=self.execute_kivy_gui,
-                    cb_kwargs={'vertical_control': vertical_control},
-                    pass_result=True,
-                )
-            )
+            # The target is a cache read -- no lane, no serial I/O -- shown on
+            # the GUI thread because a move's completion reaches this from
+            # the lane that made the move.
+            Clock.schedule_once(lambda dt: run_reported(None, self._show_z_target, 'Z_TARGET'), 0)
         else:
             Clock.schedule_once(lambda dt: self.update_text_only(), 0)
 
@@ -101,24 +95,11 @@ class VerticalControl(BoxLayout):
     def update_text_only(self):
         self._write_z_text(self.ids['obj_position'].value)
 
-    def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
-        """IOTask callback -- runs on worker thread. Must schedule widget access."""
-        if exception is not None:
-            raise exception
-
-        if result is None:
-            return
-
-        set_pos = result
-
-        # Widget access must happen on the main Kivy thread (H24).
-        # This callback runs on the IO worker thread.
-        from kivy.clock import Clock
-
-        if not vertical_control:
-            Clock.schedule_once(lambda dt, p=set_pos: self._update_z_position(p), 0)
-        else:
-            Clock.schedule_once(lambda dt, p=set_pos: self._update_z_text(p), 0)
+    def _show_z_target(self):
+        """Show the Z target the API holds; nothing when it holds none."""
+        pos = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
+        if pos is not None:
+            self._update_z_position(pos)
 
     def _update_z_position(self, pos):
         """Update Z slider and text -- must be called on main thread.
@@ -650,10 +631,10 @@ class VerticalControl(BoxLayout):
         the turret in no known slot rather than in the one that was asked for.
         """
         ctx = _app_ctx.ctx
-        ctx.io_executor.put(
-            IOTask(
-                ctx.lumaview.scope.motion._move_turret_impl,
-                kwargs={'position': selected_position},
-                callback=self.show_turret_state,
-            )
+        motion = ctx.lumaview.scope.motion
+        submit_reported(
+            lambda: motion.move_turret(selected_position),
+            self.show_turret_state,
+            f'TURRET_POS_{selected_position}',
+            lane=ctx.io_executor,
         )

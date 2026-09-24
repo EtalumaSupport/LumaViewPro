@@ -64,9 +64,13 @@ def _offer_wedged_writer_recovery():
     pending = file_io_executor.protocol_queue_size()
     stuck = file_io_executor.describe_running_task()
 
+    session = ctx.session
+
     def _recover():
         logger.warning('[LVP Main  ] User confirmed wedged-writer recovery')
-        file_io_executor.recover_wedged_protocol_queue()
+        # Through the Session, which refuses while a run or a diagnostic
+        # holds the scope; the executor's own recovery would not.
+        run_reported(session.recover_file_writer, None, 'RECOVER_FILE_WRITER')
 
     show_confirmation_popup(
         title='File Writer Stalled',

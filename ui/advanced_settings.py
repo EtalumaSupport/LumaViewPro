@@ -24,8 +24,8 @@ from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
-from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
+from ui.ui_helpers import submit_reported
 
 
 class AdvancedSettings(Popup):
@@ -135,14 +135,13 @@ class AdvancedSettings(Popup):
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
         settings.setdefault('camera', {})['high_conversion_gain'] = state
         mode = 'High' if state else 'Low'
-
-        def _set_conversion_gain():
-            # Already on the camera worker: bind the impl -- the public
-            # dispatcher would re-enter this same lane and stall on its
-            # own queue slot.
-            ctx.lumaview.scope.imaging._set_conversion_gain_mode_impl(mode)
-
-        ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
+        imaging = ctx.lumaview.scope.imaging
+        submit_reported(
+            lambda: imaging.set_conversion_gain_mode(mode),
+            None,
+            'HIGH_CONVERSION_GAIN',
+            lane=ctx.camera_executor,
+        )
 
     def update_line_noise_reduction(self):
         ctx = _app_ctx.ctx
@@ -150,13 +149,13 @@ class AdvancedSettings(Popup):
         state = self.ids['line_noise_reduction'].active
         gui_logger.select('LINE_NOISE_REDUCTION', state)
         settings.setdefault('camera', {})['line_noise_reduction'] = state
-
-        def _set_line_noise():
-            # On the camera worker: bind the impl, never the dispatcher
-            # (self-dispatch on the single lane).
-            ctx.lumaview.scope.imaging._set_line_noise_reduction_impl(state)
-
-        ctx.camera_executor.put(IOTask(action=_set_line_noise))
+        imaging = ctx.lumaview.scope.imaging
+        submit_reported(
+            lambda: imaging.set_line_noise_reduction(state),
+            None,
+            'LINE_NOISE_REDUCTION',
+            lane=ctx.camera_executor,
+        )
 
     def update_video_max_fps(self):
         # 0 = no limit: the recording rate is then bounded only by
@@ -392,8 +391,8 @@ class AdvancedSettings(Popup):
         """Send the most-recent acceleration value to the motor on IO_WORKER.
 
         Reads ``self._pending_acceleration_pct`` (latest stash from
-        ``set_acceleration_limit``) and submits an IOTask through
-        ``io_executor``. If the slider moved again while the trigger was
+        ``set_acceleration_limit``) and submits the motion member on the IO
+        lane. If the slider moved again while the trigger was
         pending, only the latest value reaches the motor -- no queued command
         burst.
         """
@@ -404,11 +403,12 @@ class AdvancedSettings(Popup):
         scope = ctx.lumaview.scope if ctx.lumaview else None
         if scope is None:
             return
-        ctx.io_executor.put(
-            IOTask(
-                action=scope.motion.set_acceleration_limit,
-                kwargs={'val_pct': val_pct},
-            )
+        motion = scope.motion
+        submit_reported(
+            lambda: motion.set_acceleration_limit(val_pct=val_pct),
+            None,
+            'ACCELERATION_LIMIT',
+            lane=ctx.io_executor,
         )
 
     def close(self):

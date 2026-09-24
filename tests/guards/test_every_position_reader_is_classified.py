@@ -46,9 +46,7 @@ CLASSIFIED = {
     'ui/motion_settings.py::XYStageControl.ex_set_ybookmark': SAVES,
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,
     'ui/stage.py::Stage.draw_labware_io_calculations': DISPLAYS,
-    'ui/stage.py::Stage.get_target_xy': DISPLAYS,
-    'ui/stage.py::Stage.motion_enabled_io': DISPLAYS,
-    'ui/vertical_control.py::VerticalControl.update_gui': DISPLAYS,
+    'ui/vertical_control.py::VerticalControl._show_z_target': DISPLAYS,
     'ui/vertical_control.py::VerticalControl.ex_set_bookmark': SAVES,
     'ui/vertical_control.py::VerticalControl.ex_set_all_bookmarks': SAVES,
 }
