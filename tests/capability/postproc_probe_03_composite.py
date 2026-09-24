@@ -9,6 +9,7 @@ modules.composite_generation.CompositeGeneration.load_folder merges it.
 """
 
 import sys
+import time
 
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
@@ -33,10 +34,15 @@ def main() -> int:
             positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
         )
         print('run outcome:', outcome)
-        # The outcome answers before the run's files drain, so under load
-        # the composite below can read a record still missing a row. Say
-        # which state it read, so a failure names its cause.
+        # The outcome answers before the run's files drain, so the composite
+        # below would read a record still missing a row. There is no blocking
+        # wait for the drain yet; an L2 caller polls the documented read, as
+        # this does. Say which state the outcome answered in, so a failure
+        # names its cause.
         print('files still draining when the outcome answered:', session.protocol_files_draining)
+        deadline = time.monotonic() + 60
+        while session.protocol_files_draining and time.monotonic() < deadline:
+            time.sleep(0.05)
         print('folder:', folder)
         if folder is None:
             print('PROBE RESULT: no run folder produced')
