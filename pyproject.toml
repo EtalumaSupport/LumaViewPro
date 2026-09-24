@@ -128,6 +128,12 @@ ignore = [
     # the import block documents the grep-the-.kv-first removal rule.
     "F401",
 ]
+"drivers/sim_wire/mp/*.py" = [
+    # These files run inside the simulator's MicroPython, whose oldest
+    # runtime (1.19, the field firmware's) has no f-string conversion flags:
+    # `{x!r}` is a SyntaxError there, so they write `{repr(x)}`.
+    "RUF010",
+]
 "drivers/camera_profiles.py" = [
     # Profile globals are named after the exact camera model strings
     # (e.g. _daA3840_45um for the Basler daA3840-45um) so a profile is

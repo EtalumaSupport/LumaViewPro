@@ -25,6 +25,18 @@ The reader thread always drains the process into a bounded buffer. A board
 whose output nobody reads blocks on a full pipe and stops answering, which
 would look like a hardware fault; overflowing the buffer is a loud failure
 instead.
+
+Tests reach the simulated hardware through the port:
+
+- `inject` / `clear` switch a hardware fault in the chip model on or off.
+  They go down a pipe the process inherits, which the model reads at every
+  SPI transfer, so a fault set before a command is in effect from that
+  command's first transfer. Faults are hardware and outlive a soft reset:
+  the port hands them to every process it starts.
+- With the board's oracle on, every register write the firmware makes
+  comes back framed on the process's own output, ordered against its
+  replies, and `take_writes` returns them. The frames never reach the
+  driver.
 """
 
 import os
@@ -38,6 +50,9 @@ from dataclasses import dataclass
 
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, to_bytes
 
+from drivers.sim_wire.mp import channel
+from drivers.sim_wire.mp.tmc5072 import AXES, FAULTS
+
 CTRL_C = 0x03
 CTRL_D = 0x04
 REPL_PROMPT = b'>>> '
@@ -47,6 +62,10 @@ REPL_PROMPT = b'>>> '
 # is reading the port.
 RX_LIMIT_BYTES = 1 << 20
 
+# Register writes held for a test before the port refuses to hold more. A
+# homing is a few dozen; this many unread means nothing is taking them.
+WRITES_LIMIT = 100_000
+
 # How long a Ctrl-C may take to reach the REPL before the rest of a write goes
 # on anyway. The traceback and prompt arrive within milliseconds; the bound
 # only stops a firmware that swallows the interrupt from hanging the write.
@@ -54,11 +73,12 @@ INTERRUPT_SETTLE_S = 1.0
 
 # Runs the firmware with a watcher beside it. The watcher polls this
 # interpreter's pid and kills the firmware (whose pid is the shell's, via
-# exec) when this interpreter is gone, or exits when the firmware is.
+# exec) when this interpreter is gone, or exits when the firmware is. The
+# fault pipe's read end, passed as $3, becomes the firmware's fd 3.
 _LAUNCH = (
     '(while kill -0 "$1" 2>/dev/null && kill -0 $$ 2>/dev/null; do sleep 1; done; '
     'kill -9 $$ 2>/dev/null) </dev/null >/dev/null 2>&1 & '
-    'exec "$2" -i -c "import main"'
+    'exec "$2" -i -c "import main" 3<&"$3"'
 )
 
 
@@ -73,6 +93,19 @@ class BoardImage:
     files: dict[str, bytes]
     module_path: tuple[str, ...]
     label: str
+    oracle: bool = False
+
+
+@dataclass(frozen=True)
+class RegisterWrite:
+    """One SPI register write the firmware made: the motor's axis and the
+    register's offset within that motor, or, for a register no single motor
+    owns, axis None and the chip address."""
+
+    chip: str
+    axis: str | None
+    reg: int
+    value: int
 
 
 class EmulatedPort(SerialBase):
@@ -87,6 +120,11 @@ class EmulatedPort(SerialBase):
         self._tail = b''
         self._cond = threading.Condition()
         self._failure: str | None = None
+        self._faults: set[tuple[str, str]] = set()
+        self._faults_w: int | None = None
+        # A frame the reader has started and not finished, across chunks.
+        self._frame: bytearray | None = None
+        self._writes: list[RegisterWrite] = []
         super().__init__(**kwargs)
 
     # -- process lifetime -------------------------------------------------
@@ -106,20 +144,31 @@ class EmulatedPort(SerialBase):
                 f.write(data)
         shutil.copyfile(self._image.firmware_mpy, os.path.join(self._workdir, 'main.mpy'))
         env = dict(os.environ, MICROPYPATH=':'.join((*self._image.module_path, '.frozen')))
+        faults_r, self._faults_w = os.pipe()
+        # Written before the process starts, so the firmware's first transfer
+        # at boot already sees them.
+        for axis, name in sorted(self._faults):
+            self._send_fault(True, axis, name)
         try:
             self._proc = subprocess.Popen(
-                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), self._image.runtime],
+                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), self._image.runtime, str(faults_r)],
                 cwd=self._workdir,
                 env=env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=0,
+                pass_fds=(faults_r,),
             )
         except OSError as e:
+            os.close(self._faults_w)
+            self._faults_w = None
             raise SerialException(f'{self._image.label}: board process did not start: {e}') from e
+        finally:
+            os.close(faults_r)
         with self._cond:
             self._failure = None
+            self._frame = None
         self._reader = threading.Thread(
             target=self._read_loop,
             args=(self._proc,),
@@ -135,6 +184,9 @@ class EmulatedPort(SerialBase):
         if proc.poll() is None:
             proc.kill()
         proc.wait()
+        if self._faults_w is not None:
+            os.close(self._faults_w)
+            self._faults_w = None
         for stream in (proc.stdin, proc.stdout):
             try:
                 stream.close()
@@ -179,6 +231,11 @@ class EmulatedPort(SerialBase):
                     )
                     self._cond.notify_all()
                     return
+                chunk = self._demux(chunk)
+                if self._failure is not None:
+                    self._cond.notify_all()
+                    proc.kill()
+                    return
                 if len(self._rx) + len(chunk) > RX_LIMIT_BYTES:
                     self._failure = (
                         f'{self._image.label}: {len(self._rx)} bytes unread on the port; '
@@ -191,9 +248,85 @@ class EmulatedPort(SerialBase):
                 self._tail = (self._tail + chunk)[-len(REPL_PROMPT) :]
                 self._cond.notify_all()
 
+    def _demux(self, chunk: bytes) -> bytes:
+        """Take the oracle's frames out of a chunk of the board's output and
+        return what is left for the driver. Holds the lock; sets the failure
+        on a frame the port cannot keep."""
+        to_driver = bytearray()
+        i = 0
+        while i < len(chunk):
+            if self._frame is None:
+                start = chunk.find(channel.ORACLE_START, i)
+                if start < 0:
+                    to_driver += chunk[i:]
+                    break
+                to_driver += chunk[i:start]
+                self._frame = bytearray()
+                i = start + 1
+            else:
+                end = chunk.find(channel.ORACLE_END, i)
+                if end < 0:
+                    self._frame += chunk[i:]
+                    break
+                self._frame += chunk[i:end]
+                i = end + 1
+                self._keep_write(bytes(self._frame))
+                self._frame = None
+                if self._failure is not None:
+                    break
+        return bytes(to_driver)
+
+    def _keep_write(self, frame: bytes) -> None:
+        if not self._image.oracle:
+            self._failure = (
+                f'{self._image.label}: the board sent a register-write frame with the oracle off'
+            )
+            return
+        if len(self._writes) >= WRITES_LIMIT:
+            self._failure = (
+                f'{self._image.label}: {len(self._writes)} register writes untaken; '
+                'nothing is taking them'
+            )
+            return
+        self._writes.append(RegisterWrite(*channel.parse_write(frame)))
+
     def _at_repl(self) -> bool:
         with self._cond:
             return self._tail == REPL_PROMPT
+
+    # -- the simulated hardware -------------------------------------------
+
+    def inject(self, axis: str, fault: str) -> None:
+        """Switch a hardware fault on; in effect from the next command's first
+        SPI transfer, and across soft resets until cleared."""
+        self._check_fault(axis, fault)
+        self._faults.add((axis, fault))
+        self._send_fault(True, axis, fault)
+
+    def clear(self, axis: str, fault: str) -> None:
+        self._check_fault(axis, fault)
+        self._faults.discard((axis, fault))
+        self._send_fault(False, axis, fault)
+
+    def take_writes(self) -> list[RegisterWrite]:
+        """The register writes since the last call, oldest first. Every write
+        the firmware made before a reply the driver has read is here."""
+        if not self._image.oracle:
+            raise SerialException(f'{self._image.label}: the oracle is off for this board')
+        with self._cond:
+            writes, self._writes = self._writes, []
+        return writes
+
+    def _check_fault(self, axis: str, fault: str) -> None:
+        if axis not in AXES:
+            raise ValueError(f'unknown axis {axis!r}; axes are {AXES}')
+        if fault not in FAULTS:
+            raise ValueError(f'unknown fault {fault!r}; faults are {FAULTS}')
+
+    def _send_fault(self, on: bool, axis: str, fault: str) -> None:
+        if self._faults_w is None:
+            raise SerialException(f'{self._image.label}: board process is not running')
+        os.write(self._faults_w, channel.fault_line(on, axis, fault))
 
     # -- pyserial surface -------------------------------------------------
 

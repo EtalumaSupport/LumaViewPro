@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from serial.serialutil import SerialException
 from serial.tools.list_ports_common import ListPortInfo
 
+from drivers.sim_wire.mp.tmc5072 import AXES
 from drivers.sim_wire.port import BoardImage, EmulatedPort
 
 _PACKAGE = pathlib.Path(__file__).resolve().parent
@@ -30,7 +31,6 @@ MOTOR_VID, MOTOR_PID = 0x2E8A, 0x0005
 MOTOR_DEVICE = 'simwire:motor'
 
 TIMINGS = ('instant', 'realistic')
-AXES = ('X', 'Y', 'Z', 'T')
 
 # The clock the TMC5072s run at, which sets the ramp's velocity and
 # acceleration units. At this clock, with the field INI's registers, the
@@ -102,6 +102,10 @@ class MotorBoardSpec:
     axes: frozenset[str]
     dialect: str = '3.0'
     timing: str = 'instant'
+    # Whether the board reports every register write (`EmulatedPort.take_writes`).
+    # Off unless a test reads them: nothing else does, and unread writes fill
+    # the port's bounded store.
+    oracle: bool = False
     fclk_hz: float = FCLK_HZ
     start_usteps: tuple[tuple[str, int], ...] = tuple(START_USTEPS.items())
 
@@ -137,6 +141,7 @@ class MotorBoardSpec:
                 'timing': self.timing,
                 'fclk_hz': self.fclk_hz,
                 'start_usteps': dict(self.start_usteps),
+                'oracle': self.oracle,
             }
         ).encode()
         module_path = [str(_PACKAGE / 'mp')]
@@ -148,6 +153,7 @@ class MotorBoardSpec:
             files=files,
             module_path=tuple(module_path),
             label=f'[sim motor {self.model} fw {self.dialect} {self.timing}]',
+            oracle=self.oracle,
         )
 
 
@@ -156,6 +162,7 @@ class SimWireBackend:
 
     def __init__(self, motor: MotorBoardSpec | None):
         self._motor = motor
+        self.motor_port: EmulatedPort | None = None
 
     def comports(self) -> list[ListPortInfo]:
         if self._motor is None:
@@ -169,4 +176,7 @@ class SimWireBackend:
         port = kwargs.get('port')
         if self._motor is None or port != MOTOR_DEVICE:
             raise SerialException(f'no simulated board at {port!r}')
-        return EmulatedPort(self._motor.image(), **kwargs)
+        # Kept so a test can reach the simulated hardware behind the board it
+        # opened (faults, register writes); a reconnect replaces it.
+        self.motor_port = EmulatedPort(self._motor.image(), **kwargs)
+        return self.motor_port
