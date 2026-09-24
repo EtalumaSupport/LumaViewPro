@@ -129,6 +129,19 @@ class TestTheSessionReadsTheTier:
         said = [str(c.args[0]) for c in scope_session_module.logger.warning.call_args_list]
         assert any('no MicroPython runtime' in s for s in said), said
 
+    def test_a_linux_machine_that_has_not_built_the_runtime_runs_the_fast_tier(self, monkeypatch):
+        # The Linux runtime is built where it runs, not committed: a Linux
+        # developer who never ran the build script must still get a scope.
+        import platform
+
+        import drivers.sim_wire.backend as backend
+
+        monkeypatch.setattr(sys, 'platform', 'linux')
+        monkeypatch.setattr(platform, 'machine', lambda: 'x86_64')
+        monkeypatch.setattr(backend, '_PACKAGE', pathlib.Path('/nonexistent'))
+        tier = ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware'))
+        assert tier == 'fast'
+
     def test_a_platform_with_a_runtime_keeps_the_firmware_tier(self):
         assert (
             ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware')) == 'firmware'

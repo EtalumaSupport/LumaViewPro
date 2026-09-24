@@ -66,6 +66,8 @@ def _runtime_tags() -> dict[str, str]:
 
 RUNTIME_TAGS = _runtime_tags()
 DIALECTS = tuple(RUNTIME_TAGS)
+# The firmware a simulated scope's board runs unless a caller names another.
+DEFAULT_DIALECT = '3.0'
 
 
 def runtime_platform() -> str | None:
@@ -95,6 +97,17 @@ def runtime_path(dialect: str) -> pathlib.Path:
     return path
 
 
+def runtime_missing(dialect: str) -> str | None:
+    """Why this machine cannot run a dialect's runtime, or None when it
+    can. The Linux runtime is built where it runs rather than committed,
+    so a supported platform can still be without one."""
+    try:
+        runtime_path(dialect)
+    except SerialException as ex:
+        return str(ex)
+    return None
+
+
 @dataclass(frozen=True)
 class MotorBoardSpec:
     """The simulated motor board: which scope, which axes, which firmware,
@@ -102,7 +115,7 @@ class MotorBoardSpec:
 
     model: str
     axes: frozenset[str]
-    dialect: str = '3.0'
+    dialect: str = DEFAULT_DIALECT
     timing: str = 'instant'
     # Whether the board reports every register write (`EmulatedPort.take_writes`).
     # Off unless a test reads them: nothing else does, and unread writes fill

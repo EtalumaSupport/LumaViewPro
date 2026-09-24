@@ -653,13 +653,14 @@ class ScopeSession:
         this machine.
 
         The setting is the user's choice and is refused when it names no
-        tier. The firmware tier needs a MicroPython runtime built for the
-        platform; where there is none the session runs the fast tier and
-        says so, because a simulated scope that cannot start on a
-        developer's machine is worse than one on the lighter tier. On a
-        platform that has a runtime, a broken one raises further down.
+        tier. The firmware tier needs a MicroPython runtime on this
+        machine; where there is none -- an unsupported platform, or a Linux
+        machine that has not built it -- the session runs the fast tier and
+        says why, because a simulated scope that cannot start on a
+        developer's machine is worse than one on the lighter tier. A
+        runtime that is present but broken raises further down.
         """
-        from drivers.sim_wire.backend import runtime_platform
+        from drivers.sim_wire.backend import DEFAULT_DIALECT, runtime_missing
         from modules.lumascope_api._constants import SIMULATOR_TIERS
 
         if 'simulator_tier' not in settings:
@@ -670,10 +671,11 @@ class ScopeSession:
         tier = settings['simulator_tier']
         if tier not in SIMULATOR_TIERS:
             raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
-        if tier == 'firmware' and runtime_platform() is None:
+        missing = runtime_missing(DEFAULT_DIALECT) if tier == 'firmware' else None
+        if missing is not None:
             logger.warning(
-                '[Session  ] simulator_tier is firmware, but no MicroPython runtime is '
-                'built for this platform: running the fast tier'
+                '[Session  ] simulator_tier is firmware, but there is no MicroPython runtime '
+                f'here ({missing}): running the fast tier'
             )
             return 'fast'
         return tier
