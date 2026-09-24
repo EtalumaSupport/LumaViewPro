@@ -61,6 +61,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      # The firmware-backed simulator runs the real board firmware inside
+      # MicroPython. The Linux runtime is built here from the pinned upstream
+      # source rather than committed (the macOS one is committed); the script
+      # reads the pin and applies the same patches either way.
+      - name: Simulator runtime
+        run: scripts/build_sim_runtime.sh
+
       # No extra -q: pyproject addopts already carries `-q --tb=short`, and a
       # second one makes -qq, which suppresses the failure summary and leaves
       # a red run with nothing to read. -rfE restores the short summary of
