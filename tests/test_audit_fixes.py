@@ -2001,6 +2001,37 @@ class TestSetBinningSizeReturnsBool:
         cam._mark_disconnected.assert_not_called()
 
 
+_firmware_only = pytest.mark.skipif(
+    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
+    reason='the firmware-backed simulator runs on macOS and Linux only',
+)
+
+
+def _firmware_motorboard(model: str, axes: str, dialect: str = '3.0', unplugged: bool = False):
+    """(MotorBoard, the simulated board behind it) on the real firmware."""
+    from drivers.motorboard import MotorBoard
+    from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
+    backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
+    if unplugged:
+        backend.motor_board.unplug()
+    return MotorBoard(backend=backend), backend.motor_board
+
+
+@pytest.fixture(scope='module')
+def homing_boards():
+    """Real-firmware boards shared by the homing tests; each test clears
+    the faults it injects."""
+    boards = {
+        'full': _firmware_motorboard('LS850T', 'XYZT'),
+        'z_only': _firmware_motorboard('LS720', 'Z'),
+        'z_only_field': _firmware_motorboard('LS720', 'Z', dialect='field'),
+    }
+    yield boards
+    for board, _sim in boards.values():
+        board.disconnect()
+
+
 class TestHomeReturnsBool:
     """The blocking home(axis=) member must propagate the driver's bool
     for every axis selector, and MotorBoard / SimulatedMotorBoard must
@@ -2132,55 +2163,58 @@ class TestHomeReturnsBool:
                 f'{method.__name__} docstring must have a Returns: section'
             )
 
-    @staticmethod
-    def _make_motorboard(reply):
-        """MotorBoard stub with exchange_command returning a fixed reply
-        (None simulates the no-response / timeout path)."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.exchange_command = MagicMock(return_value=reply)
-        return board
-
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    @_firmware_only
     def test_motorboard_homing_raises_on_no_response(self, method):
         """Driver contract (Rule 29): no serial response raises
-        HardwareError instead of returning False."""
-        board = self._make_motorboard(None)
-        with pytest.raises(HardwareError, match='no response'):
-            getattr(board, method)()
+        HardwareError instead of returning False. The cable is pulled
+        before the command is sent."""
+        board, sim = _firmware_motorboard('LS850T', 'XYZT')
+        try:
+            sim.unplug()
+            with pytest.raises(HardwareError, match='no response'):
+                getattr(board, method)()
+        finally:
+            board.disconnect()
 
     @pytest.mark.parametrize(
-        ('method', 'reply'),
+        ('method', 'axis', 'fault'),
         [
-            ('zhome', 'ERROR: Z homing failed'),
-            ('home', 'ERROR: homing aborted'),
-            ('thome', 'ERROR: T homing failed'),
+            ('zhome', 'Z', 'switch_never_trips'),  # 'ERROR: Z home timeout'
+            ('home', 'X', 'stall'),  # 'ERROR: XY home timeout'
+            ('thome', 'T', 'switch_never_trips'),  # 'ERROR: T home timeout'
         ],
     )
-    def test_motorboard_homing_raises_on_firmware_error(self, method, reply):
-        board = self._make_motorboard(reply)
-        with pytest.raises(HardwareError, match='firmware error'):
-            getattr(board, method)()
+    @_firmware_only
+    def test_motorboard_homing_raises_on_firmware_error(self, homing_boards, method, axis, fault):
+        """A hardware fault the firmware reports as an ERROR raises."""
+        board, sim = homing_boards['full']
+        sim.inject(axis, fault)
+        try:
+            with pytest.raises(HardwareError, match='firmware error'):
+                getattr(board, method)()
+        finally:
+            sim.clear(axis, fault)
 
     @pytest.mark.parametrize(
-        ('method', 'reply'),
+        ('method', 'board_key'),
         [
-            ('zhome', 'Z home successful'),
-            ('home', 'XYZ home complete'),
-            ('home', 'ERROR: X not present'),
-            ('thome', 'T home successful'),
-            ('thome', 'T not present'),
+            ('zhome', 'full'),  # 'Z home successful'
+            ('home', 'full'),  # 'XYZ home complete'
+            ('home', 'z_only'),  # 'ERROR: X not present'
+            ('home', 'z_only_field'),  # 'X not present'
+            ('thome', 'full'),  # 'T home successful'
+            ('thome', 'z_only'),  # 'T not present'
         ],
     )
-    def test_motorboard_homing_success_and_partial_paths_return_true(self, method, reply):
+    @_firmware_only
+    def test_motorboard_homing_success_and_partial_paths_return_true(
+        self, homing_boards, method, board_key
+    ):
         """Success replies -- including the partial-home (X/Y absent) and
         no-turret cases the firmware reports on smaller boards -- return
         True rather than raising."""
-        board = self._make_motorboard(reply)
+        board, _sim = homing_boards[board_key]
         assert getattr(board, method)() is True
 
     def test_motorboard_homing_docstrings_document_raises(self):
@@ -2479,13 +2513,24 @@ class TestG4_MotorLogSuppression:
         monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
         return board, recorder
 
+    @_firmware_only
     def test_connect_errors_suppressed_after_ten_failures(self, monkeypatch):
         """Failures 1-9 log errors; the 10th replaces its error with ONE
         critical announcing suppression; failures 11+ stay silent so a
-        permanently absent board cannot flood the error log."""
-        board, recorder = self._make_failing_board(monkeypatch)
-        for _ in range(12):
-            board.connect()
+        permanently absent board cannot flood the error log. The board is
+        real firmware whose cable is out, so every connect() fails the way
+        it does on a scope with the motor board unplugged."""
+        import drivers.motorboard as motorboard_mod
+
+        recorder = self._RecordingLogger()
+        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+        board, _sim = _firmware_motorboard('LS850T', 'XYZT', unplugged=True)
+        try:
+            # Construction already made its own attempts; make it twelve.
+            while board._connect_fails < 12:
+                board.connect()
+        finally:
+            board.disconnect()
         assert recorder.count('ERROR', 'connect() failed') == 9, (
             f'only the pre-suppression failures may log errors; records: {recorder.records}'
         )
