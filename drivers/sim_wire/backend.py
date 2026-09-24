@@ -110,6 +110,13 @@ class MotorBoardSpec:
     oracle: bool = False
     fclk_hz: float = FCLK_HZ
     start_usteps: tuple[tuple[str, int], ...] = tuple(START_USTEPS.items())
+    # A real unit's own motorconfig.json, as its CONFIG command answers it.
+    # None boots the bring-up template with the model and axes set on it; a
+    # unit's config is booted exactly as it is, so a simulated board has that
+    # unit's scale, offsets and turret positions. The register tables it names
+    # still come from the dialect's own set, so a table the set lacks fails
+    # the image build by name.
+    unit_config: dict | None = None
 
     def __post_init__(self):
         if not self.axes:
@@ -121,8 +128,20 @@ class MotorBoardSpec:
             raise ValueError(f'firmware dialect {self.dialect!r} is not one of {DIALECTS}')
         if self.timing not in TIMINGS:
             raise ValueError(f'timing mode {self.timing!r} is not one of {TIMINGS}')
+        if self.unit_config is not None:
+            unit_model = self.unit_config['Microscope']
+            unit_axes = {
+                axis for axis, present in self.unit_config['Axis Present'].items() if present
+            }
+            if (unit_model, unit_axes) != (self.model, set(self.axes)):
+                raise ValueError(
+                    f'the unit config is a {unit_model} with axes {sorted(unit_axes)}, '
+                    f'not a {self.model} with axes {sorted(self.axes)}'
+                )
 
     def motorconfig(self) -> dict:
+        if self.unit_config is not None:
+            return json.loads(json.dumps(self.unit_config))
         config = json.loads(_MOTORCONFIG_BASE.read_text())
         config['Microscope'] = self.model
         config['Axis Present'] = {axis: int(axis in self.axes) for axis in AXES}
