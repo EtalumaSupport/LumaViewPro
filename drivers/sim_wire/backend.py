@@ -32,6 +32,17 @@ MOTOR_DEVICE = 'simwire:motor'
 TIMINGS = ('instant', 'realistic')
 AXES = ('X', 'Y', 'Z', 'T')
 
+# The TMC5072's internal oscillator, fitted to the Stage 0 bench record
+# (LS850T, field firmware, 2026-09-23): the X and Y moves over 18-96 mm land
+# between the 13 MHz the hardware notes give and the 16 MHz datasheet
+# nominal. One fit from one unit; a conformance run on another unit refines it.
+FCLK_HZ = 14_500_000
+
+# Where each axis physically sits when the simulated board powers up, in
+# microsteps from its reference flag's edge: mid-travel, off the flag, so a
+# home finds the flag by moving as a real stage does.
+START_USTEPS = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}
+
 # A complete unit config from the board bring-up template, built by the
 # Firmware repo's tools/build_sim_firmware.py. The firmware reads all of it
 # at boot; the simulator sets the model and the axes.
@@ -89,6 +100,8 @@ class MotorBoardSpec:
     axes: frozenset[str]
     dialect: str = '3.0'
     timing: str = 'instant'
+    fclk_hz: float = FCLK_HZ
+    start_usteps: tuple[tuple[str, int], ...] = tuple(START_USTEPS.items())
 
     def __post_init__(self):
         if not self.axes:
@@ -117,6 +130,13 @@ class MotorBoardSpec:
             ini_dir = _PACKAGE / 'firmware' / 'field-ini'
         files = {name: (ini_dir / name).read_bytes() for name in config['IniFiles'].values()}
         files['motorconfig.json'] = json.dumps(config).encode()
+        files['sim_chip.json'] = json.dumps(
+            {
+                'timing': self.timing,
+                'fclk_hz': self.fclk_hz,
+                'start_usteps': dict(self.start_usteps),
+            }
+        ).encode()
         module_path = [str(_PACKAGE / 'mp')]
         if self.timing == 'instant':
             module_path.insert(0, str(_PACKAGE / 'mp' / 'instant'))
