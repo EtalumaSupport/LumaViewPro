@@ -51,7 +51,11 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot, held_run_claim
+from tests.protocol_drives import (
+    autofocus_snapshot,
+    held_run_claim,
+    wait_until_ready_for_next_run,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -187,19 +191,6 @@ def _make_protocol(steps_config):
         'tiling': '1x1',
     }
     return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
-
-
-def _wait_for_executor_idle(executor, timeout=5.0):
-    """Wait until executor is fully idle (not running and file IO drained)."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if (
-            not executor.run_in_progress()
-            and not executor.file_io_executor.is_protocol_queue_active()
-        ):
-            return True
-        time.sleep(0.05)
-    return False
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -720,9 +711,7 @@ class TestIntegrationStateAssertions:
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_1, 'First protocol run did not complete'
 
-        # Wait for executor to be fully idle (run_in_progress cleared, queue drained)
-        idle = _wait_for_executor_idle(executor, timeout=5.0)
-        assert idle, 'Executor did not reach idle state after first run'
+        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)

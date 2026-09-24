@@ -45,7 +45,11 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot, held_run_claim
+from tests.protocol_drives import (
+    autofocus_snapshot,
+    held_run_claim,
+    wait_until_ready_for_next_run,
+)
 from tests.scope_fakes import configure_turret_like_bringup
 
 # ---------------------------------------------------------------------------
@@ -1473,23 +1477,12 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    Completion is two-phase by design: run_complete fires as soon as the
-    scan finishes, while queued file writes drain afterward (files_complete).
-    A second run() started while files are still writing is deliberately
-    rejected with a user-facing "Files Still Writing" notification, so any
-    correct back-to-back test must synchronize on the file queue draining --
-    that is what _wait_for_file_queue does. This is the designed contract,
-    not a workaround for an executor bug.
+    run_complete fires during cleanup; the run ends when cleanup does, and
+    its files drain after that. A second start before both is refused by
+    design, so every back-to-back test waits on
+    wait_until_ready_for_next_run -- the designed contract, not a
+    workaround for an executor bug.
     """
-
-    @staticmethod
-    def _wait_for_file_queue(executor, timeout=5.0):
-        """Wait until file_io_executor is ready for a new protocol."""
-        deadline = time.monotonic() + timeout
-        while executor.file_io_executor.is_protocol_queue_active():
-            if time.monotonic() > deadline:
-                raise TimeoutError('file_io_executor did not drain in time')
-            time.sleep(0.05)
 
     def test_two_sequential_runs(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
@@ -1497,7 +1490,7 @@ class TestBackToBackRuns:
         completed1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed1, 'First run did not complete'
 
-        self._wait_for_file_queue(executor)
+        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
@@ -1508,7 +1501,7 @@ class TestBackToBackRuns:
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
             assert completed, f'Run {i} ({color}) did not complete'
-            self._wait_for_file_queue(executor)
+            assert wait_until_ready_for_next_run(executor), f'Run {i} never ended and drained'
 
 
 # ---------------------------------------------------------------------------
@@ -2139,6 +2132,8 @@ class TestValidationOrder:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+        # run_complete fires during cleanup; the run ends when cleanup does.
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert not executor.run_in_progress()
 
 
@@ -2193,12 +2188,7 @@ class TestCleanupCorrectness:
         # Should restore to 8.0/80.0
         assert scope.imaging.get_gain_db() == pytest.approx(8.0, abs=0.1)
 
-        # Wait for file queue to drain before starting next run
-        deadline = time.monotonic() + 5.0
-        while executor.file_io_executor.is_protocol_queue_active():
-            if time.monotonic() > deadline:
-                raise TimeoutError('file_io_executor did not drain in time')
-            time.sleep(0.05)
+        assert wait_until_ready_for_next_run(executor), 'Run A never ended and drained'
 
         # Run B: change gain before second run
         scope.imaging.set_gain_db(2.0)

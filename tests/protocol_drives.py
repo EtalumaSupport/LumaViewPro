@@ -60,6 +60,26 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     return True
 
 
+def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
+    """Wait until the engine will admit another run: ended AND drained.
+
+    `run_complete` fires DURING cleanup; the run ends (the engine goes
+    IDLE) at cleanup END, after its claim and lease are handed back, and
+    its files drain after that. A start before either is refused by
+    design -- `already_running`, then `files_writing` -- so a test that
+    starts its next run on the callback alone passes or fails on timing.
+
+    Shared because every back-to-back test asks this same question, and a
+    fixed sleep or a queue-only wait answers half of it.
+    """
+    deadline = time.monotonic() + timeout
+    while executor.run_in_progress() or executor.file_io_executor.is_protocol_queue_active():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def _noop_restore(*, layer, value):
     """A restorer that accepts the cleanup call and drops the value.
 

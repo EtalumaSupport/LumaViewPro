@@ -33,7 +33,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCa
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import autofocus_snapshot, wait_until_ready_for_next_run
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 
@@ -928,10 +928,7 @@ class TestExecuteSaveLoadRun:
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A did not complete'
 
-        # Wait for file I/O to drain before starting next run
-        import time
-
-        time.sleep(1.0)
+        assert wait_until_ready_for_next_run(executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1518,6 +1515,8 @@ class TestExecuteCancellation:
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not fire run_complete after cancellation'
+        # run_complete fires during cleanup; the run ends when cleanup does.
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 
 
@@ -1627,13 +1626,11 @@ class TestRealPathExecution:
 
     def test_back_to_back_real_motion(self, real_executor, scope, tmp_path):
         """Two protocols back-to-back with real motion -- verifies state cleanup."""
-        import time
-
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
         completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A with real motion did not complete'
 
-        time.sleep(1.0)
+        assert wait_until_ready_for_next_run(real_executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1964,9 +1961,7 @@ class TestExecutorEdgeCases:
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
         assert completed
-        import time
-
-        time.sleep(0.5)
+        assert real_executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert real_executor._state == ProtocolState.IDLE
 
     def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
