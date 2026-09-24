@@ -393,11 +393,12 @@ class RuntimeState:
         Returns:
             str | None: Well label (e.g. ``"A1"``); ``''`` when the selected
             labware has no wells (the Blank plate); None when X or Y does not
-            know its position. Consumers omit the well from filenames and
-            metadata for both rather than stamping a fabricated one -- an axis
-            that lost its reference keeps answering the last target it had,
-            which names a real well the scope may no longer be over. The two
-            stay distinct so a caller can say which it was.
+            know its position, or the scope has no X or Y at all. Consumers
+            omit the well from filenames and metadata for both rather than
+            stamping a fabricated one -- an axis that lost its reference keeps
+            answering the last target it had, which names a real well the
+            scope may no longer be over. The two stay distinct so a caller can
+            say which it was.
 
         Raises:
             Exception: Re-raises any error encountered reading target
@@ -409,13 +410,16 @@ class RuntimeState:
 
         labware = self.get_labware()
 
+        # The all-axes read carries only the axes the scope has; a
+        # single-axis read of an absent axis answers 0, which names a well.
         try:
-            x_target = self._scope.motion.get_target_position('X')
-            y_target = self._scope.motion.get_target_position('Y')
+            targets = self._scope.motion.get_target_position()
         except Exception:
             logger.exception('[LVP API  ] Error getting target position.')
             raise
+        if 'X' not in targets or 'Y' not in targets:
+            return None
 
-        x_target, y_target = self.stage_to_plate(sx=x_target, sy=y_target)
+        x_target, y_target = self.stage_to_plate(sx=targets['X'], sy=targets['Y'])
 
         return labware.get_well_label(x=x_target, y=y_target)

@@ -183,10 +183,11 @@ class ManualCaptureController:
         channel = common_utils.resolve_channel_identity(scope.illumination, request.layer)
 
         well_label = scope.runtime_state.get_well_label()
-        if well_label is None:
+        if well_label is None and scope.capabilities.has_xy_stage:
             # The image is real; only where it was taken is not known. It is
             # saved, and says so once, here -- the label is read again by the
-            # save, so the read is not the place to say it.
+            # save, so the read is not the place to say it. A scope with no
+            # XY stage has no well to know, and homing would not give it one.
             from modules.notification_center import notifications
 
             logger.warning('[Capture] Saved without a well or position: X or Y is unknown')
