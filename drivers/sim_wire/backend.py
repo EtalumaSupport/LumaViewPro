@@ -32,11 +32,13 @@ MOTOR_DEVICE = 'simwire:motor'
 TIMINGS = ('instant', 'realistic')
 AXES = ('X', 'Y', 'Z', 'T')
 
-# The TMC5072's internal oscillator, fitted to the Stage 0 bench record
-# (LS850T, field firmware, 2026-09-23): the X and Y moves over 18-96 mm land
-# between the 13 MHz the hardware notes give and the 16 MHz datasheet
-# nominal. One fit from one unit; a conformance run on another unit refines it.
-FCLK_HZ = 14_500_000
+# The clock the TMC5072s run at, which sets the ramp's velocity and
+# acceleration units. At this clock, with the field INI's registers, the
+# model reproduces the Stage 0 bench moves to within the API's own poll
+# overhead (X 96 mm: 2735 ms modelled, 2947 ms by API wait with a 220 ms
+# poll plateau). A fit from the shipped INI's steeper acceleration landed
+# at 14.5 MHz and was wrong for that reason.
+FCLK_HZ = 16_000_000
 
 # Where each axis physically sits when the simulated board powers up, in
 # microsteps from its reference flag's edge: mid-travel, off the flag, so a

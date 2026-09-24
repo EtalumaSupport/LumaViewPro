@@ -77,15 +77,15 @@ class TestMovesInInstantMode:
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic')], indirect=True)
 class TestRealisticMode:
     def test_a_20_mm_move_takes_the_ramps_time(self, board):
-        # 20 mm at the fitted clock: 0.15 s up, 0.44 s at speed, 0.15 s down,
-        # plus the driver's 10 ms poll.
+        # 20 mm on the shipped INI at 16 MHz: 0.13 s up, 0.40 s at speed,
+        # 0.13 s down, plus the driver's 10 ms poll.
         assert board.home()
         start = board.current_pos('X')
         started = time.monotonic()
         board.move_abs_pos('X', start + 20000.0, overshoot_enabled=False)
         assert board.wait_for_position('X', timeout=5.0)
         elapsed = time.monotonic() - started
-        assert 0.65 <= elapsed <= 1.1, elapsed
+        assert 0.6 <= elapsed <= 1.0, elapsed
 
     def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(self, board):
         assert board.home()

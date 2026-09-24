@@ -22,7 +22,7 @@ import tmc5072 as chip
 BASE_CONFIG = json.loads(
     pathlib.Path('drivers/sim_wire/firmware/motorconfig-base.json').read_text()
 )
-FCLK = 14_500_000
+FCLK = 16_000_000
 START = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}
 
 # The firmware's register addresses and literals (main.py).
@@ -234,14 +234,16 @@ class TestTheRealisticRamp:
         return ms
 
     def test_a_96_mm_x_move_takes_what_the_bench_measured(self):
-        # Stage 0, LS850T field firmware, X 96 mm by API wait: 2947 ms median.
-        ms = self._time_move(96 * 20157, 50000, 800000, 50000)
-        assert 2850 <= ms <= 3000, ms
+        # Stage 0, LS850T field firmware, X 96 mm by API wait: 2947 ms median,
+        # of which the API's poll is the 220 ms plateau its 1 um moves show.
+        # The bench unit runs the field XY INI: AMAX 30000, VMAX 800000.
+        ms = self._time_move(96 * 20157, 30000, 800000, 30000)
+        assert abs(ms - (2947 - 220)) <= 40, ms
 
     def test_a_short_move_is_a_triangle_not_a_trapezoid(self):
-        # 1 mm at 4.8 M usteps/s^2 never reaches 691 k usteps/s.
+        # 1 mm at 5.8 M usteps/s^2 never reaches 763 k usteps/s.
         ms = self._time_move(20157, 50000, 800000, 50000)
-        assert 100 <= ms <= 140, ms
+        assert 100 <= ms <= 125, ms
 
     def test_a_target_rewrite_mid_move_stops_the_motor_short(self):
         b, clock = board(timing='realistic')
