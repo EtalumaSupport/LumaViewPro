@@ -16,7 +16,6 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
 from modules.image_mode import ImageCaptureConfig
-from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -220,29 +219,6 @@ def get_zstack_params() -> dict:
     return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
-def get_zstack_positions(current_z: float) -> tuple[bool, dict]:
-    """The z-stack step positions around a given Z.
-
-    Takes the Z rather than reading it off the app context's scope: a
-    caller that is not the running app has its own scope, and a module
-    reaching for the global one answers about an instrument that may not
-    be the caller's.
-    """
-    config = get_zstack_params()
-
-    zstack_config = ZStackConfig(
-        range=config['range'],
-        step_size=config['step_size'],
-        current_z_reference=config['z_reference'],
-        current_z_value=current_z,
-    )
-
-    if zstack_config.number_of_steps() <= 0:
-        return False, {None: None}
-
-    return True, zstack_config.step_positions()
-
-
 # ---------------------------------------------------------------------------
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
@@ -272,10 +248,6 @@ def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
     layer_configs = get_layer_configs(specific_layers=[layer])
 
     return layer, layer_configs[layer]
-
-
-def get_stim_configs() -> dict:
-    return config_helpers.get_stim_configs(_app_ctx.ctx.settings)
 
 
 # ---------------------------------------------------------------------------

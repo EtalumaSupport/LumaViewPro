@@ -392,13 +392,17 @@ class ProtocolRunner:
         parent_dir: pathlib.Path | str | None = None,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_start: bool = True,
+        run_trigger_source: str = 'api_zstack',
+        engineering_mode: bool | None = None,
+        enable_image_saving: bool = True,
     ) -> PendingRunOutcome:
         """Capture a z-stack on *layer*, around the current stage position.
 
-        The headless twin of the Acquire button on the z-stack panel: a
-        one-position, one-layer run that expands into one step per slice.
-        The slices are its product, so unlike an autofocus this one saves
-        its images.
+        The one implementation of a z-stack run, for a script and for the
+        Acquire button on the z-stack panel alike: a one-position,
+        one-layer run that expands into one step per slice. The slices are
+        its product, so unlike an autofocus this one saves its images
+        unless the caller says otherwise.
 
         The stack's range, step size and reference -- whether the current
         position is the top, centre or bottom of the sweep -- come from the
@@ -412,7 +416,7 @@ class ProtocolRunner:
         flattens the stack it was asked to capture.
 
         Stimulation configs are carried onto the step as stored, enabled or
-        not, which is what the button does today. Stated rather than
+        not. Stated rather than
         inherited silently: if the API should instead carry only the
         enabled ones, this is the line that changes.
 
@@ -429,12 +433,25 @@ class ProtocolRunner:
                 not where the operator was looking. A bool rather than a
                 position, so a caller cannot hand back coordinates in a
                 frame this run never used.
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so a GUI click records its own token rather
+                than the API's.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames. A GUI caller passes its live flag, which
+                a plugin may have flipped after the session was built; None
+                reads the mode the session was built in.
+            enable_image_saving: Whether the slices are written. On by
+                default; the engineering panel's "disable image saving"
+                switch is the one caller that turns it off, to exercise the
+                stage without filling the disk.
 
         Returns:
             The run's outcome, to wait on or to ignore.
 
         Raises:
             ConfigError: *layer* is not a layer this release has.
+            ObjectiveUnknownError: The objective in the light path is
+                unknown, so no slice could say what it was taken with.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
                 connected); no state was committed.
@@ -468,19 +485,18 @@ class ProtocolRunner:
         return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            run_trigger_source='api_zstack',
+            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
-            # The slices ARE the product; a z-stack that saved nothing
-            # would have run the stage for no result.
-            enable_image_saving=True,
+            enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=position if return_to_start else None,
             # A one-field operation at a scope someone is standing at, so it
             # hands the illumination back the way it was found.
             leds_state_at_end='return_to_original',
+            engineering_mode=engineering_mode,
         )
 
     def run_composite(

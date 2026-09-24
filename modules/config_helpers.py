@@ -1578,6 +1578,10 @@ def get_standalone_capture_config_from_settings(
     # naming a cause that has nothing to do with what the caller got
     # wrong.
     known_layers = common_utils.get_layers()
+    # A GUI caller with no drawer open has no layer to name; printing None
+    # into the catalogue sentence below would tell the user nothing.
+    if layer is None:
+        raise ConfigError(f'No layer is selected; choose one of: {", ".join(known_layers)}')
     if layer not in known_layers:
         raise ConfigError(
             f'{layer!r} is not a layer on this scope; available: {", ".join(known_layers)}'

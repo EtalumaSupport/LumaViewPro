@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import logging
-import pathlib
 
 from kivy.clock import Clock
 
@@ -8,22 +7,9 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
-import modules.config_helpers as config_helpers
 from modules import gui_logger
-from modules.config_ui_getters import (
-    get_active_layer_config,
-    get_auto_gain_settings,
-    get_binning_from_ui,
-    get_image_capture_config_from_ui,
-    get_selected_labware,
-    get_stim_configs,
-    get_zstack_params,
-    get_zstack_positions,
-    is_image_saving_enabled,
-)
+from modules.config_ui_getters import is_image_saving_enabled
 from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.tiling_config import TilingConfig
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
@@ -160,8 +146,6 @@ class ZStack(FloatLayout):
 
             live_histo_off()
 
-            settings = ctx.settings
-
             trigger_source = 'zstack'
             run_not_started_func = self._reset_run_zstack_acquire_button
             run_complete_func = self._zstack_run_complete
@@ -182,87 +166,19 @@ class ZStack(FloatLayout):
             # as soon as the protocol_step_runner starts the first slice.
             self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
 
-            labware_id, _ = get_selected_labware()
-            objective_id = ctx.scope.runtime_state.get_current_objective_id()
-            if objective_id is None:
-                from modules.notification_center import notifications
-
-                reason = 'The objective in the light path is unknown.'
-                logger.warning(f'[LVP Main  ] ZStack: {reason}')
-                notifications.warning('Z-Stack', 'Objective Unknown', reason)
-                run_not_started_func()
-                return
-            zstack_positions_valid, _ = get_zstack_positions(
-                ctx.scope.motion.get_current_position('Z')
-            )
-            zstack_params = get_zstack_params()
-            active_layer, active_layer_config = get_active_layer_config(
-                common_utils.get_opened_layer(ctx.image_settings)
-            )
-            active_layer_config['acquire'] = 'image'
-            # Z-stack manages Z positions explicitly -- AF would override them
-            active_layer_config['autofocus'] = False
-
-            if not zstack_positions_valid:
-                _range = zstack_params.get('range', 0)
-                _step = zstack_params.get('step_size', 0)
-                if _range <= 0 or _step <= 0:
-                    msg = (
-                        f'Z-stack range ({_range}) and step size ({_step}) '
-                        f'must both be greater than zero.'
-                    )
-                else:
-                    msg = 'No Z-stack positions configured.'
-                logger.warning(f'[LVP Main  ] ZStack: {msg}')
-                from modules.notification_center import notifications
-
-                notifications.warning('Z-Stack', 'Z-Stack Not Configured', msg)
-                run_not_started_func()
-                return
-
-            curr_position = ctx.session.get_current_plate_position()
-            curr_position.update({'name': 'ZStack'})
-
-            positions = [
-                curr_position,
-            ]
-
-            tiling_config = TilingConfig(
-                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-            )
-
-            config = config_helpers.build_sequenced_capture_config(
-                {
-                    'labware_id': labware_id,
-                    'positions': positions,
-                    'objective_id': objective_id,
-                    'zstack_params': zstack_params,
-                    'use_zstacking': True,
-                    'tiling': tiling_config.no_tiling_label(),
-                    'tiling_overlap_percent': 0.0,
-                    'layer_configs': {active_layer: active_layer_config},
-                    'period': None,
-                    'duration': None,
-                    'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
-                    'binning_size': get_binning_from_ui(),
-                    'stim_config': get_stim_configs(),
-                }
-            )
-
-            zstack_sequence = ctx.scope.protocols.create_protocol(input_config=config)
-
-            autogain_settings = get_auto_gain_settings()
-
-            # Per-step progress indicator on the Acquire button. The
-            # protocol_step_runner fires update_step_number(step) per slice,
-            # where step is 1-indexed; the lambda captures total once at
-            # construction time. Clock.schedule_once marshals the text
-            # update back to the main thread because update_step_number
-            # fires from the protocol thread.
-            total_slices = zstack_sequence.num_steps()
+            runner = ctx.session.create_protocol_runner()
             zstack_btn = self.ids['zstack_aqr_btn']
 
+            # Per-step progress on the Acquire button. The step runner fires
+            # update_step_number(step) per slice, 1-indexed; the total is the
+            # run's own count, asked of the engine, because the member built
+            # the protocol and this widget never holds it. Clock marshals the
+            # text back to the main thread.
             def _zstack_progress(step_num):
+                total_slices = ctx.sequenced_capture_runner.run_num_steps()
+                if total_slices is None:
+                    # The run ended between the step and this callback.
+                    return
                 Clock.schedule_once(
                     lambda dt: setattr(zstack_btn, 'text', f'Z {step_num}/{total_slices}'),
                     0,
@@ -289,38 +205,23 @@ class ZStack(FloatLayout):
                 ),
             }
 
-            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
-
-            initial_position = ctx.session.get_current_plate_position()
-            image_capture_config = get_image_capture_config_from_ui()
-
+            # Everything about the run -- the objective, the stack, the
+            # capture, and every refusal of it -- is the member's. This
+            # starter states only what a running GUI knows: the open
+            # drawer, its own token, the live engineering flag and the
+            # engineering panel's saving switch.
             def prepare_and_start():
-                plan = ctx.sequenced_capture_runner.prepare(
-                    protocol=zstack_sequence,
-                    run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-                    run_trigger_source=trigger_source,
-                    max_scans=1,
-                    sequence_name='zstack',
-                    parent_dir=parent_dir,
-                    image_capture_config=image_capture_config,
-                    enable_image_saving=is_image_saving_enabled(),
-                    autogain_settings=autogain_settings,
+                self._zstack_run = runner.run_zstack(
+                    layer=common_utils.get_opened_layer(ctx.image_settings),
                     callbacks=callbacks,
-                    return_to_position=initial_position,
-                    leds_state_at_end='return_to_original',
+                    run_trigger_source=trigger_source,
                     engineering_mode=ctx.engineering_mode,
-                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                        settings, ctx.settings_lock
-                    ),
-                    **config_helpers.get_sequenced_run_settings(
-                        settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
-                    ),
+                    enable_image_saving=is_image_saving_enabled(),
                 )
-                self._zstack_run = ctx.sequenced_capture_runner.start(plan)
-                # A refusal raises out of prepare before this line, so the
+                # A refusal raises out of run_zstack before this line, so the
                 # save folder can only ever point at THIS run's directory,
                 # never a previous run's stale data.
-                set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
+                set_last_save_folder(dir=runner.run_dir())
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_not_started_func)
         except Exception as e:

@@ -532,7 +532,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/stage.py': 5,
     'ui/ui_helpers.py': 2,
     'ui/vertical_control.py': 9,
-    'ui/zstack.py': 13,
+    'ui/zstack.py': 1,
 }
 
 # Every entry is a hardware write the GUI makes through the API's undispatched
@@ -674,7 +674,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 13,
+    'modules/config_ui_getters.py': 12,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 2,
@@ -805,7 +805,6 @@ _TWIN_ANSWERER_PIN = {
     'get_auto_gain_settings': 1,
     'get_layer_configs': 1,
     'get_selected_labware_from_settings': 1,
-    'get_stim_configs': 1,
 }
 
 # Empty, and empty is the achieved state: nothing under modules/ or

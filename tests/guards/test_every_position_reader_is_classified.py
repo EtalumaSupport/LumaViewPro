@@ -51,7 +51,6 @@ CLASSIFIED = {
     'ui/vertical_control.py::VerticalControl.update_gui': DISPLAYS,
     'ui/vertical_control.py::VerticalControl.ex_set_bookmark': SAVES,
     'ui/vertical_control.py::VerticalControl.ex_set_all_bookmarks': SAVES,
-    'ui/zstack.py::ZStack.run_zstack_acquire_from_ui': RUN,
 }
 
 

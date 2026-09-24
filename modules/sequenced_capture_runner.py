@@ -639,6 +639,21 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
+    def run_num_steps(self) -> int | None:
+        """How many steps the live run's protocol has; None when no run is live.
+
+        The run's own count, for a progress readout ("step n of total"). A
+        caller that started the run through a member never holds the
+        protocol the member built, so without this it would compute the
+        count a second time from settings and could disagree with the run.
+        None rather than the last run's count: a finished run's total is
+        not the answer to a question about the run in flight.
+        """
+        with self._run_lock:
+            if not self._is_run_live() or self._protocol is None:
+                return None
+            return self._protocol.num_steps()
+
     @staticmethod
     def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
         """Name the run that holds the scope, for a refusal to put in a sentence.
