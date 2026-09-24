@@ -25,6 +25,12 @@
 # the offset, not the stage. The switches see the stage, which is `slip`
 # behind the physical position; the two differ only once a stalled or
 # disconnected motor has been driven.
+#
+# Positions are integers, in 1/_SUB of a microstep, as the chip's own are
+# integers: the MicroPython this runs in computes floats in single precision,
+# as the board's does, and a float position there cannot hold a small ramp
+# step at a large position, nor the read-ahead past a switch edge.
+# Velocities and accelerations stay floats; their error is relative.
 
 try:
     from collections.abc import Callable
@@ -99,10 +105,13 @@ FAULTS = (SWITCH_NEVER_TRIPS, STALL, ABSENT)
 # a wait, so a longer gap only happens when nobody is asking.
 _MAX_STEP_US = 1000
 
+# The fraction of a microstep positions are kept in.
+_SUB = 1 << 16
+
 # How far ahead of the motor a switch is read before it moves: just past
 # the position, so a motor resting on a flag edge sees the state it is
 # about to enter and a motor approaching an edge is not stopped short of it.
-_AHEAD = 1e-6
+_AHEAD = 1
 
 _TWO_32 = 1 << 32
 _TWO_31 = 1 << 31
@@ -115,6 +124,16 @@ def _signed32(v: int) -> int:
 
 def _sign(x: float) -> int:
     return (x > 0) - (x < 0)
+
+
+def _usteps(pos: int) -> int:
+    """A position in whole microsteps, rounded half up."""
+    return (pos + _SUB // 2) // _SUB
+
+
+def _sub(distance: float) -> int:
+    """A distance travelled, in microsteps, as a position increment."""
+    return int(distance * _SUB)
 
 
 class Motor:
@@ -131,18 +150,18 @@ class Motor:
     ) -> None:
         self.present = present
         self.usteps_per_mm = usteps_per_mm
-        self.travel_usteps = int(travel_mm * usteps_per_mm)
+        self.travel_span = int(travel_mm * usteps_per_mm) * _SUB
         self.flag_active_low = flag_active_low
         # A rotary axis wraps and its flag is a slot; a linear axis has its
         # flag over everything left of the reference edge at physical 0.
-        self.wrap_usteps = wrap_usteps
-        # `phys` is the position the ramp has driven the motor to. The stage
+        self.wrap = wrap_usteps * _SUB
+        # `pos` is the position the ramp has driven the motor to. The stage
         # is `slip` behind it: nonzero only once a stalled or disconnected
         # motor has been driven without the stage following.
-        self.phys = float(start_usteps)
-        self.slip = 0.0
+        self.pos = int(start_usteps) * _SUB
+        self.slip = 0
         self.faults = set()
-        self.offset = -round(self.phys)
+        self.offset = -_usteps(self.pos)
         self.velocity = 0.0  # microsteps per second, signed
         self.fclk = 16_000_000.0
         self.regs = {}
@@ -159,71 +178,76 @@ class Motor:
         else:
             self.faults.discard(name)
 
+    @property
+    def phys(self) -> float:
+        """The physical position in microsteps."""
+        return self.pos / _SUB
+
     def stage_follows(self) -> bool:
         return STALL not in self.faults and ABSENT not in self.faults
 
-    def _move_to(self, phys: float) -> None:
+    def _move_to(self, pos: int) -> None:
         if not self.stage_follows():
-            self.slip += phys - self.phys
-        self.phys = phys
+            self.slip += pos - self.pos
+        self.pos = pos
 
-    def on_flag(self, phys: float) -> bool:
+    def on_flag(self, pos: int) -> bool:
         if SWITCH_NEVER_TRIPS in self.faults:
             return False
-        phys -= self.slip
-        if self.wrap_usteps:
-            return 0 <= (phys % self.wrap_usteps) < TURRET_FLAG_WIDTH
-        return phys <= 0
+        pos -= self.slip
+        if self.wrap:
+            return 0 <= (pos % self.wrap) < TURRET_FLAG_WIDTH * _SUB
+        return pos <= 0
 
-    def refl_level(self, phys: float | None = None) -> int:
-        if phys is None:
-            phys = self.phys
-        return 1 if self.on_flag(phys) != self.flag_active_low else 0
+    def refl_level(self, pos: int | None = None) -> int:
+        if pos is None:
+            pos = self.pos
+        return 1 if self.on_flag(pos) != self.flag_active_low else 0
 
     def refr_level(self) -> int:
         # No switch on the right input: it rests at the off-flag level (a
         # pull-up on the active-low boards, ground on the active-high ones).
         return 1 if self.flag_active_low else 0
 
-    def stop_status(self, phys: float | None = None) -> tuple[int, int]:
+    def stop_status(self, pos: int | None = None) -> tuple[int, int]:
         """(status_stop_l, status_stop_r) as SW_MODE makes the chip read them."""
         sw = self.regs.get(SW_MODE, 0)
-        left, right = self.refl_level(phys), self.refr_level()
+        left, right = self.refl_level(pos), self.refr_level()
         if sw & SWAP_LR:
             left, right = right, left
         return (left ^ (1 if sw & POL_STOP_L else 0), right ^ (1 if sw & POL_STOP_R else 0))
 
-    def blocked(self, direction: int, phys: float | None = None) -> bool:
+    def blocked(self, direction: int, pos: int | None = None) -> bool:
         """Whether a switch stop holds the motor from moving in `direction`
-        from `phys` (the current position by default). The switch is read
+        from `pos` (the current position by default). The switch is read
         just ahead of the position: a motor sitting exactly on a flag edge
         with the polarity flipped stops the moment it leaves the edge, as the
         real one does, instead of running to its target."""
         sw = self.regs.get(SW_MODE, 0)
-        if phys is None:
-            phys = self.phys + direction * _AHEAD
-        stop_l, stop_r = self.stop_status(phys)
+        if pos is None:
+            pos = self.pos + direction * _AHEAD
+        stop_l, stop_r = self.stop_status(pos)
         if direction < 0:
             return bool(sw & STOP_L_ENABLE) and stop_l == 1
         if direction > 0:
             return bool(sw & STOP_R_ENABLE) and stop_r == 1
         return False
 
-    def next_edge(self, direction: int) -> float | None:
+    def next_edge(self, direction: int) -> int | None:
         """The nearest position ahead where the flag state changes, or None
         when the stage cannot reach one: it is not following the motor, or
         the switch never changes."""
         if not self.stage_follows() or SWITCH_NEVER_TRIPS in self.faults:
             return None
-        stage = self.phys - self.slip
-        if self.wrap_usteps:
-            w = self.wrap_usteps
+        stage = self.pos - self.slip
+        if self.wrap:
+            w = self.wrap
             base = (stage // w) * w
-            edges = [base + k * w + e for k in (-1, 0, 1) for e in (0, TURRET_FLAG_WIDTH)]
+            edges = [base + k * w + e for k in (-1, 0, 1) for e in (0, TURRET_FLAG_WIDTH * _SUB)]
         else:
-            edges = [0.0]
+            edges = [0]
         edges = [e + self.slip for e in edges]
-        ahead = [e for e in edges if (e - self.phys) * direction > 1e-9]
+        ahead = [e for e in edges if (e - self.pos) * direction > 0]
         if not ahead:
             return None
         return min(ahead) if direction > 0 else max(ahead)
@@ -231,7 +255,7 @@ class Motor:
     # --- registers ------------------------------------------------------
 
     def actual(self) -> int:
-        return _signed32(round(self.phys) + self.offset)
+        return _signed32(_usteps(self.pos) + self.offset)
 
     def target(self) -> int:
         return _signed32(self.regs.get(XTARGET, 0))
@@ -239,7 +263,7 @@ class Motor:
     def write(self, reg: int, value: int) -> None:
         value &= 0xFFFFFFFF
         if reg == XACTUAL:
-            self.offset = _signed32(value) - round(self.phys)
+            self.offset = _signed32(value) - _usteps(self.pos)
         elif reg == VACTUAL:
             return
         self.regs[reg] = value
@@ -262,7 +286,7 @@ class Motor:
             value |= VZERO
         if self.regs.get(RAMPMODE, 0) == MODE_POSITION and self.actual() == self.target():
             value |= POSITION_REACHED
-        if self.velocity != 0.0 and abs(self.velocity) >= self.vmax_usteps_s() - 1e-6:
+        if self.velocity != 0.0 and abs(self.velocity) >= self.vmax_usteps_s():
             value |= VELOCITY_REACHED
         return value
 
@@ -284,15 +308,15 @@ class Motor:
     def _accel(self, reg: int) -> float:
         return self.regs.get(reg, 0) * self.fclk * self.fclk / (1 << 41)
 
-    def stop_point(self) -> tuple[float | None, int]:
+    def stop_point(self) -> tuple[int | None, int]:
         """Where the current ramp is heading, in the physical frame, and the
         direction of travel; (None, 0) when the motor has no reason to move."""
         mode = self.regs.get(RAMPMODE, 0)
         if mode == MODE_HOLD:
             return None, 0
         if mode == MODE_POSITION:
-            goal = float(self.target() - self.offset)
-            direction = _sign(goal - self.phys)
+            goal = (self.target() - self.offset) * _SUB
+            direction = _sign(goal - self.pos)
             if direction == 0:
                 return None, 0
             return goal, direction
@@ -323,17 +347,17 @@ class Motor:
         if direction == 0:
             return
         if self.blocked(direction):
-            if not self.blocked(direction, self.phys):
+            if not self.blocked(direction, self.pos):
                 self._switch_stop(direction)
             return
         if goal is None:
             # Velocity mode has no destination: park at the next edge, or a
             # travel's length away when there is none.
             edge = self.next_edge(direction)
-            goal = edge if edge is not None else self.phys + direction * self.travel_usteps
+            goal = edge if edge is not None else self.pos + direction * self.travel_span
         while True:
             edge = self.next_edge(direction)
-            if edge is not None and (edge - self.phys) * direction < (goal - self.phys) * direction:
+            if edge is not None and (edge - self.pos) * direction < (goal - self.pos) * direction:
                 self._move_to(edge)
                 if self.blocked(direction, edge + direction * _AHEAD):
                     self._switch_stop(direction, edge)
@@ -349,7 +373,7 @@ class Motor:
             self._decelerate_to_rest(dt)
             return
         if self.blocked(direction) and self.velocity * direction >= 0:
-            if self.velocity != 0.0 or not self.blocked(direction, self.phys):
+            if self.velocity != 0.0 or not self.blocked(direction, self.pos):
                 self._switch_stop(direction)
             self.velocity = 0.0
             return
@@ -363,26 +387,26 @@ class Motor:
             self.velocity = -direction * speed if speed else 0.0
             return
         edge = self.next_edge(direction)
-        remaining = None if goal is None else abs(goal - self.phys)
-        if remaining is not None and edge is not None and abs(edge - self.phys) < remaining:
+        remaining = None if goal is None else abs(goal - self.pos)
+        if remaining is not None and edge is not None and abs(edge - self.pos) < remaining:
             # A switch may intervene before the goal: do not brake for the goal.
             remaining = None
-        if remaining is not None and speed * speed / (2.0 * dmax) >= remaining:
+        if remaining is not None and speed * speed / (2.0 * dmax) >= remaining / _SUB:
             speed = max(0.0, speed - dmax * dt)
         else:
             speed = min(vmax, speed + amax * dt)
-        travel = speed * dt
-        if edge is not None and abs(edge - self.phys) <= travel:
-            travel -= abs(edge - self.phys)
+        travel = _sub(speed * dt)
+        if edge is not None and abs(edge - self.pos) <= travel:
+            travel -= abs(edge - self.pos)
             self._move_to(edge)
             if self.blocked(direction, edge + direction * _AHEAD):
                 self._switch_stop(direction, edge)
                 return
-        if goal is not None and abs(goal - self.phys) <= travel:
+        if goal is not None and abs(goal - self.pos) <= travel:
             self._move_to(goal)
             self._reached()
             return
-        self._move_to(self.phys + direction * travel)
+        self._move_to(self.pos + direction * travel)
         self.velocity = direction * speed
 
     def _decelerate_to_rest(self, dt: float) -> None:
@@ -390,18 +414,18 @@ class Motor:
             return
         dmax = self._accel(DMAX) or self._accel(AMAX)
         speed = max(0.0, abs(self.velocity) - dmax * dt)
-        self._move_to(self.phys + _sign(self.velocity) * speed * dt)
+        self._move_to(self.pos + _sign(self.velocity) * _sub(speed * dt))
         self.velocity = _sign(self.velocity) * speed if speed else 0.0
 
-    def _switch_stop(self, direction: int, edge: float | None = None) -> None:
+    def _switch_stop(self, direction: int, edge: int | None = None) -> None:
         """A hard stop at a switch. The motor comes to rest where the switch
         reads active at rest: on the edge when the edge itself is inside the
         stopping region, else one microstep past it, as a real motor runs a
         fraction of a step into its switch."""
         self.velocity = 0.0
         if edge is None:
-            edge = self.phys
-        self._move_to(edge if self.blocked(direction, edge) else edge + direction)
+            edge = self.pos
+        self._move_to(edge if self.blocked(direction, edge) else edge + direction * _SUB)
         self.events |= EVENT_STOP_L if direction < 0 else EVENT_STOP_R
 
     def _reached(self) -> None:
