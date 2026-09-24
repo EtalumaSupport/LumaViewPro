@@ -1851,13 +1851,18 @@ class TestSetBinningSizeFailureNotifies:
         monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
         # A raising driver surfaces as the typed rejection (the apply
         # contract: success returns True, rejection raises so a caller
-        # cannot silently record a rejected apply).
-        with pytest.raises(CameraSettingRejected):
+        # cannot silently record a rejected apply). The setter shows
+        # nothing; the rejection reaches the person through the reporter
+        # that ends its flight, in the words it carries.
+        with pytest.raises(CameraSettingRejected) as excinfo:
             imaging.set_binning_size(2)
-        assert captured, 'set_binning_size exception path must notify the user'
+        assert captured == [], 'the setter must leave the showing to the reporter'
+        notifications.report_outcome(excinfo.value, solicited=True, category='Camera')
+        assert len(captured) == 1, captured
         assert captured[0][1] == 'Binning change failed', (
             f'notification title must name the failed operation; got {captured[0]}'
         )
+        assert 'simulated SDK failure' in captured[0][2], captured[0]
 
 
 class TestSetBinningSizeReturnsBool:

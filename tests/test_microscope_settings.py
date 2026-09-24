@@ -488,7 +488,9 @@ class TestFrameSizeMirrorChain:
         from modules.exceptions import CameraSettingRejected
 
         def _reject(w, h):
-            raise CameraSettingRejected('frame_size', {'width': w, 'height': h})
+            raise CameraSettingRejected(
+                'frame_size', {'width': w, 'height': h}, title='t', message='m'
+            )
 
         fn, fake_self, scheduled, _landings, _calls = self._make_push(_reject)
         with pytest.raises(CameraSettingRejected):

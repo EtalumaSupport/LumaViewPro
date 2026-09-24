@@ -855,7 +855,7 @@ class Lumascope:
         # initialize is the session's bring-up, where a propagated raise
         # aborts startup entirely (no live view, no
         # motion config, no session) over a single transient -- the
-        # rejection is already logged AND notified at the API layer, and
+        # rejection is reported here, where its flight ends, and
         # every downstream consumer reads delivered geometry, never these
         # requests, so nothing is left believing a rejected value.
         # Bring-up binds the impls: these writes are the scope's own
@@ -864,21 +864,15 @@ class Lumascope:
         # lanes that are registered but not started (a session factory
         # configures before it releases the camera), so nothing in this
         # method may dispatch.
-        for label, apply_fn in (
-            ('binning', lambda: self.imaging._set_binning_size_impl(binning_size)),
-            (
-                'frame size',
-                lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
-            ),
+        for apply_fn in (
+            lambda: self.imaging._set_binning_size_impl(binning_size),
+            lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
         ):
             try:
                 apply_fn()
             except CameraSettingRejected as ex:
-                logger.error(
-                    f'[SCOPE API ] initialize: {label} apply rejected by a '
-                    f'connected camera ({ex}); bring-up continues at the '
-                    f'camera-held value'
-                )
+                # Bring-up continues at the value the camera holds.
+                notifications.report_outcome(ex, solicited=False, category='Camera')
         # Apply the capture pixel format HERE, synchronously, while the start
         # gate is still closed (this runs before the bring-up start_streaming).
         # Resolving + setting it now -- instead of via the async camera-executor
@@ -892,11 +886,9 @@ class Lumascope:
             try:
                 self.imaging._set_pixel_format_impl(pixel_format)
             except CameraSettingRejected as ex:
-                logger.error(
-                    f'[SCOPE API ] initialize: pixel format apply rejected by '
-                    f'a connected camera ({ex}); bring-up continues at the '
-                    f'camera-held format'
-                )
+                # As for the geometry above: continue at the camera-held
+                # format and report the rejection where it stops.
+                notifications.report_outcome(ex, solicited=False, category='Camera')
         if self.capabilities.camera_supports_conversion_gain_mode:
             self.imaging._set_conversion_gain_mode_impl(
                 'High' if config.high_conversion_gain else 'Low'

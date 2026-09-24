@@ -30,6 +30,7 @@ from enum import IntEnum
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from modules.exceptions import (
+    CameraSettingRejected,
     CaptureError,
     ConfigError,
     MoveNotCompletedError,
@@ -47,7 +48,14 @@ _outcome_logger = logging.getLogger('LVP.outcomes')
 # Faults whose message is written for the person. Any other exception's
 # str() is a developer's words -- a Python class name, a repr -- so the
 # person reads a generic sentence and the log carries the rest.
-_TYPED_FAULTS = (CaptureError, ProtocolError, ConfigError, HardwareError, MoveNotCompletedError)
+_TYPED_FAULTS = (
+    CameraSettingRejected,
+    CaptureError,
+    ProtocolError,
+    ConfigError,
+    HardwareError,
+    MoveNotCompletedError,
+)
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
 

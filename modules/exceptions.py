@@ -623,23 +623,32 @@ class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, n
 class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
     """The camera driver rejected a state-changing setting apply.
 
-    Raised by ImagingAPI setters (frame size, binning, pixel format) when
-    a LIVE driver refuses the apply -- distinct from the camera-absent
-    no-op, which stays a quiet sentinel per the missing-hardware contract.
-    Success is observed by receiving the applied/delivered value, failure
-    by this raise, so a caller cannot record a rejected apply as applied
-    by forgetting to check a return code. The rejection has already been
-    logged and notified to the user when this is raised.
+    Raised by ImagingAPI setters (frame size, binning, pixel format, gain,
+    exposure) when a LIVE driver refuses the apply -- distinct from the
+    camera-absent no-op, which stays a quiet sentinel per the
+    missing-hardware contract. Success is observed by receiving the
+    applied/delivered value, failure by this raise, so a caller cannot
+    record a rejected apply as applied by forgetting to check a return code.
+
+    A fault, not a refusal: the camera did not take a value it should
+    have, and the words say so. They are written for the person, so the
+    one reporter shows them where the flight stops; the frame-size,
+    binning and pixel-format setters neither log nor notify. The gain and
+    exposure setters still notify in their impls, whose in-run callers
+    consume a status rather than this raise; until those callers report
+    instead, a caller that reports one of those two shows it twice.
 
     Attributes:
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
+        title: The notification title the reporter shows.
     """
 
-    def __init__(self, setting: str, requested):
-        super().__init__(f'{setting}: driver rejected {requested!r}')
+    def __init__(self, setting: str, requested, *, title: str, message: str):
+        super().__init__(message)
         self.setting = setting
         self.requested = requested
+        self.title = title
 
 
 class FrameDepthError(Exception):

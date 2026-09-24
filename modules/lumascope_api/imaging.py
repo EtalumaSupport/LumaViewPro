@@ -173,6 +173,31 @@ if TYPE_CHECKING:
 _api_log = _logging.getLogger('LVP.api')
 
 
+def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
+    """The title and sentence for a gain the camera refused.
+
+    One home for both readers: the impl's notification and the public
+    setter's raise say the same thing.
+    """
+    return (
+        'Camera Setting Not Applied',
+        f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
+        'Captures will continue at the previous gain. Check that '
+        'the value is within the camera limits.',
+    )
+
+
+def _rejected_exposure_words(exposure_ms: float) -> tuple[str, str]:
+    """The title and sentence for an exposure the camera refused; see
+    ``_rejected_gain_words``."""
+    return (
+        'Camera Setting Not Applied',
+        f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
+        'Captures will continue at the previous exposure. Check '
+        'that the value is within the camera limits.',
+    )
+
+
 # Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
 # row + WAVE7_PHASE_4D5_PLAN sec 9 alignment 2026-05-19. Budget anchors to
 # the 30 fps realistic-cap target (per FRAME_VALIDITY_RIG_COMPARISON_2026-
@@ -846,13 +871,7 @@ class ImagingAPI:
             # popup is suppressed for the whole of an unattended run, which
             # is exactly when a per-step rejection matters most.
             logger.error(f'[SCOPE API ] gain_db: driver rejected {float(gain_db)!r}')
-            notifications.error(
-                'Camera',
-                'Camera Setting Not Applied',
-                f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
-                'Captures will continue at the previous gain. Check that '
-                'the value is within the camera limits.',
-            )
+            notifications.error('Camera', *_rejected_gain_words(gain_db))
         elif changed:
             _api_log.info(f'set_gain_db {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
@@ -927,13 +946,7 @@ class ImagingAPI:
             # notified: the popup is suppressed for the whole of an
             # unattended run, which is when a per-step rejection matters most.
             logger.error(f'[SCOPE API ] exposure_ms: driver rejected {float(exposure_ms)!r}')
-            notifications.error(
-                'Camera',
-                'Camera Setting Not Applied',
-                f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
-                'Captures will continue at the previous exposure. Check '
-                'that the value is within the camera limits.',
-            )
+            notifications.error('Camera', *_rejected_exposure_words(exposure_ms))
         elif changed:
             _api_log.info(f'set_exposure {exposure_ms}ms')
             self._fire_camera_listeners('exposure', float(exposure_ms))
@@ -1041,7 +1054,8 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
         if applied is False:
-            raise CameraSettingRejected('gain_db', gain_db)
+            title, message = _rejected_gain_words(gain_db)
+            raise CameraSettingRejected('gain_db', gain_db, title=title, message=message)
         # Passed through, not swallowed: every dispatcher in this class returns
         # what its impl returned, and a test pins that contract across all of
         # them. The raise is added to that, not substituted for it.
@@ -1067,7 +1081,8 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
         if applied is False:
-            raise CameraSettingRejected('exposure_ms', exposure_ms)
+            title, message = _rejected_exposure_words(exposure_ms)
+            raise CameraSettingRejected('exposure_ms', exposure_ms, title=title, message=message)
         # See set_gain_db: the dispatcher's pass-through contract holds.
         return applied
 
@@ -1345,17 +1360,14 @@ class ImagingAPI:
     def _camera_setting_rejection(
         self, setting: str, requested, title: str, body: str
     ) -> CameraSettingRejected:
-        """Log + notify + build the typed rejection for a camera-setting apply.
+        """Build the typed rejection for a camera-setting apply.
 
         Callers ``raise self._camera_setting_rejection(...)`` so the raise
-        is explicit at every rejection site while the load-bearing ordering
-        (log, then notify, then the exception -- the exception class
-        documents that the rejection is already surfaced when it arrives)
-        lives in one place for all setters.
+        is explicit at every rejection site. Nothing is logged or shown
+        here: the rejection is reported once, by whoever ends its flight,
+        in the words it carries.
         """
-        logger.error(f'[SCOPE API ] {setting}: driver rejected {requested!r}')
-        notifications.error('Camera', title, body)
-        return CameraSettingRejected(setting, requested)
+        return CameraSettingRejected(setting, requested, title=title, message=body)
 
     def set_frame_size(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels, and wait for it.
@@ -1395,8 +1407,8 @@ class ImagingAPI:
                 notification fires).
 
         Raises:
-            CameraSettingRejected: A live driver rejected the apply. The
-                rejection is logged and notified before the raise.
+            CameraSettingRejected: A live driver rejected the apply. It
+                carries the words its reporter shows; nothing is shown here.
         """
 
         if not self._driver or not self._driver.active:
@@ -1479,8 +1491,8 @@ class ImagingAPI:
 
         Raises:
             CameraSettingRejected: A live driver rejected the apply or
-                raised from it. The rejection is logged and notified
-                before the raise, so a rejected binning cannot be
+                raised from it (chained). A raise rather than a status,
+                so a rejected binning cannot be
                 recorded as current by a caller that drops the return --
                 a rejected binning silently poisons every native-ROI /
                 FOV / stitch derivation built on the recorded factor.
@@ -1501,7 +1513,6 @@ class ImagingAPI:
                 cache_update={'binning': int(size)},
             )
         except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting binning size: {ex}')
             raise self._camera_setting_rejection(
                 'binning',
                 size,
@@ -1570,8 +1581,8 @@ class ImagingAPI:
 
         Raises:
             CameraSettingRejected: A live driver rejected the format
-                (unsupported) or raised from the apply. Logged and
-                notified before the raise, so a caller that drops the
+                (unsupported) or raised from the apply (chained). A raise
+                rather than a status, so a caller that drops the
                 return cannot record a rejected format as current --
                 capture depth, saved-file tagging, and data-rate math all
                 key off the recorded format.
@@ -1588,7 +1599,6 @@ class ImagingAPI:
                 cache_update={'pixel_format': pixel_format},
             )
         except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
             raise self._camera_setting_rejection(
                 'pixel_format',
                 pixel_format,

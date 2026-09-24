@@ -7,9 +7,9 @@ set_pixel_format) observe success by VALUE and failure by RAISE:
   - success returns the applied value (frame size returns the DELIVERED
     geometry, which may differ from the request);
   - a LIVE driver rejecting the apply (False return) or raising from it
-    raises CameraSettingRejected -- after logging and firing exactly one
-    notifications.error -- so a caller that drops the return cannot
-    record a rejected apply as current;
+    raises CameraSettingRejected, carrying the title and sentence the one
+    reporter shows -- the setter itself neither logs nor notifies -- so a
+    caller that drops the return cannot record a rejected apply as current;
   - an absent / inactive camera stays a quiet sentinel (None / False)
     per the missing-hardware contract, with the deduped absent
     notification, and never raises;
@@ -91,6 +91,17 @@ def notes(monkeypatch) -> _RecordingNotifications:
     return recorder
 
 
+def _assert_carries_its_words(rejected, title, in_sentence, notes):
+    """The rejection is shown once, by its reporter, in its own words: the
+    setter shows nothing, and the exception carries the title and the
+    person's sentence the reporter shows."""
+    assert notes.errors == [] and notes.warnings == [], (
+        'the setter must not show the rejection itself; the reporter shows it once'
+    )
+    assert rejected.title == title
+    assert in_sentence in str(rejected), str(rejected)
+
+
 # --- A. Rejection is loud ----------------------------------------------------
 
 
@@ -104,7 +115,7 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'frame_size'
     assert excinfo.value.requested == {'width': 1900, 'height': 1900}
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Frame size change failed', '1900x1900', notes)
     assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}, (
         'a rejected resize must leave the cache at the geometry the hardware still holds'
     )
@@ -120,7 +131,7 @@ def test_set_binning_size_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'binning'
     assert excinfo.value.requested == 4
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Binning change failed', '4x4', notes)
     assert imaging._binning_size == 2, (
         'a rejected binning must not commit the requested factor -- '
         'scale-bar / FOV math reads this value'
@@ -137,8 +148,33 @@ def test_set_pixel_format_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'pixel_format'
     assert excinfo.value.requested == 'Mono8'
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Pixel format change failed', 'Mono8', notes)
     assert imaging.pixel_format_cached == 'Mono12'
+
+
+def test_a_reported_rejection_is_shown_once_in_its_own_words(notes):
+    # The end of the flight: the reporter shows the setter's rejection once,
+    # as a fault under the setter's title and in its sentence -- not the
+    # generic sentence an untyped fault gets -- and nothing else shows it.
+    from modules.notification_center import NotificationCenter, Severity
+
+    driver = apply_driver()
+    imaging = _build_imaging(driver)
+    driver.apply_binning = lambda size: False
+    with pytest.raises(CameraSettingRejected) as excinfo:
+        imaging.set_binning_size(4)
+
+    centre = NotificationCenter(dedup_window_s=10.0)
+    shown = []
+    centre.add_listener(shown.append, min_severity=Severity.INFO)
+    centre.report_outcome(excinfo.value, solicited=True, category='BINNING')
+    centre.report_outcome(excinfo.value, solicited=True, category='BINNING')
+
+    assert [(n.severity, n.title, n.message) for n in shown] == [
+        (Severity.ERROR, 'Binning change failed', str(excinfo.value))
+    ]
+    assert '4x4' in shown[0].message
+    assert notes.errors == [], 'the setter showed it as well'
 
 
 # --- B. Delivered geometry returned -------------------------------------------
@@ -176,7 +212,7 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(notes):
     assert isinstance(excinfo.value.__cause__, RuntimeError), (
         'the driver exception must be chained onto the typed rejection'
     )
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Binning change failed', 'SDK sulked', notes)
     assert imaging._binning_size == 2  # prior factor intact
 
 
@@ -193,7 +229,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(notes):
         imaging.set_pixel_format('Mono8')
 
     assert isinstance(excinfo.value.__cause__, RuntimeError)
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Pixel format change failed', 'SDK sulked', notes)
     assert imaging.pixel_format_cached == 'Mono12'
 
 
@@ -391,16 +427,25 @@ def test_initialize_without_camera_skips_reconciliation_quietly(monkeypatch):
 
 def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
     # A live driver rejecting the frame-size apply mid-initialize: the typed
-    # rejection is logged and bring-up CONTINUES (a propagated raise once
-    # crashed the app build via load_settings' re-raise).
+    # rejection is reported once, where bring-up stops its flight, and
+    # bring-up CONTINUES (a propagated raise once crashed the app build via
+    # load_settings' re-raise).
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda exc, **kw: reported.append((exc, kw))
+    )
+
     def _reject_frame(scope):
         scope._camera_driver.set_frame_size = lambda w, h: False
 
-    _applied, frames, errors, reached_end = _drive_initialize(
+    _applied, frames, _errors, reached_end = _drive_initialize(
         _init_config(2), monkeypatch, prepare=_reject_frame
     )
     assert frames == [(1900, 1900)]  # the apply was attempted...
-    assert any('frame size apply rejected' in e for e in errors), errors
+    rejections = [exc for exc, _kw in reported if isinstance(exc, CameraSettingRejected)]
+    assert [exc.setting for exc in rejections] == ['frame_size'], reported
     assert reached_end, (
         'initialize must run to completion (stage offset / scale bar / '
         'acceleration) despite the contained rejection'
