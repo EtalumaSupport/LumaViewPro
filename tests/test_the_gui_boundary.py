@@ -169,6 +169,24 @@ class TestThePoolForm:
         submit_reported(lambda: None, lambda: redrawn.append(True), 'T')
         assert redrawn == [True]
 
+    def test_a_stop_goes_ahead_of_queued_requests(self, shown, pool):
+        started = threading.Event()
+        release = threading.Event()
+        order = []
+
+        def _hold():
+            started.set()
+            release.wait(_WAIT_S)
+
+        submit_reported(_hold, None, 'HOLD')
+        assert started.wait(_WAIT_S), 'the pool never ran the first request'
+        submit_reported(lambda: order.append('queued'), None, 'QUEUED')
+        done = threading.Event()
+        submit_reported(lambda: order.append('stop'), done.set, 'STOP', stop=True)
+        release.set()
+        assert done.wait(_WAIT_S)
+        assert order[0] == 'stop', f'a Stop waited behind earlier requests: {order}'
+
 
 def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):
     from ui import shader

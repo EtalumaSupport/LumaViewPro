@@ -62,6 +62,8 @@ def submit_reported(
     call: typing.Callable[[], object],
     redraw: typing.Callable[[], None] | None,
     label: str,
+    *,
+    stop: bool = False,
 ) -> None:
     """Run an API call that may block on the worker pool and report its outcome; then redraw.
 
@@ -75,14 +77,19 @@ def submit_reported(
 
     A pool that is not taking work (closing down) still gets its redraw; the
     pool's own narration is the record of the dropped call.
+
+    ``stop`` is for a Stop: it goes ahead of every queued request, so a
+    person stopping a run is never kept waiting behind work they asked for
+    before it.
     """
-    from modules.sequential_io_executor import ENQUEUED, PRIORITY_MED, IOTask
+    from modules.sequential_io_executor import ENQUEUED, PRIORITY_HIGH, PRIORITY_MED, IOTask
 
     def _on_the_pool():
         _reported(call, label)
         _schedule_ui(lambda dt: _reported(redraw, label))
 
-    queued = _app_ctx.ctx.worker_pool.put(IOTask(action=_on_the_pool, priority=PRIORITY_MED))
+    priority = PRIORITY_HIGH if stop else PRIORITY_MED
+    queued = _app_ctx.ctx.worker_pool.put(IOTask(action=_on_the_pool, priority=priority))
     if queued is not ENQUEUED:
         _schedule_ui(lambda dt: _reported(redraw, label))
 
