@@ -530,6 +530,48 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         assert not executor.run_in_progress()
 
 
+class TestTheCompositeChannelFloor:
+    """A composite that could merge nothing is refused where every run refusal is.
+
+    The merge skips groups of one, so a composite of fewer than two channels
+    produces no file at all. prepare() refuses it for every caller -- the
+    GUI's Composite button and ProtocolRunner.start_composite alike -- ahead
+    of the empty-protocol gate, so no channel at all still gets the answer
+    its user can act on.
+    """
+
+    @staticmethod
+    def _prepare_composite(executor, protocol, tmp_path):
+        return executor.prepare(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
+            sequence_name='composite_floor',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
+            leds_state_at_end='off',
+            autofocus_snapshot=autofocus_snapshot(),
+        )
+
+    @pytest.mark.parametrize(
+        'protocol_factory',
+        [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol('Blue')],
+        ids=['no_channel', 'one_channel'],
+    )
+    def test_fewer_than_two_channels_is_refused_once(
+        self, executor, tmp_path, monkeypatch, protocol_factory
+    ):
+        captured = _capture_notifications(monkeypatch)
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            self._prepare_composite(executor, protocol_factory(), tmp_path)
+        assert excinfo.value.reason == 'composite_needs_two_channels'
+        assert len(captured) == 1 and captured[0][0] == 'warning', captured
+        assert not executor.run_in_progress()
+
+
 # ---------------------------------------------------------------------------
 # 3. start() cannot silently half-start.
 # ---------------------------------------------------------------------------
@@ -617,10 +659,11 @@ RUNNER_REFUSAL_COVERAGE = {
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
-    # Raised at composite config assembly, before the engine is reached at
-    # all -- a composite the merge could not produce is refused where the
-    # channel count is known.
-    'composite_needs_two_channels': ('tests/test_composite_run_config.py::TestTwoChannelFloor'),
+    # Raised at prepare() only for a composite run, so the SINGLE_SCAN
+    # loop cannot reach it; its own class drives prepare() in that mode.
+    'composite_needs_two_channels': (
+        'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
+    ),
     # Raised at reset(), not prepare(): it refuses a STOP naming a run
     # that has ended while another is live, so there is no plan to drive
     # and it cannot ride the loop.

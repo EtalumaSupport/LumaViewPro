@@ -21,7 +21,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import (
     OUTPUT_FORMAT_HYPERSTACK,
     OUTPUT_FORMAT_JPG,
@@ -211,30 +210,31 @@ class TestOneTransmittedWins:
 
 
 # ---------------------------------------------------------------------------
-# 3. Fewer than two channels refuses at assembly
+# 3. Fewer than two channels is assembled as it is; prepare() refuses it
 # ---------------------------------------------------------------------------
 
 
 class TestTwoChannelFloor:
+    """Assembly builds the channels it finds and refuses nothing.
+
+    A one-channel composite is refused by the run engine's prepare(), where
+    every refusal a run can meet is raised (test_run_refusal_contract.py,
+    TestTheCompositeChannelFloor); assembly refusing it too was a second
+    copy of that rule.
+    """
+
     @pytest.mark.parametrize(
-        'acquiring',
-        [(), ('BF',), ('Blue',), ('BF', 'PC')],
+        ('acquiring', 'expected'),
+        [((), 0), (('BF',), 1), (('Blue',), 1), (('BF', 'PC'), 1)],
         ids=['none', 'one_transmitted', 'one_fluorescence', 'two_transmitted_collapse_to_one'],
     )
-    def test_fewer_than_two_channels_is_refused(self, acquiring, monkeypatch):
-        # The merge skips groups of one, so a one-channel composite cannot
-        # be produced at all -- refusing here is the difference between a
-        # loud "pick another channel" and a run that quietly makes no file.
-        _capture_notifications(monkeypatch)
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _assemble(_settings(acquiring=acquiring))
-        assert excinfo.value.reason == 'composite_needs_two_channels'
-
-    def test_the_refusal_notifies_exactly_once(self, monkeypatch):
+    def test_fewer_than_two_channels_is_assembled_without_refusing(
+        self, acquiring, expected, monkeypatch
+    ):
         captured = _capture_notifications(monkeypatch)
-        with pytest.raises(ProtocolRunRefusedError):
-            _assemble(_settings(acquiring=('BF',)))
-        assert len(captured) == 1, f'expected one notification, got {captured}'
+        config = _assemble(_settings(acquiring=acquiring))
+        assert len(config['layer_configs']) == expected
+        assert captured == [], 'assembly refuses nothing and tells no one'
 
     def test_two_channels_is_enough(self, monkeypatch):
         _capture_notifications(monkeypatch)

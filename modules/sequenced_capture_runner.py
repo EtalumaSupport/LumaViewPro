@@ -47,7 +47,7 @@ from lvp_logger import logger
 import threading
 
 import modules.stack_builder as stack_builder
-from modules.config_helpers import AutofocusSnapshot
+from modules.config_helpers import COMPOSITE_MIN_CHANNELS, AutofocusSnapshot
 
 # How often the post-run hyperstack waiter re-checks the protocol file
 # queue. The build must not start until every per-step file has flushed
@@ -911,6 +911,22 @@ class SequencedCaptureRunner:
                 'with ImageCaptureConfig.from_image_mode); got '
                 f'{type(image_capture_config).__name__}'
             )
+
+        # Ahead of the empty-protocol gate: a composite with no channel set
+        # to capture is an empty protocol too, and "turn on another channel"
+        # is the answer its user can act on, where "add a step" is not.
+        if run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE:
+            channels = protocol.steps()['Color'].nunique() if protocol.num_steps() else 0
+            if channels < COMPOSITE_MIN_CHANNELS:
+                self._refuse(
+                    reason='composite_needs_two_channels',
+                    title='Not Enough Channels',
+                    message=(
+                        f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, '
+                        f'but {channels} is set to capture an image. Turn on another '
+                        'channel and try again.'
+                    ),
+                )
 
         if protocol.num_steps() == 0:
             self._refuse(

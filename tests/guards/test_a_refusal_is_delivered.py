@@ -131,29 +131,6 @@ def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(monkeyp
     assert seen[0].operation_key, 'without a key the bridge stacks a dialog per press'
 
 
-def test_the_composite_funnel_delivers_its_refusal_during_an_unattended_run(monkeypatch):
-    """The second funnel. It fires from the same Composite press as the first."""
-    from modules.config_helpers import _refuse_composite
-    from modules.exceptions import ProtocolRunRefusedError
-    import modules.notification_center as nc
-
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.NOTICE)
-    centre.set_unattended_run(True)
-    monkeypatch.setattr(nc, 'notifications', centre)
-
-    with pytest.raises(ProtocolRunRefusedError):
-        _refuse_composite(
-            reason='composite_needs_two_channels',
-            title='Not Enough Channels',
-            message='A composite combines at least 2 channels.',
-        )
-
-    assert len(seen) == 1, 'the composite funnel posted a refusal that never reached the user'
-    assert seen[0].solicited is True
-
-
 def _functions_raising_the_typed_refusal():
     """Every function in modules/ that builds a ProtocolRunRefusedError.
 

@@ -20,7 +20,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import ConfigError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -1365,9 +1365,9 @@ def get_composite_channels(settings: dict) -> list:
     composite must assemble with every layer collapsed, and a headless
     caller has no accordion at all.
 
-    Raises:
-        ProtocolRunRefusedError: fewer than two channels would be
-            captured, so no merged artifact could be produced.
+    Fewer than COMPOSITE_MIN_CHANNELS is returned as it is: the run engine
+    refuses that composite in prepare(), where every refusal a run can meet
+    is raised.
     """
     transmitted = [
         layer
@@ -1382,39 +1382,7 @@ def get_composite_channels(settings: dict) -> list:
         )
         if settings[layer]['acquire'] == 'image'
     ]
-    channels = transmitted[:1] + others
-
-    if len(channels) < COMPOSITE_MIN_CHANNELS:
-        _refuse_composite(
-            reason='composite_needs_two_channels',
-            title='Not Enough Channels',
-            message=(
-                f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, but '
-                f'{len(channels)} is set to capture an image. Turn on another channel '
-                'and try again.'
-            ),
-        )
-    return channels
-
-
-def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn':
-    """Log, notify once, and raise -- the composite assembly's refusal funnel.
-
-    Mirrors the runner's refusal contract so a caller reconciles a
-    config-stage refusal exactly as it does an engine-stage one, and an
-    API caller gets the same typed error either way.
-    """
-    logger.error(f'[Composite] Run refused ({reason}): {message}')
-    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
-
-    notifications.warning(
-        'Composite',
-        title,
-        message,
-        solicited=True,
-        operation_key=REFUSAL_OPERATION_KEY,
-    )
-    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+    return transmitted[:1] + others
 
 
 def get_composite_blend_thresholds(settings: dict) -> dict:
@@ -1484,9 +1452,6 @@ def get_composite_capture_config_from_settings(
     whatever plane the stage happened to be at and silently discard the
     per-channel focus the user set.
 
-    Raises:
-        ProtocolRunRefusedError: fewer than two channels are set to
-            capture, so no merged artifact could be produced.
     """
     channels = get_composite_channels(settings)
     objective_id, _ = get_current_objective_info(settings, objective_helper)
