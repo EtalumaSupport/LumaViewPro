@@ -146,10 +146,12 @@ class TestTheLinkAtThePort:
         finally:
             stop.set()
             racer.join()
+        # By name: the launch's watcher subshell carries the runtime's path in
+        # its arguments and shares the board's directory, but it is `sh`.
         firmware = [
             child
             for child in psutil.Process().children(recursive=True)
-            if 'micropython' in ' '.join(child.cmdline())
+            if child.name().startswith('micropython')
             and child.cwd() == os.path.realpath(backend.motor_board._life.workdir)
         ]
         assert len(firmware) == 1
