@@ -55,6 +55,7 @@ from tests.guards import test_architecture_fixes as _guards
 DETECTORS = (
     ('answers below API', _guards._ui_answerer_call_counts),
     ('private reaches', _guards._ui_private_reach_counts),
+    ('except handlers', _guards._ui_except_counts),
     ('orchestration', _guards._gui_orchestration_counts),
     ('_app_ctx reads', _guards._modules_context_read_counts),
     ('.ids[ reads', _guards._modules_widget_read_counts),

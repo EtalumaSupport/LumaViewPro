@@ -378,6 +378,14 @@ class TestTinyFileConsolidation:
 #      (`ctx.scope.motion._home_turret_impl`, `scope.imaging
 #      ._set_frame_size_impl`): the GUI calling past the API surface into
 #      its internals, which is a decision the API should expose instead.
+#   3. an `except` handler in `ui/`: the GUI catching an outcome and
+#      deciding what it means (which log level, which popup, which
+#      sentence, whether to retry). Four commits in one fortnight each
+#      added one that chose warning against error for a typed refusal,
+#      after the plan for each said the GUI displays what the API decides;
+#      the suite was green for all four because nothing counted them.
+#      Counted per file and handler type, spelled by the exception's last
+#      name so a module prefix cannot move a handler out of the census.
 #
 # Both pins are EQUALITIES, not ceilings. A count that RISES is new logic in
 # the GUI: move it to the API and expose a getter/setter. A count that FALLS
@@ -513,6 +521,48 @@ def _ui_private_reach_counts():
     return counts
 
 
+def _handler_type_name(node):
+    """The census key for one `except` clause's type: the last name of each
+    caught exception, sorted and joined, `<bare>` for a bare `except:`.
+
+    `except exceptions.ConfigError` and `except ConfigError` are the same
+    handler; keying on the spelling would let an import restyle move a
+    handler out of the census, the failure the private-reach census had."""
+    if node is None:
+        return '<bare>'
+    parts = node.elts if isinstance(node, _ast.Tuple) else [node]
+    names = []
+    for part in parts:
+        names.append(
+            part.attr
+            if isinstance(part, _ast.Attribute)
+            else getattr(part, 'id', _ast.unparse(part))
+        )
+    return ', '.join(sorted(names))
+
+
+def _except_handlers_in_source(source, relpath):
+    """{(relpath, '<type names>'): count} -- every `except` clause in one
+    source file, by the census key of `_handler_type_name`."""
+    counts = {}
+    for node in _ast.walk(_ast.parse(source)):
+        if isinstance(node, _ast.ExceptHandler):
+            key = (relpath, _handler_type_name(node.type))
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _ui_except_counts():
+    """{('ui/<file>.py', '<type names>'): count} -- the GUI's `except`
+    handlers, each a place the GUI catches an outcome and decides what it
+    means. The rule is `_except_handlers_in_source`."""
+    counts = {}
+    for path in _ui_source_files():
+        with open(path) as fh:
+            counts.update(_except_handlers_in_source(fh.read(), _relpath(path)))
+    return counts
+
+
 # Pinned at 5779bc04. Every entry is a question the GUI answers below the
 # API. Lower a value in the same commit that routes its caller at the
 # `ScopeSession` member; never raise one. Unlike the import count this
@@ -559,6 +609,62 @@ _UI_PRIVATE_REACH_PIN = {
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 1,
     ('ui/microscope_settings.py', '_set_pixel_format_impl'): 1,
     ('ui/vertical_control.py', '_move_turret_impl'): 1,
+}
+
+# Every entry is an `except` handler in the GUI: a place the GUI catches an
+# outcome and decides what it means. The API returns or raises a typed
+# outcome and the GUI displays it; a handler that chooses a log level, a
+# popup, a sentence or a retry is a decision that belongs below the API.
+# Lower a value in the same commit that moves the decision down; a rise is
+# a new decision in the GUI and needs Eric's word, not a pin edit. Pinned
+# at 44f98226 from the tree, 151 handlers in 46 cells.
+_UI_EXCEPT_PIN = {
+    ('ui/advanced_settings.py', 'TypeError, ValueError'): 3,
+    ('ui/composite_capture.py', 'Exception'): 1,
+    ('ui/composite_capture.py', 'HardwareCommandRefusedError'): 1,
+    ('ui/file_dialogs.py', 'Exception'): 5,
+    ('ui/histogram.py', 'AttributeError, KeyError'): 1,
+    ('ui/image_settings.py', 'Exception'): 2,
+    ('ui/image_settings.py', 'KeyError'): 1,
+    ('ui/layer_control.py', 'AttributeError, ImportError'): 1,
+    ('ui/layer_control.py', 'Exception'): 17,
+    ('ui/layer_control.py', 'KeyError'): 1,
+    ('ui/layer_control.py', 'ProtocolError'): 1,
+    ('ui/layer_control.py', 'TypeError, ValueError'): 1,
+    ('ui/listener_bridge.py', 'Exception'): 2,
+    ('ui/main_display.py', 'Exception'): 4,
+    ('ui/main_display.py', 'RecordingRefusedError'): 1,
+    ('ui/microscope_settings.py', 'Exception'): 12,
+    ('ui/microscope_settings.py', 'FileNotFoundError'): 2,
+    ('ui/microscope_settings.py', 'JSONDecodeError'): 2,
+    ('ui/microscope_settings.py', 'KeyError'): 1,
+    ('ui/microscope_settings.py', 'ValueError'): 1,
+    ('ui/motion_settings.py', 'Exception'): 7,
+    ('ui/motion_settings.py', 'ObjectiveUnknownError'): 1,
+    ('ui/notification_popup.py', 'Exception'): 6,
+    ('ui/post_processing.py', 'Exception'): 9,
+    ('ui/post_processing.py', 'FileNotFoundError, ValueError'): 1,
+    ('ui/post_processing.py', 'ValueError'): 1,
+    ('ui/protocol_settings.py', 'ConfigError'): 3,
+    ('ui/protocol_settings.py', 'Exception'): 18,
+    ('ui/protocol_settings.py', 'OSError'): 1,
+    ('ui/protocol_settings.py', 'ObjectiveUnknownError'): 1,
+    ('ui/protocol_settings.py', 'ProtocolRunRefusedError'): 5,
+    ('ui/protocol_settings.py', 'TypeError, ValueError'): 2,
+    ('ui/protocol_settings.py', 'ValueError'): 2,
+    ('ui/scope_display.py', 'Exception'): 3,
+    ('ui/shader.py', 'Exception'): 2,
+    ('ui/shader.py', 'ObjectiveUnknownError'): 1,
+    ('ui/stage.py', 'Exception'): 7,
+    ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
+    ('ui/ui_helpers.py', 'AxisStateUnknownError'): 1,
+    ('ui/ui_helpers.py', 'Exception'): 1,
+    ('ui/ui_helpers.py', 'ObjectiveUnknownError'): 1,
+    ('ui/ui_helpers.py', 'ProtocolRunRefusedError'): 2,
+    ('ui/ui_helpers.py', 'RunAlreadyEndedError'): 1,
+    ('ui/vertical_control.py', 'Exception'): 10,
+    ('ui/vertical_control.py', 'ObjectiveUnknownError'): 1,
+    ('ui/zstack.py', 'Exception'): 3,
 }
 
 
@@ -813,6 +919,11 @@ _LOWER_LAYER_UI_IMPORT_PIN: dict[str, int] = {}
 
 
 _GUI_REMEDY = 'New logic in the GUI: move it to the API and expose a getter/setter (Rule 2).'
+_EXCEPT_REMEDY = (
+    'The GUI catches an outcome and decides what it means. The API returns or '
+    'raises a typed outcome that already says its severity and its sentence; '
+    'the GUI displays it (Rule 2).'
+)
 _ANSWERER_REMEDY = (
     'The GUI answers this below the API. Route the caller at the Lumascope '
     'API or at its ScopeSession member -- CLAUDE.md allows the GUI either -- '
@@ -857,6 +968,12 @@ class TestGuiIsDisplayOnly:
     def test_ui_private_reaches_match_the_pin(self):
         report = _ratchet_report(
             _UI_PRIVATE_REACH_PIN, _ui_private_reach_counts(), 'private reaches'
+        )
+        assert report == [], '\n'.join(report)
+
+    def test_ui_except_handlers_match_the_pin(self):
+        report = _ratchet_report(
+            _UI_EXCEPT_PIN, _ui_except_counts(), 'except handlers', _EXCEPT_REMEDY
         )
         assert report == [], '\n'.join(report)
 
@@ -962,6 +1079,12 @@ _ratchets.register(
     'GUI: private API reaches from ui/',
     lambda: sum(_ui_private_reach_counts().values()),
     sum(_UI_PRIVATE_REACH_PIN.values()),
+    'equal',
+)
+_ratchets.register(
+    'GUI: except handlers in ui/',
+    lambda: sum(_ui_except_counts().values()),
+    sum(_UI_EXCEPT_PIN.values()),
     'equal',
 )
 _ratchets.register(
