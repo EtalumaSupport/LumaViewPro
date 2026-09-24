@@ -22,7 +22,6 @@ from modules.config_helpers import (
 from modules.config_ui_getters import (
     firmware_stim_supported,
     get_binning_from_ui,
-    get_current_frame_dimensions,
 )
 from modules.path_utils import resolve_data_file
 from modules.memory_profiler import MemoryLeakProfiler
@@ -33,6 +32,16 @@ from modules.zstack_config import ZStackConfig
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
 
+# Which frame box committed -> the record it owns and the stored dimension
+# that corrects it. Both boxes bind one handler, so the handler is told which
+# one the user left; the record name and the axis travel together because a
+# correction has to report the dimension the record is about.
+_FRAME_BOXES = {
+    'frame_width_id': ('FRAME_WIDTH', 'width'),
+    'frame_height_id': ('FRAME_HEIGHT', 'height'),
+}
+
+
 class _CoalescingApplier:
     """One-at-a-time worker that keeps only the LATEST pending value.
 
@@ -40,8 +49,8 @@ class _CoalescingApplier:
     queue from stacking up slow Pylon set_frame_size calls (issue #624).
     On large frames each stop_grabbing/start_grabbing cycle blocks the
     CAMERA_WORKER for ~11s; naive queueing of rapid user edits
-    (tabbing between width and height fields) produced multi-minute
-    backlogs that made the UI feel frozen.
+    (committing width, then height, while the first apply still runs)
+    produced multi-minute backlogs that made the UI feel frozen.
 
     Pattern:
       - submit(value) stashes value in a single pending slot and
@@ -54,10 +63,10 @@ class _CoalescingApplier:
         rather than spawning a new one.
 
     Exact repeats of the last successfully applied value are absorbed.
-    One user edit fires the bound handler up to four times (each text
-    field binds both on_text_validate and on_focus loss, and the
-    handler reads BOTH fields every call, so all four calls compute
-    the identical value). On a slow camera the in-flight gate folds
+    The handler reads BOTH fields every call, so committing width and
+    then height computes the same pair twice when only one of them
+    changed, and a retype of the displayed size is a repeat as well.
+    On a slow camera the in-flight gate folds
     them; on a fast camera (FX2 applies in milliseconds) the gate
     closes between events and every repeat became a real hardware
     apply. A failed apply does not update the last-applied record, so
@@ -326,10 +335,16 @@ class MicroscopeSettings(BoxLayout):
 
             # Set Frame Size UI
             binning_size_str = settings['binning']['size']
-            binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
-            self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
-            self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
+            # settings['frame'] holds the DISPLAYED (post-binning) size, and the
+            # box shows that size unscaled -- the unbinned ROI is carried
+            # separately as frame['native_width'/'native_height']. Both the other
+            # writers of these boxes agree: the delivered-size callback writes the
+            # same number to the store and the box, and the binning handler writes
+            # native_to_displayed(native, binning). Multiplying by the binning
+            # factor here contradicted all of that and would show a 2x2 user twice
+            # the size the camera delivers.
+            self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
             # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # was applied by the Session's bring-up
@@ -345,42 +360,13 @@ class MicroscopeSettings(BoxLayout):
             self.select_binning_size()
 
             # The settings-to-scope bring-up ran in the Session before this
-            # widget existed: the slot-1 objective is adopted (the stored
-            # one is only a leftover from the previous session), the
-            # labware selected, scope.initialize() applied. Everything
-            # below renders settings, the objective helper and the frozen
-            # capabilities, none of which initialize changes.
-            objective_id = settings['objective_id']
-
-            vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
-            v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
-            v_control_objective_spinner.text = objective_id
-
-            objective = ctx.session.get_objective_info(objective_id=objective_id)
-
-            # Populate FOV fields at startup; otherwise the fields stay blank
-            # until the user clicks Frame Size or selects an objective (both
-            # have their own FOV-recalc handlers).
-            fov_size = config_ui_getters.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=binning_size,
-            )
-            fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
-            self.ids['field_of_view_width_id'].text = fov_w_text
-            self.ids['field_of_view_height_id'].text = fov_h_text
-
-            # Load previous turret position objectives
-            for turret_pos, objective_id in settings['turret_objectives'].items():
-                if objective_id is None:
-                    button_text = f'{turret_pos}'
-                else:
-                    magnification = ctx.session.get_objective_info(objective_id=objective_id)[
-                        'magnification'
-                    ]
-                    button_text = f'{magnification}x'
-
-                vertical_control_id.ids[f'turret_pos_{turret_pos}_btn'].text = button_text
+            # widget existed: the labware selected, scope.initialize()
+            # applied. The turret, its assignments and the objective shown
+            # are the API's answers -- on a turreted scope the objective is
+            # unknown until the turret is in a known slot. The startup
+            # sequence owns the objective question, so this display asks
+            # nothing.
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
             if settings['scale_bar']['enabled']:
                 self.ids['enable_scale_bar_btn'].state = 'down'
@@ -442,21 +428,20 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
                 # Size the sliders to the camera caps BEFORE the values land
-                # (the Kivy slider clamps the displayed value to its max). The
-                # over-cap STORED value is reconciled + persisted by the single
-                # clamp_layer_settings_to_caps pass below, not a duplicate
-                # inline clamp here.
+                # (the Kivy slider clamps the displayed value to its max). A
+                # stored value above the cap stays in the store and is pinned
+                # on the slider; the box keeps the real number.
                 layer_obj.ids['gain_slider'].max = max_gain
                 layer_obj.ids['exp_slider'].max = max_exposure
 
-            # Reconcile any layer whose stored gain/exposure exceeds the new
-            # camera's cap down to it -- the single clamp owner, shared with the
-            # reconnect resync. Ordering: this runs BEFORE the widgets are
-            # filled, so no widget ever renders a value the camera cannot
-            # honor. Its explicit apply is a no-op here (the layers are still
-            # initializing from construction); the startup push to the camera
-            # is the open layer's, from complete_initialization.
-            ctx.image_settings.clamp_layer_settings_to_caps()
+            # Render and re-apply any layer the camera cannot fully reach --
+            # the single owner, shared with the capability resync. Ordering:
+            # this runs BEFORE the widgets are filled, so the pinned slider and
+            # the stored value agree the first time they are drawn. Its
+            # explicit apply is a no-op here (the layers are still initializing
+            # from construction); the startup push to the camera is the open
+            # layer's, from complete_initialization.
+            ctx.image_settings.reconcile_layers_to_camera_caps()
 
             for layer in common_utils.get_layers():
                 ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
@@ -815,6 +800,12 @@ class MicroscopeSettings(BoxLayout):
         new_binning_size_str = self.ids['binning_spinner'].text
         new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
 
+        # The pick, before anything judges it. Recorded below the refusal, a
+        # rejected binning left the bundle with a warning and no line saying
+        # what the user had picked -- and the startup populate's declarations
+        # are still absorbed here, because this is the call select() consults.
+        gui_logger.select('BINNING', new_binning_size_str)
+
         # Reject a binning level this camera does not support and restore the
         # spinner to the camera's actual binning.
         if new_binning_size not in imaging.get_available_binning_sizes():
@@ -847,8 +838,6 @@ class MicroscopeSettings(BoxLayout):
         native = self._native_roi()
         self._store_native_roi(native)
 
-        gui_logger.select('BINNING', new_binning_size_str)
-
         # The displayed/captured size is native / binning, floored to the active
         # driver's DELIVERABLE granularity: get_pixel_alignment reports the
         # camera grid for floor-only drivers (Pylon/FX2/sim) and just 'even' for
@@ -873,8 +862,7 @@ class MicroscopeSettings(BoxLayout):
         }
         settings['binning']['size'] = new_binning_size_str
         self._refresh_binning_depth_hint()
-        self.ids['frame_width_id'].text = str(new_frame['width'])
-        self.ids['frame_height_id'].text = str(new_frame['height'])
+        self._write_frame_text(new_frame['width'], new_frame['height'])
 
         # During app init, scope.initialize() handles all hardware calls;
         # the mirrors just reflect the settings being loaded.
@@ -1042,8 +1030,58 @@ class MicroscopeSettings(BoxLayout):
         except Exception as e:
             logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
 
-    def frame_size(self):
+    def _typed_frame_dimensions(self) -> dict:
+        """The size currently TYPED into the frame fields.
+
+        Only the handler applying the edit wants this. Every other
+        consumer wants the size the camera delivered, which lives in
+        settings['frame'] -- the fields are an editor, and until the
+        apply lands they can hold a size no camera is at.
+
+        Raises:
+            ValueError: the fields do not hold a pair of integers.
+        """
+        try:
+            return {
+                'width': int(self.ids['frame_width_id'].text),
+                'height': int(self.ids['frame_height_id'].text),
+            }
+        except Exception as e:
+            raise ValueError('Invalid value for frame width/height') from e
+
+    def _write_frame_text(self, width, height) -> None:
+        """Write a frame read-back into the boxes, unless the user is typing.
+
+        The boxes commit on focus loss (`on_focus: if not self.focus:
+        root.frame_size(...)`), so a size written underneath a part-typed
+        entry is not merely displayed -- it is committed as a framing change
+        when the user clicks away. Each box is guarded on its OWN focus: they
+        are edited one at a time, and skipping both because one is focused
+        would leave the other showing a size no camera is at.
+
+        Every writer of these boxes goes through here so the guard cannot be
+        present at three sites and missing at the fourth.
+        """
+        for widget_id, value in (
+            ('frame_width_id', width),
+            ('frame_height_id', height),
+        ):
+            box = self.ids[widget_id]
+            if box.focus:
+                continue
+            new_text = str(value)
+            # Rewriting the same string churns the enclosing ScrollView.
+            if box.text != new_text:
+                box.text = new_text
+
+    def frame_size(self, committed_id: str):
         """Apply a user edit of the frame width/height fields.
+
+        ``committed_id`` names the box whose commit invoked this. Both boxes
+        bind this one handler, and a record that cannot say which box the user
+        left is not a record of what they did; it is required rather than
+        defaulted because a caller that cannot answer cannot log the edit
+        either.
 
         The typed value is a displayed (post-binning) size, so the native ROI
         becomes ``displayed * binning`` capped at the sensor native resolution.
@@ -1054,15 +1092,27 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
 
+        record, axis = _FRAME_BOXES[committed_id]
+        # First act, and before the connected check: the user typed it whether
+        # or not a camera is there to hear about it.
+        gui_logger.text_input(record, self.ids[committed_id].text)
+
         if not lumaview.scope.camera_connected:
             return
 
         imaging = lumaview.scope.imaging
         try:
-            typed = get_current_frame_dimensions()
+            typed = self._typed_frame_dimensions()
         except ValueError:
+            # An entry that is not a pair of integers is a CORRECTION, not a
+            # request. Substituting the stored size and applying it reported a
+            # framing the user never asked for -- emptying a box logged the
+            # size already in force, so the bundle claimed an edit that never
+            # happened while the box sat blank. Put both boxes back and stop.
             frame = ctx.settings['frame']
-            typed = {'width': frame['width'], 'height': frame['height']}
+            gui_logger.text_input(f'{record}_APPLIED', frame[axis])
+            self._write_frame_text(frame['width'], frame['height'])
+            return
 
         # The typed value is a displayed size at the UI binning, so reconstruct
         # native against the synchronous UI binning, not the async hardware
@@ -1123,9 +1173,9 @@ class MicroscopeSettings(BoxLayout):
 
         # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
-        # quick succession when the user tabs between width and height
-        # text fields (on_focus loss + on_text_validate both bound to
-        # the same handler), and Pylon's stop_grabbing/start_grabbing
+        # quick succession when the user commits width and then height
+        # (each box commits on focus loss and the handler reads both),
+        # and Pylon's stop_grabbing/start_grabbing
         # cycle takes ~11s on large frames, so naive queueing creates
         # minute-scale UI freezes.
         if self._frame_size_applier.submit((width, height)):
@@ -1140,7 +1190,7 @@ class MicroscopeSettings(BoxLayout):
         # and the binning committed synchronously. Refreshing now covers
         # the dedupe-absorbed case (binning changed, same displayed size:
         # no push, no delivered callback, but the FOV still halves).
-        self._refresh_fov_labels()
+        self.refresh_fov_labels()
 
     def _push_frame_size(self, wh):
         """Camera-executor side of a frame-size apply: push to the camera
@@ -1177,16 +1227,20 @@ class MicroscopeSettings(BoxLayout):
         height = int(delivered['height'])
         settings['frame']['width'] = width
         settings['frame']['height'] = height
-        self.ids['frame_width_id'].text = str(width)
-        self.ids['frame_height_id'].text = str(height)
-        self._refresh_fov_labels()
+        self._write_frame_text(width, height)
+        self.refresh_fov_labels()
 
-    def _refresh_fov_labels(self) -> None:
+    def refresh_fov_labels(self) -> None:
         """Recompute the FOV readout from the current delivered-sourced
-        frame settings and the UI binning."""
+        frame settings and the UI binning. With no known objective there is
+        no field of view to show, so the readout is blank."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        objective = ctx.session.get_objective_info(objective_id=settings['objective_id'])
+        objective = ctx.scope.runtime_state.get_current_objective()
+        if objective is None:
+            self.ids['field_of_view_width_id'].text = ''
+            self.ids['field_of_view_height_id'].text = ''
+            return
         fov_size = config_ui_getters.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
@@ -1236,7 +1290,7 @@ class MicroscopeSettings(BoxLayout):
 
         def run():
             try:
-                report = TechSupportReport(scope=_app_ctx.ctx.lumaview.scope)
+                report = TechSupportReport(session=_app_ctx.ctx.session)
 
                 def progress(pct, msg):
                     Clock.schedule_once(lambda dt: self._update_report_progress(pct, msg), 0)

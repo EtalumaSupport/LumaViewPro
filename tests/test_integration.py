@@ -42,6 +42,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -50,7 +51,11 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import (
+    autofocus_snapshot,
+    held_run_claim,
+    wait_until_ready_for_next_run,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -171,6 +176,7 @@ def _make_protocol(steps_config):
                 # gain / position must still derive distinct capture
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
+                'Auto_Named': False,
             }
         )
 
@@ -185,19 +191,6 @@ def _make_protocol(steps_config):
         'tiling': '1x1',
     }
     return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
-
-
-def _wait_for_executor_idle(executor, timeout=5.0):
-    """Wait until executor is fully idle (not running and file IO drained)."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if (
-            not executor._run_in_progress_event.is_set()
-            and not executor.file_io_executor.is_protocol_queue_active()
-        ):
-            return True
-        time.sleep(0.05)
-    return False
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -244,6 +237,9 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     """Create a real Lumascope with simulated hardware."""
     s = Lumascope(simulate=True)
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -292,7 +288,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -317,7 +314,8 @@ def af_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=af,
     )
     return exc
@@ -345,7 +343,9 @@ class TestIntegrationSingleStep:
 
         # All LED channels should be off
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on after protocol'
+            assert not scope.illumination.get_led_state(color)['enabled'], (
+                f'LED {color} still on after protocol'
+            )
 
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
@@ -484,7 +484,7 @@ class TestIntegrationMultiChannel:
         assert completed
 
         for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on'
+            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
 
 
 class TestIntegrationZStack:
@@ -622,11 +622,13 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
+                run_trigger_source='autofocus',
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
                 camera_gain=1.0,
                 camera_exposure=2.0,
+                led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
             future.result(timeout=15.0)
         finally:
@@ -666,21 +668,21 @@ class TestIntegrationStateAssertions:
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.illumination.led_enabled('BF')
+        assert not scope.illumination.get_led_state('BF')['enabled']
 
     def test_led_green_channel(self, executor, scope, tmp_path):
         """Verify Green LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Green', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.illumination.led_enabled('Green')
+        assert not scope.illumination.get_led_state('Green')['enabled']
 
     def test_led_red_channel(self, executor, scope, tmp_path):
         """Verify Red LED is driven and turned off after protocol."""
         protocol = _make_protocol([{'color': 'Red', 'illumination_ma': 75.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert not scope.illumination.led_enabled('Red')
+        assert not scope.illumination.get_led_state('Red')['enabled']
 
     def test_scope_connected_throughout(self, executor, scope, tmp_path):
         """Scope remains connected after protocol run."""
@@ -709,9 +711,7 @@ class TestIntegrationStateAssertions:
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_1, 'First protocol run did not complete'
 
-        # Wait for executor to be fully idle (run_in_progress cleared, queue drained)
-        idle = _wait_for_executor_idle(executor, timeout=5.0)
-        assert idle, 'Executor did not reach idle state after first run'
+        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -743,55 +743,55 @@ class TestIntegrationStateAssertions:
 
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import configure_turret_like_bringup
 from modules.protocol_runner import ProtocolRunner
 
 
 class TestHeadlessSession:
-    """Verify ScopeSession.create_headless() and ProtocolRunner work end-to-end."""
+    """Verify ScopeSession.create(simulate=True) and ProtocolRunner work end-to-end."""
 
-    def test_create_headless_returns_session(self):
-        """create_headless() should return a working ScopeSession."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+    def test_simulated_create_returns_session(self):
+        """create(simulate=True) should return a working ScopeSession."""
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session is not None
         assert session.scope is not None
         assert session.io_executor is not None
         assert session.camera_executor is not None
         assert session.settings is not None
 
-    def test_create_headless_scope_is_simulated(self):
+    def test_simulated_create_scope_is_simulated(self):
         """Headless session should use simulated hardware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.scope._simulated is True
 
-    def test_create_headless_with_custom_settings(self):
-        """create_headless() should accept custom settings."""
+    def test_simulated_create_with_custom_settings(self):
+        """create(simulate=True) should accept custom settings."""
         custom = {'BF': {'autofocus': False}, 'custom_key': 42}
-        session = ScopeSession.create_headless(settings=complete_settings(**custom))
+        session = ScopeSession.create(complete_settings(**custom), simulate=True)
         assert session.settings['custom_key'] == 42
 
     def test_headless_led_commands(self):
         """Headless session should support LED on/off via scope."""
-        session = ScopeSession.create_headless(settings=complete_settings())
-        session.start_executors()
+        session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             scope = session.scope
             scope.illumination.led_on(channel=0, illumination_ma=100)
-            assert scope.illumination.get_led_ma('Blue') == 100
+            assert scope.illumination.get_led_state('Blue')['illumination_ma'] == 100
             scope.illumination.led_off(channel=0)
-            assert scope.illumination.get_led_ma('Blue') is None
+            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         finally:
             session.shutdown_executors()
 
     def test_headless_motor_position(self):
         """Headless session should support motor position queries."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         scope = session.scope
         pos = scope.motion.get_current_position('Z')
         assert isinstance(pos, (int, float))
 
     def test_create_protocol_runner(self):
         """ScopeSession.create_protocol_runner() should return a ProtocolRunner."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         runner = session.create_protocol_runner()
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
@@ -801,7 +801,7 @@ class TestHeadlessSession:
         build a duplicate -- two executors on one disk target compete. The
         fallback previously constructed a second FILE executor on this path.
         """
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         assert session.file_io_executor is not None
         assert session.file_io_executor is session.executor_bundle.file_io_executor
         runner = session.create_protocol_runner()
@@ -819,6 +819,9 @@ class TestHeadlessSession:
             'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
+            # The objective this file's protocols name: a scope with no turret
+            # refuses a protocol for any glass other than the selected one.
+            'objective_id': '10x Oly',
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
@@ -828,7 +831,10 @@ class TestHeadlessSession:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        session = ScopeSession.create(complete_settings(**settings), simulate=True)
+        # A headless session does not home, and a run is refused while any
+        # axis position is unknown.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
@@ -849,14 +855,13 @@ class TestHeadlessSession:
             completed = done.wait(timeout=COMPLETION_TIMEOUT)
             assert completed, 'Headless protocol did not complete within timeout'
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_protocol_runner_afe_no_kivy_dependency(self):
         """AFE has no Kivy Clock dependency (Rule 15). Under the
         thread-driven model the AF thread drives iterations directly;
         there are no Clock-schedule attributes to misconfigure."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         runner = session.create_protocol_runner()
         af = runner.sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
@@ -868,14 +873,14 @@ class TestRestAPIPrep:
 
     def test_get_pixel_format(self):
         """_get_pixel_format() should return format string from simulated camera."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         fmt = session.scope.imaging._get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
     def test_set_pixel_format(self):
         """set_pixel_format() should change the camera format."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         result = session.scope.imaging.set_pixel_format('Mono12')
         assert result is True
         assert session.scope.imaging._get_pixel_format() == 'Mono12'
@@ -886,13 +891,13 @@ class TestRestAPIPrep:
         rejected format for an applied one by dropping the return)."""
         from modules.exceptions import CameraSettingRejected
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         with pytest.raises(CameraSettingRejected):
             session.scope.imaging.set_pixel_format('InvalidFormat')
 
     def test_get_supported_pixel_formats(self):
         """get_supported_pixel_formats() should return tuple of format strings."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         formats = session.scope.imaging.get_supported_pixel_formats()
         assert isinstance(formats, tuple)
         assert len(formats) > 0
@@ -900,7 +905,7 @@ class TestRestAPIPrep:
 
     def test_pixel_format_inactive_camera(self):
         """Pixel format methods should handle inactive camera gracefully."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
         assert session.scope.imaging._get_pixel_format() is None
         assert session.scope.imaging.set_pixel_format('Mono8') is False
@@ -908,7 +913,7 @@ class TestRestAPIPrep:
 
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_motor_info()
         assert 'model' in info
         assert 'serial_number' in info
@@ -923,7 +928,7 @@ class TestRestAPIPrep:
         come from the FULLINFO response cached at connect; a wire query
         here would put a serial round-trip on every capture.
         """
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         driver = session.scope._motion_driver
         original_fullinfo = driver.fullinfo
         fullinfo_calls = []
@@ -945,21 +950,21 @@ class TestRestAPIPrep:
 
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_led_info()
         assert info['connected'] is True
         assert info['firmware_version'] is not None
 
     def test_get_camera_info(self):
         """get_camera_info() should return model and connection status."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_camera_info()
         assert info['connected'] is True
         assert info['model'] is not None
 
     def test_get_system_info(self):
         """get_system_info() should return consolidated info for all hardware."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         info = session.scope.diagnostics.get_system_info()
         assert 'motor' in info
         assert 'led' in info
@@ -971,7 +976,7 @@ class TestRestAPIPrep:
         """get_system_info() should handle missing hardware gracefully."""
         from drivers.null_motorboard import NullMotionBoard
 
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._motion_driver = NullMotionBoard()
         session.scope._led_driver = None
         session.scope._camera_driver = None
@@ -1029,7 +1034,7 @@ class TestRestAPIPrep:
 
     def test_get_available_objectives(self):
         """get_available_objectives() should return list of objective IDs."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         objectives = session.scope.runtime_state.get_available_objectives()
         assert isinstance(objectives, list)
         assert len(objectives) > 0
@@ -1050,7 +1055,7 @@ class TestRestAPIPrep:
 
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after set_objective()."""
-        session = ScopeSession.create_headless(settings=complete_settings())
+        session = ScopeSession.create(complete_settings(), simulate=True)
         objectives = session.scope.runtime_state.get_available_objectives()
         session.scope.runtime_state.set_objective(objectives[0])
         current = session.scope.runtime_state.get_current_objective()
@@ -1059,8 +1064,7 @@ class TestRestAPIPrep:
 
     def test_autofocus_runner_get_status_idle(self):
         """AutofocusRunner.get_status() should return idle state initially."""
-        session = ScopeSession.create_headless(settings=complete_settings())
-        session.start_executors()
+        session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1069,15 +1073,13 @@ class TestRestAPIPrep:
             assert status['in_progress'] is False
             assert status['best_position'] is None
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_abort_noop_when_idle(self):
         """AutofocusThread.abort() should be safe when no run is in flight."""
         from modules.autofocus_thread import AutofocusThread
 
-        session = ScopeSession.create_headless(settings=complete_settings())
-        session.start_executors()
+        session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1089,7 +1091,6 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_run_and_complete(self):
@@ -1097,8 +1098,7 @@ class TestRestAPIPrep:
         best focus position when AF completes."""
         from modules.autofocus_thread import AutofocusThread
 
-        session = ScopeSession.create_headless(settings=complete_settings())
-        session.start_executors()
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
@@ -1109,14 +1109,27 @@ class TestRestAPIPrep:
             thread.start()
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
-                future = thread.run_autofocus(objective_id=objectives[0])
+                future = thread.run_autofocus(
+                    run_trigger_source='autofocus',
+                    objective_id=objectives[0],
+                    # Lit, because a sweep in the dark has no focus to find.
+                    # The production caller supplies the step's channel and
+                    # current; driving the engine directly skips that, and
+                    # the engine's own default is no light at all. The
+                    # simulator used to render a lit field whatever the LEDs
+                    # were doing, so this read as a working sweep.
+                    led_color='BF',
+                    led_illumination=50.0,
+                    led_lease=session.scope.illumination.acquire_led_lease(
+                        'protocol', claim=held_run_claim()
+                    ),
+                )
                 result = future.result(timeout=30)
                 assert result is not None
                 assert af.complete() is True
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_autofocus_thread_abort_during_run(self):
@@ -1125,8 +1138,7 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
         from modules.exceptions import AutofocusAborted
 
-        session = ScopeSession.create_headless(settings=complete_settings())
-        session.start_executors()
+        session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
@@ -1137,7 +1149,13 @@ class TestRestAPIPrep:
             thread.start()
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
-                future = thread.run_autofocus(objective_id=objectives[0])
+                future = thread.run_autofocus(
+                    run_trigger_source='autofocus',
+                    objective_id=objectives[0],
+                    led_lease=session.scope.illumination.acquire_led_lease(
+                        'protocol', claim=held_run_claim()
+                    ),
+                )
 
                 # Give the thread a moment to enter AFE.run()
                 time.sleep(0.1)
@@ -1151,7 +1169,6 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            runner.shutdown()
             session.shutdown_executors()
 
     def test_settings_has_rest_api_section(self):
@@ -1194,6 +1211,7 @@ class TestAbortedAutofocusRestoresLeds:
                 led_illumination=20.0,
                 abort_event=abort,
                 keep_led_on=True,
+                led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
 
         # AF setup lit the BF channel before the abort was observed; the

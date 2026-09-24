@@ -767,16 +767,10 @@ def test_save_image_requires_save_encoding():
     from modules.image_save import save_image
 
     with pytest.raises(TypeError, match='save_encoding'):
-        save_image(None, array=np.zeros((4, 4), dtype=np.uint8))
-
-
-def test_save_live_image_requires_save_encoding():
-    """save_live_image cannot be called without save_encoding -- the omission
-    that saved 12-bit-scaled dark from the non-engineering live path."""
-    from modules.image_save import save_live_image
-
-    with pytest.raises(TypeError, match='save_encoding'):
-        save_live_image(None)
+        save_image(
+            None,
+            array=np.zeros((4, 4), dtype=np.uint8),
+        )
 
 
 @pytest.mark.parametrize(
@@ -913,9 +907,9 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
     assert arr[0, 0, 2] == 3000 and arr[0, 0, 0] == 0 and arr[0, 0, 1] == 0
 
 
-def test_composite_capture_live_path_passes_save_encoding():
-    """Structural lock: every save_live_image / save_image call in the manual
-    live-capture path forwards both the image mode and the acquiring channel.
+def test_manual_capture_path_passes_save_encoding():
+    """Structural lock: every save_image call in the manual capture path
+    (modules/manual_capture.py, which the Capture button calls) forwards both the image mode and the acquiring channel.
 
     A refactor that drops save_encoding from the non-engineering branch was the
     original defect. Channel is locked the same way and for the same reason:
@@ -923,7 +917,7 @@ def test_composite_capture_live_path_passes_save_encoding():
     answering for it makes the omission invisible at the call site."""
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'composite_capture.py'
+    src = pathlib.Path(__file__).resolve().parents[1] / 'modules' / 'manual_capture.py'
     tree = ast.parse(src.read_text())
 
     save_calls = [
@@ -931,9 +925,9 @@ def test_composite_capture_live_path_passes_save_encoding():
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id in ('save_live_image', 'save_image')
+        and node.func.id == 'save_image'
     ]
-    assert save_calls, 'expected save_live_image / save_image calls in composite_capture'
+    assert save_calls, 'expected save_image calls in the manual capture'
     for call in save_calls:
         assert any(kw.arg == 'save_encoding' for kw in call.keywords), (
             f'a {call.func.id} call at line {call.lineno} omits save_encoding -- '

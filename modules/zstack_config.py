@@ -20,10 +20,16 @@ class ZStackConfig:
         self._current_z_value = current_z_value
 
     def number_of_steps(self) -> int:
-        if self._step_size == 0:
+        # Both axes must be positive for the store to describe a stack.
+        # Guarding step_size alone let range=0 compute floor(0/step) + 1 == 1,
+        # so a store with no extent answered "one plane" and every gate that
+        # asks this count read a zero-extent stack as a configured one.
+        if self._step_size <= 0 or self._range <= 0:
             return 0
 
-        return np.floor(self._range / self._step_size) + 1
+        # int, not the np.float64 the arithmetic yields: callers render this
+        # straight into the Steps field, where a float shows as "11.0".
+        return int(np.floor(self._range / self._step_size) + 1)
 
     def step_positions(self) -> dict[int, float]:
         n_steps = self.number_of_steps()

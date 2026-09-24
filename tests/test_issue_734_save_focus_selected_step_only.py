@@ -72,7 +72,7 @@ def _extract_method(method_name: str, extra_globals: dict):
     raise AssertionError(f'LayerControl.{method_name} not found in source')
 
 
-def _make_env(proto, z_positions):
+def _make_env(proto, z_positions, *, z_known=True):
     """Fake ctx + extraction globals wired to a real Protocol.
 
     ``z_positions``: list of Z values get_current_position returns per call.
@@ -106,6 +106,9 @@ def _make_env(proto, z_positions):
             'logger': log,
             'Clock': clock,
             'ProtocolError': ProtocolError,
+            # The motion API's answer, at the GUI's one boundary for it:
+            # refused means the API has already told the user.
+            'unknown_position_refused': lambda axes, **kwargs: not z_known,
         },
     )
     fake_self = SimpleNamespace(
@@ -272,3 +275,18 @@ class TestNoBaselineEqualityInferenceRemains:
                     f'{name} found in {path.name}: baseline-equality '
                     'propagation must not be reintroduced'
                 )
+
+    def test_a_z_that_does_not_know_its_position_saves_nothing(self):
+        # After a failed home the Z keeps answering the last number it
+        # reported; saved, it would become the layer's focus and the step's.
+        proto = _make_protocol_with_steps(
+            [{'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1}]
+        )
+        fn, ctx, fake_self = _make_env(proto, [5000.0], z_known=False)
+
+        fn(fake_self, selected_step=0)
+
+        assert ctx.settings['BF']['focus'] == 7000.0
+        assert proto.steps().loc[0, 'Z'] == 7000.0
+        ctx.scope.motion.get_current_position.assert_not_called()
+        assert not fake_self._log.exception.called

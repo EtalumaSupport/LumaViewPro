@@ -18,9 +18,10 @@ from __future__ import annotations
 import logging
 import pathlib
 import threading
+from collections.abc import Mapping
 
 from drivers.registry import motor_registry
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 
 logger = logging.getLogger('LVP.drivers.null_motorboard')
 
@@ -62,12 +63,14 @@ class NullMotionBoard:
 
         self.backlash = 0.0
 
-        self.axes_config = {
-            'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': self.z_um2ustep},
-            'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': self.xy_um2ustep},
-            'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': self.xy_um2ustep},
-            'T': {'move_func': self.t_pos2ustep},
-        }
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': self.z_um2ustep},
+                'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': self.xy_um2ustep},
+                'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': self.xy_um2ustep},
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
         logger.debug('[NULL Motor] NullMotionBoard initialized (no motor hardware)')
 
@@ -97,7 +100,7 @@ class NullMotionBoard:
         """Null implementation: no-op."""
         pass
 
-    def move_abs_pos(self, axis, pos, overshoot_enabled=True, ignore_limits=False) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Null implementation: no-op."""
         pass
 
@@ -282,7 +285,7 @@ class NullMotionBoard:
             't_present': False,
         }
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -290,7 +293,7 @@ class NullMotionBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return travel limits for an axis, or None if no limits defined.
 
         Args:

@@ -43,10 +43,11 @@ import queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from lib import profile_trace
 from lvp_logger import logger
+from modules.activity_claim import ActivityClaim, BorrowedClaim
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -64,29 +65,13 @@ END_REASON_START_FAILED = 'start_failed'
 _END_OF_RECORDING = object()
 
 
-class ExclusivityClaim(Protocol):
-    """The session-owned compare-and-claim handle the engine acquires.
-
-    Exactly one exclusive activity (a protocol run XOR a recording) may
-    hold the claim; ``try_claim`` is atomic -- two concurrent claimants
-    cannot both win.
-    """
-
-    def try_claim(self, owner: str) -> bool:
-        """Atomically claim for ``owner``; False if another owner holds it."""
-        ...
-
-    def release(self, owner: str) -> None:
-        """Release ``owner``'s claim. Releasing an unheld claim is an error."""
-        ...
-
-
 @dataclass(frozen=True)
 class RecordingConfig:
     """Immutable per-recording snapshot; baked at record start.
 
     Attributes:
-        fps: Effective recording rate in frames per second (post-clamp).
+        fps: The rate limit selection samples at, in frames per second,
+            or None to keep every frame the camera delivers.
         duration_s: Maximum recording duration in seconds; Stop may end
             the recording earlier.
         width: Frame width in pixels. Any resolution is legal; frames are
@@ -113,7 +98,7 @@ class RecordingConfig:
             Per-recording folders keep the default.
     """
 
-    fps: float
+    fps: float | None
     duration_s: float
     width: int
     height: int
@@ -125,8 +110,14 @@ class RecordingConfig:
     manifest_filename: str | None = MANIFEST_FILENAME
 
     @property
-    def frame_budget(self) -> int:
-        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation."""
+    def frame_budget(self) -> int | None:
+        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation.
+
+        None with no rate limit: without a rate there is no count to
+        derive, and the recording ends at ``duration_s`` in time instead.
+        """
+        if self.fps is None:
+            return None
         return frame_budget(self.fps, self.duration_s)
 
 
@@ -146,7 +137,8 @@ class RecordingResult:
             or was discarded before drain completed.
         abort_reason: Human-readable cause when ``aborted``; empty string
             otherwise.
-        configured_fps: The snapshot rate, for comparison against measured.
+        configured_fps: The snapshot rate limit, for comparison against
+            measured; None when every delivered frame was kept.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
         timestamp_grade: ``'camera'`` when hardware chunk timestamps
@@ -168,7 +160,7 @@ class RecordingResult:
     write_failures: int
     aborted: bool
     abort_reason: str
-    configured_fps: float
+    configured_fps: float | None
     measured_fps: float
     measured_duration_s: float
     timestamp_grade: str
@@ -185,13 +177,18 @@ class VideoRecordingEngine:
     Args:
         write_frame: Writer edge invoked on the writer lane once per kept
             frame: ``write_frame(image, timestamp_s, frame_number, config,
-            chunks) -> pathlib.Path``. ``chunks`` is the frame's camera
-            chunk metadata (or None) -- frame identity travels WITH the
-            frame so the write edge never re-derives it. Raising costs
-            exactly that frame.
-        claim: The session-owned exclusivity claim handle; ``start``
-            acquires it and refuses when an exclusive activity already
-            holds it.
+            chunks, fact) -> pathlib.Path``. ``chunks`` is the frame's
+            camera chunk metadata (or None) and ``fact`` is whatever the
+            caller recorded about the scope when the frame arrived (or
+            None) -- both travel WITH the frame, because the write runs
+            later, behind the backlog, and a write-time read would
+            describe a different moment. The engine reads neither.
+            Raising costs exactly that frame.
+        claim: The session's exclusivity claim, which ``start`` takes and
+            refuses when an exclusive activity already holds it -- or,
+            for a recording inside a run, the run's claim lent to it,
+            which ``start`` acts under and the recording's end leaves
+            held.
         clock: Time source returning seconds; injectable so cadence and
             duration behavior is testable without wall-clock sleeps.
         notify: Optional notification sink for the fatality classification
@@ -202,19 +199,14 @@ class VideoRecordingEngine:
         self,
         *,
         write_frame: Callable[..., pathlib.Path],
-        claim: ExclusivityClaim,
+        claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
         notify: Any = None,
-        run_trigger_lookup: 'Callable[[], str | None] | None' = None,
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
         self._notify = notify
-        # Busy-with-what for the claim refusal below: when a run holds
-        # the claim, the refusal names the run's trigger. Kind stays the
-        # runner's job -- the claim carries only the owner.
-        self._run_trigger_lookup = run_trigger_lookup
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -224,11 +216,11 @@ class VideoRecordingEngine:
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._drained = threading.Event()
         self._drained.set()
-        # Holds the claim's owner string exactly while this engine holds the
-        # claim. Consuming it and releasing are one step, so the token is
-        # both the guard and the argument: a second arrival cannot release a
-        # claim it does not hold, and release() raises on a non-owner.
-        self._claim_owner: str | None = None
+        # The taking this engine holds, exactly while it holds the claim.
+        # Consuming it and releasing are one step, so it is both the guard
+        # and the credential: a second arrival finds None and releases
+        # nothing, and the claim raises on a taking that no longer holds it.
+        self._held_claim: Any = None
         self._config: RecordingConfig | None = None
         self._selector: CadenceSelector | None = None
         self._writer_thread: threading.Thread | None = None
@@ -289,11 +281,12 @@ class VideoRecordingEngine:
                     title='Recording Active',
                     message='A recording is already in progress. Stop it, then record again.',
                 )
-            if not self._claim.try_claim('recording'):
-                holder = self._claim.owner
-                holder_trigger = None
-                if holder == 'protocol' and self._run_trigger_lookup is not None:
-                    holder_trigger = self._run_trigger_lookup()
+            held = self._claim.try_claim('recording')
+            if held is None:
+                # Busy-with-what comes off the claim this just failed to
+                # take: the activity that holds it names itself and, when
+                # it is a run, which run.
+                holder = self._claim.holder
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
@@ -301,10 +294,10 @@ class VideoRecordingEngine:
                         'Another exclusive activity is using the microscope. '
                         'Let it finish, then start the recording.'
                     ),
-                    holder=holder,
-                    holder_trigger=holder_trigger,
+                    holder=holder.kind if holder is not None else None,
+                    holder_trigger=(holder.run_trigger_source if holder is not None else None),
                 )
-            self._claim_owner = 'recording'
+            self._held_claim = held
             try:
                 self._config = config
                 start_ts = self._clock()
@@ -346,13 +339,19 @@ class VideoRecordingEngine:
                 self._drained.set()
                 raise
 
-    def ingest_frame(self, image: Any, timestamp_s: float, chunks: Any = None) -> None:
+    def ingest_frame(
+        self, image: Any, timestamp_s: float, chunks: Any = None, *, fact: Any
+    ) -> None:
         """Offer one delivered camera frame: select + enqueue only.
 
         Runs on the camera ingest thread; must stay cheap. A kept frame
         is enqueued unconditionally -- writer lag never causes a
         capture-side drop. Frame numbers derive from enqueue order
         (contiguous ordinals), so holes are unrepresentable.
+
+        ``fact`` is required, with no default, so a caller that records
+        frames cannot forget to say what was true when this one arrived;
+        a caller with nothing to record passes None and says so.
         """
         with (
             profile_trace.timer(
@@ -364,11 +363,15 @@ class VideoRecordingEngine:
         ):
             if not self._recording:
                 return
-            # No separate duration cutoff: the frame budget
-            # (ceil(fps * duration)) IS the duration boundary, and the
-            # selector's catch-up semantics require late frames to
-            # claim outstanding slots -- an independent wall-clock
-            # close would truncate exactly that catch-up.
+            # A rate-limited recording has no separate duration cutoff:
+            # the frame budget (ceil(fps * duration)) IS the duration
+            # boundary, and the selector's catch-up semantics require
+            # late frames to claim outstanding slots -- an independent
+            # time close would truncate exactly that catch-up. With no
+            # limit there is no budget, so the duration is the boundary.
+            if self._config.fps is None and timestamp_s - self._start_ts >= self._config.duration_s:
+                self._close_selection_locked('duration_elapsed')
+                return
             if not self._selector.slot_open(timestamp_s):
                 return
             self._selector.reserve()
@@ -382,10 +385,10 @@ class VideoRecordingEngine:
             # Enqueue the delivered array as-is: no copy (pypylon's
             # GetArray already returns an owned array) and no flip --
             # orientation and contiguity are the write edge's business,
-            # never paid per-frame in the callback. Chunk metadata rides
-            # the queue with its frame so identity and pixels never
-            # separate.
-            self._queue.put((image, timestamp_s, frame_number, chunks))
+            # never paid per-frame in the callback. Chunk metadata and
+            # the caller's fact ride the queue with their frame so
+            # identity, pixels and the moment never separate.
+            self._queue.put((image, timestamp_s, frame_number, chunks, fact))
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
 
@@ -456,9 +459,9 @@ class VideoRecordingEngine:
         to call from every end path without any caller needing to know
         whether another one got there first.
         """
-        owner, self._claim_owner = self._claim_owner, None
-        if owner is not None:
-            self._claim.release(owner)
+        held, self._held_claim = self._held_claim, None
+        if held is not None:
+            held.release()
 
     def _close_selection_locked(self, reason: str) -> None:
         """Close selection exactly once; the caller holds the lock.
@@ -486,7 +489,7 @@ class VideoRecordingEngine:
                 item = self._queue.get()
                 if item is _END_OF_RECORDING:
                     break
-                image, timestamp_s, frame_number, chunks = item
+                image, timestamp_s, frame_number, chunks, fact = item
                 try:
                     with profile_trace.timer(
                         'video_write_trace.csv',
@@ -494,7 +497,7 @@ class VideoRecordingEngine:
                         lambda n=frame_number: [n, self._pending],
                     ):
                         written_path = self._write_frame(
-                            image, timestamp_s, frame_number, self._config, chunks
+                            image, timestamp_s, frame_number, self._config, chunks, fact
                         )
                 except Exception as ex:
                     with self._lock:
@@ -551,7 +554,7 @@ class VideoRecordingEngine:
         recording and protocol run.
         """
         with self._lock:
-            if self._claim_owner is None:
+            if self._held_claim is None:
                 return
             # Only an abnormal lane exit reaches here with selection still
             # open: every ordinary end path closes it to post the sentinel

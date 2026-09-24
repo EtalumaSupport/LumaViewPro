@@ -32,10 +32,8 @@ def af_runner_and_scope():
     scope.motion.get_current_position.return_value = AF_CENTER_Z
     scope.motion.get_target_position.return_value = 600.0
     scope.imaging.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
-    # AF binds the non-dispatching body (the public capture_and_wait would
-    # be refused while a run holds the executors), so the frame comes from
-    # the _impl seam.
-    scope.imaging._capture_and_wait_impl.return_value = np.full((40, 40), 50, dtype=np.uint8)
+    # AF grabs through the public capture_and_wait, under the run's taking.
+    scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
     runner = AutofocusRunner(
         scope=scope,
         camera_executor=MagicMock(),
@@ -54,12 +52,26 @@ def af_runner_and_scope():
     return runner, scope
 
 
+def af_lease(scope):
+    """The child lease AF takes under the run's lease (scope.protocol_lease).
+
+    The run's lease hangs off the scope mock so its acquire_child call lands
+    in scope.mock_calls, in order with the AF-lease writes it spawns.
+    """
+    return scope.protocol_lease.acquire_child.return_value
+
+
 def drive_af(runner, **overrides):
-    """Call runner.run() with minimal interactive-trigger kwargs."""
+    """Call runner.run() with minimal interactive-trigger kwargs.
+
+    AF always runs inside a run, so it is handed the run's lease
+    (scope.protocol_lease); af_lease() is the child it takes under it.
+    """
     kwargs = {
         'objective_id': 'objective-under-test',
         'run_trigger_source': 'manual',
         'abort_event': threading.Event(),
+        'led_lease': runner._scope.protocol_lease,
     }
     kwargs.update(overrides)
     return runner.run(**kwargs)

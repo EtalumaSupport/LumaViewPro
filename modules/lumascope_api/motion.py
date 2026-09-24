@@ -31,15 +31,20 @@ import contextlib
 import logging as _logging
 import threading
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
-from modules.notification_center import notifications
-from modules.sequential_io_executor import IOTask, slow_task_budget
+from modules.exceptions import (
+    AxisStateUnknownError,
+    MoveNotCompletedError,
+    PositionOutOfRangeError,
+)
+from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+from modules.sequential_io_executor import IOTask, refuse_blocking_inline, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
 # class-body time and cannot reach a class attribute defined further down.
@@ -63,9 +68,13 @@ _TURRET_MOVE_SLOW_TASK_S = 15.0
 _api_log = _logging.getLogger('LVP.api')
 
 from modules.lumascope_api._constants import (
+    AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
+    TURRET_SLOT_MAX,
+    TURRET_SLOT_MIN,
     _VALID_AXIS_NAMES,
+    is_turret_slot,
 )
 
 if TYPE_CHECKING:
@@ -167,10 +176,30 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
-        # Last turret position cache -- move_turret() short-circuits a same-
-        # position request to avoid a no-op move command. Defaults to None
-        # so the first move_turret() always goes through to the firmware.
+        # The turret slot in the light path: the slot last commanded by a
+        # turret command (the turret move, either home) that returned
+        # without error and with no stop issued while it ran. The turret
+        # has no encoder, so this is the only truth there is about it; the
+        # controller's step counter reports steps issued, not glass in the
+        # path, and is never read as a slot. None -- unknown -- from the
+        # moment a turret command starts until it succeeds, after any
+        # failure, and whenever T goes UNKNOWN (``_set_axis_state``).
         self._last_turret_position: int | None = None
+
+        # The slot the last successful turret MOVE landed on, which a home
+        # never writes: a home leaves the turret on slot 1 by convention, not
+        # by anyone's choice. When two slots carry the same objective, this is
+        # the one a person last chose, so the slot lookup prefers it over the
+        # current slot. Survives a restart through the saved turret_position,
+        # seeded at bring-up. None: no preference known.
+        self._preferred_turret_slot: int | None = None
+
+        # Bumped by every stop_motion. A STOP sets target = actual on every
+        # axis, so a move in flight then reports "reached" at a place
+        # nobody commanded; a waited move compares this against the value
+        # it saw before driving to tell a stop from an arrival.
+        self._stop_generation = 0
+        self._stop_lock = threading.Lock()
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
@@ -238,6 +267,9 @@ class MotionAPI:
         with self._axis_state_lock:
             for ax in self._axis_state:
                 self._axis_state[ax] = AxisState.UNKNOWN
+        # Written directly above rather than through _set_axis_state, so the
+        # slot that rule clears on an UNKNOWN turret is cleared here too.
+        self._last_turret_position = None
         for ev in self._arrival_events.values():
             ev.set()
 
@@ -266,6 +298,31 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
+    def position_is_known(self, axis: str) -> bool:
+        """Whether *axis* has a reference position an absolute move can use.
+
+        Offered to callers as a question rather than only as an exception.
+        A caller whose move is optional -- one that should be skipped
+        rather than attempted on an axis whose position was never
+        established -- could otherwise only discover the answer by
+        provoking the refusal and catching it, which is indistinguishable
+        from swallowing a real one.
+
+        Stricter than ``_pre_drive`` by one state: a HOMING axis answers
+        False here, because its reference is still being established,
+        while the gate lets it drive so the home can finish.
+
+        Args:
+            axis: The axis to ask about.
+
+        Returns:
+            bool: True when *axis* is IDLE or MOVING; False when it is
+            UNKNOWN or HOMING.
+        """
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis)
+        return self._position_known(state)
+
     def _fault_axis(self, axis: str) -> None:
         """Record that a commanded move failed at the driver.
 
@@ -288,6 +345,24 @@ class MotionAPI:
             f'The {axis} move did not complete. That axis position is now '
             f'unknown -- home the scope before moving it again.',
         )
+
+    @staticmethod
+    def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
+        """Refuse T at a public generic mover; the turret moves only by slot.
+
+        A turret moved by a generic door skips the Z park that keeps the
+        objective off the sample and never records a slot, so afterwards
+        nothing knows which objective is in the light path. ``move_turret``
+        is the one door that does both.
+
+        Raises:
+            ValueError: ``axis`` is ``'T'``.
+        """
+        if axis == 'T':
+            raise ValueError(
+                f'{member} does not move the turret: use move_turret(slot), which parks '
+                f'Z first and records the slot in the light path'
+            )
 
     def _pre_drive(self, axis: str, force: bool = False) -> None:
         """Refuse to drive an axis whose position is not known.
@@ -325,8 +400,79 @@ class MotionAPI:
             state = self._axis_state.get(axis)
         # An axis the board does not have has no state to be unknown;
         # the move paths already no-op it further down.
-        if state == AxisState.UNKNOWN:
-            raise AxisStateUnknownError(axis)
+        if self._drive_refused(state):
+            raise AxisStateUnknownError({axis: state})
+
+    @staticmethod
+    def _drive_refused(state: str | None) -> bool:
+        """Whether the pre-drive gate refuses to drive an axis in ``state``.
+
+        Only UNKNOWN: a HOMING axis must drive for its home to finish, and a
+        move asked for while it homes waits behind the home on the motion
+        lane. One rule, read by the gate and by ``refuse_unknown_positions``,
+        so an answer given before a move is submitted cannot disagree with
+        the gate that later drives it.
+        """
+        return state == AxisState.UNKNOWN
+
+    def refuse_unknown_positions(self, axes: Iterable[str], *, recording: bool, then: str) -> None:
+        """Refuse, once, a gesture that needs axes whose position is not known.
+
+        A person's gesture often touches several axes -- going to a step
+        moves X, Y, Z and the turret; saving a bookmark records a position.
+        Refused axis by axis on the motion lane, one condition becomes one
+        refusal per axis, each arriving after the gesture has moved on; and
+        a recorded position is simply the last number the axis reported,
+        real-looking and no longer true. This asks once, before anything is
+        submitted or written, names every axis in one sentence, and tells
+        the user once.
+
+        Two questions, because moving and recording differ over an axis
+        that is still homing: its move queues behind the home and lands,
+        so moving refuses only what the pre-drive gate refuses; its
+        position is not yet one to save, so recording refuses it too.
+
+        A consult seam for the GUI's gestures, not part of the L2 API
+        surface: an L2 caller's move meets the pre-drive gate, and the
+        positions a script saves go through API members that ask for
+        themselves.
+
+        Args:
+            axes: The axes the gesture needs. An axis this scope does not
+                have is not asked about.
+            recording: True when the gesture saves the position, False
+                when it moves.
+            then: What the user does once the scope knows its position,
+                ending the refusal (e.g. ``'move it'``, ``'save the
+                bookmark'``).
+
+        Raises:
+            AxisStateUnknownError: Naming every refused axis. Logged and
+                notified once before it is raised; the caller catches it
+                and stops, and shows nothing more.
+        """
+        wanted = set(axes)
+        with self._axis_state_lock:
+            states = {axis: s for axis, s in self._axis_state.items() if axis in wanted}
+        refused = {
+            axis: s
+            for axis, s in states.items()
+            if (not self._position_known(s) if recording else self._drive_refused(s))
+        }
+        if not refused:
+            return
+        error = AxisStateUnknownError(refused, then=then)
+        _api_log.warning(f'[API] Gesture refused: {error}')
+        # Solicited: the user just asked for this, so it reaches them even
+        # while a run is in flight.
+        notifications.warning(
+            'Motion',
+            error.title,
+            str(error),
+            solicited=True,
+            operation_key=REFUSAL_OPERATION_KEY,
+        )
+        raise error
 
     # ------------------------------------------------------------------
     # Stateless method bodies.
@@ -392,6 +538,8 @@ class MotionAPI:
             if exception is not None:
                 raise exception
             return result
+        if wait_timeout is not None:
+            refuse_blocking_inline(name)
         waiter = ex.put(task, return_future=True)
         if waiter is None:
             logger.warning(
@@ -405,25 +553,30 @@ class MotionAPI:
 
     def move_absolute_async(
         self,
-        axis,
-        position,
+        axis: str,
+        position: float,
         *,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        callback: Callable | None = None,
+        cb_kwargs: dict | None = None,
+        frame: str = 'stage',
     ) -> None:
         """Submit the absolute move to the io_executor; return immediately.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            position: Target position -- um for X/Y/Z; turret slot (1-4) for T.
+            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
+                ``move_turret``; "T" is refused here.
+            position: Target position, in um.
             wait_until_complete: If True, the WORKER blocks until the move
                 finishes; this call still returns immediately.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
+            frame: ``'stage'`` (um, the default) or ``'plate'`` (mm as the
+                user types them). See ``_move_absolute_impl``.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_absolute_async')
         self._submit_motion(
             self._move_absolute_impl,
             'move_absolute_async',
@@ -432,6 +585,7 @@ class MotionAPI:
                 'position': position,
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
+                'frame': frame,
             },
             callback=callback,
             cb_kwargs=cb_kwargs,
@@ -453,6 +607,14 @@ class MotionAPI:
         """
         if not self._scope.motor_connected:
             return
+        # The generation moves inside this lock, after the board answered,
+        # and a waited move reads it under the same lock: a move the STOP
+        # ended cannot read the generation before the bump, and a firmware
+        # that does not implement STOP (nothing stopped) never bumps it.
+        with self._stop_lock:
+            self._send_stop()
+
+    def _send_stop(self) -> None:
         try:
             # Route through MotorBoard.motor_stop so field firmware
             # (2024-09-10 EL-0940-02, no STOP command) silently no-ops
@@ -461,6 +623,7 @@ class MotionAPI:
             # False if firmware doesn't implement it (cached).
             stopped = self._driver.motor_stop()
             if stopped:
+                self._stop_generation += 1
                 logger.info('[SCOPE API ] stop_motion: motors stopped')
             else:
                 logger.debug(
@@ -468,6 +631,9 @@ class MotionAPI:
                     'implement STOP; motors will latch on disconnect'
                 )
         except Exception as e:
+            # The exchange may have failed after the board took the STOP,
+            # so a move in flight cannot be vouched for as arrived.
+            self._stop_generation += 1
             # Log + notify, but don't re-raise: stop_motion is called
             # from shutdown paths where the caller can't meaningfully
             # recover and a raised exception would leave disconnect()
@@ -483,51 +649,30 @@ class MotionAPI:
             except Exception:
                 pass
 
-    def get_turret_position_for_objective_id(
-        self,
-        objective_id: str,
-        prefer_current: bool = True,
-        persisted_position: int | None = None,
-    ) -> int | None:
-        """Find the turret position holding a given objective.
+    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        """The turret slot to use for an objective, or None when no slot carries it.
 
-        Lookup ranking when multiple positions hold the same objective (#488):
-            1. Persisted position from settings, if it matches objective_id
-               and is provided by the caller. Honors the user's most
-               recent explicit choice -- survives restarts and post-home
-               situations where the current physical position is an
-               artifact of the home routine (T zeros to 1), not user
-               intent.
-            2. Current physical T position, if it matches objective_id.
-               Catches the case where the user has already rotated to a
-               matching slot in this session and no persisted hint exists.
-            3. First-match dict iteration (lowest position with the
-               objective). Used when neither hint is available -- preserves
-               today's fallback behavior.
+        One lookup for every caller -- a run's step and a person's step
+        navigation -- so the two choose the same slot. When several slots
+        carry the objective, ranked:
+            1. The preferred slot (``get_preferred_turret_slot``): the last
+               slot a turret move landed on, surviving a restart. After a
+               home the turret sits on slot 1 by convention, which says
+               nothing about which of two identical objectives a person
+               uses.
+            2. The turret's current slot (``get_turret_slot``).
+            3. The lowest-numbered slot carrying it.
 
         Args:
             objective_id: Objective identifier to search for.
-            prefer_current: If True (default), check the current physical
-                turret position when persisted_position is unavailable
-                or doesn't match.
-            persisted_position: Caller-supplied hint, typically
-                ``settings.get('turret_position')``. None disables this
-                tier of the lookup.
 
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
         turret_config = self._scope.runtime_state.get_turret_config()
-        if persisted_position is not None and turret_config.get(persisted_position) == objective_id:
-            return persisted_position
-
-        if prefer_current:
-            try:
-                current_pos = self.get_current_position(axis='T')
-                if turret_config.get(current_pos) == objective_id:
-                    return current_pos
-            except Exception:
-                pass
+        for slot in (self._preferred_turret_slot, self.get_turret_slot()):
+            if slot is not None and turret_config.get(slot) == objective_id:
+                return slot
 
         for (
             turret_position,
@@ -542,17 +687,22 @@ class MotionAPI:
         """Check whether the objective slot at the current turret position is set.
 
         Returns:
-            bool: True if the current turret position has a configured
-                objective ID; False if the slot is unconfigured.
+            bool: True if the turret's current slot is known and has a
+                configured objective ID; False if the slot is unconfigured
+                or not known -- an unknown slot has no objective anyone can
+                name.
         """
-        position = self.get_current_position(axis='T')
-        return self._scope.runtime_state.get_turret_config()[position] is not None
+        slot = self.get_turret_slot()
+        if slot is None:
+            return False
+        return self._scope.runtime_state.get_turret_config()[slot] is not None
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Get the axis configuration from the motion board.
 
         Returns:
-            dict: Axis configuration (axes present, limits, etc.).
+            Mapping: Axis configuration (axes present, limits, etc.),
+            read-only: an edit raises ``TypeError``.
         """
         return self._driver.get_axes_config()
 
@@ -614,6 +764,9 @@ class MotionAPI:
         _api_log.info('home START')
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
+        # A homing turret is in no known slot until the home succeeds.
+        self._last_turret_position = None
+        stop_generation = self._stop_generation
         if 'Z' in present_axes:
             self._scope.imaging.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
@@ -632,14 +785,21 @@ class MotionAPI:
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
                 return False
+            # The position is read BEFORE an axis says IDLE: a reader that
+            # samples at frame rate would otherwise pair "known" with the
+            # pre-home number for the length of the serial round-trips.
+            read = self._refresh_position_cache()
             for ax in present_axes:
-                self._set_axis_state(ax, AxisState.IDLE)
-            self._refresh_position_cache()
-            # The firmware homes the turret to position 1, so seed the cache.
-            # Without this it stays None and a subsequent move_turret(1) -- e.g. the
-            # startup select-position-1 -- can't recognize the turret is
-            # already there, and runs a redundant Z-retract / rotate / restore.
-            if 'T' in present_axes:
+                if ax in read:
+                    self._set_axis_state(ax, AxisState.IDLE)
+            if not self._report_unread_axes(present_axes, read):
+                return False
+            # The firmware homes the turret to slot 1. Recording it also lets
+            # a following move_turret(1) -- e.g. the startup select-slot-1 --
+            # recognise the turret is already there instead of running a
+            # redundant Z-retract / rotate / restore. Not after a stop: a
+            # home the stop cut short did not reach slot 1.
+            if 'T' in present_axes and not self._stopped_since(stop_generation):
                 self._last_turret_position = 1
             return True
         except Exception:
@@ -737,6 +897,9 @@ class MotionAPI:
         # Setting T to HOMING clears its arrival event, which would block
         # wait_until_finished_moving() inside _safe_turret_move's Z move.
         _api_log.info('T home START')
+        # A homing turret is in no known slot until the home succeeds.
+        self._last_turret_position = None
+        stop_generation = self._stop_generation
         try:
             with self._reference_position_logger(), self._safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
@@ -762,11 +925,13 @@ class MotionAPI:
                     'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
                 )
                 return False
-            self._refresh_position_cache()
-            # Turret homes to position 1; seed the cache so a following
-            # move_turret(1) is a no-op rather than a redundant Z-retract / rotate /
-            # restore (see home() for the full rationale).
-            self._last_turret_position = 1
+            read = self._refresh_position_cache()
+            if not self._report_unread_axes(('T',), read):
+                return False
+            # Turret homes to slot 1 (see home() for why it is recorded). A
+            # home a stop cut short did not reach it.
+            if not self._stopped_since(stop_generation):
+                self._last_turret_position = 1
             _api_log.info('T home DONE')
             return True
         except Exception:
@@ -777,26 +942,6 @@ class MotionAPI:
             )
             _api_log.info('T home DONE')
             return False
-
-    def has_turret_homed(self) -> bool:
-        """Whether the turret has a known reference position.
-
-        Answers from the axis state rather than the driver's homing
-        latch. The latch records only that a THOME once succeeded and
-        clears only on physical disconnect, so a stall or a mid-move
-        board dropout leaves it True while the turret's real reference
-        is gone -- and the caller that asks this question asks it to
-        decide whether driving the turret is safe.
-
-        Returns:
-            bool: True if the turret position is known. On a board with
-                no turret there is nothing to home, so this follows the
-                stage answer, matching what the driver latch reported.
-        """
-        if 'T' not in self._axis_state:
-            return self.has_homed()
-        with self._axis_state_lock:
-            return self._position_known(self._axis_state['T'])
 
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
@@ -813,7 +958,25 @@ class MotionAPI:
 
         Raises:
             AxisStateUnknownError: The turret position is unknown.
+            PositionOutOfRangeError: The slot is not a whole number 1-4.
+            MoveNotCompletedError: The Z park, the turret move or the Z
+                restore did not arrive, or was stopped. The slot is unknown
+                afterwards, whichever of the three it was.
         """
+        # Refused here as well as at the generic door below, and both are
+        # load-bearing: this one precedes the safety Z-retract and the
+        # same-position short-circuit, so a nonsense slot cannot drop Z or
+        # poison the position cache on its way to being refused.
+        if not is_turret_slot(position):
+            raise PositionOutOfRangeError(
+                'T',
+                position,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
+            )
+
         # Refuse BEFORE the safety Z-retract below, not inside it. The
         # retract is real motion; gating only the inner turret move would
         # drop Z to 0 against an unknown reference and refuse afterwards.
@@ -826,15 +989,94 @@ class MotionAPI:
         self._pre_drive('T')
 
         # Commanding a move of the T axis is slow, even if the move is to the current position.
-        # Use caching to determine if T is requested to move to it's current position, and bypass the
-        # move altogether if it is.
+        # A request for the slot the last successful turret command left the
+        # turret in is answered without moving -- and is still a choice of
+        # that slot.
         if self._last_turret_position == position:
+            self._preferred_turret_slot = int(position)
             return
 
+        # Unknown from the start, and written only once the whole command --
+        # park, move, restore -- returned: a raise anywhere in it leaves the
+        # turret in no slot anyone can vouch for.
+        self._last_turret_position = None
         with self._safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self._move_absolute_impl('T', position, wait_until_complete=True)
-            self._last_turret_position = position
+        self._last_turret_position = int(position)
+        self._preferred_turret_slot = int(position)
+
+    def get_turret_slot(self) -> int | None:
+        """The turret slot in the light path, or None when it is not known.
+
+        The slot the last turret command (``move_turret``, a home) left the
+        turret in, recorded only when that command returned without error
+        and no stop was issued while it ran. None before the first such
+        command, while one is in flight, after one failed, and whenever the
+        turret's position is lost. The turret has no encoder, so nothing
+        else can say which slot is in the light path; the controller's step
+        count is not a slot.
+
+        Returns:
+            int | None: The slot, 1-4, or None.
+        """
+        return self._last_turret_position
+
+    def get_preferred_turret_slot(self) -> int | None:
+        """The slot the last successful turret move landed on, or None.
+
+        Never written by a home. Seeded at bring-up from the saved turret
+        position, so a person's choice between two slots carrying the same
+        objective survives a restart; the slot lookup prefers it.
+
+        Returns:
+            int | None: The slot, 1-4, or None when no preference is known.
+        """
+        return self._preferred_turret_slot
+
+    def seed_preferred_turret_slot(self, slot: int | None) -> None:
+        """Seed the preferred slot at bring-up from the saved turret position.
+
+        This is not part of the L2 API surface: it is bring-up's seam,
+        called by ``Lumascope.initialize`` with the saved value. A caller
+        that wants a slot preferred turns the turret to it with
+        ``move_turret``.
+
+        Raises:
+            PositionOutOfRangeError: ``slot`` is neither None nor a slot 1-4.
+        """
+        if slot is not None and not is_turret_slot(slot):
+            raise PositionOutOfRangeError(
+                'T',
+                slot,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
+            )
+        self._preferred_turret_slot = slot
+
+    def jog_step(self, axis: str, coarse: bool) -> float:
+        """The jog step for ``axis`` under the active objective.
+
+        A jog's size scales with the objective, so the active objective's
+        catalogue entry answers: ``z_coarse`` / ``z_fine`` for Z,
+        ``xy_coarse`` / ``xy_fine`` for X and Y, in the units
+        ``move_relative`` takes for that axis.
+
+        Raises:
+            ObjectiveUnknownError: The objective in the light path is
+                unknown; no step is guessed, so nothing should move.
+            ValueError: ``axis`` is not 'X', 'Y' or 'Z'.
+        """
+        if axis == 'Z':
+            kind = 'z'
+        elif axis in ('X', 'Y'):
+            kind = 'xy'
+        else:
+            raise ValueError(f"jog_step: axis must be 'X', 'Y' or 'Z', got {axis!r}")
+        _, objective = self._scope.runtime_state.resolve_current_objective()
+        return objective[f'{kind}_{"coarse" if coarse else "fine"}']
 
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
@@ -870,6 +1112,14 @@ class MotionAPI:
             axis: Axis name ("X", "Y", "Z", "T").
             enabled: True for precise positioning, False for speed.
         """
+        return self._dispatch_motion(
+            self._set_precision_mode_impl,
+            'set_precision_mode',
+            args=(axis, enabled),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def _set_precision_mode_impl(self, axis: str, enabled: bool) -> None:
         if not self._scope.motor_connected:
             return
         self._driver.set_precision_mode(axis, enabled)
@@ -1028,24 +1278,26 @@ class MotionAPI:
 
     def move_relative_async(
         self,
-        axis,
-        distance,
+        axis: str,
+        distance: float,
         *,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        callback: Callable | None = None,
+        cb_kwargs: dict | None = None,
     ) -> None:
         """Submit ``move_relative`` to the io_executor.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            distance: Distance to move -- um for X/Y/Z; turret slots for T.
+            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
+                ``move_turret``; "T" is refused here.
+            distance: Distance to move, in um.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_relative_async')
         self._submit_motion(
             self._move_relative_impl,
             'move_relative_async',
@@ -1196,16 +1448,18 @@ class MotionAPI:
         with self._axis_state_lock:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Get the travel limits for an axis, in um.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
 
         Returns:
-            dict with 'min' and 'max' positions in um, or ``None`` if
-            the axis has no configured limits (typical for the turret
-            T axis). Callers must handle the None case.
+            A read-only mapping with 'min' and 'max' positions in um
+            (an edit raises ``TypeError``: it is the bound moves are
+            refused against), or ``None`` if the axis has no configured
+            limits (typical for the turret T axis). Callers must handle
+            the None case.
         """
         return self._driver.get_axis_limits(axis=axis)
 
@@ -1248,8 +1502,11 @@ class MotionAPI:
                 )
                 self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
-            self._set_axis_state('Z', AxisState.IDLE)
-            self._refresh_position_cache()
+            read = self._refresh_position_cache()
+            if 'Z' in read:
+                self._set_axis_state('Z', AxisState.IDLE)
+            if not self._report_unread_axes(('Z',), read):
+                return False
             _api_log.info('Z home DONE')
             return True
         except Exception:
@@ -1265,7 +1522,7 @@ class MotionAPI:
         """Whether the stage / focus axes have a known reference position.
 
         Answers from the axis state rather than the driver's homing
-        latch, for the same reason as ``has_turret_homed``: the latch survives
+        latch: the latch survives
         every fault short of a physical disconnect, so it keeps
         reporting "homed" after a stall or a dropout has already
         invalidated the reference frame.
@@ -1285,25 +1542,114 @@ class MotionAPI:
             return False
         return all(self._position_known(state) for state in stage_states)
 
-    def _refresh_position_cache(self) -> None:
-        """Fetch all axis positions from hardware and update the cache.
+    def axes_without_position(self) -> dict[str, str]:
+        """Which of this scope's axes do not know their position, and why.
 
-        Called after homing completes to sync the cache with actual hardware
-        positions. During normal operation the cache is updated directly
-        by move commands -- no polling needed.
+        The question a run asks before it starts and before each capture:
+        every run moves every axis the scope has, and an image taken where
+        an axis is not known is saved with a position that is not true.
+        Each axis is answered with its own state because the two causes
+        need different words -- a HOMING axis is about to know, and its
+        user should wait; an UNKNOWN one has lost its reference, and its
+        user must home.
+
+        Unlike ``has_homed``, a scope with no axes answers nothing: it has
+        no position to lose, so nothing about it is unknown.
+
+        Returns:
+            dict[str, str]: Axis name to its state (``AxisState.UNKNOWN``
+                or ``AxisState.HOMING``) for every axis whose position is
+                not known, in the scope's axis order. Empty when every
+                axis knows its position.
+        """
+        with self._axis_state_lock:
+            return {
+                axis: state
+                for axis, state in self._axis_state.items()
+                if not self._position_known(state)
+            }
+
+    def axis_positions(self) -> dict[str, AxisPosition]:
+        """Every axis's state and its position, or None where the position is not known.
+
+        One snapshot: the state and the cache are read together, so a
+        caller writing a position into a file cannot pair a number with a
+        state that changed between two reads. An axis is answered with a
+        position only while it is IDLE or MOVING; UNKNOWN and HOMING
+        answer None whatever the cache holds, because the cache keeps the
+        last number an axis reported after its reference is lost. um for
+        X/Y/Z, the slot for T. No serial I/O.
+
+        The state lock is taken first and the cache lock inside it. No
+        other path nests the two, so this order cannot meet its reverse.
+
+        Returns:
+            dict[str, AxisPosition]: Axis name to (state, position), in
+                the scope's axis order.
+        """
+        with self._axis_state_lock:
+            states = dict(self._axis_state)
+            with self._pos_cache_lock:
+                cache = dict(self._pos_cache)
+        return {
+            ax: AxisPosition(state, cache.get(ax) if self._position_known(state) else None)
+            for ax, state in states.items()
+        }
+
+    def _report_unread_axes(self, homed: tuple | list, read: set[str]) -> bool:
+        """After a home: say which homed axes could not be read, if any.
+
+        A home whose mechanics succeeded but whose position could not be
+        read has not established a reference: the axis is already UNKNOWN
+        (the refresh set it) and the caller must hear False, not a True
+        that every consumer reads as "the scope knows where it is".
+
+        Returns:
+            bool: True when every homed axis was read.
+        """
+        unread = [ax for ax in homed if ax not in read]
+        if not unread:
+            return True
+        axes = ', '.join(unread)
+        logger.error(f'[SCOPE API ] Homed, but the position of {axes} could not be read')
+        notifications.error(
+            'Motion',
+            'Homing Failed',
+            f'Homing finished but the position of {axes} could not be read. Position is unknown.',
+        )
+        return False
+
+    def _refresh_position_cache(self) -> set[str]:
+        """Read every axis's position from the hardware into the cache.
+
+        Called after a home, and once at construction, to sync the cache
+        with the hardware; during normal operation the cache is updated
+        by move commands and the motion monitor. An axis whose read fails
+        or answers None is set UNKNOWN and its cache entry is left alone:
+        a number nobody read is not a position, and a caller that writes
+        positions into a file would otherwise record it as one.
+
+        Returns:
+            set[str]: The axes whose position was read.
         """
         positions = {}
         for ax in self._scope.capabilities.axes:
             try:
                 pos = self._driver.target_pos(axis=ax)
-                positions[ax] = pos if pos is not None else 0.0
             except Exception:
-                positions[ax] = 0.0
+                logger.exception(f'[SCOPE API ] Position read failed on axis {ax}')
+                pos = None
+            if pos is None:
+                _api_log.warning(f'position read on {ax} answered nothing; axis UNKNOWN')
+                self._set_axis_state(ax, AxisState.UNKNOWN)
+                continue
+            positions[ax] = pos
 
         with self._pos_cache_lock:
             self._pos_cache.update(positions)
         for ax in positions:
             self._fire_position_listeners(ax)
+        return set(positions)
 
     def _read_position_cache(self, axis: str | None) -> float | dict:
         """Shared cache-read primitive for the position-query methods.
@@ -1446,6 +1792,60 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
+    def _plate_target_to_stage(self, axis: str, plate_mm: float, ignore_limits: bool) -> float:
+        """Check a plate-frame target against what this stage can reach, then convert.
+
+        A plate coordinate is the number a user types into the position
+        boxes, in mm from the plate's top-left. Converting it before
+        checking it is what produced refusals quoting a negative stage
+        micron value for a positive typed number: the transform inverts
+        the axis, so a coordinate past the plate becomes a target below
+        zero, and the travel check then reported THAT number.
+
+        The bound checked here is the reachable band -- the set of plate
+        coordinates whose converted target lies within travel -- rather
+        than the labware extent, which is wider. An extent check would
+        pass a coordinate the stage still cannot serve and hand the user
+        a second refusal in the other frame for the same mistake.
+
+        The band is the inverse image of the travel interval under a
+        transform that is affine and strictly decreasing in the plate
+        coordinate, so refusing here rejects exactly what the travel
+        check downstream would reject. That equivalence is what lets the
+        protocol paths adopt this frame without changing which moves they
+        refuse -- only the sentence the refusal carries.
+
+        Honours ``ignore_limits`` for the same reason the travel check
+        does: it is one bound expressed in two units, and a hatch that
+        stopped working when the caller changed frames would be a trap.
+        """
+        if axis not in ('X', 'Y'):
+            raise ValueError(f"frame='plate' applies to the X and Y axes, got {axis!r}")
+
+        key = axis.lower()
+        stage_position = self._scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
+
+        limits = self.get_axis_limits(axis)
+        if limits is not None and not ignore_limits:
+            dimension = self._scope.runtime_state.get_labware().get_dimensions()[key]
+            offset_mm = self._scope.runtime_state.get_stage_offset()[key] / 1000
+            # Inverting sx = (dimension - offset - px) * 1000: the map
+            # decreases in px, so the travel MAXIMUM yields the plate
+            # minimum and vice versa.
+            band_low = round(dimension - offset_mm - limits['max'] / 1000, 2)
+            band_high = round(dimension - offset_mm - limits['min'] / 1000, 2)
+            if not (band_low <= plate_mm <= band_high):
+                raise PositionOutOfRangeError(
+                    axis,
+                    plate_mm,
+                    band_low,
+                    band_high,
+                    bound='reachable range',
+                    quantity='plate position',
+                )
+
+        return stage_position
+
     def _move_absolute_impl(
         self,
         axis: str,
@@ -1454,6 +1854,7 @@ class MotionAPI:
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         force: bool = False,
+        frame: str = 'stage',
     ) -> None:
         """Move an axis to an absolute position.
 
@@ -1467,25 +1868,84 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid or position is not numeric / out of bounds.
+            ValueError: If axis is invalid or position is not numeric.
+            PositionOutOfRangeError: The target is outside the axis's
+                configured travel and ``ignore_limits`` is False. A
+                ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
+            MoveNotCompletedError: ``wait_until_complete`` was set and the
+                axis did not arrive; see ``_await_arrival``.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         if not isinstance(position, (int, float)):
             raise ValueError(f'Position must be numeric, got {type(position).__name__}')
-        if abs(position) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Position {position} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
-            )
-
         # Silently no-op for axes that aren't present on this hardware.
         # _arrival_events is sized to detect_present_axes() at init,
         # so this is the canonical "is this axis trackable" check.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
+
+        if frame == 'plate':
+            position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
+        elif frame != 'stage':
+            raise ValueError(f"frame must be 'stage' or 'plate', got {frame!r}")
+
+        # Refuse a target beyond the axis's travel; this is the only travel
+        # check, the drivers have none. A move stopped short at a limit
+        # reports success at a position nobody asked for, so a protocol step saved beyond this scope's
+        # travel images the wrong place and the log cannot tell that from a
+        # step that went where it was told. Axes with no configured travel
+        # return None here -- the turret, whose position is a slot rather
+        # than a distance -- so THIS check cannot refuse anything for them.
+        # That does not make them unbounded: the turret's own bound is
+        # checked below, against its slots.
+        if not ignore_limits:
+            limits = self.get_axis_limits(axis)
+            if limits is not None and not (limits['min'] <= position <= limits['max']):
+                raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
+
+        # The turret's bound, which the travel check above cannot express: a
+        # slot is not a distance, so get_axis_limits returns None for T and
+        # nothing there refuses anything. Without this, a T target of 99 is
+        # 24.5 revolutions. The public generic doors refuse T outright; the
+        # caller that still reaches this body with T is move_turret, and the
+        # bound keeps that one honest too.
+        #
+        # Before the ceiling below for the same reason travel is: the bound
+        # that knows what the number MEANS answers first, so the turret gives
+        # one vocabulary for every bad slot rather than naming slots for 5 and
+        # a metre for 2000000.
+        if axis == 'T' and not is_turret_slot(position):
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                TURRET_SLOT_MIN,
+                TURRET_SLOT_MAX,
+                bound='turret slots',
+                quantity='slot',
+            )
+
+        # The coarse sanity ceiling, checked AFTER the bounds above so the
+        # bound that knows the axis answers first. For any axis that publishes
+        # travel, travel lies inside this bound, and the turret is refused by
+        # slot above, so reaching here means no bound that understands this
+        # axis could speak for it. Ordering it the other way gave a user two
+        # different answers for one mistake: a typed value a little past
+        # travel named the travel range, and a larger one named a 1 m ceiling
+        # that means nothing to them. Not gated on ignore_limits: that hatch
+        # is for driving outside TRAVEL deliberately, not for handing the
+        # motor an arbitrary number.
+        if abs(position) > MOTOR_POSITION_LIMIT:
+            raise PositionOutOfRangeError(
+                axis,
+                position,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+            )
 
         self._pre_drive(axis, force=force)
 
@@ -1515,10 +1975,9 @@ class MotionAPI:
         # time the axis is marked MOVING the hardware XTARGET is already
         # the new value, so position_reached is reliably False and the
         # motion monitor polls until real arrival.
+        stop_generation = self._stop_generation
         try:
-            self._driver.move_abs_pos(
-                axis, position, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
-            )
+            self._driver.move_abs_pos(axis, position, overshoot_enabled=overshoot_enabled)
         except Exception:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fault_axis(axis)
@@ -1543,8 +2002,61 @@ class MotionAPI:
         _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
+            self._await_arrival(axis, stop_generation)
+
+    def _await_arrival(self, axis: str, stop_generation: int) -> None:
+        """Return only once ``axis`` confirmably reached its target; raise otherwise.
+
+        Arrival is the motion monitor's verdict: it sets the axis IDLE when
+        the firmware reports the target reached, or UNKNOWN when it gives
+        the axis up (a stall, a lost board). Either one sets the arrival
+        event, so the wait returning says only that the axis STOPPED
+        moving, not that it arrived -- the state says which. Writing IDLE
+        here after the wait, whatever it returned, made a stalled move read
+        as arrived.
+
+        The wait watches every axis, so it can time out on one this move
+        never touched. That axis's outcome belongs to whatever moved it:
+        the monitor's own stall clock faults a MOVING axis, and a home
+        decides its own axis. Only this move's axis is judged here.
+
+        This axis's event is read only when the wait timed out. After a wait
+        that saw every axis stop, a cleared event means a later move on
+        this axis has started, and faulting it would fault that move.
+
+        A STOP sets target = actual on every axis, so the firmware then
+        reports the target reached wherever the axis halted and the monitor
+        sets it IDLE. ``stop_generation`` is what the generation was before
+        this move drove; a different one now means a stop landed on it.
+
+        Args:
+            axis: The axis this move drove.
+            stop_generation: ``_stop_generation`` read before the drive.
+
+        Raises:
+            MoveNotCompletedError: The axis was faulted UNKNOWN during the
+                wait, or had not arrived when the wait's bound ran out (the
+                axis is UNKNOWN either way), or a stop was issued while it
+                moved (the axis is where the stop left it).
+        """
+        all_stopped = self.wait_until_finished_moving(timeout_s=self._MOTION_SETTLE_TIMEOUT_S)
+        if not all_stopped and not self._arrival_events[axis].is_set():
+            self._set_axis_state(axis, AxisState.UNKNOWN)
+            raise MoveNotCompletedError(axis, 'timed_out')
+        if self.get_axis_state(axis) == AxisState.UNKNOWN:
+            raise MoveNotCompletedError(axis, 'faulted')
+        if self._stopped_since(stop_generation):
+            raise MoveNotCompletedError(axis, 'stopped')
+
+    def _stopped_since(self, stop_generation: int) -> bool:
+        """Whether a stop landed after ``_stop_generation`` read ``stop_generation``.
+
+        Read under the lock stop_motion holds across its exchange, so a
+        caller whose motion that stop ended waits for the bump instead of
+        reading the value from before it.
+        """
+        with self._stop_lock:
+            return self._stop_generation != stop_generation
 
     def _move_relative_impl(
         self,
@@ -1564,6 +2076,8 @@ class MotionAPI:
         Raises:
             ValueError: If axis is invalid or distance is not numeric / out of bounds.
             AxisStateUnknownError: The axis position is unknown.
+            MoveNotCompletedError: ``wait_until_complete`` was set and the
+                axis did not arrive; see ``_await_arrival``.
 
         There is deliberately no ``force`` hatch here. Every caller is a
         user jog or an autofocus sweep, and none of them is a recovery
@@ -1576,8 +2090,14 @@ class MotionAPI:
         if not isinstance(distance, (int, float)):
             raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
         if abs(distance) > MOTOR_POSITION_LIMIT:
-            raise ValueError(
-                f'Distance {distance} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+            # Same refusal as the absolute path, reachable the same way.
+            raise PositionOutOfRangeError(
+                axis,
+                distance,
+                -MOTOR_POSITION_LIMIT,
+                MOTOR_POSITION_LIMIT,
+                bound='safety limit',
+                quantity='distance',
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1612,6 +2132,16 @@ class MotionAPI:
             with self._pos_cache_lock:
                 start_pos = self._pos_cache.get(axis, 0.0)
         target_pos = start_pos + float(distance)
+
+        # The same travel refusal as the absolute path, against the target
+        # this move is about to publish. Without it the driver turned the
+        # offset into an absolute move beyond travel and nothing refused it,
+        # so a jog past a limit reported success from wherever the stage
+        # stopped.
+        limits = self.get_axis_limits(axis)
+        if limits is not None and not (limits['min'] <= target_pos <= limits['max']):
+            raise PositionOutOfRangeError(axis, target_pos, limits['min'], limits['max'])
+
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
@@ -1619,6 +2149,7 @@ class MotionAPI:
 
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute (#618).
+        stop_generation = self._stop_generation
         try:
             self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
         except Exception:
@@ -1645,14 +2176,14 @@ class MotionAPI:
         _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
-            self.wait_until_finished_moving()
-            self._set_axis_state(axis, AxisState.IDLE)
+            self._await_arrival(axis, stop_generation)
 
     # --- Public dispatch ---
-    # These six are what an external caller reaches: an SDK script, a REST
-    # handler, the GUI. Every internal caller binds the matching `_impl`
-    # instead, so nothing already running on an executor worker or on the
-    # protocol or autofocus thread ever arrives here.
+    # These six are what every caller reaches: an SDK script, a REST
+    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
+    # which call them under their taking so the lane admits their work while
+    # they hold the scope. From a task already on the lane's worker the lane
+    # runs the body inline.
 
     # Base liveness margin for a dispatched motion command: queue residence
     # plus the serial round-trips, with headroom. The per-command wait adds
@@ -1679,11 +2210,9 @@ class MotionAPI:
         is `put` returning None and the command disappearing with nothing
         raised and nothing logged.
 
-        The refusal asks only WHETHER work is accepted, and asks twice: once
-        before submitting, and again on `put` returning None -- a protocol
-        fence can land between the check and the submit, and without the
-        second check that race surfaces as an AttributeError on the missing
-        future instead of the typed refusal.
+        The lane's ``call`` decides a refusal and raises it to the caller:
+        the lane is closed, or a run or a diagnostic holds the scope and this
+        call is not made under its taking.
 
         slow_task_threshold_sec declares how long this command may take
         before the elapsed-time WARNING means anything. Left None the task
@@ -1696,20 +2225,16 @@ class MotionAPI:
         ex = self._scope._io_executor
         if ex is None:
             return impl(*args, **kwargs)
-        if not ex.accepts_work():
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        fut = ex.put(
+        return ex.call(
             IOTask(
                 action=impl,
                 args=args,
                 kwargs=kwargs,
                 slow_task_threshold_sec=slow_task_threshold_sec,
             ),
-            return_future=True,
+            name,
+            timeout_s,
         )
-        if fut is None:
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        return fut.result(timeout=timeout_s)
 
     def move_absolute(
         self,
@@ -1718,14 +2243,16 @@ class MotionAPI:
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
+        frame: str = 'stage',
     ) -> None:
-        """Move an axis to an absolute position (um for X/Y/Z; turret slot 1-4 for T).
+        """Move X, Y or Z to an absolute position, in um. The turret moves by slot: ``move_turret``.
 
         Waits for the command. See ``_move_absolute_impl`` for the argument contract and
         the errors it raises; this adds only the dispatch described on
         ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
         also covers the physical motion the body waits out.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_absolute')
         return self._dispatch_motion(
             self._move_absolute_impl,
             'move_absolute',
@@ -1734,6 +2261,7 @@ class MotionAPI:
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
                 'ignore_limits': ignore_limits,
+                'frame': frame,
             },
             timeout_s=self._MOTION_WAIT_BASE_S
             + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
@@ -1746,10 +2274,11 @@ class MotionAPI:
         wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
-        """Move an axis by a relative distance (um for X/Y/Z; turret slots for T).
+        """Move X, Y or Z by a relative distance, in um. The turret moves by slot: ``move_turret``.
 
         Waits for the command. See ``_move_relative_impl`` for the argument contract.
         """
+        self._refuse_turret_on_generic_door(axis, 'move_relative')
         return self._dispatch_motion(
             self._move_relative_impl,
             'move_relative',
@@ -1868,6 +2397,11 @@ class MotionAPI:
         with self._axis_state_lock:
             old_state = self._axis_state.get(axis, AxisState.UNKNOWN)
             self._axis_state[axis] = state
+            # One place for every route that loses the turret -- a fault, a
+            # failed home, a stall, a lost board: a turret whose position is
+            # unknown is in no known slot.
+            if axis == 'T' and state == AxisState.UNKNOWN:
+                self._last_turret_position = None
         if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
             profile_trace.trace(
                 'motion_trace.csv',

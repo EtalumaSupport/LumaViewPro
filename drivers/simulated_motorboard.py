@@ -14,14 +14,16 @@ Failure injection (for testing error recovery):
   fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
 """
 
+import math
 import logging
 import pathlib
 import threading
 import time
 from typing import ClassVar
+from collections.abc import Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
@@ -79,9 +81,19 @@ class SimulatedMotorBoard:
         motorconfig_defaults_file: pathlib.Path | None = None,
         fail_after: int | None = None,
         fail_on: set | None = None,
+        axes: Iterable[str] | None = None,
         **kwargs,
     ):
+        """``axes``: the motor axes the board carries. A simulated scope
+        passes its model's axes from the catalogue; a board built on its
+        own, with none given, carries X/Y/Z for an LS85x model and Z
+        otherwise, plus T for a model whose name ends in T."""
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
+        if axes is None:
+            axes = {'X', 'Y', 'Z'} if model.startswith('LS85') else {'Z'}
+            if model.endswith('T'):
+                axes.add('T')
+        self._axes = frozenset(axes)
 
         # Failure injection
         self._fail_after = fail_after  # disconnect after N commands
@@ -96,7 +108,7 @@ class SimulatedMotorBoard:
         self.found = True
         self.overshoot = False
         self.backlash = self.motorconfig.antibacklash_um('Z')
-        self._has_turret = model.endswith('T')
+        self._has_turret = 'T' in self._axes
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
         self.port = '/dev/simulated_motor'
@@ -126,21 +138,23 @@ class SimulatedMotorBoard:
         # Re-apply timing mode after all state is initialized
         self.set_timing_mode(timing)
 
-        self.axes_config = {
-            'Z': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
-                'move_func': self.z_um2ustep,
-            },
-            'X': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
-                'move_func': self.xy_um2ustep,
-            },
-            'Y': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
-                'move_func': self.xy_um2ustep,
-            },
-            'T': {'move_func': self.t_pos2ustep},
-        }
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
+                    'move_func': self.z_um2ustep,
+                },
+                'X': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'Y': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -623,9 +637,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('Z') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('Z') * um / 1000 + 0.5)
 
     def xy_ustep2um(self, ustep: int) -> float:
         """Convert XY microsteps to micrometers.
@@ -645,9 +659,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('X') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('X') * um / 1000 + 0.5)
 
     def t_ustep2deg(self, ustep: int) -> float:
         """Convert turret microsteps to degrees.
@@ -809,21 +823,23 @@ class SimulatedMotorBoard:
                 f'(timeout or disconnect); the move did not happen'
             )
 
-    def target_pos(self, axis: str) -> float | int:
+    def target_pos(self, axis: str) -> float | int | None:
         """Get the target position of an axis in user units.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int: Microns for X/Y/Z, 1-based position for T, 0
-                on read failure or unknown axis.
+            float | int | None: Microns for X/Y/Z, 1-based position for
+                T, 0 for an unknown axis, or None on read failure -- the
+                real board's answer, so a failed read is not a position
+                the layer above can mistake for the origin.
         """
         try:
             response = self.exchange_command(f'TARGET_R{axis}')
             position = int(response)
         except Exception:
-            position = 0
+            return None
 
         if axis == 'Z':
             return self.z_ustep2um(position)
@@ -857,9 +873,7 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def move_abs_pos(
-        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
-    ) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Move an axis to an absolute position in user units.
 
         Mirrors the production ``MotorBoard.move_abs_pos`` contract,
@@ -871,8 +885,9 @@ class SimulatedMotorBoard:
                 position for T.
             overshoot_enabled: When True, apply Z backlash compensation
                 if the target is sufficiently below the current position.
-            ignore_limits: When True, skip the configured min/max
-                clamping.
+
+        Travel is not checked here, as in production: the motion API
+        refuses a target outside travel before it calls this.
 
         Raises:
             Exception: ``axis`` is not in ``axes_config``.
@@ -881,11 +896,6 @@ class SimulatedMotorBoard:
             raise Exception(f'Unsupported axis ({axis})')
 
         axis_config = self.axes_config[axis]
-        if 'limits' in axis_config and not ignore_limits:
-            limits = axis_config['limits']
-            pos = max(pos, limits['min'])
-            pos = min(pos, limits['max'])
-
         steps = axis_config['move_func'](pos)
 
         if overshoot_enabled and axis == 'Z':
@@ -912,6 +922,13 @@ class SimulatedMotorBoard:
                 during the underlying absolute move.
         """
         pos = self.target_pos(axis)
+        if pos is None:
+            # As the real board: a relative move is defined against the
+            # current target, and without it there is nothing to add to.
+            raise HardwareError(
+                f'move_rel_pos({axis}): cannot read the current target '
+                f'position; the move did not happen'
+            )
         self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
     # ------------------------------------------------------------------
@@ -1121,7 +1138,7 @@ class SimulatedMotorBoard:
         """
         return f'Etaluma Motor Controller {self._fullinfo["model"]} Firmware: SIMULATED'
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -1129,7 +1146,7 @@ class SimulatedMotorBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
@@ -1157,13 +1174,7 @@ class SimulatedMotorBoard:
         Returns:
             list: Axis letters present (e.g. ``['X', 'Y', 'Z', 'T']``).
         """
-        axes = ['Z']  # Z always present
-        if self._fullinfo.get('model', '').startswith('LS85'):
-            axes = ['X', 'Y', 'Z']
-        model = self._fullinfo.get('model', '')
-        if model.endswith('T'):
-            axes.append('T')
-        return axes
+        return [axis for axis in ('X', 'Y', 'Z', 'T') if axis in self._axes]
 
     def detect_homed_axes(self) -> list:
         """Return the axes the simulated board reports as homed.

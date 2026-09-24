@@ -24,7 +24,21 @@ import datetime
 import time
 from unittest.mock import MagicMock
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+
+
+def held_run_claim():
+    """A run's activity claim, as the run holds it: what a top-level LED
+    lease is taken under. Each call is a fresh claim, so two leases never
+    share one; release() it to strand a lease taken under it."""
+    return ActivityClaim().try_claim('protocol', run_trigger_source='test')
+
+
+def lent_run_claim():
+    """A run's activity claim, lent: what the run's writer and its video
+    steps receive, so they record under the run's claim."""
+    return held_run_claim().lend()
 
 
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
@@ -40,6 +54,26 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """
     deadline = time.monotonic() + timeout
     while session.is_protocol_running:
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
+def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
+    """Wait until the engine will admit another run: ended AND drained.
+
+    `run_complete` fires DURING cleanup; the run ends (the engine goes
+    IDLE) at cleanup END, after its claim and lease are handed back, and
+    its files drain after that. A start before either is refused by
+    design -- `already_running`, then `files_writing` -- so a test that
+    starts its next run on the callback alone passes or fails on timing.
+
+    Shared because every back-to-back test asks this same question, and a
+    fixed sleep or a queue-only wait answers half of it.
+    """
+    deadline = time.monotonic() + timeout
+    while executor.run_in_progress() or executor.file_io_executor.is_protocol_queue_active():
         if time.monotonic() > deadline:
             return False
         time.sleep(0.02)
@@ -104,12 +138,24 @@ def bare_capture_runner(**overrides):
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
         'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(is_running=False),
+        'autofocus_thread': MagicMock(in_flight_sweep=None),
+        'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)
+    if 'scope' not in overrides:
+        # A run is refused, and a capture raises, while any axis position is
+        # unknown; a bare mock answers that question with a truthy mock, so
+        # the default scope states the homed answer. A test about position
+        # passes its own scope.
+        kwargs['scope'].motion.axes_without_position.return_value = {}
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
+    # A run takes the camera only once the camera lane is idle; a bare mock
+    # answers "busy" and "stalled" with truthy mocks, so the default lane
+    # states the idle answer. A test about the lane passes its own executor.
+    runner.camera_executor.is_busy.return_value = False
+    runner.camera_executor.in_flight_task_stalled.return_value = False
     # The real executor returns an int drop count (0 on a clean run); the mock
     # must too, or run-end cleanup compares a MagicMock against an int.
     runner.file_io_executor.protocol_dropped_count.return_value = 0
@@ -155,6 +201,8 @@ def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
+    from modules.protocol_state_machine import ProtocolState
+
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False
     runner._scope.led_connected = False
@@ -164,8 +212,9 @@ def scan_ready_runner(step, **state):
     runner._protocol = protocol
     runner._n_scans = 1
     runner._scan_in_progress.set()
-    runner._run_in_progress_event.set()
-    runner._autogain_settings = {}
+    runner._state = ProtocolState.RUNNING
+    # prepare() always carries the target the takeover writes to the camera.
+    runner._autogain_settings = {'target_brightness': 0.5}
     runner._image_writer = MagicMock()
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
@@ -198,6 +247,17 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
     runner._callbacks = ProtocolCallbacks(go_to_step=MagicMock())
+    # The run moves every step itself: a turretless scope on a flat plate
+    # frame, its moves queued on the io executor mock.
+    runner._scope.capabilities.has_turret = False
+    runner._wellplate_loader = MagicMock()
+    runner._coordinate_transformer = MagicMock()
+    runner._coordinate_transformer.plate_to_stage.return_value = (0.0, 0.0)
     runner._cleanup = MagicMock()
+    # The loop's first act takes the camera: it snapshots the camera and
+    # takes the auto-gain arm out of that snapshot. A bare mock snapshot
+    # answers the arm with a mock, which the arm take cannot apply, so the
+    # default snapshot states the common case: no standing arm.
+    runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
     runner._set_state(ProtocolState.RUNNING)
     return runner

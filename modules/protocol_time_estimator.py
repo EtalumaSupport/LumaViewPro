@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from lvp_logger import logger
 from modules import common_utils
+from modules.exceptions import ConfigError
 from modules.objectives_loader import ObjectiveLoader
 
 
@@ -298,6 +299,6 @@ class ProtocolTimeEstimator:
             return None
         try:
             return self._objectives.get_objective_info(objective_id=objective_id)
-        except Exception as e:
+        except ConfigError as e:
             logger.debug(f"[TimeEstimator] Could not get objective info for '{objective_id}': {e}")
             return None

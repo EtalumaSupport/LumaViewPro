@@ -1,0 +1,207 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A refusal the user reads is a sentence, never a reason code.
+
+``ProtocolRunRefusedError`` carries three fields for three audiences:
+``reason`` is the machine-readable code a REST or SDK caller branches
+on, and ``title``/``message`` are the words already written for a human.
+Its ``__str__`` is ``f'{reason}: {message}'`` -- a debugging spelling
+that joins the two, and the one a blanket ``except Exception as e`` puts
+on screen when it renders ``str(e)``.
+
+So any UI handler that can catch a refusal must render the refusal's own
+title and message, or -- where the engine's funnel has already notified
+-- render nothing at all. What it must never do is hand the user the
+joined form, because that is a dialog reading "run_not_live: That run
+has already ended" over a title of "Error".
+
+Two paths can do that today:
+
+- **The z-stack teardown.** ``_cleanup_at_end_of_acquire`` once called
+  the engine's ``reset()`` bare, and a teardown the engine refuses
+  (reason ``run_not_live``) unwound into the starter's blanket handler.
+  Its three siblings each already handle this -- the protocol starter
+  with a typed ``except``, the standalone autofocus by routing the reset
+  through an IOTask with ``silent_on_failure=True``.
+- **New Protocol.** Its ``except Exception as e`` renders ``str(e)``
+  under the title "Protocol Creation Error". The builder cannot refuse
+  today; it is about to, which is why this hole closes first.
+"""
+
+from __future__ import annotations
+
+import sys
+import types
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+
+# ui.zstack and ui.protocol_settings are Kivy widget modules; conftest mocks
+# `kivy` but not the uix submodules, and both classes subclass a layout (a
+# bare MagicMock cannot be subclassed).
+class _StubWidget:
+    def __init__(self, **kwargs):
+        pass
+
+
+for _name in ('kivy.clock', 'kivy.uix'):
+    sys.modules.setdefault(_name, MagicMock())
+
+_floatlayout = types.ModuleType('kivy.uix.floatlayout')
+_floatlayout.FloatLayout = _StubWidget
+sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
+
+import modules.app_context as _app_ctx
+import ui.notification_popup as notification_popup
+import ui.protocol_settings as ps
+import ui.zstack as zs
+from modules.exceptions import ProtocolRunRefusedError
+from modules.run_outcome import PendingRunOutcome
+
+
+# The refusal the engine raises when a stop names a run that has ended
+# while another run is live -- the case that reaches the z-stack handler.
+# Its words are the engine's; only the joined form is the bug.
+RUN_NOT_LIVE = ProtocolRunRefusedError(
+    reason='run_not_live',
+    title='Run Already Ended',
+    message='That run has already ended. A protocol run is using the microscope now.',
+)
+
+
+class _ZStackStarter(zs.ZStack):
+    """The real class, with only the widget tree stubbed.
+
+    It subclasses rather than mimics: the stop branch calls the starter's
+    own button-reset helpers, so a stand-in would have to reimplement the
+    methods that are part of what is under test.
+    """
+
+    def __init__(self):
+        # 'down' is what a first click leaves behind. The stop branch is
+        # reached because this button's own run is live, not by this, but a
+        # button reading 'normal' would take the same branch for the wrong
+        # reason and the test would pass without exercising the teardown.
+        self.button = SimpleNamespace(state='down', text='Running Z-Stack')
+        self.ids = {'zstack_aqr_btn': self.button}
+        # The handle this button's start returned.
+        self._zstack_run = PendingRunOutcome()
+
+
+@pytest.fixture
+def popups(monkeypatch):
+    """Every dialog the code under test puts on screen, in order."""
+    shown: list[dict] = []
+    monkeypatch.setattr(
+        notification_popup, 'show_notification_popup', lambda **kw: shown.append(kw)
+    )
+    return shown
+
+
+@pytest.fixture
+def refusing_runner():
+    """A runner whose live run is the z-stack's at the click, and whose
+    teardown it then refuses.
+
+    This button's run being live is what routes the click to the teardown;
+    the refusal is what the widget then has to render. The two together
+    are the real sequence -- the z-stack ended and another run started
+    between the click and the reset.
+    """
+    runner = MagicMock()
+    runner.run_in_progress.return_value = True
+    runner.run_trigger_source.return_value = 'zstack'
+    runner.is_live_run.side_effect = lambda run: isinstance(run, PendingRunOutcome)
+    runner.reset.side_effect = RUN_NOT_LIVE
+    return runner
+
+
+@pytest.fixture
+def app_ctx(monkeypatch, refusing_runner):
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            sequenced_capture_runner=refusing_runner,
+            settings={},
+        ),
+    )
+    # Histogram restore and the GUI interaction log are ambient to this
+    # path; stubbing them keeps the test about what the user is told.
+    monkeypatch.setattr(zs, 'live_histo_off', lambda: None)
+    monkeypatch.setattr(zs, 'live_histo_reverse', lambda: None)
+    monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
+    return refusing_runner
+
+
+class TestARefusedZStackTeardown:
+    def test_it_shows_no_dialog_titled_error(self, app_ctx, popups):
+        starter = _ZStackStarter()
+
+        starter.run_zstack_acquire_from_ui()
+
+        assert app_ctx.reset.called, (
+            'the click never reached the teardown -- the test is not exercising the refusal'
+        )
+        app_ctx.reset.assert_called_with(starter._zstack_run)
+        assert [p for p in popups if p.get('title') == 'Error'] == [], (
+            'a refused teardown is a designed outcome the engine already reported; '
+            f'it must not surface as an Error dialog. Popups: {popups}'
+        )
+
+    def test_it_shows_no_raw_reason_code(self, app_ctx, popups):
+        starter = _ZStackStarter()
+
+        starter.run_zstack_acquire_from_ui()
+
+        for popup in popups:
+            assert 'run_not_live' not in str(popup.get('message', '')), (
+                'the reason code is for a REST or SDK caller to branch on; '
+                f'the user gets the sentence. Popup: {popup}'
+            )
+
+
+# The refusal the protocol builder raises for a z-stack enabled with no
+# range. The builder logs it and posts it solicited before raising, so by
+# the time the handler sees it the user has already been told -- which is
+# why the assertion below is that NO popup appears, not that one does.
+ZSTACK_NO_RANGE = ProtocolRunRefusedError(
+    reason='zstack_not_configured',
+    title='Z-Stack Not Configured',
+    message='Z-stack range and step size must both be greater than zero.',
+)
+
+
+class _ProtocolSettingsStarter(ps.ProtocolSettings):
+    """The real class, with nothing but construction bypassed.
+
+    ``new_protocol`` returns at the builder, so the only widgets it reaches
+    are the two authoring choices it hands the Session.
+    """
+
+    def __init__(self):
+        self.ids = {
+            'tiling_size_spinner': SimpleNamespace(text='1x1'),
+            'acquire_zstack_id': SimpleNamespace(active=False),
+        }
+
+
+class TestARefusedProtocolCreation:
+    def test_it_shows_no_raw_reason_code(self, monkeypatch, popups):
+        scope = SimpleNamespace(
+            protocols=SimpleNamespace(create_protocol=MagicMock(side_effect=ZSTACK_NO_RANGE))
+        )
+        session = SimpleNamespace(get_sequenced_capture_config=lambda **choices: {})
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
+        monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
+
+        _ProtocolSettingsStarter().new_protocol()
+
+        assert scope.protocols.create_protocol.called, (
+            'the click never reached the builder -- the test is not exercising the refusal'
+        )
+        assert popups == [], (
+            'the builder already told the user, solicited, before it raised; a '
+            f'popup here is a second telling of one refusal. Popups: {popups}'
+        )

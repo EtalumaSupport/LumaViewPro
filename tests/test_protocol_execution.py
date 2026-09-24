@@ -36,14 +36,21 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
-from modules.exceptions import ProtocolRunRefusedError
+from modules.activity_claim import ActivityClaim
+from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.protocol_state_machine import ProtocolState
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import (
+    autofocus_snapshot,
+    held_run_claim,
+    wait_until_ready_for_next_run,
+)
+from tests.scope_fakes import configure_turret_like_bringup
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -65,6 +72,10 @@ def _make_simulated_scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
+    # Bring-up also pushes the persisted turret slots into the runtime
+    # store, and a turret carrying nothing addresses no glass, so every
+    # protocol naming an objective would be refused.
+    configure_turret_like_bringup(s)
     s.imaging.start_streaming()
     return s
 
@@ -180,6 +191,7 @@ def _make_single_step_protocol(
         'Stim_Config': stim_config,
         'Step Index': 0,
         'Label': '',
+        'Auto_Named': True,
     }
     return _build_real_protocol([step])
 
@@ -247,6 +259,7 @@ def _make_multi_step_protocol(steps_config):
                 # or camera settings must still derive distinct capture
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
+                'Auto_Named': False,
             }
         )
     return _build_real_protocol(rows)
@@ -337,7 +350,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -375,7 +389,9 @@ class TestSingleScanBasicImage:
         assert completed
         # After protocol with leds_state_at_end='off', all LEDs should be off
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on after protocol'
+            assert not scope.illumination.get_led_state(color)['enabled'], (
+                f'LED {color} still on after protocol'
+            )
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -536,7 +552,7 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         executor._protocol = protocol
         executor._aborted = _threading.Event()
         executor._scan_in_progress.set()
-        executor._run_in_progress_event.set()
+        executor._set_state(ProtocolState.RUNNING)
         executor._grease_redistribution_event.set()
         executor._curr_step = 0
         executor._motion_wait_start = None
@@ -769,7 +785,7 @@ class TestLedStateAtEnd:
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on'
+            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before protocol so executor captures it as original state
@@ -1392,11 +1408,11 @@ class TestCancellationMidRun:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
 
         # Let it run briefly then cancel
         time.sleep(1.0)
-        executor.reset()
+        executor.reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after reset()'
@@ -1430,21 +1446,27 @@ class TestCancellationMidRun:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
 
         # Cancel almost immediately
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after early reset()'
 
 
 class TestResetWhenNotRunning:
-    """reset() when no protocol is active should be a no-op."""
+    """reset() when no protocol is active says the run has already ended.
+
+    Not a crash and not a refusal: a stop that finds nothing live raises
+    RunAlreadyEndedError, which is neither notified nor a
+    ProtocolRunRefusedError."""
 
     def test_reset_no_crash(self, executor, scope, tmp_path):
-        executor.reset()  # Should not raise
+        with pytest.raises(RunAlreadyEndedError) as exc:
+            executor.reset(None)
+        assert not isinstance(exc.value, ProtocolRunRefusedError)
 
 
 # ---------------------------------------------------------------------------
@@ -1455,23 +1477,12 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    Completion is two-phase by design: run_complete fires as soon as the
-    scan finishes, while queued file writes drain afterward (files_complete).
-    A second run() started while files are still writing is deliberately
-    rejected with a user-facing "Files Still Writing" notification, so any
-    correct back-to-back test must synchronize on the file queue draining --
-    that is what _wait_for_file_queue does. This is the designed contract,
-    not a workaround for an executor bug.
+    run_complete fires during cleanup; the run ends when cleanup does, and
+    its files drain after that. A second start before both is refused by
+    design, so every back-to-back test waits on
+    wait_until_ready_for_next_run -- the designed contract, not a
+    workaround for an executor bug.
     """
-
-    @staticmethod
-    def _wait_for_file_queue(executor, timeout=5.0):
-        """Wait until file_io_executor is ready for a new protocol."""
-        deadline = time.monotonic() + timeout
-        while executor.file_io_executor.is_protocol_queue_active():
-            if time.monotonic() > deadline:
-                raise TimeoutError('file_io_executor did not drain in time')
-            time.sleep(0.05)
 
     def test_two_sequential_runs(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
@@ -1479,7 +1490,7 @@ class TestBackToBackRuns:
         completed1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed1, 'First run did not complete'
 
-        self._wait_for_file_queue(executor)
+        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
@@ -1490,7 +1501,7 @@ class TestBackToBackRuns:
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
             assert completed, f'Run {i} ({color}) did not complete'
-            self._wait_for_file_queue(executor)
+            assert wait_until_ready_for_next_run(executor), f'Run {i} never ended and drained'
 
 
 # ---------------------------------------------------------------------------
@@ -1832,26 +1843,44 @@ class TestCleanupConcurrency:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         # Let protocol start
         time.sleep(0.1)
-        # Fire reset from multiple threads simultaneously
-        threads = [threading.Thread(target=executor.reset) for _ in range(5)]
+        # Fire reset from multiple threads simultaneously. A stop that lands
+        # after an earlier one has already ended the run is told so with
+        # RunAlreadyEndedError; any other exception is a crash.
+        unexpected = []
+
+        def _stop():
+            try:
+                executor.reset(run)
+            except RunAlreadyEndedError:
+                pass
+            except Exception as e:
+                unexpected.append(e)
+
+        threads = [threading.Thread(target=_stop) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=5)
+        assert unexpected == [], f'concurrent reset raised: {unexpected!r}'
         # Should not crash; protocol should end
-        done.wait(timeout=COMPLETION_TIMEOUT)
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'protocol did not end after concurrent reset'
 
     def test_double_reset_idempotent(self, executor, scope, tmp_path):
         """Calling reset() twice in quick succession doesn't crash."""
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Protocol already completed and cleaned up -- reset again should be harmless
-        executor.reset()
-        executor.reset()
+        # Protocol already completed and cleaned up -- each further stop is
+        # told the run has ended, and neither disturbs the other.
+        run = executor.run_outcome()
+        with pytest.raises(RunAlreadyEndedError):
+            executor.reset(run)
+        with pytest.raises(RunAlreadyEndedError):
+            executor.reset(run)
+        assert not executor.run_in_progress()
 
 
 # ---------------------------------------------------------------------------
@@ -2077,9 +2106,9 @@ class TestCameraStateRestoration:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
@@ -2103,6 +2132,8 @@ class TestValidationOrder:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+        # run_complete fires during cleanup; the run ends when cleanup does.
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert not executor.run_in_progress()
 
 
@@ -2136,13 +2167,15 @@ class TestCleanupCorrectness:
             leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
-        executor.start(plan)
+        run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset()
+        executor.reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:
-            assert not scope.illumination.led_enabled(color), f'LED {color} still on after abort'
+            assert not scope.illumination.get_led_state(color)['enabled'], (
+                f'LED {color} still on after abort'
+            )
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
@@ -2155,12 +2188,7 @@ class TestCleanupCorrectness:
         # Should restore to 8.0/80.0
         assert scope.imaging.get_gain_db() == pytest.approx(8.0, abs=0.1)
 
-        # Wait for file queue to drain before starting next run
-        deadline = time.monotonic() + 5.0
-        while executor.file_io_executor.is_protocol_queue_active():
-            if time.monotonic() > deadline:
-                raise TimeoutError('file_io_executor did not drain in time')
-            time.sleep(0.05)
+        assert wait_until_ready_for_next_run(executor), 'Run A never ended and drained'
 
         # Run B: change gain before second run
         scope.imaging.set_gain_db(2.0)
@@ -2186,12 +2214,12 @@ class TestProtocolLedNoFlash:
         # A stray channel lit before the run (e.g. a Live-mode LED left on a
         # different color when the user pressed Scan).
         stray = scope.illumination.color2ch('Red')
-        scope.illumination.led_on(channel=stray, illumination_ma=80, owner='ui')
-        assert scope.illumination.led_enabled('Red')
+        scope.illumination.led_on(channel=stray, illumination_ma=80)
+        assert scope.illumination.get_led_state('Red')['enabled']
 
         events = []
         scope.illumination.add_led_listener(
-            lambda channel, enabled, illumination_ma, owner: events.append((channel, enabled))
+            lambda channel, enabled, illumination_ma: events.append((channel, enabled))
         )
 
         protocol = _make_single_step_protocol(color='Green', illumination=60.0)
@@ -2214,14 +2242,12 @@ class TestProtocolLedNoFlash:
         """
         color, illumination_ma = 'Green', 60.0
         scope.illumination.led_on(
-            channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma, owner='ui'
+            channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma
         )
-        assert scope.illumination.led_enabled(color)
+        assert scope.illumination.get_led_state(color)['enabled']
 
         events = []
-        scope.illumination.add_led_listener(
-            lambda c, enabled, m, owner: events.append((c, enabled))
-        )
+        scope.illumination.add_led_listener(lambda c, enabled, m: events.append((c, enabled)))
 
         protocol = _make_single_step_protocol(color=color, illumination=illumination_ma)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -2374,9 +2400,7 @@ class TestRunReturnValueContract:
         assert executor.run_dir() is None, (
             'A refused run must not leave a run directory for callers to save into'
         )
-        assert not executor._run_in_progress_event.is_set(), (
-            'A refused run must not mark a run as in progress'
-        )
+        assert not executor.run_in_progress(), 'A refused run must not mark a run as in progress'
 
     def test_started_run_completes(self, executor, tmp_path):
         done = threading.Event()
@@ -2447,7 +2471,7 @@ class TestRunReturnValueContract:
         # A failed start must not leak hardware setup: the protocol LED
         # lease is only held by a run in flight, so a fresh top-level
         # acquire must succeed after the failure.
-        lease = scope.illumination.acquire_led_lease('leak probe', alive=lambda: True)
+        lease = scope.illumination.acquire_led_lease('leak probe', claim=held_run_claim())
         assert lease is not None, 'Failed-at-start run leaked the protocol LED lease'
         lease.release()
         # The runner is reusable: the next prepare() passes every gate.

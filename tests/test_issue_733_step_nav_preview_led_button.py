@@ -25,6 +25,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.protocols import ProtocolsAPI
+
 from modules.lumascope_api.illumination import LedTransition
 
 
@@ -76,6 +78,23 @@ def stepnav_env(monkeypatch):
         set_step_state=MagicMock(),
     )
     protocol_settings = MagicMock()
+    # A real ProtocolsAPI, because go_to_step asks it whether this scope can
+    # put the step's glass in the light path before it moves anything. A
+    # stand-in here would answer for production's rule without being it.
+    scope = SimpleNamespace(
+        motion=SimpleNamespace(),
+        capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
+        # With no turret the rule admits only the selected objective, so the
+        # stand has the step's glass selected.
+        runtime_state=SimpleNamespace(get_current_objective_id=lambda: 'obj1'),
+        motor_connected=False,
+        imaging=SimpleNamespace(active_cached=False),
+        illumination=SimpleNamespace(
+            color2ch=MagicMock(return_value=3),
+            apply_transition_async=MagicMock(),
+        ),
+    )
+    scope.protocols = ProtocolsAPI(scope)
     ctx = SimpleNamespace(
         settings={
             'protocol_led_on': True,
@@ -96,16 +115,7 @@ def stepnav_env(monkeypatch):
             set_expanded_layer=MagicMock(),
             toggle_settings=MagicMock(),
         ),
-        scope=SimpleNamespace(
-            motion=SimpleNamespace(),
-            capabilities=SimpleNamespace(has_turret=False),
-            motor_connected=False,
-            imaging=SimpleNamespace(active_cached=False),
-            illumination=SimpleNamespace(
-                color2ch=MagicMock(return_value=3),
-                apply_transition_async=MagicMock(),
-            ),
-        ),
+        scope=scope,
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
         session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
@@ -113,9 +123,12 @@ def stepnav_env(monkeypatch):
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
     # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
-    # kivy mock cannot provide; go_to_step defers both imports and this
-    # test's path never calls into them, so module-boundary stubs suffice.
-    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', MagicMock())
+    # kivy mock cannot provide; go_to_step defers both imports, so
+    # module-boundary stubs suffice. The one answer this path reads from
+    # ui_helpers is whether the positions refuse the move: they do not.
+    ui_helpers = MagicMock()
+    ui_helpers.unknown_position_refused.return_value = False
+    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     # Run scheduled UI callbacks inline so the closures under test execute.
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))

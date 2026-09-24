@@ -9,6 +9,12 @@
 # never used. Bump this whenever the development environment moves; a pin that
 # disagrees with the environment that validates the suite is worse than none.
 pytest==9.0.2
+
+# The suite's parallel runner (`pytest -n auto`). Required, not optional:
+# the pytest addopts carry `--dist loadgroup`, which is an xdist option, so
+# without it pytest refuses the command line. Without `-n` the option is
+# inert and the suite runs serially.
+pytest-xdist==3.8.0
 pyinstaller==6.19.0
 
 # Linter + formatter. PINNED EXACTLY, and the pin is load-bearing: ruff

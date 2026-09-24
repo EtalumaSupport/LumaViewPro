@@ -20,6 +20,9 @@ from modules.scope_capabilities import (
     _resolve_lens_focal_length_mm,
     _resolve_pixel_size_um,
 )
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _camera_with_pixel_size(pixel_size_um):
@@ -130,6 +133,7 @@ class TestVideoFrameScaleClaim:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
 
@@ -163,6 +167,7 @@ class TestVideoFrameScaleClaim:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
 
         assert 'pixel_size_um' in metadata
@@ -186,7 +191,7 @@ class TestVideoFrameCarriesScale:
 
         with pytest.raises(TypeError):
             tiff_frame_metadata(
-                timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None
+                timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None, fact=_FACT
             )
 
     def test_tiff_frame_metadata_carries_the_measured_scale(self):
@@ -198,6 +203,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=2.2,
+            fact=_FACT,
         )
 
         assert metadata['pixel_size_um'] == 2.2
@@ -214,6 +220,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=2.2,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
         write_video_frame(
@@ -246,6 +253,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0001.tiff'
         write_video_frame(
@@ -280,6 +288,7 @@ class TestReadPixelSizeUm:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=pixel_size_um,
+            fact=_FACT,
         )
         path = tmp_path / f'ManualVideo_Frame_{pixel_size_um}.tiff'
         write_video_frame(

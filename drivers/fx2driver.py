@@ -24,7 +24,7 @@ Three objects live in this file:
 3. ``FX2LEDController`` -- registered as ``@led_registry.register('fx2', ...)``.
    Satisfies LEDBoardProtocol. Thin command translator: no state tracking,
    no ``led_ma`` dict, no ``is_led_on`` bookkeeping. Source of truth for
-   LED state is ``Lumascope._led_owners`` (post-B3 / Stage 2 architecture).
+   LED state is ``IlluminationAPI._led_state`` (post-B3 / Stage 2 architecture).
    The class exists only to convert LVP's (channel, mA) calls into FX2
    I2C byte sequences. State-query protocol methods return sentinel
    defaults (-1 / False / dict-of-False) -- matching NullLEDBoard.
@@ -2112,8 +2112,15 @@ class FX2Camera(Camera):
 
     # -- Exposure ----------------------------------------------------------
 
-    def exposure_t(self, exposure_ms):
-        """Set exposure time in milliseconds.
+    def exposure_t(self, exposure_ms: float) -> float:
+        """Set exposure time in milliseconds, returning the microseconds
+        actually in effect.
+
+        The request is quantized onto the sensor's row-time grid below, so
+        the applied value routinely differs from what was asked for -- by up
+        to a full row. The caller records a chunk-match target from this
+        return; a request-derived target would not describe any exposure this
+        sensor can produce.
 
         Formula from MT9P031 datasheet DS_F p31:
             tEXP = SW x tROW - SO x 2 x tPIXCLK
@@ -2149,6 +2156,7 @@ class FX2Camera(Camera):
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
             )
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        return self.get_exposure_t() * 1000.0
 
     def get_exposure_t(self):
         return max(0.0, self._exposure_rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS)
@@ -2158,8 +2166,16 @@ class FX2Camera(Camera):
 
     # -- Gain --------------------------------------------------------------
 
-    def gain(self, g):
-        """Set gain in dB. Clamped to [0.0, 42.1] (audit-corrected max)."""
+    def gain(self, g: float) -> bool | None:
+        """Set gain in dB. Clamped to [0.0, 42.1].
+
+        A failed register write RAISES out of ``sensor_reg_write`` rather than
+        returning, so this never answers refused; it answers APPLIED so the
+        caller is not left reading a bare fall-through as "cannot confirm".
+
+        Returns:
+            bool | None: See ``Camera.gain``.
+        """
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
@@ -2168,6 +2184,7 @@ class FX2Camera(Camera):
                 f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
             )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        return True
 
     def get_gain(self):
         _, db = _register_to_gain_db(self._gain_reg)
@@ -2256,7 +2273,7 @@ class FX2LEDController:
     dict and client-side state tracking (``get_led_ma`` / ``is_led_on`` /
     etc. read back from the dict). That existed because the pre-4.1 GUI
     owned LED state. In 4.1 the API owns state via
-    ``Lumascope._led_owners`` / ``save_led_state`` / ``restore_led_state``,
+    ``IlluminationAPI._led_state`` / ``save_led_state`` / ``restore_led_state``,
     so this driver drops all state bookkeeping. The LEDBoardProtocol
     state-query methods still exist (the protocol requires them) but
     return sentinel defaults matching NullLEDBoard -- the real truth
@@ -2488,7 +2505,7 @@ class FX2LEDController:
     # -- State queries (sentinel defaults -- real state is in API) ---------
     # These methods exist because LEDBoardProtocol requires them. The
     # driver has no idea what's currently lit -- that's owned by
-    # Lumascope._led_owners. Callers should read state through the API
+    # IlluminationAPI._led_state. Callers should read state through the API
     # (scope.get_led_state(color)), never by reaching into the driver.
 
     def get_led_ma(self, color: str) -> int:

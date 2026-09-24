@@ -17,12 +17,17 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 `pylon_hardware`) -- see `pytest_collection_modifyitems` below.
 """
 
+import faulthandler
 import os
 import sys
 import tempfile
+import threading
+import time
+from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import psutil
 import pytest
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
@@ -85,7 +90,13 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 
 
 def install_mock_deps():
-    """Install MagicMock entries for heavy deps not present on dev machines.
+    """Install MagicMock stand-ins for the layers a test never has: the GUI
+    (kivy), the camera SDKs, the USB bus, the network client (requests), the
+    user directories (platformdirs) and the logger.
+
+    Never a library the test runner itself reads: pytest-xdist takes its
+    auto worker count from psutil.cpu_count(), and a mock there builds zero
+    workers (tests/guards/test_psutil_is_real.py).
 
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
@@ -109,7 +120,6 @@ def install_mock_deps():
         'lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
-        'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         # EventLoop.status must read as a RUNNING loop: the pre-mainloop
@@ -215,6 +225,152 @@ install_mock_deps()
 
 
 # ---------------------------------------------------------------------------
+# A real serial port is unreachable from a test
+# ---------------------------------------------------------------------------
+# Both boards connect inside their constructors: SerialBoard enumerates with
+# list_ports.comports and opens the match with serial.Serial. A test that
+# reaches a real board therefore opens the bench's port when a scope is
+# attached (two concurrent full-suite runs held both boards' ports and
+# interrupted the motor firmware) and passes quietly through the no-port
+# path when none is, so the suite behaved differently by what was plugged
+# in. Unless --run-hardware is set, enumeration finds nothing and the open
+# raises, and the TOUCH fails the test at its end: the driver registry's
+# auto mode and create_diagnostic both swallow a failed constructor into a
+# null driver, so an exception alone would let the test go green on a null
+# board, which is the quiet pass again.
+SERIAL_REFUSAL_BANNER = 'REAL SERIAL PORT REACHED'
+_serial_touches: list[tuple[str, str]] = []
+
+
+def _install_serial_refusers():
+    import serial
+    import serial.tools.list_ports as list_ports
+
+    real_serial = serial.Serial
+
+    def refused_comports(*args, **kwargs):
+        _serial_touches.append(('enumerate', 'serial.tools.list_ports.comports'))
+        return []
+
+    class RefusedSerial(real_serial):
+        # A subclass, so a Mock(spec=serial.Serial) keeps the real methods;
+        # only the open is intercepted.
+        def __init__(self, *args, **kwargs):
+            port = kwargs.get('port') or (args[0] if args else '?')
+            _serial_touches.append(('open', str(port)))
+            raise serial.SerialException(f'{SERIAL_REFUSAL_BANNER}: {port} (no --run-hardware)')
+
+    list_ports.comports = refused_comports
+    serial.Serial = RefusedSerial
+
+
+if not _flag_in_argv('--run-hardware'):
+    _install_serial_refusers()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if not _serial_touches:
+        return
+    touches = list(_serial_touches)
+    _serial_touches.clear()
+    kind, detail = touches[0]
+    report = outcome.get_result()
+    report.outcome = 'failed'
+    report.longrepr = (
+        f'{SERIAL_REFUSAL_BANNER}: {item.nodeid} reached the real serial layer during '
+        f'{call.when} ({len(touches)} touch(es); first: {kind} {detail}). Build the scope '
+        'with simulate=True or a simulated driver, or give a bare SerialBoard a port; '
+        'a real port is opened only under --run-hardware.'
+    )
+
+
+@pytest.fixture
+def diagnostic_scope():
+    """Lumascope.create_diagnostic() with each board connect answered by its
+    null driver, as on a machine with no scope. The diagnostic path's own
+    wiring is what a test reads; the real boards are unreachable from a test."""
+    from modules.lumascope_api import _lumascope
+
+    with patch.object(_lumascope, '_try_connect_board', lambda label, ctor, null_ctor: null_ctor()):
+        instance = _lumascope.Lumascope.create_diagnostic()
+    try:
+        yield instance
+    finally:
+        instance.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Memory cap
+# ---------------------------------------------------------------------------
+# A test that loops or accumulates when a run it expects to start is refused
+# can grow one xdist worker past the machine's RAM while its state stays R
+# and its output stays quiet; three such workers reached about 114 GB on a
+# 48 GB machine before a person killed them, and the run that followed
+# reported a tainted result as if it were one. macOS refuses every rlimit
+# form (RLIMIT_AS and RLIMIT_DATA raise, `ulimit -v` fails), so the cap is
+# a watchdog: every pytest process, controller or worker, polls its own
+# resident size once a second and, over the cap, writes the running test
+# and every thread's stack, then exits with a status nothing reads as
+# success. 5 GiB: a normal worker measures about 75 MB.
+MEMORY_CAP_BYTES = 5 * 1024**3
+MEMORY_CAP_EXIT_STATUS = 3
+MEMORY_CAP_BANNER = 'MEMORY CAP EXCEEDED'
+# Bound at import so a test that swaps psutil in sys.modules cannot blind
+# the watchdog.
+_MEMCAP_PROCESS = psutil.Process()
+_memcap_running = {'nodeid': None}
+
+
+def _memcap_watch(cap_bytes, report_dir, capman):
+    while True:
+        time.sleep(1.0)
+        rss = _MEMCAP_PROCESS.memory_info().rss
+        if rss > cap_bytes:
+            _memcap_fail(rss, cap_bytes, report_dir, capman)
+
+
+def _memcap_fail(rss, cap_bytes, report_dir, capman):
+    line = (
+        f'{MEMORY_CAP_BANNER}: pid {os.getpid()} resident {rss / 2**30:.2f} GiB, '
+        f'cap {cap_bytes / 2**30:.2f} GiB, while running {_memcap_running["nodeid"]}'
+    )
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f'memcap_{os.getpid()}.txt'
+    with open(path, 'w') as fh:
+        fh.write(line + '\n\n')
+        faulthandler.dump_traceback(file=fh, all_threads=True)
+    # pytest's fd capture owns stderr during a test; the write goes to the
+    # real one or it is lost with the process.
+    if capman is not None:
+        with capman.global_and_fixture_disabled():
+            sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+            sys.stderr.flush()
+    else:
+        sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+        sys.stderr.flush()
+    os._exit(MEMORY_CAP_EXIT_STATUS)
+
+
+def _memcap_reports_since(report_dir, started):
+    if not report_dir.is_dir():
+        return []
+    return sorted(
+        path for path in report_dir.glob('memcap_*.txt') if path.stat().st_mtime >= started
+    )
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _memcap_running['nodeid'] = nodeid
+    _serial_touches.clear()
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    _memcap_running['nodeid'] = None
+
+
+# ---------------------------------------------------------------------------
 # Pytest hooks
 # ---------------------------------------------------------------------------
 
@@ -259,6 +415,15 @@ def pytest_addoption(parser):
         help='Run wall-clock timing-sensitive tests (can be flaky under load)',
     )
     _safe(
+        '--memory-cap-bytes',
+        type=int,
+        default=MEMORY_CAP_BYTES,
+        help='Resident-memory cap per pytest process (controller and each xdist '
+        'worker); over it the process writes the running test and every '
+        f"thread's stack to build/memcap_<pid>.txt and exits {MEMORY_CAP_EXIT_STATUS}. "
+        'Lowered only by the guard test that proves the cap fires.',
+    )
+    _safe(
         '--driver-log',
         action='store_true',
         default=False,
@@ -295,6 +460,19 @@ def pytest_configure(config):
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
+
+    config._memcap_started = time.time()
+    config._memcap_report_dir = Path(config.rootpath) / 'build'
+    threading.Thread(
+        target=_memcap_watch,
+        args=(
+            config.getoption('--memory-cap-bytes'),
+            config._memcap_report_dir,
+            config.pluginmanager.getplugin('capturemanager'),
+        ),
+        name='memory-cap',
+        daemon=True,
+    ).start()
 
 
 def _enable_driver_logging(config):
@@ -364,6 +542,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """
     from tests import ratchets
 
+    # A worker the cap killed is reported by xdist as a crash; this names the
+    # cap and the test so the log cannot read as an ordinary failure.
+    reports = _memcap_reports_since(config._memcap_report_dir, config._memcap_started)
+    if reports:
+        terminalreporter.section(MEMORY_CAP_BANNER, sep='!', red=True)
+        for path in reports:
+            with open(path) as fh:
+                terminalreporter.line(fh.readline().rstrip())
+            terminalreporter.line(f'thread stacks: {path}')
+
     lines = ratchets.summary_lines()
     if not lines:
         return
@@ -396,10 +584,17 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def sim_scope():
-    """Lumascope with simulated hardware in fast timing mode."""
+    """Lumascope with simulated hardware in fast timing mode.
+
+    An LS850: the LS850T without the turret. Its users select an objective
+    directly, which only a scope with no turret can do -- on a turret scope
+    the objective is the slot's assignment.
+    """
     from modules.lumascope_api import Lumascope
 
-    s = Lumascope(simulate=True)
+    from tests.scope_fakes import record_turret_answer
+
+    s = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

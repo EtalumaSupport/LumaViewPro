@@ -5,6 +5,38 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+from typing import ClassVar
+
+
+class Refusal:
+    """A request the scope declined: nothing broke, and the person who asked can act on it.
+
+    Mixed into an exception whose message is written for that person. The
+    background executor shows a refusal as a warning under ``title``, in the
+    exception's own words, and logs one line for it with no traceback: an
+    ERROR and a traceback say something went wrong, and a refusal is a
+    designed outcome. Unmarked, a refusal raised inside a background task
+    read as a crash -- "Background operation failed" over its message, and a
+    traceback in the errors log.
+
+    Attributes:
+        title: The heading the person reads above the message.
+    """
+
+    title: str
+
+
+class Quiet:
+    """An outcome that is recorded and never shown: nothing failed and nothing was declined.
+
+    Mixed into an exception that tells a caller something it may need to act
+    on -- a script learning its handle is stale -- but that the person at the
+    instrument has no reason to see. It is logged at INFO in its own words and
+    never becomes a notification. Whether an outcome is quiet belongs to its
+    type, never to the code that raises or catches it, so every client reads
+    the same answer. A message on a quiet exception is written for the log.
+    """
+
 
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
@@ -16,6 +48,57 @@ class ConfigError(Exception):
     """Application configuration or settings error."""
 
     pass
+
+
+class ObjectiveUnknownError(Refusal, ConfigError):
+    """No one can say which objective is in the light path.
+
+    On a turreted scope the active objective is the objective assigned to
+    the slot in the light path, so it is unknown when the slot is unknown
+    (the turret has not been homed or moved since it was last lost), when
+    the slot has no assignment, or when its assignment names nothing in
+    the objective catalogue. Raised instead of answering with a stored
+    objective, because an objective that is not in the light path puts a
+    wrong scale into every image it names.
+
+    On a scope with no turret it is unknown only before any objective was
+    selected. On any scope it is unknown before bring-up has said whether
+    the scope has a turret, since that decides where the objective comes
+    from.
+
+    Attributes:
+        reason: ``'slot_unknown'``, ``'slot_unassigned'``,
+            ``'not_in_catalogue'``, ``'none_selected'`` or
+            ``'turret_undecided'``.
+        slot: The slot in the light path, or None when that is what is
+            unknown.
+    """
+
+    title = 'Objective Unknown'
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'slot_unknown': ('the turret is in no known slot -- home the turret or move it to a slot'),
+        'slot_unassigned': (
+            'turret slot {slot} has no objective assigned -- assign the objective installed there'
+        ),
+        'not_in_catalogue': (
+            'turret slot {slot} is assigned an objective that is not in the catalogue'
+            ' -- assign the objective installed there'
+        ),
+        'none_selected': 'no objective has been selected',
+        'turret_undecided': (
+            'the scope has not been configured, so whether it has a turret is not known'
+            ' -- run initialize() (a ScopeSession does this at bring-up)'
+        ),
+    }
+
+    def __init__(self, reason: str, slot: int | None = None):
+        super().__init__(
+            'The objective in the light path is unknown: '
+            + self._SENTENCES[reason].format(slot=slot)
+        )
+        self.reason = reason
+        self.slot = slot
 
 
 class SettingsSaveRefusedError(ConfigError):
@@ -72,22 +155,32 @@ class ProtocolRunRefusedError(ProtocolError):
 
     Raised by SequencedCaptureRunner.prepare() when a run cannot start
     (already running, files still writing, empty protocol, validation
-    errors, hardware not connected). The refusal has already been logged
-    and notified to the user when this is raised, so callers reconcile
-    their own state without re-notifying.
+    errors, hardware not connected). Raised THERE, it has already been
+    logged and notified to the user by the runner's refusal funnel, so
+    callers reconcile their own state without re-notifying.
+
+    Raised by the protocol BUILDER (Protocol.from_config, for a z-stack
+    asked for with no range), it has not been: the builder runs before
+    any run exists, so no funnel has seen it and those callers own the
+    telling. A headless caller has the exception itself, which is the
+    whole of what it needs; a widget renders title and message, never
+    the joined str(e) form this class builds for debugging.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
         title: The notification title already shown to the user.
         message: The notification body already shown to the user.
-        holder: The exclusive-activity claim owner at refusal time
-            ('protocol' or 'recording'), or None when the refusal is
-            not claim-shaped (validation, hardware, file drain).
-        holder_trigger: Busy-with-what for run-shaped holders: the
-            holding (or, for a file-drain refusal, the just-finished)
-            run's run_trigger_source. None when the holder is not a
-            run -- a recording has no trigger; its kind IS the holder.
+        holder: What holds the microscope at refusal time
+            ('protocol' or 'recording' for the exclusive-activity claim
+            owner; 'autofocus' for a sweep in flight), or None when the
+            refusal is not holder-shaped (validation, hardware, file
+            drain).
+        holder_trigger: Busy-with-what: the trigger of the run that
+            holds the scope -- for a file-drain refusal the just-
+            finished run's, for an autofocus sweep the run that
+            dispatched it. None when no run is behind the holder -- a
+            recording has no trigger; its kind IS the holder.
     """
 
     def __init__(
@@ -104,6 +197,40 @@ class ProtocolRunRefusedError(ProtocolError):
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+
+
+class RunAlreadyEndedError(Quiet, ProtocolError):
+    """A stop named a run that has ended, and no run is live.
+
+    Not a refusal: nothing was refused -- the run ended on its own, and a
+    Stop that arrives after that has nothing to act on. Raised so a script
+    learns its handle is stale; logged, never notified, because the person
+    at the instrument pressed Stop on a run that has already stopped.
+    """
+
+
+class RunStartError(ProtocolError):
+    """A sequenced run failed after it was committed but before it ran.
+
+    The counterpart of ProtocolRunRefusedError on the other side of the
+    commit line: a refusal means nothing started and nothing needs
+    unwinding, while this means the run was committed, the terminal
+    callback will fire and cleanup will run. Carries the same three
+    fields so both sides deliver one shape to a caller, a REST handler
+    and the popup.
+
+    Attributes:
+        reason: Machine-readable cause.
+        title: Short heading for the user.
+        message: The sentence a user reads -- never a raw exception
+            string; those belong in the log.
+    """
+
+    def __init__(self, reason: str, title: str, message: str):
+        super().__init__(f'{reason}: {message}')
+        self.reason = reason
+        self.title = title
+        self.message = message
 
 
 class RecordingRefusedError(CaptureError):
@@ -144,63 +271,304 @@ class RecordingRefusedError(CaptureError):
         self.holder_trigger = holder_trigger
 
 
-class HardwareCommandRefusedError(Exception):
-    """A hardware command was refused: an exclusive activity holds the executor.
+class HyperstackRefusedError(CaptureError):
+    """The hyperstack builder declined to build a recording's frames into one file.
 
-    Raised by the public hardware members (LED, camera and motion commands)
-    when the executor that would carry the work will not accept it -- because
-    a protocol run fenced it, or because the run disabled it outright. Both
-    executor states make ``put()`` return None, and the caller cannot tell
-    which one applies; asking whether work is accepted covers both, while
-    asking why would need a list of reasons kept in sync with the executor.
+    Raised by the manual recording's finish when the builder answers
+    status=False: the frames are on disk as recorded, and no file exists
+    to announce. The builder's own sentence rides in ``message`` so the
+    notification the user sees says why, in the builder's words, rather
+    than telling them to read a log.
 
-    Distinct from the run and recording refusals, which are raised when an
-    ACTIVITY is refused at start and which carry the title and body already
-    shown to the user. This refusal reaches an external API caller that no
-    notification path serves, so it carries no user-facing strings -- the
-    caller that provoked it owns the response. Without it the command would
-    be dropped silently, which is how a fenced write reaches no hardware and
-    reports success.
+    Attributes:
+        message: The builder's one-paragraph reason, user-facing.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message, 'hyperstack_refused')
+        self.message = message
+
+
+class HardwareCommandRefusedError(Refusal, Exception):
+    """A hardware command was refused: something else has the scope, or the lane is closed.
+
+    Raised to whoever made the command -- a public hardware member (LED,
+    camera and motion commands), a raw task on a lane, the Session's
+    objective writers -- and never dropped: a command refused without a
+    raise reaches no hardware and reports success. While a run or a
+    diagnostic holds the scope, a lane refuses any task not made under
+    the holder's taking with this; so do the run's own executor fences,
+    which cannot say who closed them.
+
+    The Session's objective writers (select, slot assign and slot clear)
+    raise it too while a run or a diagnostic holds the scope: the run
+    stamps the active objective's scale into each capture, so a change
+    mid-run is a command against the run's hardware state.
+
+    A declined request, not a fault, so it is a ``Refusal``: the lane shows
+    it as a warning in its own words and logs one line without a
+    traceback. The message is written for the person at the scope and
+    names the holder; ``reason`` and ``member`` are for code that maps a
+    refusal to a response (REST status codes, SDK branches) and for the
+    log.
+
+    Attributes:
+        reason: Machine-readable refusal code.
+        member: The member or task that was refused, for the log.
+        holder: The kind of activity holding the scope, when known.
+    """
+
+    title = 'Microscope Busy'
+
+    def __init__(self, reason: str, member: str, holder: str | None = None):
+        super().__init__(_command_refused_sentence(reason, holder))
+        self.reason = reason
+        self.member = member
+        self.holder = holder
+
+
+_HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
+
+
+def _command_refused_sentence(reason: str, holder: str | None) -> str:
+    if reason == 'capture_in_flight':
+        return 'A capture is still being saved. Try again in a moment.'
+    if reason == 'activity_ended':
+        return 'The activity that sent this command has ended, so the command was not sent.'
+    who = _HOLDER_NOUNS.get(holder, 'Another activity')
+    return f'{who} is using the microscope. Try again when it ends.'
+
+
+class DiagnosticRefusedError(Refusal, Exception):
+    """A diagnostic could not take the scope: another activity holds it.
+
+    Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording
+    or another diagnostic already holds the session's activity claim. A
+    diagnostic drives the hardware directly (homes, LED modes, forced
+    grabs), so it runs only on a scope nothing else is using, and a caller
+    told why can wait for the holder or stop it. Nothing was committed.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
             to responses (REST status codes, SDK branches).
-        member: The public member that was refused, for the log and message.
+        title: Short user-facing refusal title.
+        message: One-sentence user-facing refusal body.
+        holder: The activity kind holding the claim at refusal time.
+        holder_trigger: The holding run's run_trigger_source when the
+            holder is a run; None otherwise.
     """
 
-    def __init__(self, reason: str, member: str):
-        super().__init__(f'{member} refused: {reason}')
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
+        super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.member = member
+        self.title = title
+        self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
 
 
-class AxisStateUnknownError(Exception):
-    """A move was commanded on an axis whose position is not known.
+class PositionOutOfRangeError(Refusal, ValueError):
+    """An absolute move was commanded beyond the axis's travel.
+
+    The driver's own response to an out-of-travel target is to clamp it
+    to the nearest limit and drive there, which reports success at a
+    position nobody asked for: a protocol step saved beyond this scope's
+    travel images the wrong place, and nothing in the log distinguishes
+    that from a step that went where it was told. Refusing by name makes
+    the substitution impossible rather than silent.
+
+    Subclasses ValueError because an out-of-travel target is the same
+    kind of bad argument as a non-numeric one, and callers already
+    written to catch ValueError from this call keep working.
+
+    The message reaches the user verbatim, so it names the axis, the
+    request, and the range that refused it.
+
+    ``bound`` names WHICH limit refused, because two of them can: the
+    axis's own travel, and the coarse safety ceiling that rejects a
+    nonsense magnitude before any axis is consulted. Telling someone
+    their entry is "outside the travel range 0.0 to 80000.0" when it was
+    really refused as absurd points them at the wrong number. ``quantity``
+    likewise distinguishes a position from a relative distance. One
+    optional argument each rather than a second exception class: the
+    refusal is the same event, and only the sentence differs.
+    """
+
+    title = 'Position Out of Range'
+
+    def __init__(
+        self,
+        axis: str,
+        position: float,
+        low: float,
+        high: float,
+        bound: str = 'travel range',
+        quantity: str = 'position',
+    ):
+        super().__init__(f'{axis} {quantity} {position} is outside the {bound} {low} to {high}.')
+        self.axis = axis
+        self.position = position
+        self.low = low
+        self.high = high
+        self.bound = bound
+        self.quantity = quantity
+
+
+# The axis-state value for an axis whose home is in progress. Spelled here
+# rather than imported: AxisState lives in the lumascope_api package, whose
+# import pulls in modules that import this one.
+_AXIS_HOMING = 'homing'
+
+
+def describe_unknown_positions(axes: dict[str, str]) -> str:
+    """Say which axes do not know their position, in the words a user acts on.
+
+    One wording for every refusal and ending that names an unknown
+    position -- a run's start refusal, its mid-run ending, and a refused
+    move or save -- so they never describe the same state differently. A
+    homing axis is named apart from a lost one because the user does
+    different things about them: wait for the one, home the other.
+
+    Args:
+        axes: Axis name to state, as ``MotionAPI.axes_without_position``
+            answers it. Must not be empty.
+
+    Returns:
+        str: A clause such as "Z is still homing; the X and Y positions
+            are unknown", with no leading capital or closing full stop, so
+            each caller ends it with the action its own situation needs.
+    """
+
+    def _names(names: list[str]) -> str:
+        return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
+
+    homing = [axis for axis, state in axes.items() if state == _AXIS_HOMING]
+    lost = [axis for axis, state in axes.items() if state != _AXIS_HOMING]
+    parts = []
+    if homing:
+        parts.append(f'{_names(homing)} {"is" if len(homing) == 1 else "are"} still homing')
+    if lost:
+        parts.append(
+            f'the {_names(lost)} position{"" if len(lost) == 1 else "s"} '
+            f'{"is" if len(lost) == 1 else "are"} unknown'
+        )
+    return '; '.join(parts)
+
+
+def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
+    """The whole refusal a user reads: what is unknown, and what to do about it.
+
+    Args:
+        axes: Axis name to state, as ``MotionAPI.axes_without_position``
+            answers it. Must not be empty.
+        then: What the user does once the scope knows its position, ending
+            the sentence (e.g. ``'move it'``, ``'add the step'``).
+
+    Returns:
+        str: e.g. "The X and Y positions are unknown. Home the scope, then
+            move it." -- or, when every axis named is still homing, "Wait
+            for the home to finish" in place of "Home the scope".
+    """
+    clause = describe_unknown_positions(axes)
+    waiting = all(state == _AXIS_HOMING for state in axes.values())
+    remedy = 'Wait for the home to finish' if waiting else 'Home the scope'
+    return f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.'
+
+
+class AxisStateUnknownError(Refusal, Exception):
+    """An axis whose position is not known was asked to move, or to be recorded.
 
     Raised by the motion pre-drive gate when the target axis is UNKNOWN:
     a home failed, the board vanished mid-move, or a move stalled out.
     An absolute move against an unknown reference frame is never a valid
     request -- there is no frame for it to be absolute in -- so refusing
     it discards nothing legitimate and makes the failure loud instead of
-    letting the stage travel somewhere nobody asked for.
+    letting the stage travel somewhere nobody asked for. Also raised when
+    a position is about to be saved (a step, a focus, a bookmark) while
+    an axis does not know where it is: the cached number is the last one
+    the axis reported, real-looking and no longer true.
 
     The recovery paths that must move a still-unknown axis (lowering Z
     for turret safety, a deliberate re-home jog) pass ``force=True``
     rather than pre-checking state, so the gate can never deadlock the
     operation that would clear the state it guards.
 
+    The message is written for the person at the scope, because the
+    GUI's background lane shows a typed error's message as the popup
+    body; it names every axis in one sentence so one refusal of a
+    several-axis gesture reads as one.
+
     Attributes:
-        axis: The axis that was refused, for callers that map refusals
-            to responses (REST status codes, SDK branches) and for the
-            user-facing message.
+        axes: Every refused axis, mapped to its state, in the scope's axis
+            order.
+        axis: The first of them, for callers that map a refusal to a
+            response by a single axis (REST status codes, SDK branches).
     """
 
-    def __init__(self, axis: str):
+    title = 'Scope Not Homed'
+
+    def __init__(self, axes: dict[str, str], then: str = 'move it'):
+        """Build the refusal for ``axes``.
+
+        Args:
+            axes: Axis name to state for every axis refused. Must not be
+                empty.
+            then: What the user does once the scope knows its position,
+                ending the sentence (e.g. ``'move it'``, ``'save the
+                focus'``).
+        """
+        super().__init__(unknown_positions_sentence(axes, then))
+        self.axes = dict(axes)
+        self.axis = next(iter(axes))
+
+
+class MoveNotCompletedError(Exception):
+    """A waited move ended without its axis arriving at the target.
+
+    The move was driven, so this is a failure, not a refusal: the motor
+    may have travelled any part of the way. A waited move that returns
+    means the axis arrived; this move could not say that, so it raises
+    instead of reporting a position nobody reached.
+
+    Distinct from ``AxisStateUnknownError``, which refuses a move before
+    anything is driven and offers ``force=True`` -- advice that is wrong
+    for a move that already happened.
+
+    Attributes:
+        axis: The axis whose move did not complete.
+        reason: ``'faulted'`` -- the motion monitor gave the axis up during
+            the wait (a stall, or the board lost); ``'timed_out'`` -- the
+            wait's bound ran out before the axis arrived. Both leave the
+            axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
+            moved; the axis is where the stop left it, which its position
+            reports, and a turret is in no known slot.
+    """
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'faulted': (
+            'it stalled or the board was lost during the move. The {axis} position '
+            'is now unknown -- home the scope before moving it again.'
+        ),
+        'timed_out': (
+            'it did not arrive within the motion time limit. The {axis} position '
+            'is now unknown -- home the scope before moving it again.'
+        ),
+        'stopped': 'the motors were stopped before it arrived.',
+    }
+
+    def __init__(self, axis: str, reason: str):
         super().__init__(
-            f'{axis} position is unknown -- home the scope before moving it, '
-            f'or pass force=True to move anyway'
+            f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
         )
         self.axis = axis
+        self.reason = reason
 
 
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional

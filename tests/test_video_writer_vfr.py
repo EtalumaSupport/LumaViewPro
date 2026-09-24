@@ -120,3 +120,18 @@ class TestVfrContract:
         decoded = _decode_frame_times(out)
         span = decoded[-1] - decoded[0]
         assert span == pytest.approx((len(FRAME_TIMES_S) - 1) / NOMINAL_FPS, abs=1e-3)
+
+    def test_vfr_without_a_rate_plays_at_capture_times(self, tmp_path):
+        # A recording with no rate limit has no nominal rate to give; the
+        # per-frame pts alone must carry the timeline.
+        out = tmp_path / 'vfr_no_rate.mp4'
+        writer = VideoWriter(output_path=out, fps=None, width=64, height=48, color='Red', vfr=True)
+        for i, ts in enumerate(FRAME_TIMES_S):
+            writer.add_frame(image=np.full((48, 64), 40 * i, dtype=np.uint8), timestamp=ts)
+        writer.close()
+        decoded = _decode_frame_times(out)
+        assert decoded == pytest.approx([t - FRAME_TIMES_S[0] for t in FRAME_TIMES_S], abs=1e-3)
+
+    def test_constant_rate_writer_requires_a_rate(self, tmp_path):
+        with pytest.raises(ValueError, match='fps is required'):
+            VideoWriter(output_path=tmp_path / 'cfr_no_rate.mp4', fps=None, width=64, height=48)

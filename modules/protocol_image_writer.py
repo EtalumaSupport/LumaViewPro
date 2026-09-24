@@ -23,10 +23,13 @@ import modules.common_utils as common_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.activity_claim import BorrowedClaim
+from modules.exceptions import CameraSettingRejected, ObjectiveUnknownError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
+from modules.run_outcome import EndingLatch, RunEnding
 from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED, IOTask
 
 if TYPE_CHECKING:
@@ -49,17 +52,19 @@ WRITE_STALL_FATAL_S = 30.0
 
 
 class CapturedFrame(NamedTuple):
-    """A captured frame coupled with the payload depth it was captured at.
+    """A captured frame coupled with the facts it was captured under.
 
     The save runs asynchronously on the file-IO thread; a bare array would
-    force the writer to re-derive depth at save time, when the camera may
-    be at a different pixel format or unreadable. Coupling the depth to
-    the frame at capture makes handing over a frame without its depth
-    unrepresentable.
+    force the writer to re-derive them at save time, when the camera may
+    be at a different pixel format or unreadable, and the next step's
+    turret move may already have changed the objective in the light path.
+    Coupling them to the frame at capture makes handing over a frame
+    without them unrepresentable.
     """
 
     image: np.ndarray
     significant_bits: int
+    objective_id: str
 
 
 class ProtocolImageWriter:
@@ -87,6 +92,11 @@ class ProtocolImageWriter:
         # then would fatal-brand and force-darken the successor run; a
         # per-run object lets the late set land on a dead flag.
         fatal_abort_event: threading.Event,
+        # THIS run's ending record, allocated fresh per run alongside the flag
+        # above and per-run for the same reason: a fatal from the old run's
+        # draining writer records into a latch nothing reads any more, instead
+        # of naming a cause for the run that is now live.
+        ending: EndingLatch,
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -110,6 +120,9 @@ class ProtocolImageWriter:
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
+        # The run's activity claim, lent to the work inside the run: a
+        # video step records under it and cannot release it.
+        run_claim: BorrowedClaim,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -117,6 +130,7 @@ class ProtocolImageWriter:
         self._file_io_executor = file_io_executor
         self._abort_fn = abort_fn
         self._fatal_abort_event = fatal_abort_event
+        self._ending = ending
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
@@ -124,6 +138,7 @@ class ProtocolImageWriter:
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
         self._engineering_mode = engineering_mode
+        self._run_claim = run_claim
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -139,7 +154,7 @@ class ProtocolImageWriter:
         self._still_drained = threading.Event()
         self._still_drained.set()
 
-    def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
+    def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
 
         Ordering is load-bearing:
@@ -149,19 +164,24 @@ class ProtocolImageWriter:
         2. fatal flag -- read by cleanup (terminal-dark assertion) and by
            the step-boundary gate; set before the LEDs go dark so a step
            racing this call cannot observe dark-but-not-fatal.
-        3. force_off -- darkens the sample NOW, on this thread, via the
+        3. the ending record -- a lock and a frozen construction, no I/O.
+           Recorded before anything that can block or raise, so the cause
+           survives a force_off that wedges on a dead driver; first-wins,
+           so the fault that started the cascade is the one reported.
+        4. force_off -- darkens the sample NOW, on this thread, via the
            direct driver path (no executor hop), because the fault that
            brought us here may be wedging the teardown that normally turns
            the LEDs off; a live sample must not stay illuminated while a
            dead disk times out. Worst case ~5 s behind an in-flight
            confirmed LED write on the driver lock.
-        4. the fatal popup -- last, after the hardware is safe.
+        5. the fatal popup -- last, after the hardware is safe.
         Safe to re-enter: every step is idempotent, so a second fault
         surfacing while this runs (e.g. the failure-record write itself
         wedging) changes nothing.
         """
         self._abort_fn()
         self._fatal_abort_event.set()
+        self._ending.set_if_unset(RunEnding('failed', reason, title, message))
         self._scope.illumination.force_off()
         from modules.notification_center import notifications
 
@@ -176,6 +196,14 @@ class ProtocolImageWriter:
         """
         self._abort_fn()
         self._fatal_abort_event.set()
+        self._ending.set_if_unset(
+            RunEnding(
+                'failed',
+                'video_writer_died',
+                'Video Writer Failed',
+                'The video writer lane died; the run was stopped.',
+            )
+        )
         self._scope.illumination.force_off()
 
     @property
@@ -383,6 +411,7 @@ class ProtocolImageWriter:
                 # camera here misnames the cause the user can
                 # actually act on.
                 self._abort_run_fatal(
+                    'led_channel_unavailable',
                     'Protocol',
                     'Channel not available',
                     f"This microscope has no '{step_color}' LED "
@@ -394,6 +423,7 @@ class ProtocolImageWriter:
                 )
             else:
                 self._abort_run_fatal(
+                    'camera_failure',
                     'Protocol',
                     'Camera Failure',
                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
@@ -474,6 +504,7 @@ class ProtocolImageWriter:
         if result is PROTOCOL_QUEUE_WEDGED:
             stuck = self._file_io_executor.describe_running_task()
             self._abort_run_fatal(
+                'file_writer_stalled',
                 'Protocol',
                 'File Writer Stalled',
                 f'Saving stopped making progress ({stuck}), so the protocol '
@@ -537,6 +568,14 @@ class ProtocolImageWriter:
                 parts.append(f'drained={info["drained"]}')
             if info.get('auto_gain') is not None:
                 parts.append(f'auto_gain={info["auto_gain"]}')
+            if info.get('dark_saved'):
+                # The frame was delivered and saved with no pixel above the
+                # dark floor while illumination was commanded on. Stated on
+                # the row because the file itself looks like any other black
+                # image: without this, a run whose light path failed is
+                # indistinguishable in a support bundle from one imaging a
+                # genuinely dark sample.
+                parts.append('dark_saved=True')
             return ' '.join(parts)
         except Exception as ex:
             # Evidence is best-effort; never let it break the capture path.
@@ -650,11 +689,23 @@ class ProtocolImageWriter:
                 # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                # The non-dispatching bodies: this runs on the protocol
-                # thread while the run has the camera executor disabled, so
-                # the public dispatchers would refuse every per-step write.
-                self._scope.imaging._set_gain_db_impl(step['Gain'])
-                self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
+                #
+                # A setting the camera rejects is reported where it is
+                # rejected (logged and notified) and the step captures at the
+                # value the camera holds: one refused gain is not a reason to
+                # end a run.
+                imaging = self._scope.imaging
+                for setter, value in (
+                    (imaging.set_gain_db, step['Gain']),
+                    (imaging.set_exposure_ms, step['Exposure']),
+                ):
+                    try:
+                        setter(value)
+                    except CameraSettingRejected as rejected:
+                        logger.warning(
+                            f'[Protocol] step {step.get("Name", "?")}: {rejected}; '
+                            'capturing at the value the camera holds'
+                        )
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -666,19 +717,23 @@ class ProtocolImageWriter:
                     f'settle drained in capture_and_wait'
                 )
 
-            # Objective short name for filename
-            objective_short_name = None
-            if self._scope.capabilities.has_turret:
-                obj_info = self._scope.runtime_state.get_objective_info(
-                    objective_id=step['Objective']
+            # The objective in the light path, read once: the file name and
+            # the frame's scale both come from this one answer, so they cannot
+            # disagree -- and it is read now, before the save runs later on the
+            # file writer, after the next step's turret move may have begun.
+            # Unknown leaves the objective out of the name; a still then
+            # refuses below (no true scale), a video records with no scale.
+            try:
+                frame_objective_id, frame_objective = (
+                    self._scope.runtime_state.resolve_current_objective()
                 )
-                if obj_info is not None:
-                    objective_short_name = obj_info.get('short_name')
-                else:
-                    logger.warning(
-                        f'[PROTOCOL] Turret available but no objective info for ID '
-                        f"'{step['Objective']}' -- using None for filename"
-                    )
+                objective_unknown = None
+            except ObjectiveUnknownError as e:
+                frame_objective_id, frame_objective = None, None
+                objective_unknown = e
+            objective_short_name = None
+            if self._scope.capabilities.has_turret and frame_objective is not None:
+                objective_short_name = frame_objective['short_name']
 
             # Build base name from protocol's custom root + step name
             try:
@@ -686,19 +741,12 @@ class ProtocolImageWriter:
             except Exception:
                 capture_root = ''
 
-            # In engineering mode, include turret position in filename.
+            # In engineering mode, include the turret slot in the filename --
+            # the slot in the light path, not the step counter, which reads a
+            # whole slot halfway between two. An unknown slot adds nothing.
             turret_pos = None
             if self._engineering_mode and self._scope.capabilities.has_turret:
-                try:
-                    turret_pos = int(self._scope.motion.get_current_position('T'))
-                except Exception as e:
-                    logger.debug(
-                        '[%s] get_current_position(T) failed; turret '
-                        'position omitted from filename: %s: %s',
-                        self.LOGGER_NAME,
-                        type(e).__name__,
-                        e,
-                    )
+                turret_pos = self._scope.motion.get_turret_slot()
 
             # The objective is stamped onto the saved filename here (the one
             # writer), separate from the step's identity Name. capture_root is
@@ -768,6 +816,7 @@ class ProtocolImageWriter:
                             scan_count=scan_count,
                             name=name,
                         ),
+                        run_claim=self._run_claim,
                     )
                     self._video_steps.append(recorder)
                     outcome = recorder.run_blocking()
@@ -811,6 +860,20 @@ class ProtocolImageWriter:
                     return False
 
                 else:
+                    # Unknown means no true scale for the frame, so the step
+                    # fails here, before any capture.
+                    if objective_unknown is not None:
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause=str(objective_unknown),
+                        )
+                        _proto_outcome = 'capture_failed'
+                        return False
                     # Frame validity drains stale frames, then grabs a valid
                     # one. The dark-floor expectation is derived inside the
                     # capture from commanded LED state -- the writer commands
@@ -818,7 +881,7 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    captured_image = self._scope.imaging._capture_and_wait_impl(
+                    captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         timeout_s=1.0,
@@ -843,7 +906,15 @@ class ProtocolImageWriter:
                         _proto_outcome = 'capture_failed'
                         return False
 
-                    self._consecutive_capture_failures = 0  # Reset on success
+                    # A frame arrived, so this is not a failure -- but a frame
+                    # the API marked dark is not proof the light path works
+                    # either, so it must not clear a run of real strikes. It
+                    # counts as neither: the streak is left exactly as it was
+                    # and the darkness is recorded on the row below, so a run
+                    # whose illumination is genuinely broken cannot end with a
+                    # clean manifest built from black frames.
+                    if not (self._scope.imaging.last_capture_info or {}).get('dark_saved'):
+                        self._consecutive_capture_failures = 0
 
                     # Depth travels with the frame so the evidence line's
                     # saturation threshold, the hold-display downconvert, AND
@@ -882,6 +953,7 @@ class ProtocolImageWriter:
                             'captured_image': CapturedFrame(
                                 image=captured_image,
                                 significant_bits=frame_significant_bits,
+                                objective_id=frame_objective_id,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -995,6 +1067,7 @@ class ProtocolImageWriter:
                     # mid-capture, and abort must close its step-lighting
                     # gates before force_off darkens the sample.
                     self._abort_run_fatal(
+                        'disk_space_critical',
                         'FileIO',
                         'Disk Space Critical',
                         f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
@@ -1043,11 +1116,16 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
+                    # A step's X and Y are plate mm and its Z is stage um --
+                    # the frames the saved file declares, so each goes into
+                    # the parameter named for it and reaches the file
+                    # unconverted.
+                    plate_x_mm=step['X'],
+                    plate_y_mm=step['Y'],
+                    stage_z_um=step['Z'],
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
+                    objective_id=captured_image.objective_id,
                 )
             except Exception:
                 self._record_dropped_capture(

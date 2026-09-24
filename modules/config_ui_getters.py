@@ -16,7 +16,6 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
 from modules.image_mode import ImageCaptureConfig
-from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -89,7 +88,7 @@ def firmware_stim_supported() -> bool:
     yet available, so stim never appears on firmware that cannot drive it.
     """
     caps = _live_capabilities()
-    return bool(caps.supports('firmware_stim')) if caps is not None else False
+    return bool(caps.has_firmware_stim) if caps is not None else False
 
 
 def get_layer_illumination_slider_max(layer: str) -> int | None:
@@ -220,25 +219,6 @@ def get_zstack_params() -> dict:
     return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
-def get_zstack_positions() -> tuple[bool, dict]:
-    config = get_zstack_params()
-
-    ctx = _app_ctx.ctx
-    current_pos = ctx.scope.motion.get_current_position('Z')
-
-    zstack_config = ZStackConfig(
-        range=config['range'],
-        step_size=config['step_size'],
-        current_z_reference=config['z_reference'],
-        current_z_value=current_pos,
-    )
-
-    if zstack_config.number_of_steps() <= 0:
-        return False, {None: None}
-
-    return True, zstack_config.step_positions()
-
-
 # ---------------------------------------------------------------------------
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
@@ -250,40 +230,29 @@ def get_layer_configs(
     return config_helpers.get_layer_configs(_app_ctx.ctx.settings, specific_layers)
 
 
-def get_active_layer_config() -> tuple[str, dict]:
-    c_layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
+    """The capture config for one named layer.
 
-    if c_layer is None:
+    Takes the layer rather than reading which accordion drawer is open:
+    an open drawer is a fact about the running GUI and means nothing to a
+    caller that has none, so the GUI names its layer and every other
+    caller names its own.
+
+    The refusal stays here rather than moving into the three GUI callers:
+    "nothing is selected" is one answer to one question, and answering it
+    per-caller is how three of them come to disagree.
+    """
+    if layer is None:
         raise Exception('No layer currently selected')
 
-    layer_configs = get_layer_configs(specific_layers=[c_layer])
+    layer_configs = get_layer_configs(specific_layers=[layer])
 
-    return c_layer, layer_configs[c_layer]
-
-
-def get_stim_configs() -> dict:
-    return config_helpers.get_stim_configs(_app_ctx.ctx.settings)
-
-
-def get_enabled_stim_configs() -> dict:
-    return config_helpers.get_enabled_stim_configs(_app_ctx.ctx.settings)
+    return layer, layer_configs[layer]
 
 
 # ---------------------------------------------------------------------------
 # Position / labware
 # ---------------------------------------------------------------------------
-
-
-def get_current_frame_dimensions() -> dict:
-    microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    try:
-        frame_width = int(microscope_settings.ids['frame_width_id'].text)
-        frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except Exception as e:
-        raise ValueError('Invalid value for frame width/height') from e
-
-    frame = {'width': frame_width, 'height': frame_height}
-    return frame
 
 
 def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
@@ -324,37 +293,6 @@ def get_image_capture_config_from_ui() -> ImageCaptureConfig:
     in the files.
     """
     return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
-
-
-def get_sequenced_capture_config_from_ui() -> dict:
-    objective_id, _ = _app_ctx.ctx.session.get_current_objective_info()
-    time_params = get_protocol_time_params()
-    labware_id, _ = get_selected_labware()
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    tiling = protocol_settings.ids['tiling_size_spinner'].text
-    tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
-    use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
-    frame_dimensions = get_current_frame_dimensions()
-    zstack_params = get_zstack_params()
-
-    layer_configs = get_layer_configs()
-
-    return config_helpers.build_sequenced_capture_config(
-        {
-            'labware_id': labware_id,
-            'objective_id': objective_id,
-            'zstack_params': zstack_params,
-            'use_zstacking': use_zstacking,
-            'tiling': tiling,
-            'tiling_overlap_percent': tiling_overlap_percent,
-            'layer_configs': layer_configs,
-            'period': time_params['period'],
-            'duration': time_params['duration'],
-            'frame_dimensions': frame_dimensions,
-            'binning_size': get_binning_from_ui(),
-            'stim_config': get_stim_configs(),
-        }
-    )
 
 
 # ---------------------------------------------------------------------------

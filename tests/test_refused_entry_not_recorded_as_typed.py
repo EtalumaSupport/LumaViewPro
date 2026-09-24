@@ -1,16 +1,22 @@
 """A refused entry must never be recorded as the value the user typed.
 
 Five handlers wrote the app's own value back into the widget whose event had
-invoked them, without declaring the write. The widget re-dispatches; the second
-pass reads the app's value, finds it valid, and emits it as the user's. The
-bundle then asserts the user chose something they were actually refused.
+invoked them. Where the widget re-dispatches on that write, the second pass
+reads the app's value, finds it valid, and emits it as the user's -- and the
+bundle asserts the user chose something they were actually refused.
 
-The three text boxes are driven through their REAL handlers with a fake Clock,
-so these exercise the shipped logic rather than the helper in isolation. The two
-spinners need a camera and a plate loader to drive, so for those this pins the
-ordering invariant instead -- the declaration must precede the write, because a
-spinner dispatches synchronously and a declaration made afterwards arrives too
-late to absorb anything.
+The two halves of that split on whether the write dispatches:
+
+- A TEXT box does not. Assigning ``.text`` rebuilds the lines and the cursor
+  and never touches ``focus``, so the ``on_focus`` binding these handlers hang
+  from cannot fire from an app write. The three text boxes are driven through
+  their REAL handlers here, one commit per test, and what is pinned is that the
+  attempt and the correction are BOTH recorded and the reverted value is never
+  reported as typed.
+- A SPINNER does. It needs a camera and a plate loader to drive, so for those
+  this pins the ordering invariant instead -- the declaration must precede the
+  write, because a spinner dispatches synchronously and a declaration made
+  afterwards arrives too late to absorb anything.
 """
 
 import ast
@@ -18,8 +24,8 @@ from typing import ClassVar
 
 import pytest
 
+from modules import gui_logger
 from tests.ast_seams import find_def
-from ui import ui_helpers
 
 
 class _Widget:
@@ -27,45 +33,13 @@ class _Widget:
         self.text = text
 
 
-class _FakeTimer:
-    def __init__(self):
-        self.cancelled = False
-
-    def cancel(self):
-        self.cancelled = True
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    scheduled = []
-
-    class _Clock:
-        @staticmethod
-        def schedule_once(fn, delay):
-            timer = _FakeTimer()
-            scheduled.append((fn, timer))
-            return timer
-
-    monkeypatch.setattr(ui_helpers, 'Clock', _Clock)
-    monkeypatch.setattr(ui_helpers, '_text_input_debounce_timers', {})
-    monkeypatch.setattr(ui_helpers.gui_logger, '_write_backs', {})
-    return scheduled
-
-
 @pytest.fixture
 def emitted(monkeypatch):
     lines = []
     monkeypatch.setattr(
-        ui_helpers.gui_logger, 'text_input', lambda name, value: lines.append((name, str(value)))
+        gui_logger, 'text_input', lambda name, value: lines.append((name, str(value)))
     )
     return lines
-
-
-def _fire(scheduled):
-    for fn, timer in list(scheduled):
-        if not timer.cancelled:
-            fn(0)
-    scheduled.clear()
 
 
 def _advanced_panel(monkeypatch, widget_id, widget, stored):
@@ -92,7 +66,7 @@ def _silence_notifications(monkeypatch):
     monkeypatch.setattr(notification_center.notifications, 'warning', lambda *a, **k: None)
 
 
-def test_a_refused_fps_limit_records_the_attempt_not_the_revert(clock, emitted, monkeypatch):
+def test_a_refused_fps_limit_records_the_attempt_not_the_revert(emitted, monkeypatch):
     """Type 500 into a box that caps at 200: the bundle must not claim 30."""
     from ui.advanced_settings import AdvancedSettings
 
@@ -100,19 +74,20 @@ def test_a_refused_fps_limit_records_the_attempt_not_the_revert(clock, emitted, 
     stored = {'video': {'max_fps': 30}}
     panel = _advanced_panel(monkeypatch, 'video_max_fps_input', widget, stored)
 
-    AdvancedSettings.update_video_max_fps(panel)  # first commit pass -- refused
-    AdvancedSettings.update_video_max_fps(panel)  # the echo: box now reads 30
-    _fire(clock)
+    AdvancedSettings.update_video_max_fps(panel)  # one commit -- refused
 
     assert ('VIDEO_MAX_FPS', '500') in emitted, (
         f'the refused entry left no record of what was typed: {emitted}'
+    )
+    assert ('VIDEO_MAX_FPS_APPLIED', '30') in emitted, (
+        f'the revert was not reported as the correction: {emitted}'
     )
     assert ('VIDEO_MAX_FPS', '30') not in emitted, (
         f'the reverted value was recorded as the one the user typed: {emitted}'
     )
 
 
-def test_a_refused_duration_records_the_attempt_not_the_revert(clock, emitted, monkeypatch):
+def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypatch):
     from ui.advanced_settings import AdvancedSettings
 
     widget = _Widget('99999')
@@ -120,11 +95,12 @@ def test_a_refused_duration_records_the_attempt_not_the_revert(clock, emitted, m
     panel = _advanced_panel(monkeypatch, 'video_max_duration_input', widget, stored)
 
     AdvancedSettings.update_video_max_duration(panel)
-    AdvancedSettings.update_video_max_duration(panel)
-    _fire(clock)
 
     assert ('VIDEO_MAX_DURATION_S', '99999') in emitted, (
         f'the refused entry left no record of what was typed: {emitted}'
+    )
+    assert ('VIDEO_MAX_DURATION_S_APPLIED', '300') in emitted, (
+        f'the revert was not reported as the correction: {emitted}'
     )
     assert ('VIDEO_MAX_DURATION_S', '300') not in emitted, (
         f'the reverted value was recorded as the one the user typed: {emitted}'
@@ -203,7 +179,7 @@ def test_restoring_labware_at_startup_is_not_recorded_as_a_selection():
     )
 
 
-def test_a_sanitized_capture_root_records_what_was_typed(clock, emitted, monkeypatch):
+def test_a_sanitized_capture_root_records_what_was_typed(emitted, monkeypatch):
     """Typing a path-illegal name recorded only the sanitized result."""
     from ui.protocol_settings import ProtocolSettings
 
@@ -214,8 +190,6 @@ def test_a_sanitized_capture_root_records_what_was_typed(clock, emitted, monkeyp
         _protocol = None
 
     ProtocolSettings.update_capture_root(_Panel(), widget.text)
-    ProtocolSettings.update_capture_root(_Panel(), widget.text)  # the echo
-    _fire(clock)
 
     typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
     assert 'my/run:1' in typed, (

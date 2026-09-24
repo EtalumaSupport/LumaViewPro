@@ -20,9 +20,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_image_writer import ProtocolImageWriter
 from tests.scope_fakes import spec_scope
+
+
+from modules.run_outcome import EndingLatch
 
 
 def _writer(file_io_executor=None):
@@ -33,6 +37,7 @@ def _writer(file_io_executor=None):
         file_io_executor=file_io_executor or MagicMock(),
         abort_fn=MagicMock(),
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=MagicMock(),
         leds_off_fn=MagicMock(),
         is_run_in_progress_fn=lambda: True,
@@ -40,6 +45,7 @@ def _writer(file_io_executor=None):
         timestamp_overlay=False,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
 
 

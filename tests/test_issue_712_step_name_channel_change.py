@@ -155,13 +155,13 @@ def test_modify_step_ex_passes_resolved_rename_as_label_without_well_gate():
         if (
             isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
-            and call.func.attr == 'modify_step'
+            and call.func.attr == 'update_step'
         ):
             kwargs = {k.arg for k in call.keywords}
-            assert 'label' in kwargs, 'modify_step must receive the rename via label='
+            assert 'label' in kwargs, 'update_step must receive the rename via label='
             assert 'step_name' not in kwargs and 'auto_named' not in kwargs
             label_kwarg_found = True
-    assert label_kwarg_found, 'self._protocol.modify_step(...) call not found'
+    assert label_kwarg_found, 'ctx.session.update_step(...) call not found'
     assert "curr_step['Well'] != ''" not in src, (
         'name handling must not exclude custom-added steps by gating on a well step (#719)'
     )

@@ -2,6 +2,7 @@
 
 import csv
 import ast
+import dataclasses
 import json
 import datetime
 import io
@@ -14,8 +15,8 @@ import copy
 from typing import TYPE_CHECKING, ClassVar
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError, ProtocolError
-from modules.notification_center import notifications
+from modules.exceptions import ConfigError, ProtocolError, ProtocolRunRefusedError
+from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
@@ -55,6 +56,20 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
 
 class ProtocolFormatError(Exception):
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class ProtocolSizeAdvisory:
+    """A protocol big enough that the user should be told before running it.
+
+    Carries the numbers alongside the sentence so a caller that wants to
+    render something other than the sentence -- REST, a log line -- does not
+    have to parse it back out.
+    """
+
+    num_steps: int
+    projected_mb: float
+    message: str
 
 
 class Protocol:
@@ -256,6 +271,13 @@ class Protocol:
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
 
+        # Construction is a frame replacement like any other, so it takes
+        # the same path: a caller's empty or column-less frame becomes the
+        # canonical typed empty frame here, not at the first consumer that
+        # asks it for a column.
+        if 'steps' in self._config:
+            self._set_steps(self._config['steps'])
+
     @staticmethod
     def _build_z_height_map(values) -> dict:
         z_height_map = {}
@@ -356,23 +378,6 @@ class Protocol:
             logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
         return out
 
-    def set_layer_settings(self, layer_settings: dict) -> None:
-        """Store per-layer UI settings for inclusion in the next to_file().
-
-        Caller (typically ui/protocol_settings.py:save_protocol) gathers
-        current settings[layer][*] from the UI and passes them here
-        right before calling to_file(). Stored on the Protocol instance
-        so to_file's signature stays clean for non-UI callers (REST,
-        headless tests).
-        """
-        if layer_settings is None:
-            self._config.pop('layer_settings', None)
-            return
-        # Defensive copy: don't keep a live reference to the UI's dict.
-        self._config['layer_settings'] = {
-            k: dict(v) for k, v in layer_settings.items() if isinstance(v, dict)
-        }
-
     def copy_for_execution(self):
         """Lightweight copy for protocol execution.
 
@@ -391,7 +396,7 @@ class Protocol:
         new._num_steps_cache = None
         return new
 
-    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None):
+    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None) -> str | None:
         """Write the protocol to a TSV file.
 
         Args:
@@ -401,8 +406,7 @@ class Protocol:
                 Auto_Gain, Exposure, False_Color, Sum, Stim_Enabled).
                 Only layers whose Acquire is 'image' or 'video' are
                 written. When None, falls back to any layer_settings
-                stored on the Protocol (set by load + the
-                set_layer_settings() helper); when both are absent
+                stored on the Protocol (set by load); when both are absent
                 the file is written without a 'Layer Settings'
                 block (channel-enable state will be inferred from
                 steps on reload, matching the v5 fallback path).
@@ -605,7 +609,7 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objectives_file: str | None = None) -> list:
+    def validate_steps(self) -> list:
         """Validate all step fields and return a list of error strings.
 
         Returns an empty list if all steps are valid.
@@ -615,13 +619,12 @@ class Protocol:
         if steps is None or len(steps) == 0:
             return errors
 
-        # Load valid objectives
-        valid_objectives = set()
-        try:
-            obj_loader = ObjectiveLoader()
-            valid_objectives = set(obj_loader.get_objectives_list())
-        except Exception:
-            pass  # skip objective validation if loader fails
+        # The protocol's own catalogue, the one every other objective read
+        # in this class consults. A second loader built here used to answer
+        # a failed load by skipping the objective check for every step, and
+        # an empty catalogue skipped it the same way -- so the one protocol
+        # that most needed refusing validated clean.
+        valid_objectives = set(self._objective_loader.get_objectives_list())
 
         for idx, step in steps.iterrows():
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
@@ -636,7 +639,7 @@ class Protocol:
 
             # Objective
             obj = step.get('Objective', '')
-            if valid_objectives and obj not in valid_objectives:
+            if obj not in valid_objectives:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
             # Exposure -- 0 is valid (blank/placeholder steps)
@@ -880,14 +883,117 @@ class Protocol:
         the one place the frame is replaced, keeps a protocol with no steps
         a queryable protocol for every consumer instead of each one
         carrying its own guard.
+
+        A frame WITH rows must already carry every current column. Run code
+        indexes columns by name mid-scan (the capture path reads 'Label' for
+        the filename, tiling reads 'Auto_Named'), so a frame missing one
+        would pass construction and fail every scan as a bare KeyError that
+        the run loop cannot tell from a hardware fault. Extra columns are
+        allowed: the z-stack marking adds and removes its own.
+
+        Raises:
+            ProtocolError: a non-empty frame is missing current columns.
         """
         if df.empty:
             df = self._create_empty_steps_df()
+        else:
+            missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
+            if missing:
+                raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
         self._config['steps'] = df
         self._num_steps_cache = None
 
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
+
+    def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+        """Estimate the disk this whole protocol will write, in MB.
+
+        One owner for "how big is this protocol", so the pre-run free-space
+        guard and anything that wants to tell the user up front cannot drift
+        apart. Lives on Protocol because the estimate has to know the steps
+        frame schema, and Protocol is what guarantees that schema at any row
+        count.
+
+        Stateless by design -- no cached total. A cache here has to be
+        invalidated by every mutator, and the in-place ones (modify_step
+        flipping Acquire, delete_step dropping rows) do not go through the
+        one place that would clear it; a stale total silently under-reserves
+        disk for a run. Recomputing costs single-digit milliseconds on a
+        protocol large enough to care about.
+
+        Returns the estimate only, NOT floored at the run's minimum free-disk
+        figure. That floor is the disk guard's refusal policy, not a property
+        of the protocol -- folding it in would project gigabytes for a
+        three-step protocol.
+
+        Total by construction, like the per-step estimator it sums: it must
+        not raise on any protocol, because the run loop calls it inside a
+        broad except where a raise would silently disable the disk guard.
+
+        Args:
+            video_as_frames: Run-level flag -- video saved as individual
+                frames rather than a compressed MP4.
+            global_max_fps: The run's snapshot of the global video FPS cap
+                (0 = uncapped), so a video step is never sized at a rate the
+                recording will not run at.
+
+        Returns:
+            Estimated megabytes the whole protocol will write.
+        """
+        steps = self.steps()
+        n_steps = len(steps)
+        if n_steps == 0:
+            return 0.0
+
+        # Every non-video step costs the same constant, so they are counted
+        # with one mask and multiplied; only video rows have to be visited.
+        # The mask matches the per-step estimator's own `!= 'video'` test --
+        # NaN, missing and 'image' all compare False.
+        video_mask = (steps['Acquire'] == 'video').to_numpy()
+        n_video = int(video_mask.sum())
+        image_mb = common_utils.estimate_step_write_mb(
+            None, video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        total = float((n_steps - n_video) * image_mb)
+        # Positional, matching step()'s own .iloc, so this total and a
+        # per-step sum over the same protocol agree exactly.
+        for pos in np.flatnonzero(video_mask):
+            total += common_utils.estimate_step_write_mb(
+                steps.iloc[pos],
+                video_as_frames=video_as_frames,
+                global_max_fps=global_max_fps,
+            )
+        return total
+
+    def size_advisory(
+        self, *, video_as_frames: bool = False, global_max_fps: float
+    ) -> ProtocolSizeAdvisory | None:
+        """Describe this protocol if it is large enough to warn about, else None.
+
+        The threshold and the sentence live here rather than in the GUI: a
+        REST caller asking how big a protocol is should get the same answer,
+        and the GUI's job is to render what comes back.
+
+        Advisory only. Nothing here refuses anything -- a legitimate large
+        protocol runs untouched, and the run-start disk guard is unchanged.
+        """
+        num_steps = self.num_steps()
+        if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
+            return None
+
+        projected_mb = self.estimate_write_mb(
+            video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        return ProtocolSizeAdvisory(
+            num_steps=num_steps,
+            projected_mb=projected_mb,
+            message=(
+                f'{num_steps:,} steps, about '
+                f'{common_utils.format_disk_size_mb(projected_mb)} of images. '
+                f'Check free disk before running.'
+            ),
+        )
 
     def modify_autofocus(self, step_idx: int, enabled: bool):
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
@@ -1524,13 +1630,62 @@ class Protocol:
         binning_size = input_config['binning_size']
         stim_config = input_config['stim_config']
 
-        objective_loader = ObjectiveLoader()
-        objective = objective_loader.get_objective_info(objective_id=objective_id)
+        # A stack was asked for and cannot be built: refuse here, before any
+        # of the work below, rather than in the per-position loop where the
+        # answer would be recomputed identically for every position. What
+        # this replaces built one plane per position and logged a warning --
+        # which produced a NON-EMPTY protocol, so the empty-protocol refusal
+        # downstream passed it too, and a caller that asked for a stack got
+        # a photograph and a reported success.
+        if use_zstacking and (zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0):
+            title = 'Z-Stack Not Configured'
+            message = (
+                f'Z-stack range ({zstack_params["range"]}) and step size '
+                f'({zstack_params["step_size"]}) must both be greater than zero.'
+            )
+            # Solicited: a refusal answers something the caller just asked
+            # for, so it must reach the user even while a run is in flight.
+            # Raising alone would drop it exactly then. WARNING rather than
+            # ERROR because a refusal is a designed outcome; the two older
+            # refusal sites still log at ERROR and are their own queue row.
+            logger.warning(f'[Protocol] Build refused (zstack_not_configured): {message}')
+            notifications.warning(
+                'Protocol',
+                title,
+                message,
+                solicited=True,
+                operation_key=REFUSAL_OPERATION_KEY,
+            )
+            # The reason stays a LITERAL here, repeated from the log line
+            # above rather than hoisted into a variable: the refusal
+            # vocabulary is censused by reading this argument out of the
+            # source, and a name in its place makes the code invisible to
+            # that census -- a new reason then ships with no coverage.
+            raise ProtocolRunRefusedError(
+                reason='zstack_not_configured', title=title, message=message
+            )
+
+        # The objective is stamped into every step and sizes a spaced tiling
+        # grid; a protocol with neither -- an empty one -- is built with no
+        # objective (None), since there may be none in the light path to name.
+        acquiring = any(cfg['acquire'] in ('image', 'video') for cfg in layer_configs.values())
+        tiling_mxn = tiling_config.get_mxn_size(tiling)
+        single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
+        if objective_id is None:
+            if acquiring or not single_tile:
+                raise ConfigError(
+                    'cannot build protocol steps or a tiling grid with no objective: '
+                    'the objective in the light path is unknown'
+                )
+            focal_length = None
+        else:
+            objective = ObjectiveLoader().get_objective_info(objective_id=objective_id)
+            focal_length = objective['focal_length']
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
-            focal_length=objective['focal_length'],
+            focal_length=focal_length,
             frame_size=frame_dimensions,
             fill_factor=fill_factor,
             binning_size=binning_size,
@@ -1582,13 +1737,6 @@ class Protocol:
         for pos in actual_positions:
             for tile_label, tile_position in tiles.items():
                 if not use_zstacking:
-                    zstack_position_offsets = {None: None}
-                elif zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-                    # Z-stack enabled but not configured -- treat as single Z
-                    logger.warning(
-                        f'[Protocol] Z-stack enabled but range={zstack_params["range"]} '
-                        f'step_size={zstack_params["step_size"]} -- using single Z position'
-                    )
                     zstack_position_offsets = {None: None}
                 else:
                     zstack_config = ZStackConfig(
@@ -1736,7 +1884,9 @@ class Protocol:
         tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         labware_id = config['labware_id']
-        objective_id = config['objective_id']
+        # No steps and one tile: nothing to stamp an objective into, so none
+        # is read -- the protocol can be created before the objective is known.
+        objective_id = None
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()
@@ -1867,14 +2017,23 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path | None,
         *,
         led_max_ma: int | None = None,
-    ) -> 'Protocol | bool':
+        wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
+    ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
-        Raises ProtocolFormatError on format issues
+        Raises ProtocolFormatError on format issues, and, when
+        ``wellplate_loader`` (the installation's catalogue) is given, on a
+        Labware row naming a plate that catalogue does not have
         """
 
+        # A bound on how much memory one file may ask for, not a judgement
+        # about the file. The whole file is read into memory here, several
+        # times over, so a large enough protocol exhausts the process before
+        # any of it is parsed. Step COUNT is deliberately not bounded: the
+        # count is known only after the parse has already spent that memory,
+        # so a ceiling on it protects nothing, and one sized below what this
+        # app's own writer produces made saved protocols unreadable.
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-        MAX_STEP_COUNT = 10_000
 
         config = {}
 
@@ -1883,7 +2042,7 @@ class Protocol:
         if file_size > MAX_FILE_SIZE:
             raise ValueError(
                 f'Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024 * 1024)} MB '
-                f'({file_size:,} bytes). File may be corrupt.'
+                f'({file_size:,} bytes) and cannot be loaded without exhausting memory.'
             )
 
         # Filter out blank lines
@@ -2017,7 +2176,21 @@ class Protocol:
                 logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
                 raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
 
-            config['labware_id'] = labware[1]
+            # Stored in the catalogue's spelling whatever the file carried:
+            # a plate renamed since the file was saved is translated here,
+            # once, and nothing downstream sees the old name. Whether the
+            # plate EXISTS is judged only when the caller handed over the
+            # installation's catalogue -- post-processing reads a run's
+            # protocol on whatever install it is on and never uses the
+            # plate, so it has no standing to refuse for it.
+            if wellplate_loader is None:
+                config['labware_id'] = labware_loader.canonical_plate_name(labware[1])
+            else:
+                try:
+                    config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
+                except ConfigError as e:
+                    logger.error(f"'Labware' row in protocol file {file_path} refused: {e}")
+                    raise ProtocolFormatError(str(e)) from e
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")
@@ -2142,10 +2315,6 @@ class Protocol:
         # the app uses, so a z index can never render as 'Z3.0' in a name.
         protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
-        if len(protocol_df) == 0:
-            # Will create an empty protocol
-            return False
-
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
 
@@ -2230,24 +2399,39 @@ class Protocol:
                     )
                     return copy.deepcopy(default)
 
+        def _typed_column(values, dtype) -> pd.Series:
+            """A per-row column for the steps frame, typed explicitly.
+
+            A bare list assignment takes its dtype from its contents, and
+            DataFrame.apply(axis=1) invokes the function once on a phantom
+            all-NaN row to infer a result type. At zero rows the first
+            silently loses the column's type and the second logs errors for
+            a step that does not exist, so every per-row column is built
+            here: iterate the rows, then pin the dtype.
+            """
+            return pd.Series(list(values), dtype=dtype, index=protocol_df.index)
+
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = 'image'
             # Each row gets its own independent dict
-            protocol_df['Video Config'] = [
-                copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Video Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in protocol_df.index), object
+            )
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs.
             # Merge DEFAULT_VIDEO_CONFIG so legacy TSVs that only stored a
             # subset of fields (e.g. older saves with just 'duration') fall
             # back to defaults for missing keys instead of failing validation
             # on fps=0.
-            protocol_df['Video Config'] = protocol_df.apply(
-                lambda row: {
-                    **DEFAULT_VIDEO_CONFIG,
-                    **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
-                },
-                axis=1,
+            protocol_df['Video Config'] = _typed_column(
+                (
+                    {
+                        **DEFAULT_VIDEO_CONFIG,
+                        **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
+                    }
+                    for _, row in protocol_df.iterrows()
+                ),
+                object,
             )
 
         if (
@@ -2261,16 +2445,19 @@ class Protocol:
 
         if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
             # Each row gets its own independent dict
-            protocol_df['Stim_Config'] = [
-                copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Stim_Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in protocol_df.index), object
+            )
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs
-            protocol_df['Stim_Config'] = protocol_df.apply(
-                lambda row: _carry_stim_key_names(
-                    _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+            protocol_df['Stim_Config'] = _typed_column(
+                (
+                    _carry_stim_key_names(
+                        _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+                    )
+                    for _, row in protocol_df.iterrows()
                 ),
-                axis=1,
+                object,
             )
 
         if config['version'] in (2, 3, 4, 5):
@@ -2293,9 +2480,11 @@ class Protocol:
             # verbatim). Files that also predate the auto/user flag take the
             # flag from the same classification; a stored flag is kept as-is.
             recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
-            protocol_df['Label'] = [label for label, _ in recovered]
+            protocol_df['Label'] = _typed_column((label for label, _ in recovered), str)
             if 'Auto_Named' not in protocol_df.columns:
-                protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+                protocol_df['Auto_Named'] = _typed_column(
+                    (is_auto for _, is_auto in recovered), bool
+                )
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save
@@ -2318,10 +2507,13 @@ class Protocol:
         # so a stale or hand-edited Name cannot disagree with the fields it
         # encodes. For auto-named rows this reproduces the stored Name
         # byte-identically.
-        protocol_df['Name'] = [
-            common_utils.build_step_name(common_utils.step_components(row))
-            for _, row in protocol_df.iterrows()
-        ]
+        protocol_df['Name'] = _typed_column(
+            (
+                common_utils.build_step_name(common_utils.step_components(row))
+                for _, row in protocol_df.iterrows()
+            ),
+            str,
+        )
 
         # The in-memory steps now carry every current column; stamp the
         # current version so a save writes the format the file actually
@@ -2337,12 +2529,6 @@ class Protocol:
         config['custom_step_count'] = (
             int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
         )
-
-        if len(protocol_df) > MAX_STEP_COUNT:
-            raise ValueError(
-                f'Protocol contains {len(protocol_df):,} steps, exceeding the maximum of '
-                f'{MAX_STEP_COUNT:,}. File may be corrupt.'
-            )
 
         # Warn -- do not reject -- when steps would render the same capture
         # filename (#636's harm class). The file must stay loadable so the
@@ -2374,29 +2560,6 @@ class Protocol:
             config=config,
             led_max_ma=led_max_ma,
         )
-
-    def mark_zstack_starts_and_ends(self) -> None:
-        df = self.steps().copy()
-        df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: x == 0)
-        df['Last Z'] = (
-            df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
-            == df['Z-Stack Group Index']
-        )
-        df = df.drop(columns=['Z-Stack Group Index'])
-        self._set_steps(df)
-
-    def remove_zstack_starts_and_ends(self) -> None:
-        df = self.steps()
-        df = df.drop(columns=['First Z', 'Last Z'])
-        self._set_steps(df)
-
-    def has_zstacks(self) -> bool:
-        max_group_id = self.steps()['Z-Stack Group ID'].max()
-        # bool(), not the bare comparison: a pandas reduction returns
-        # np.bool_, and the annotation above promises a Python bool to
-        # every caller that stores or forwards this.
-        return bool(max_group_id > -1)
 
 
 if __name__ == '__main__':

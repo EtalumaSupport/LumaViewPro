@@ -34,6 +34,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules import layer_record
@@ -57,6 +58,9 @@ GOOD_ROUND = {
     'get_pixel_format': 'Mono12',
     'get_binning_size': 2,
 }
+
+
+from modules.run_outcome import EndingLatch
 
 
 class _StampedFrameHandler:
@@ -512,6 +516,9 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     labware = SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'})
     runtime_state = SimpleNamespace(
         get_current_objective=lambda: {'focal_length': 9.0},
+        # The metadata stamps the objective the frame was taken with, by id.
+        get_current_objective_id=lambda: '4x Oly',
+        get_objective_info=lambda objective_id: {'focal_length': 9.0},
         get_labware=lambda: labware,
         get_stage_offset=lambda: {'x': 0, 'y': 0},
         stage_to_plate=lambda **kwargs: (1.0, 2.0),
@@ -526,7 +533,9 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
             get_camera_info=lambda: {'model': 'simcam'},
         ),
-        illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
+        illumination=SimpleNamespace(
+            get_led_state=lambda channel: {'enabled': True, 'illumination_ma': 100.0, 'owner': ''}
+        ),
         layer_identity=layer_record.UNRESOLVED,
         _camera_driver=driver,
     )
@@ -543,7 +552,14 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     driver._scripts['get_exposure_t'] = [RAISE]
     scope = _metadata_scope_with_real_imaging(imaging, driver)
 
-    metadata = generate_image_metadata(scope, channel='BF', x=0, y=0, z=0)
+    metadata = generate_image_metadata(
+        scope,
+        channel='BF',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
+    )
 
     assert 'gain_db' not in metadata, (
         f'failed live gain read must omit the key, not record '
@@ -640,6 +656,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=_threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
@@ -647,6 +664,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
     recorded = []
     monkeypatch.setattr(
@@ -655,7 +673,9 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     )
     writer.write_capture(
         enable_image_saving=True,
-        captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12),
+        captured_image=CapturedFrame(
+            image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12, objective_id='4x Oly'
+        ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),

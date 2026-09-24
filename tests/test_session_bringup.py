@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A factory-built session is a configured session.
 
-`ScopeSession.create_headless` (and `create`, for a scope it builds) runs
+`ScopeSession.create`, for a scope it builds, runs
 the settings-to-scope bring-up before it returns: the turret slot keys
 normalized, the slot-1 objective adopted, the labware selected, the
 scope initialized, the camera start gate released. A session that came
@@ -18,6 +18,7 @@ import pytest
 
 from modules.exceptions import ConfigError
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
 
 
@@ -30,7 +31,7 @@ def _wait_for_thread_count(target, deadline_s=2.0):
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create_headless(settings=complete_settings(live_folder=str(tmp_path)))
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         yield s
     finally:
@@ -69,6 +70,7 @@ class TestAFactorySessionIsConfigured:
             false_color_on=False,
             save_encoding='8bit',
             significant_bits=8,
+            objective_id=session.scope.runtime_state.get_current_objective_id(),
         )
         assert path is not None
 
@@ -76,28 +78,42 @@ class TestAFactorySessionIsConfigured:
 class TestSettingsThatCannotConfigureAScope:
     def test_missing_frame_refuses_by_key(self):
         with pytest.raises(ConfigError, match='frame'):
-            ScopeSession.create_headless(settings=complete_settings_without('frame'))
+            ScopeSession.create(complete_settings_without('frame'), simulate=True)
 
     def test_missing_objective_refuses_by_key(self):
         with pytest.raises(ConfigError, match='objective_id'):
-            ScopeSession.create_headless(settings=complete_settings_without('objective_id'))
+            ScopeSession.create(complete_settings_without('objective_id'), simulate=True)
+
+    def test_a_turret_scope_needs_no_stored_objective(self, tmp_path):
+        """On a turret scope the objective is the slot's assignment; a stored
+        id names nothing, so its absence is not a reason to refuse."""
+        session = ScopeSession.create(
+            complete_settings_without(
+                'objective_id', live_folder=str(tmp_path), microscope='LS850T'
+            ),
+            simulate=True,
+        )
+        session.shutdown()
 
     def test_an_unshipped_objective_refuses_by_value(self):
         with pytest.raises(ConfigError, match='banana'):
-            ScopeSession.create_headless(settings=complete_settings(objective_id='banana'))
+            ScopeSession.create(complete_settings(objective_id='banana'), simulate=True)
 
-    def test_string_turret_keys_are_normalized_and_slot_one_is_adopted(self, tmp_path):
+    def test_string_turret_keys_are_normalized_and_slot_one_answers(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw
-        it. Adoption must still find slot 1 and write the objective."""
+        it. The slot map must still be keyed by int, so the turret in slot 1
+        answers slot 1's assignment."""
         raw = complete_settings(
             live_folder=str(tmp_path),
             microscope='LS850T',
             objective_id='20x Oly',
         )
         raw['turret_objectives'] = {'1': '10x Oly', '2': None, '3': None, '4': None}
-        s = ScopeSession.create_headless(settings=raw)
+        s = ScopeSession.create(raw, simulate=True)
         try:
-            assert s.settings['objective_id'] == '10x Oly'
+            assert s.settings['turret_objectives'][1] == '10x Oly'
+            home_sim_scope(s.scope)
+            s.scope.motion.move_turret(1)
             assert s.scope.runtime_state.get_current_objective_id() == '10x Oly'
         finally:
             s.shutdown()
@@ -105,7 +121,11 @@ class TestSettingsThatCannotConfigureAScope:
 
     def test_a_root_without_a_template_refuses_by_root(self, tmp_path):
         with pytest.raises(ConfigError, match=r'settings\.json'):
-            ScopeSession.create_headless(source_path=str(tmp_path))
+            ScopeSession.create(
+                ScopeSession.load_user_settings(str(tmp_path)),
+                source_path=str(tmp_path),
+                simulate=True,
+            )
 
     def test_a_root_without_labware_refuses_by_file(self, tmp_path):
         import pathlib
@@ -117,14 +137,18 @@ class TestSettingsThatCannotConfigureAScope:
         shutil.copy(repo / 'data' / 'settings.json', data / 'settings.json')
         shutil.copy(repo / 'data' / 'objectives.json', data / 'objectives.json')
         with pytest.raises(ConfigError, match=r'labware\.json'):
-            ScopeSession.create_headless(source_path=str(tmp_path))
+            ScopeSession.create(
+                ScopeSession.load_user_settings(str(tmp_path)),
+                source_path=str(tmp_path),
+                simulate=True,
+            )
 
 
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):
         baseline = threading.active_count()
         with pytest.raises(ConfigError):
-            ScopeSession.create_headless(settings=complete_settings_without('frame'))
+            ScopeSession.create(complete_settings_without('frame'), simulate=True)
         # Other tests' threads may finish during the wait; what matters is
         # that the refusing factory left none of its own behind.
         assert _wait_for_thread_count(baseline) <= baseline
@@ -140,6 +164,7 @@ class TestARefusingFactoryLeavesNothingBehind:
             with pytest.raises(ConfigError):
                 ScopeSession.create(
                     settings=complete_settings_without('frame'),
+                    simulate=True,
                     io_executor=io,
                     camera_executor=cam,
                 )
@@ -177,3 +202,44 @@ class TestDisableHomingIsNoStartupMotion:
         session.start_application_session(disable_homing=True)
 
         assert session.settings['turret_position'] == 3
+
+    def test_the_stage_is_not_placed_at_the_sample_either(self, session):
+        """No startup motion means none, including the simulator's own
+        placement.
+
+        The placement cannot run here even in principle: it is an absolute
+        move, and an absolute move on an axis that was never homed raises
+        rather than guessing where it is. Skipping the home therefore has
+        to skip the placement too, and this pins that they stay together.
+        """
+        session.start_application_session(disable_homing=True)
+
+        assert session.scope.motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0), (
+            'homing disabled must leave the stage untouched at its unhomed origin'
+        )
+
+
+class TestTheSimulatorStartsWhereItsSampleIs:
+    """Bring-up leaves a simulated stage at the plane its own camera calls
+    sharp, not at the floor where homing leaves it.
+
+    Homing to the bottom of travel is correct and shared with the real
+    instrument. The difference is what happens next: a real operator
+    focuses, and in the simulator nobody did, so every session started
+    5 mm from the specimen -- far enough that a z-stack asked for slices
+    below zero and an autofocus sweep began on nothing.
+    """
+
+    def test_bringup_leaves_z_off_the_floor_and_at_the_declared_plane(self, session):
+        session.start_application_session()
+
+        z = session.scope.motion.get_current_position('Z')
+        assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'
+
+        # Read from the camera rather than restated here: the point of the
+        # change is that one simulated scene holds one idea of where the
+        # sample is, so a literal in this test would defeat what it checks.
+        declared_plane = session.scope._camera_driver.get_focal_z()
+        assert z == pytest.approx(declared_plane, abs=1.0), (
+            f'the stage settled at {z} um but the camera calls {declared_plane} um sharp'
+        )

@@ -116,7 +116,7 @@ def test_gui_load_carries_layer_values(bf_layer, expected_illumination, expected
 def test_headless_session_read_path_carries_layer_values():
     """The L2 entry point reads the file itself and never calls load_settings.
 
-    ``ScopeSession.create_headless`` resolves and reads current.json directly
+    ``ScopeSession.load_user_settings`` resolves and reads current.json directly
     when no settings have been loaded into the process -- the normal state in
     a fresh REST or CLI process. A migration living in the GUI's load path
     would never run here, and ``get_layer_configs`` would raise KeyError on

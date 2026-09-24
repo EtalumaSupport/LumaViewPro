@@ -261,14 +261,6 @@ class ProtocolPostProcessingHelper:
                 'message': msg,
             }
 
-        if protocol is None:
-            msg = 'Protocol not loaded'
-            logger.error(f'{self._name}: {msg}')
-            return {
-                'status': False,
-                'message': msg,
-            }
-
         protocol_execution_record = ProtocolExecutionRecord.from_file(
             file_path=protocol_tsvs['protocol_execution_record'],
         )

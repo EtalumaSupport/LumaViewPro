@@ -31,8 +31,10 @@ import pytest
 import tifffile as tf
 
 from modules.image_mode import OUTPUT_FORMAT_TIFF
+from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
@@ -64,7 +66,16 @@ def headless_settings(
             settings[layer]['composite_brightness_threshold'] = 25
     settings['live_folder'] = str(tmp_path)
     settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
-    settings['turret_objectives'] = {}
+    # A prepared settings dict carries the simulated motor board's tier
+    # from the template, and the session refuses one that does not; this
+    # hand-built dict says so itself, on the fast tier like the rest of
+    # the suite.
+    settings['simulator_tier'] = 'fast'
+    # The slots a brought-up scope carries. Empty is not the neutral
+    # value it looks like: bring-up pushes these into the runtime store
+    # (and skips the push entirely when the dict is falsy), and a turret
+    # carrying nothing addresses no glass, so every protocol is refused.
+    settings['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
     return settings
 
 
@@ -79,15 +90,15 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
 
     ``source_path`` is the installation root the session resolves its data
     files against, and ``engineering_mode`` the mode the session records
-    itself as built in; both default to what ``create_headless`` defaults
+    itself as built in; both default to what ``create`` defaults
     to, so a caller with no opinion is unaffected. A caller that HAS one
     states it here rather than composing a second session shape beside
     this one.
     """
     from modules.scope_session import ScopeSession
 
-    session = ScopeSession.create_headless(
-        settings=settings, source_path=source_path, engineering_mode=engineering_mode
+    session = ScopeSession.create(
+        settings, source_path=source_path, engineering_mode=engineering_mode, simulate=True
     )
 
     scope = session.scope
@@ -96,12 +107,10 @@ def open_composite_session(settings, source_path='.', engineering_mode=False):
     scope._camera_driver.set_timing_mode('fast')
     home_sim_scope(scope)
 
-    session.start_executors()
     runner = session.create_protocol_runner()
     try:
         yield session, runner
     finally:
-        runner.shutdown()
         session.shutdown()
 
 
@@ -120,6 +129,18 @@ def single_run_dir(tmp_path):
 
 class TestCompositeRunEndToEnd:
     """One composite run, from the L2 call to the file it produced."""
+
+    def test_a_composite_with_no_folder_lands_where_the_button_puts_it(self, composite_session):
+        # The API owns the folder: a script that names none and a click on
+        # the Composite button write to the same place. Before this the
+        # button composed 'Manual/Composites' itself and a script's
+        # composite landed beside protocol data.
+        _session, runner, tmp_path = composite_session
+
+        artifact = pathlib.Path(runner.run_composite(sequence_name='unplaced'))
+
+        assert artifact.exists()
+        assert (tmp_path / 'Manual' / 'Composites') in artifact.parents, artifact
 
     def test_the_returned_path_is_a_readable_composite(self, composite_session):
         _session, runner, tmp_path = composite_session
@@ -177,7 +198,7 @@ class TestCompositeRunEndToEnd:
         assert not session.is_protocol_running, (
             'run_composite returned while the run still held the activity claim'
         )
-        outcome = runner._executor.merge_outcome()
+        outcome = runner._executor.run_outcome()
         settled = outcome.wait(timeout_s=0)
         assert settled is not None and settled.merged, (
             f'the merge outcome was not resolved-merged at return: {settled}'
@@ -240,22 +261,25 @@ class TestStartComposite:
         # A constant here instead of a parameter would make a GUI click
         # during an API composite read as that run's OWN second click, so
         # the click would abort someone else's run instead of being refused.
-        _session, runner, tmp_path = composite_session
+        session, runner, tmp_path = composite_session
 
+        # Observed from inside the run rather than after it: run_complete
+        # fires during cleanup, with the claim still held, so this reads
+        # the holder while it holds rather than racing the run's end.
+        held_by = []
         outcome = runner.start_composite(
             sequence_name='start_token',
             parent_dir=str(tmp_path),
             run_trigger_source='composite',
+            callbacks={'run_complete': lambda **kw: held_by.append(runner.run_trigger_source())},
         )
         assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
-        assert runner.run_trigger_source() == 'composite'
+        assert held_by == ['composite']
 
-    def test_the_api_entry_point_keeps_its_own_token(self, composite_session):
-        _session, runner, tmp_path = composite_session
-
-        runner.run_composite(sequence_name='api_token', parent_dir=str(tmp_path))
-
-        assert runner.run_trigger_source() == 'api_composite'
+        assert wait_until_not_running(session), 'the run never released the claim'
+        assert runner.run_trigger_source() is None, (
+            'the getter answers for the run HOLDING the scope; nothing holds it now'
+        )
 
     def test_each_run_gets_the_outcome_it_started(self, composite_session):
         # The outcome used to be read back off the executor after start
@@ -295,7 +319,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        from modules.composite_builder import build_composite
+        from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 
         _session, runner, tmp_path = composite_session
 
@@ -314,10 +338,12 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         transmitted = frames['BF']
         fluorescence = {name: arr for name, arr in frames.items() if name != 'BF'}
 
-        # The worker read its threshold as an absolute value on the OUTPUT
+        # The worker reads its threshold as an absolute cutoff on the OUTPUT
         # 8-bit scale, and the settings carry a percentage, so the conversion
-        # is part of what is being compared.
-        thresholds = dict.fromkeys(fluorescence, 25 / 100 * 255)
+        # is part of what is being compared. Taken from the production mapping
+        # rather than recomputed here: a copy of the formula would keep this
+        # comparison green through a change to the real one.
+        thresholds = dict.fromkeys(fluorescence, brightness_cutoff_from_percent(25))
 
         expected = build_composite(
             channel_images=fluorescence,

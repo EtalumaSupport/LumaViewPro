@@ -1,17 +1,20 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import math
 import logging
 import pathlib
 import threading
 import time
 from typing import ClassVar
+from collections.abc import Mapping
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
+from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import motor_registry
 from drivers.exceptions import ConfigReadError, HardwareError
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 
 
 class _LegacyAccelProbeFilter(logging.Filter):
@@ -35,6 +38,15 @@ logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
 
 # Axis order the firmware reports and the driver answers in.
 _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
+
+# How long the stage may still be travelling after a home's reply. The
+# field firmware answers HOME and then drives X, Y and Z to the centre of
+# travel, and answers THOME and then drives Z back, without waiting. The
+# longest of those is Z's climb to centre, 682666 microsteps at the field Z
+# INI's VMAX of 400000 on a 16 MHz chip clock: about two seconds. The bound
+# is generous against that and well inside the motion API's own wait on a
+# home.
+_HOME_ARRIVAL_TIMEOUT_S = 30.0
 
 # The acceleration limit a caller may ask for, as a percentage of the
 # firmware's own maximum. Public because callers that build a value BEFORE a
@@ -116,7 +128,12 @@ class MotorBoard(SerialBoard):
     # ----------------------------------------------------------
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
-    def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None, **kwargs):
+    def __init__(
+        self,
+        motorconfig_defaults_file: pathlib.Path | None = None,
+        backend: SerialBackend = PYSERIAL,
+        **kwargs,
+    ):
         self._state_lock = threading.Lock()
         self.overshoot = False
         self._has_turret = False
@@ -133,7 +150,14 @@ class MotorBoard(SerialBoard):
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
-        super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]', timeout=5, write_timeout=5)
+        super().__init__(
+            vid=0x2E8A,
+            pid=0x0005,
+            label='[XYZ Class ]',
+            timeout=5,
+            write_timeout=5,
+            backend=backend,
+        )
 
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
@@ -157,30 +181,32 @@ class MotorBoard(SerialBoard):
         causing PermissionError on Windows. (#610)
         """
         self.backlash = self.motorconfig.antibacklash_um('Z')
-        self.axes_config = {
-            'Z': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('Z'),
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('Z'),
+                    },
+                    'move_func': self.z_um2ustep,
                 },
-                'move_func': self.z_um2ustep,
-            },
-            'X': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('X'),
+                'X': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('X'),
+                    },
+                    'move_func': self.xy_um2ustep,
                 },
-                'move_func': self.xy_um2ustep,
-            },
-            'Y': {
-                'limits': {
-                    'min': 0.0,
-                    'max': self.motorconfig.travel_limit_um('Y'),
+                'Y': {
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um('Y'),
+                    },
+                    'move_func': self.xy_um2ustep,
                 },
-                'move_func': self.xy_um2ustep,
-            },
-            'T': {'move_func': self.t_pos2ustep},
-        }
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
     def _initial_connect(self):
         """Called once from __init__ to establish the first connection."""
@@ -760,10 +786,10 @@ class MotorBoard(SerialBoard):
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('Z')
-        ustep = int((usteps_per_mm * um) / 1000)
+        ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
     def zhome(self) -> bool:
@@ -810,10 +836,10 @@ class MotorBoard(SerialBoard):
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
         usteps_per_mm = self.motorconfig.usteps_per_mm('X')
-        ustep = int((usteps_per_mm * um) / 1000)
+        ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
     def home(self) -> bool:
@@ -839,6 +865,7 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
+            self._wait_for_arrival(self.detect_present_axes(), 'home()')
             with self._state_lock:
                 self.initial_homing_complete = True
             return True
@@ -851,6 +878,25 @@ class MotorBoard(SerialBoard):
                 self.initial_homing_complete = True
             return True
         raise HardwareError(f'home(): firmware error: {resp}')
+
+    def _wait_for_arrival(self, axes, what: str) -> None:
+        """Return once every axis has reached its target.
+
+        The field firmware answers HOME before its move to the centre of
+        travel ends and THOME before its Z restore ends, so the reply says
+        the home is done, not that the stage has stopped. The 3.0 firmware
+        waits before it answers, and there the first poll returns.
+
+        Raises:
+            HardwareError: An axis did not arrive within the bound.
+        """
+        deadline = time.monotonic() + _HOME_ARRIVAL_TIMEOUT_S
+        for axis in axes:
+            if not self.wait_for_position(axis, timeout=max(0.0, deadline - time.monotonic())):
+                raise HardwareError(
+                    f'{what}: {axis} did not reach its target within '
+                    f'{_HOME_ARRIVAL_TIMEOUT_S:.0f} s of the reply'
+                )
 
     def has_homed(self) -> bool:
         """Whether the board has completed an initial XY/Z home cycle.
@@ -948,6 +994,9 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
+            self._wait_for_arrival(
+                [axis for axis in ('Z', 'T') if axis in self.detect_present_axes()], 'thome()'
+            )
             with self._state_lock:
                 self.initial_t_homing_complete = True
             return True
@@ -1087,9 +1136,7 @@ class MotorBoard(SerialBoard):
             return None
 
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(
-        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
-    ) -> None:
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Move an axis to an absolute position in user units.
 
         For Z, when ``overshoot_enabled`` is True the move first travels
@@ -1103,9 +1150,10 @@ class MotorBoard(SerialBoard):
             overshoot_enabled: When True, apply Z backlash compensation
                 if the target is sufficiently below the current
                 position. Ignored for non-Z axes.
-            ignore_limits: When True, skip the configured min/max
-                clamping. Use only when caller has explicit knowledge
-                that the bare hardware limits are safe.
+
+        Travel is not checked here: the motion API refuses a target
+        outside travel before it calls this. Clamping here instead made a
+        refused move look like a successful one that stopped short.
 
         Raises:
             HardwareError: ``axis`` is not in ``axes_config``.
@@ -1117,11 +1165,6 @@ class MotorBoard(SerialBoard):
             raise HardwareError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
-
-        if ('limits' in axis_config) and (not ignore_limits):
-            axis_limits = axis_config['limits']
-            pos = max(pos, axis_limits['min'])
-            pos = min(pos, axis_limits['max'])
 
         steps = axis_config['move_func'](pos)
 
@@ -1595,7 +1638,7 @@ class MotorBoard(SerialBoard):
             return
         return response
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -1605,7 +1648,7 @@ class MotorBoard(SerialBoard):
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:

@@ -13,6 +13,7 @@ import copy
 import logging
 
 import modules.common_utils as common_utils
+from modules.exceptions import ProtocolRunRefusedError
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
@@ -28,17 +29,13 @@ def go_to_step(
     include_move: bool = True,
     called_from_protocol: bool = True,
 ):
-    from modules.config_ui_getters import get_selected_labware
-
     # Deferred import: ui/ui_helpers.move_absolute wraps the
     # API call with UI update callbacks. step_navigation still reaches
-    # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
-    from ui.ui_helpers import move_absolute
-    from modules.notification_center import notifications
+    # upward here, which the display-only direction has yet to undo.
+    from ui.ui_helpers import move_absolute, unknown_position_refused
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
-    coordinate_transformer = ctx.coordinate_transformer
 
     num_steps = protocol.num_steps()
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -53,6 +50,36 @@ def go_to_step(
         return
 
     step = protocol.step(idx=step_idx)
+
+    # Above the pointer write, and that position is the whole point. The
+    # pointer is what `modify_step_ex` and `insert_step_ex` address a step
+    # BY, and they fill that step from the LIVE stage -- so a pointer left
+    # on a step the scope never reached means the next edit silently writes
+    # the previous step's coordinates into it. Refusing after the write
+    # would leave exactly that.
+    #
+    # The rule is the API's, asked here for the one step this call is about
+    # to navigate to. The refusal does not propagate: it has already been
+    # logged and shown to the user, this call has changed nothing yet, and
+    # go_to_step is also the run's navigation callback -- raising would end
+    # a run over a question the engine already answered at prepare().
+    try:
+        ctx.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
+    except ProtocolRunRefusedError:
+        return
+
+    # The same reasoning for an axis that does not know where it is: the
+    # moves below would each be refused on the motion lane, after the
+    # pointer had moved, one popup per axis. Asked once, for every axis the
+    # navigation drives, turret included -- a failed turret home leaves T
+    # unknown while the stage axes are fine. Only when this call moves:
+    # a run navigates with include_move=False and settled positions at
+    # prepare().
+    if include_move and unknown_position_refused(
+        ctx.scope.capabilities.axes, recording=False, then='go to the step'
+    ):
+        return
+
     # A same-step re-selection (re-clicking / re-typing the current number)
     # must leave a user-lit channel alone; only a REAL step change drives
     # the LED preview transition below.
@@ -62,58 +89,44 @@ def go_to_step(
     _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
     _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
-    # Convert plate coordinates to stage coordinates
     if include_move:
-        _, labware = get_selected_labware()
-        sx, sy = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=step['X'], py=step['Y']
-        )
+        # A step stores plate mm; the API converts and bounds it. Both
+        # lanes below pass the stored number through unchanged.
+        plate_x = step['X']
+        plate_y = step['Y']
 
         turret_pos = None
         if ctx.scope.capabilities.has_turret:
             step_objective_id = step['Objective']
+            # The same lookup the run makes, so navigating to a step and
+            # running it choose the same slot.
             turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
-                objective_id=step_objective_id,
-                persisted_position=settings.get('turret_position'),
+                objective_id=step_objective_id
             )
 
             if turret_pos is None:
-                logger.error(
-                    f'Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}'
+                # Unreachable: the rule above admitted this objective by
+                # reading the same turret configuration this lookup reads,
+                # so a slot carrying it exists. If the two ever disagree,
+                # stop -- what this replaces logged, raised a dialog, and
+                # then moved X, Y and Z anyway, capturing through whatever
+                # glass was in the path and naming the file for the glass
+                # the step asked for.
+                raise RuntimeError(
+                    f'No turret slot carries {step_objective_id!r} for step {step_idx}, '
+                    'yet the admissibility rule accepted it from the same turret '
+                    'configuration. The rule and the slot lookup have disagreed.'
                 )
 
-                error_msg = f"Cannot move turret to step {step_idx}. No objective position found matching step's objective: {step_objective_id}. Please check objective settings."
-                notifications.error('Protocol', 'Protocol Objective Not Set', error_msg)
-
-        # Move into position
+        # Move into position. A run moves the scope itself and calls this
+        # with include_move=False, so only a person's navigation gets here.
         if ctx.scope.motor_connected:
-            if not called_from_protocol:
-                if turret_pos is not None:
-                    move_absolute(axis='T', position=turret_pos, protocol=False)
-                    _schedule_ui(
-                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
-                            turret_pos
-                        ),
-                        0,
-                    )
-                move_absolute(axis='X', position=sx, protocol=False)
-                move_absolute(axis='Y', position=sy, protocol=False)
-                move_absolute(axis='Z', position=step['Z'], protocol=False)
-            else:
-                if turret_pos is not None:
-                    # restore_z=False -- the Z move below overwrites Z with
-                    # step['Z'] immediately, so _safe_turret_move's default
-                    # Z-restore-after-T-move would be wasted motion (#524).
-                    move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
-                    _schedule_ui(
-                        lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
-                            turret_pos
-                        ),
-                        0,
-                    )
-                move_absolute('X', sx, protocol=True)
-                move_absolute('Y', sy, protocol=True)
-                move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)
+            if turret_pos is not None:
+                # turret_select shows the outcome once the move has landed.
+                move_absolute(axis='T', position=turret_pos)
+            move_absolute(axis='X', position=plate_x, frame='plate')
+            move_absolute(axis='Y', position=plate_y, frame='plate')
+            move_absolute(axis='Z', position=step['Z'])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 

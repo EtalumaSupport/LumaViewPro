@@ -40,21 +40,21 @@ from modules.sequential_io_executor import IOTask
 @pytest.fixture
 def headless_session():
     """A real headless session, torn down whatever the test does."""
-    session = ScopeSession.create_headless()
+    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     try:
         yield session
     finally:
         try:
             session.shutdown_executors()
         except Exception:
-            # Teardown must not mask the test's own failure; a session
-            # whose executors never started is the normal case here.
+            # Teardown must not mask the test's own failure; a test may
+            # already have shut the lanes down itself.
             pass
         session.scope.disconnect()
 
 
 class TestCreateHeadlessComposesARealSession:
-    """`create_headless()` must return a session that can actually work.
+    """`create(simulate=True)` must return a session that can actually work.
 
     A factory that returns a half-wired object is the failure mode here:
     every field it forgets shows up much later as a None-deref or a
@@ -114,25 +114,22 @@ class TestCreateHeadlessComposesARealSession:
 
 
 class TestExecutorLifecycle:
-    """`start_executors` / `shutdown_executors` must really start and stop.
+    """The factory's lanes really run work, and `shutdown_executors` really stops them.
 
     Proven by running work, not by reading a thread flag.
     """
 
     def test_started_io_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'io_executor did not execute a queued task'
 
     def test_started_camera_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.camera_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'camera_executor did not execute a queued task'
 
     def test_shutdown_stops_the_worker_threads(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0)
@@ -166,17 +163,19 @@ class TestIsProtocolRunning:
         assert headless_session.is_protocol_running is False
 
     def test_tracks_the_claim_in_both_directions(self, headless_session):
-        assert headless_session.activity_claim.try_claim('protocol')
+        held = headless_session.activity_claim.try_claim('protocol')
+        assert held
         assert headless_session.is_protocol_running is True
-        headless_session.activity_claim.release('protocol')
+        held.release()
         assert headless_session.is_protocol_running is False
 
     def test_a_recording_claim_is_not_a_run(self, headless_session):
-        assert headless_session.activity_claim.try_claim('recording')
+        held = headless_session.activity_claim.try_claim('recording')
+        assert held
         try:
             assert headless_session.is_protocol_running is False
         finally:
-            headless_session.activity_claim.release('recording')
+            held.release()
 
     def test_is_read_only(self, headless_session):
         """No setter, so no second writer for run state."""

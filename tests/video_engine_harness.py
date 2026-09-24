@@ -117,6 +117,9 @@ class WriterStub:
         # write order; parallel to written so existing tuple consumers
         # are untouched.
         self.written_chunks = []
+        # The caller's per-frame fact as delivered to the write edge, in
+        # write order; parallel to written.
+        self.written_facts = []
         self._gate = threading.Event()
         if not blocked:
             self._gate.set()
@@ -127,7 +130,9 @@ class WriterStub:
     def block(self) -> None:
         self._gate.clear()
 
-    def __call__(self, image, timestamp_s, frame_number, config, chunks=None) -> pathlib.Path:
+    def __call__(
+        self, image, timestamp_s, frame_number, config, chunks=None, fact=None
+    ) -> pathlib.Path:
         self._gate.wait()
         if self.die_on_frame is not None and frame_number == self.die_on_frame:
             raise SystemExit('writer lane death (scripted)')
@@ -137,28 +142,8 @@ class WriterStub:
         path.write_bytes(image.tobytes())
         self.written.append((frame_number, timestamp_s, path))
         self.written_chunks.append(chunks)
+        self.written_facts.append(fact)
         return path
-
-
-class ClaimStub:
-    """Reference compare-and-claim: atomic, single owner, loud release."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.owner = None
-
-    def try_claim(self, owner: str) -> bool:
-        with self._lock:
-            if self.owner is not None:
-                return False
-            self.owner = owner
-            return True
-
-    def release(self, owner: str) -> None:
-        with self._lock:
-            if self.owner != owner:
-                raise RuntimeError(f'release by {owner!r} but owner is {self.owner!r}')
-            self.owner = None
 
 
 class NotifyRecorder:

@@ -290,6 +290,10 @@ if __name__ == '__main__':
     # that adds a close (X) button to every popup app-wide.
     import ui.popup_close  # registers the Etaluma popup-close button on every Popup
 
+    # Imported for its side effect: defining the class registers PickSpinner
+    # with Kivy's Factory, which the kv rules name it through.
+    import ui.pick_spinner
+
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton
@@ -438,6 +442,12 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
+    # The saved protocol is loaded once, after the startup objective
+    # question settles. A plain attribute rather than a kv property: no
+    # widget binds to it, and it exists only so the several paths that can
+    # ask the objective question cannot each re-load over the user's work.
+    _persisted_protocol_loaded = False
+
     # kv mirrors of the session's run-state derivations, published by
     # the ONE run-state listener below (worker-side truth lives on the
     # session; a kv binding cannot read it directly). run_lockout
@@ -455,7 +465,7 @@ class LumaViewProApp(TooltipMixin, App):
     # getattr, which is how one of them eventually forgets.
     _drain_close_watch = None
 
-    def publish_run_state(self, dt=0):
+    def publish_run_state(self, dt: float = 0) -> None:
         """Write the three kv mirrors from the session derivations.
 
         One closure writes all three, in fail-safe order: Kivy
@@ -466,7 +476,9 @@ class LumaViewProApp(TooltipMixin, App):
         """
         session = ctx.session
         run_lockout = session.run_lockout
-        recording = session.exclusive_activity == 'recording' and session.recording_capturing
+        recording = (
+            session.exclusive_activity == 'recording' and session.manual_recording.is_recording
+        )
         locked = session.controls_locked
         if locked:
             self.controls_locked = True
@@ -482,9 +494,10 @@ class LumaViewProApp(TooltipMixin, App):
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
-        # UI listener bridges live in modules/ui_listener_bridge.py so REST API and
-        # headless tools can reuse them.
-        from modules.ui_listener_bridge import UIListenerBridge
+        # The bridge subscribes the GUI to the scope's state events. It
+        # lives in ui/ because every one of its handlers ends in a widget
+        # write; a non-GUI host subscribes to the same events itself.
+        from ui.listener_bridge import UIListenerBridge
 
         ctx.ui_listener_bridge = UIListenerBridge(
             scope=lumaview.scope,
@@ -638,20 +651,18 @@ class LumaViewProApp(TooltipMixin, App):
 
         # ScopeSession owns startup orchestration so REST API, headless tools and
         # the GUI all hit the same path.
-        # The GUI drives motion through the ui_helpers wrappers: they set the
-        # window title during the home, and the turret one goes through the
-        # widget that also reconciles the objective, spinner and button state.
-        # The Session's own defaults are the bare API calls, which is what a
-        # headless caller gets.
-        from ui.ui_helpers import move_home, move_absolute
+        # The GUI homes through the ui_helpers wrapper, which sets the window
+        # title during the home. The turret move is the Session's own API
+        # call, the same one a headless caller gets; the turret display then
+        # shows where the API says the turret is, including nowhere known
+        # when homing was skipped or failed.
+        from ui.ui_helpers import move_home
 
         ctx.session.start_application_session(
             disable_homing=disable_homing,
             home_fn=lambda axis: move_home(axis, wait=True),
-            turret_fn=lambda position: move_absolute(
-                axis='T', position=position, wait_until_complete=True
-            ),
         )
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
         # Both startup questions may only fire once the session is up and
         # the frame has rendered; each helper owns its own deferral. The
@@ -699,9 +710,41 @@ class LumaViewProApp(TooltipMixin, App):
         again when the provisional-settings dialog resolves -- while
         settings were provisional the question was suppressed because
         its answer could not be kept.
+
+        The persisted protocol load is hung on the answer. Whether the
+        scope can perform that protocol depends on what the turret
+        carries, and on a turreted scope the slot at the current position
+        is only assigned once this question is answered -- so loading
+        first meant judging the protocol against a configuration that was
+        about to change.
         """
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
+        Clock.schedule_once(
+            lambda dt: vertical_control.prompt_if_objective_unknown(
+                on_resolved=self._load_persisted_protocol_once
+            ),
+            0,
+        )
+
+    def _load_persisted_protocol_once(self) -> None:
+        """Load the saved protocol, the first time the objective settles.
+
+        Latched because the objective question is asked from more than one
+        place: this startup path, the provisional-settings dialog
+        resolving, and the turret arriving at an unassigned slot. Each is
+        a legitimate reason to ask again; none is a reason to re-load the
+        saved protocol over whatever the user has done since, which a
+        naive continuation would do on every one of them.
+
+        The latch is set BEFORE the load rather than after, so a load that
+        raises does not leave the door open for the next question to try
+        again -- the panel reports its own failure and keeps an empty
+        protocol.
+        """
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        ctx.motion_settings.ids['protocol_settings_id'].load_persisted_protocol()
 
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.
@@ -1209,7 +1252,7 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        if ctx.session.recording_capturing:
+        if ctx.session.manual_recording.is_recording:
             # Still capturing, so the rest of the take is what closing
             # costs -- stopping is irreversible and there is no resume.
             # Read BEFORE the drain check below: a live recording is also

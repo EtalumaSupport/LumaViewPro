@@ -22,7 +22,6 @@ from kivy.uix.popup import Popup
 import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
-from ui.ui_helpers import text_input_debounced
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
@@ -180,20 +179,19 @@ class AdvancedSettings(Popup):
             )
             settings.setdefault('video', {})
             restored = str(settings['video'].get('max_fps', 0))
-            # A refused entry is still a user action, and until now it left no
-            # trace: the handler reverted the box and returned. Both halves are
+            # A refused entry is still a user action, and the revert below
+            # would otherwise leave no trace that it happened. Both halves are
             # recorded -- what was typed, and what the box was put back to --
-            # and the revert is declared, because one Enter runs this handler
-            # twice (the box binds both commit events) and the second pass
-            # would otherwise report the reverted value as the typed one.
-            text_input_debounced('VIDEO_MAX_FPS', widget.text)
-            text_input_debounced('VIDEO_MAX_FPS_APPLIED', restored)
+            # so the pair says what the user asked for and what the app did
+            # instead. Assigning .text does not dispatch the focus event this
+            # handler is bound to, so the revert cannot come back as a record.
+            gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
+            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', restored)
             widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_FPS', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_fps'] = value
-        text_input_debounced('VIDEO_MAX_FPS', value)
+        gui_logger.text_input('VIDEO_MAX_FPS', value)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -215,16 +213,14 @@ class AdvancedSettings(Popup):
             settings.setdefault('video', {})
             restored = str(get_manual_video_max_duration(settings))
             # The twin of the FPS limit above, and the same reasoning: the
-            # attempt and the reverted value are both recorded, and the revert
-            # is declared so the second commit pass cannot report it as typed.
-            text_input_debounced('VIDEO_MAX_DURATION_S', widget.text)
-            text_input_debounced('VIDEO_MAX_DURATION_S_APPLIED', restored)
+            # attempt and the reverted value are both recorded.
+            gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
+            gui_logger.text_input('VIDEO_MAX_DURATION_S_APPLIED', restored)
             widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_DURATION_S', restored)
             return
         settings.setdefault('video', {})
         settings['video']['max_duration_seconds'] = value
-        text_input_debounced('VIDEO_MAX_DURATION_S', value)
+        gui_logger.text_input('VIDEO_MAX_DURATION_S', value)
 
     def update_video_timestamp_overlay(self):
         settings = _app_ctx.ctx.settings
@@ -339,22 +335,28 @@ class AdvancedSettings(Popup):
     def acceleration_pct_text(self):
         acc_min = self.ids['acceleration_pct_slider'].min
         acc_max = self.ids['acceleration_pct_slider'].max
+        typed = self.ids['acceleration_pct_text'].text
+        # Before the parse: the twin slider emits SLIDER ACCELERATION, so
+        # without a line of its own a typed limit showed up in the bundle as
+        # a limit that changed with nothing saying a user set it.
+        gui_logger.text_input('ACCELERATION', typed)
         try:
-            acc_val = int(self.ids['acceleration_pct_text'].text)
+            acc_val = int(typed)
         except (ValueError, TypeError):
-            logger.debug(
-                f'[Advanced ] Invalid acceleration input: '
-                f'{self.ids["acceleration_pct_text"].text!r}'
-            )
+            logger.debug(f'[Advanced ] Invalid acceleration input: {typed!r}')
             return
 
         # The slider's [min, max] is the valid domain for the typed value. A
         # Kivy input_filter can't enforce a minimum on partial input (typing
         # "10" must allow the intermediate "1"), so clamp the validated value.
-        acc_val = int(max(acc_min, min(acc_max, acc_val)))
-        self.ids['acceleration_pct_slider'].value = acc_val
-        self.ids['acceleration_pct_text'].text = str(acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
+        clamped = int(max(acc_min, min(acc_max, acc_val)))
+        # Only when the clamp moved it, and on the PARSED numbers: a box that
+        # already held the value reports no correction.
+        if clamped != acc_val:
+            gui_logger.text_input('ACCELERATION_APPLIED', clamped)
+        self.ids['acceleration_pct_slider'].value = clamped
+        self.ids['acceleration_pct_text'].text = str(clamped)
+        self.set_acceleration_limit(val_pct=clamped)
 
     _ACCELERATION_DEBOUNCE_S = 0.10
     _acceleration_dispatch_trigger = None
@@ -520,7 +522,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
-                        on_text_validate: root.acceleration_pct_text()
                         on_focus: if not self.focus: root.acceleration_pct_text()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
@@ -628,7 +629,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '0'
-                        on_text_validate: root.update_video_max_fps()
                         on_focus: if not self.focus: root.update_video_max_fps()
 
                 BoxLayout:
@@ -653,7 +653,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_text_validate: root.update_video_max_duration()
                         on_focus: if not self.focus: root.update_video_max_duration()
 
                 BoxLayout:

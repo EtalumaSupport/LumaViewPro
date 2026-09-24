@@ -26,6 +26,9 @@ import pytest
 from modules import image_utils
 from modules.exceptions import FrameDepthError
 from modules.lumascope_api import Lumascope
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _configure_sim(scope, pixel_format, pattern='White'):
@@ -509,6 +512,7 @@ class TestVideoFrameCarriesDepth:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         image_utils.write_tiff(
             data=arr,

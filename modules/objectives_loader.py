@@ -11,6 +11,11 @@ from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
+# The objective the objective question proposes when nothing names the glass
+# in the light path: a fresh install, or a turret slot with no assignment. A
+# proposal only -- the person answering confirms or changes it.
+DEFAULT_PROPOSED_OBJECTIVE_ID = '20x w/collar'
+
 
 _REQUIRED_OBJECTIVE_FIELDS = {
     'description': str,
@@ -67,6 +72,11 @@ class ObjectiveLoader:
             ) from e
 
         _validate_objectives(self._objectives, filepath)
+        if DEFAULT_PROPOSED_OBJECTIVE_ID not in self._objectives:
+            raise ConfigError(
+                f'objectives.json at {filepath} has no {DEFAULT_PROPOSED_OBJECTIVE_ID!r}, '
+                'the objective the objective question proposes by default'
+            )
         self._generate_short_names()
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
 
@@ -109,51 +119,37 @@ class ObjectiveLoader:
         if len(short_names_set) < len(short_names):
             raise Exception('Duplicate short names for objectives were generated')
 
-    def find_objective_id_from_short_name(self, short_name: str) -> str | None:
-        for k, v in self._objectives.items():
-            if v['short_name'] == short_name:
-                return k
+    def get_objective_info(self, objective_id: str | None) -> dict:
+        """The catalogue entry for one objective, or a refusal naming why not.
 
-        return None
+        The catalogue key is the objective's one identity everywhere inside
+        the program: the settings store, the turret slots, a protocol step
+        and the spinner all carry it. The short name is a filename token
+        derived from it and the magnification a button label; neither names
+        an objective here.
 
-    def get_objective_info(
-        self,
-        objective_id: str | None = None,
-        short_name: str | None = None,
-    ) -> dict:
+        Raises:
+            ConfigError: A null identifier, a non-string, or a key the
+                catalogue does not hold. One type for every unusable id: the
+                launch path recovers from exactly this type by republishing
+                the shipped template, and an untyped raise escapes that
+                recovery and takes app start down with it.
+        """
+        if objective_id is None:
+            # A stored `objective_id` of null is a legal value on disk: the
+            # settings shape gate passes null through deliberately, so this
+            # has to be the settings failure it actually is.
+            raise ConfigError('no objective identifier supplied')
 
-        if ((objective_id is None) and (short_name is None)) or (
-            (objective_id is not None) and (short_name is not None)
-        ):
-            raise Exception('Must supply objective ID or short name, but not both')
+        # Exact key only. A prefix match used to stand in for a near miss, and
+        # with '10x Oly' and '10x Phase' both in the catalogue an id of '10x'
+        # bound silently to whichever came first in the file -- a real
+        # objective with a real focal length answering for a name that fits
+        # two. A near miss is refused by name so the file naming it gets fixed.
+        if not isinstance(objective_id, str) or objective_id not in self._objectives:
+            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
 
-        if short_name is not None:
-            objective_id = self.find_objective_id_from_short_name(short_name=short_name)
-
-            if objective_id not in self._objectives:
-                raise Exception(f'No objective found with short name {short_name}')
-
-        try:
-            objective_info = None
-            if objective_id in self._objectives:
-                objective_info = self._objectives[objective_id]
-            else:
-                logger.warning(
-                    f'Exact match for objective ID {objective_id} not found, attmempting to use closest match'
-                )
-                for key in self._objectives:
-                    if key.startswith(objective_id):
-                        objective_info = self._objectives[key]
-                        break
-
-                if objective_info is None:
-                    logger.error(f'No close match found for objective ID {objective_id}')
-                    return None
-
-        except Exception as e:
-            raise ConfigError(f'Unable to retrieve information for objective {objective_id}') from e
-
-        return objective_info
+        return self._objectives[objective_id]
 
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())

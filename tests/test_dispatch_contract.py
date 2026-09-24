@@ -121,7 +121,6 @@ FAMILIES = [
     # thread. Its one internal caller (lease release) binds the _impl --
     # teardown runs while a protocol fence is up, where the dispatcher
     # rightly refuses external work.
-    ('illumination', 'leds_off_owned', None, {'owner': 'testowner'}, 'io'),
 ]
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in FAMILIES]

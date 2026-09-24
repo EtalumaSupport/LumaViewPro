@@ -25,6 +25,7 @@ import time
 import pandas as pd
 import pytest
 
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
@@ -32,7 +33,8 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCa
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import autofocus_snapshot, wait_until_ready_for_next_run
+from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 
 
@@ -198,6 +200,9 @@ def _save_and_reload(protocol, tmp_path):
 @pytest.fixture
 def scope():
     s = home_sim_scope(Lumascope(simulate=True))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -254,7 +259,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     mock_loader = MagicMock()
@@ -291,7 +297,8 @@ def real_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -493,15 +500,13 @@ class TestRoundTripBasic:
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
         )
 
-    def test_legacy_labware_alias_accepted_by_validator(self, tmp_path):
+    def test_legacy_labware_alias_is_canonical_once_loaded(self, tmp_path):
         """Legacy TSVs save the pre-rename labware name "384 well Corning Spheroid
-        Microplate". The WellPlateLoader alias table resolves it to
-        "384 well microplate" at runtime (get_plate), so the protocol runs. But
-        validate_for_run() was checking plate_list membership directly, which
-        excludes aliases -- so validation rejected names that runtime would
-        accept. This asymmetry blocked every legacy Corning protocol with
-        'Labware ... not found'. Validator must now accept any name that
-        resolves via the alias table.
+        Microplate". The reader translates it to the catalogue key at the
+        edge, so nothing past the reader sees the old spelling: the protocol
+        reports "384 well microplate", and the run's validator, which once
+        rejected the old name by checking canonical-list membership, has
+        nothing to reject.
         """
         tsv = tmp_path / 'legacy_corning.tsv'
         tsv.write_text(
@@ -530,7 +535,7 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        assert proto.labware() == '384 well Corning Spheroid Microplate'
+        assert proto.labware() == '384 well microplate'
 
         errors = proto.validate_for_run()
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
@@ -923,10 +928,7 @@ class TestExecuteSaveLoadRun:
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A did not complete'
 
-        # Wait for file I/O to drain before starting next run
-        import time
-
-        time.sleep(1.0)
+        assert wait_until_ready_for_next_run(executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1513,6 +1515,8 @@ class TestExecuteCancellation:
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not fire run_complete after cancellation'
+        # run_complete fires during cleanup; the run ends when cleanup does.
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 
 
@@ -1622,13 +1626,11 @@ class TestRealPathExecution:
 
     def test_back_to_back_real_motion(self, real_executor, scope, tmp_path):
         """Two protocols back-to-back with real motion -- verifies state cleanup."""
-        import time
-
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
         completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A with real motion did not complete'
 
-        time.sleep(1.0)
+        assert wait_until_ready_for_next_run(real_executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1839,23 +1841,6 @@ class TestProtocolNumStepsCache:
         assert copy.num_steps() == 2
         assert proto.num_steps() == 3
 
-    def test_cache_invalidated_after_zstack_marker_round_trip(self):
-        """mark_zstack_starts_and_ends / remove_zstack_starts_and_ends add and
-        drop columns only (row count unchanged), but they go through _set_steps
-        so the cache is cleared. Verify both paths leave num_steps correct."""
-        proto = _build_protocol(
-            [
-                _make_step(name='s0', zstack_group_id=0, z=4900.0),
-                _make_step(name='s1', zstack_group_id=0, z=5000.0),
-                _make_step(name='s2', zstack_group_id=0, z=5100.0),
-            ]
-        )
-        assert proto.num_steps() == 3
-        proto.mark_zstack_starts_and_ends()
-        assert proto.num_steps() == 3
-        proto.remove_zstack_starts_and_ends()
-        assert proto.num_steps() == 3
-
     def test_cache_attribute_exists_on_new_instances(self):
         """Both __init__ and copy_for_execution must set _num_steps_cache.
         A missing attribute would AttributeError on first num_steps() call."""
@@ -1976,10 +1961,8 @@ class TestExecutorEdgeCases:
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
         assert completed
-        import time
-
-        time.sleep(0.5)
-        assert real_executor.protocol_state == ProtocolState.IDLE
+        assert real_executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
+        assert real_executor._state == ProtocolState.IDLE
 
     def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
         """All LEDs are off after protocol completes (real motion path)."""
@@ -2325,9 +2308,9 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.led_enabled('Blue')
+        assert scope.illumination.get_led_state('Blue')['enabled']
         scope.illumination.led_off(channel=0)
-        assert not scope.illumination.led_enabled('Blue')
+        assert not scope.illumination.get_led_state('Blue')['enabled']
 
     def test_led_on_by_color_name(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)

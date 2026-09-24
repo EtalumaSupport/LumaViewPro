@@ -60,9 +60,8 @@ from modules import gui_logger
 from modules.exceptions import SettingsSaveRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
 from tests.settings_fixtures import complete_settings
-from tests.test_objective_prompt_single_flight import _direct_call_names
 from ui.vertical_control import VerticalControl
 
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -111,7 +110,7 @@ def _mixin_methods() -> dict:
 def _self_call_names(fn) -> list[str]:
     """``self.<name>()`` called in this function's OWN body.
 
-    Modelled on _direct_call_names, but attribute-qualified: the plain
+    Modelled on direct_call_names, but attribute-qualified: the plain
     walker cannot tell ``self.stop()`` from ``popup.stop()``, and a
     reachability walk that followed every attribute name would resolve
     unrelated objects' methods to LumaViewProApp's.
@@ -190,16 +189,16 @@ class _VerticalControlStand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting
+    # on the objective runs at all.
+    _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(values=list(CATALOGUE), text='')}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
 
-    def _refresh_fov(self, objective_id):
-        pass
-
-    def update_all_turret_btn_states(self, position):
+    def show_turret_state(self, prompt=True):
         pass
 
 
@@ -210,6 +209,17 @@ class _AppStand:
         self.re_asked = 0
         self.objective_prompts = 0
         self.stopped = 0
+        self.protocol_loads = 0
+        self._persisted_protocol_loaded = False
+
+    def _load_persisted_protocol_once(self):
+        # The real one is latched for the same reason: the objective
+        # question is asked from several places and only the first may
+        # load the saved protocol.
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        self.protocol_loads += 1
 
     def _ask_about_rejected_settings(self):
         self.re_asked += 1
@@ -268,7 +278,9 @@ def session(tmp_path, monkeypatch):
         shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-    return ScopeSession.create_headless(source_path=str(tmp_path))
+    return ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
 
 def _current_json(tmp_path) -> str:
@@ -301,20 +313,19 @@ def untouched(session, tmp_path):
     return _check
 
 
+def _set_connected(session, monkeypatch, connected):
+    # The real scope with its connection flags forced, so the save still
+    # reads the live runtime state it records the turret slot from.
+    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
+        monkeypatch.setattr(type(session.scope), flag, property(lambda self: connected))
+
+
 def _with_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=True, motor_connected=True, led_connected=True),
-    )
+    _set_connected(session, monkeypatch, True)
 
 
 def _without_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=False, motor_connected=False, led_connected=False),
-    )
+    _set_connected(session, monkeypatch, False)
 
 
 def _make_provisional(monkeypatch, tmp_path):
@@ -338,7 +349,7 @@ class TestTheQuestionIsAskable:
         build = _app_methods().get('build')
         assert build is not None, 'lumaviewpro.py: LumaViewProApp.build is gone'
 
-        assert '_ask_about_rejected_settings' not in _direct_call_names(build)
+        assert '_ask_about_rejected_settings' not in direct_call_names(build)
 
     def test_the_question_is_deferred_and_its_failure_stays_fatal(self):
         """Deferral alone would drop the fatal property: after the move,
@@ -413,7 +424,7 @@ class TestTheQuestionIsAskable:
         offenders = [
             (owner, call)
             for owner, fn in walked.items()
-            for call in _direct_call_names(fn)
+            for call in direct_call_names(fn)
             if call.startswith('show_') and call.endswith('_popup')
         ]
         assert offenders == [], f'popup(s) opened before the root attaches: {offenders}'
@@ -809,14 +820,15 @@ class TestTheDoubleDeferralFrame:
         # The decision to withhold the question is the Session's, so the
         # case runs a real one: a fresh install on a turret model, whose
         # question is owed and must still not be asked while provisional.
-        session = ScopeSession.create_headless(
-            settings=complete_settings(
+        session = ScopeSession.create(
+            complete_settings(
                 microscope='LS850T',
                 objective_confirmed=False,
                 turret_position=1,
                 turret_objectives={'1': None, '2': None, '3': None, '4': None},
                 objective_id='20x Oly',
-            )
+            ),
+            simulate=True,
         )
         request_shutdown = session.shutdown
         try:

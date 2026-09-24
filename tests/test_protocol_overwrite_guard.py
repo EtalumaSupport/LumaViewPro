@@ -31,6 +31,10 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 # ---------------------------------------------------------------------------
 
 
+from tests.protocol_drives import lent_run_claim
+from modules.run_outcome import EndingLatch
+
+
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
     # Write-time defense against duplicate filenames (#636): the plain
     # name when free, a numeric suffix only on actual collision.
@@ -74,6 +78,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         file_io_executor=MagicMock(),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
@@ -81,6 +86,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
     )
     recorded = []
     monkeypatch.setattr(
@@ -89,7 +95,9 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     )
     writer.write_capture(
         enable_image_saving=True,
-        captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8),
+        captured_image=CapturedFrame(
+            image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
+        ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),

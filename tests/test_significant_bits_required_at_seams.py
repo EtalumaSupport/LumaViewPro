@@ -65,36 +65,5 @@ def test_save_image_rejects_missing_depth():
             save_encoding='8bit',
             channel='BF',
             false_color_on=False,
+            objective_id='4x Oly',
         )
-
-
-def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
-    """capture_and_wait returns None (never False) when the camera is inactive
-    or the drain fails; save_live_image must surface that as its documented
-    None return, not raise from save_image on a None array."""
-    from types import SimpleNamespace
-
-    scope = SimpleNamespace(
-        imaging=SimpleNamespace(
-            _capture_and_wait_impl=lambda **kw: None,
-            capture_frame_depth=lambda array, sum_count=1: 8,
-            # The save reads the capture's evidence record to tell the user
-            # why nothing was saved; a stub that captured nothing has none.
-            last_capture_info=None,
-        ),
-        illumination=SimpleNamespace(leds_off=lambda: None),
-    )
-
-    def _fail_save(*args, **kwargs):
-        raise AssertionError('save_image must not be called after a failed capture')
-
-    monkeypatch.setattr(image_save, 'save_image', _fail_save)
-
-    out = image_save.save_live_image(
-        scope,
-        save_folder=str(tmp_path),
-        save_encoding='8bit',
-        channel='BF',
-        false_color_on=False,
-    )
-    assert out is None

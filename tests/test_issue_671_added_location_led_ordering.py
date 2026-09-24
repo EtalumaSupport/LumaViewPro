@@ -60,6 +60,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -70,6 +71,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -111,6 +113,7 @@ def _step_dict(name, x, y, z, color, idx):
         'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
+        'Auto_Named': True,
     }
 
 
@@ -185,6 +188,9 @@ def _add_3rd_location_via_insert_step(protocol):
 @pytest.fixture
 def scope():
     s = home_sim_scope(Lumascope(simulate=True))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -244,7 +250,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -361,7 +368,7 @@ class TestAddedLocationLedOrdering:
         all_red_led_ons = [
             i
             for i, (_, msg) in enumerate(capture.records)
-            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "owner='protocol'" in msg
+            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "lease='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
             f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '

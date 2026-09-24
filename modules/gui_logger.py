@@ -27,8 +27,8 @@ def note_write_back(name: str, value: object) -> None:
     - a spinner whose options or text are set during panel setup, which
       dispatches once per assignment;
     - a text box whose handler corrects a typed value and writes the correction
-      back, since one Enter runs that handler twice and the second pass reads
-      what the first wrote.
+      back into the box, so a record carrying the corrected value is the app's
+      write and not the user's entry.
 
     The writer declares the value; the next record for that name carrying
     exactly it is recognised as the app's own and dropped. Exactly one is
@@ -158,10 +158,20 @@ def popup_response(title: str, response: str) -> None:
 def text_input(name: str, value: object) -> None:
     """Log a text field's final committed value.
 
-    Callers debounce before calling: ``on_text`` fires per keystroke, and
-    only the value the user stopped on belongs in gui_interactions.log.
-    The debounce needs a GUI timer, so it lives GUI-side; the log line's
-    shape stays here with every other entry in this module.
+    Call this once per commit, from the handler the box's ``on_focus`` binding
+    reaches, with what the box holds BEFORE the handler transforms it. The
+    emit is synchronous and unconditional: the record lands in the file ahead
+    of whatever the entry goes on to do, so a bundle reads in the order the
+    user acted, and the last thing typed before a freeze or a crash is already
+    written.
+
+    A handler that CORRECTS the entry -- a clamp, a sanitiser, a substitution
+    for something unparseable -- records the correction under
+    ``<name>_APPLIED``. The pair is the contract, and both halves are needed:
+    alone, the first says the user asked for something the app never did, and
+    the second asserts they typed a value they did not. Emit ``_APPLIED`` only
+    when the value actually moved, comparing the PARSED values rather than the
+    strings, or every float box reports '5' -> 5.0 as a correction.
 
     ``value`` is whatever the field holds -- text from the protocol fields,
     a parsed number from the video ones -- and is only interpolated, so it

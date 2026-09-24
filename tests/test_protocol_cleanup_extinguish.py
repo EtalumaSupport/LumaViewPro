@@ -17,7 +17,6 @@ cleanup that never owned the run's LEDs (double cleanup, early return)
 must not darken a prior cleanup's restored end-state.
 """
 
-import threading
 import types
 from unittest.mock import MagicMock
 
@@ -25,6 +24,8 @@ import pytest
 
 import modules.sequenced_capture_runner as scr
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
+from modules.run_outcome import RunEnding
 
 LAYER = 'Blue'
 ILLUMINATION_MA = 10.0
@@ -53,8 +54,7 @@ def _make_runner_stub(scope, *, lease):
     stub._scope = scope
     stub._led_lease = lease
     stub._image_writer = None
-    stub._run_in_progress_event = threading.Event()
-    stub._run_in_progress_event.set()
+    stub._is_run_live = lambda: True
     stub.LOGGER_NAME = 'TestCleanup'
     stub._start_hyperstack_build = lambda: None
     stub._release_scan_led_lease = types.MethodType(
@@ -64,16 +64,18 @@ def _make_runner_stub(scope, *, lease):
     return stub
 
 
-def _run_cleanup_inner(stub, run_status='failed'):
-    scr.SequencedCaptureRunner._cleanup_inner(stub, run_status)
+def _run_cleanup_inner(stub, ending=None):
+    if ending is None:
+        ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
+    scr.SequencedCaptureRunner._cleanup_inner(stub, ending)
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
-    # Lit before the lease exists, so the channel carries no owner record:
-    # the exact case an owner-scoped darken misses.
+    # Lit before the lease exists, so no lease is recorded as having lit it:
+    # the exact case a lit-by-lease-scoped darken misses.
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
@@ -86,13 +88,13 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
         'a raise before the RUN_END transition leaves the end-state '
         'undecided; cleanup must darken before releasing the lease'
     )
-    assert scope.illumination.led_lease_owner is None, 'the lease must still release'
+    assert scope.illumination.led_lease_purpose is None, 'the lease must still release'
 
 
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
@@ -104,7 +106,7 @@ def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
         'a cancelled or failed RUN_END restore returns undecided; '
         'cleanup must darken before releasing the lease'
     )
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 def test_decided_end_state_is_left_untouched(scope, monkeypatch):
@@ -112,7 +114,7 @@ def test_decided_end_state_is_left_untouched(scope, monkeypatch):
     # RUN_END applied, the user's end policy owns the LEDs.
     scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
     assert _lit(scope)
-    lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=True))
@@ -121,7 +123,7 @@ def test_decided_end_state_is_left_untouched(scope, monkeypatch):
     _run_cleanup_inner(stub)
 
     assert _lit(scope), 'a decided end-state must not be overridden by a force-dark'
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
 def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
@@ -133,7 +135,7 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
     stub = _make_runner_stub(scope, lease=None)
-    stub._run_in_progress_event.clear()
+    stub._is_run_live = lambda: False
 
     _run_cleanup_inner(stub)
 

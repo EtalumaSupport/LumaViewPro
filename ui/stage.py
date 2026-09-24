@@ -13,7 +13,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, move_absolute
+from ui.ui_helpers import find_nearest_step, move_absolute, unknown_position_refused
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -101,8 +101,8 @@ class Stage(Widget):
         """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
         ctx = _app_ctx.ctx
         if self._xy_stage_present():
-            limits = ctx.scope.capabilities.axis_travel_limits_um
-            return (limits['X'], limits['Y'])
+            motion = ctx.scope.motion
+            return (motion.get_axis_limits('X')['max'], motion.get_axis_limits('Y')['max'])
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
         return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])
@@ -172,22 +172,22 @@ class Stage(Widget):
             plate_x = mouse_x * scale_x
             plate_y = dim_max['y'] - mouse_y * scale_y
 
-            # Convert from plate position to stage position
             ctx = _app_ctx.ctx
-            settings = ctx.settings
-            coordinate_transformer = ctx.coordinate_transformer
-            _, labware = get_selected_labware()
-            stage_x, stage_y = coordinate_transformer.plate_to_stage(
-                labware=labware, stage_offset=settings['stage_offset'], px=plate_x, py=plate_y
-            )
 
             if touch.button == 'left':
                 gui_logger.button(
                     'STAGE_CLICK',
-                    f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
+                    f'left plate=({plate_x:.2f},{plate_y:.2f})',
                 )
-                move_absolute('X', stage_x)
-                move_absolute('Y', stage_y)
+                # The click is already a plate coordinate; the API converts
+                # it. Recording the stage equivalent here would mean keeping
+                # a frame conversion in the widget to feed the log line.
+                # One click, one question for both axes, asked before either
+                # move is submitted.
+                if unknown_position_refused(('X', 'Y'), recording=False, then='move the stage'):
+                    return
+                move_absolute('X', plate_x, frame='plate')
+                move_absolute('Y', plate_y, frame='plate')
 
             elif touch.button == 'right':
                 try:
@@ -495,6 +495,14 @@ class Stage(Widget):
             # If we can't get positions (not homed yet), we'll still draw the labware
             logger.debug('[Stage     ] Position not available yet, drawing labware only')
             position_available = False
+
+        if not position_available:
+            # This draw hides the crosshair, so what was last drawn is no
+            # longer on screen: the next known position must be drawn even
+            # when it is the same one, as it is when a Home ends where the
+            # crosshair was.
+            self._prev_x_target = self._prev_y_target = None
+            self._prev_x_current = self._prev_y_current = None
 
         if not full_redraw and not self._protocol_step_redraw and position_available:  # noqa: SIM102
             if (

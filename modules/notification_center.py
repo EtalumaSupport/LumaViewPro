@@ -23,12 +23,39 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+from drivers.exceptions import HardwareError
 from lib import profile_trace
+from modules.exceptions import (
+    CaptureError,
+    ConfigError,
+    MoveNotCompletedError,
+    ProtocolError,
+    Quiet,
+    Refusal,
+)
 
 logger = logging.getLogger('LVP.notifications')
+# The reporter's own record -- what happened, with the traceback when it
+# is a fault -- kept apart from the display line notify() writes, so the
+# two are never read as one event twice.
+_outcome_logger = logging.getLogger('LVP.outcomes')
+
+# Faults whose message is written for the person. Any other exception's
+# str() is a developer's words -- a Python class name, a repr -- so the
+# person reads a generic sentence and the log carries the rest.
+_TYPED_FAULTS = (CaptureError, ProtocolError, ConfigError, HardwareError, MoveNotCompletedError)
+
+_UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
+
+# Set on an exception object once each half of its report is done, so the
+# same object reported again -- by the lane that raised it and then by the
+# caller that waited on it -- is logged once and shown at most once.
+_LOGGED_MARK = '_lvp_outcome_logged'
+_SHOWN_MARK = '_lvp_outcome_shown'
 
 
 class Severity(IntEnum):
@@ -63,6 +90,15 @@ class Notification:
     timestamp: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
     fatal: bool = False  # reaches listeners even while a protocol suppresses popups
+    # True when this notification ANSWERS a request that just arrived --
+    # a refusal of a button press or an API call. Both suppression rules
+    # below rest on a premise it falsifies: the unattended mute assumes
+    # nobody is watching, and dedup assumes "already shown recently",
+    # but someone asked, and asking twice is asking twice. Distinct from
+    # fatal, which is about the fault's severity: a fault that ends the
+    # operation must reach a watching user, yet one fault repeating is
+    # still one fault and must still dedup.
+    solicited: bool = False
     # Names the operation this notification is about, when it is one of a
     # sequence describing the same piece of work -- a "starting" notice and
     # the "finished" or "failed" notice that answers it. A UI listener can
@@ -96,13 +132,17 @@ class NotificationCenter:
         # flood during close that fires when queued IO tasks fail en
         # masse after the motor/camera disconnects. Issue #622.
         self._shutting_down = False
-        # Protocol-running suppression. While a protocol runs unattended,
-        # non-fatal notifications still LOG but raise no popup -- no one is
-        # watching, a modal could stall the run, and transient faults would
-        # pile up. Fatal notifications (lost connection, a run-aborting fault)
-        # still reach listeners. Set by the protocol runner; cleared on every
-        # cleanup path.
-        self._protocol_running = False
+        # Unattended-run suppression. While a run nobody is watching is in
+        # flight, non-fatal notifications still LOG but raise no popup -- a
+        # modal could stall the run, and transient faults would pile up in
+        # front of an empty chair. Fatal notifications (lost connection, a
+        # run-aborting fault) still reach listeners.
+        #
+        # ATTENDEDNESS, not "a run is in flight": the capture runner drives
+        # short interactive operations too, and one of those suppressing its
+        # own failure popup is exactly the bug this name now prevents. The
+        # runner decides which kind it is and says so; this flag only obeys.
+        self._unattended_run = False
 
     def set_shutting_down(self, value: bool = True) -> None:
         """Toggle suppression of listener dispatch. Call from on_stop
@@ -112,13 +152,17 @@ class NotificationCenter:
         with self._lock:
             self._shutting_down = bool(value)
 
-    def set_protocol_running(self, value: bool = True) -> None:
-        """Toggle suppression of NON-FATAL listener dispatch while a protocol
-        runs unattended. Fatal notifications still reach listeners; logs always
+    def set_unattended_run(self, value: bool = True) -> None:
+        """Toggle suppression of NON-FATAL listener dispatch for a run nobody
+        is watching. Fatal notifications still reach listeners; logs always
         capture everything. Pair with the run's start + every cleanup path so
-        the flag cannot stick on and mute popups after the run ends."""
+        the flag cannot stick on and mute popups after the run ends.
+
+        The caller passes attendedness, not "am I busy": an interactive
+        operation that routes through the same runner must pass False, or it
+        silences its own failure popup."""
         with self._lock:
-            self._protocol_running = bool(value)
+            self._unattended_run = bool(value)
 
     # ------------------------------------------------------------------
     # Producer API (any thread)
@@ -133,11 +177,18 @@ class NotificationCenter:
         source: str = '',
         fatal: bool = False,
         operation_key: str = '',
+        solicited: bool = False,
     ) -> None:
         """Post a notification.  Thread-safe.  Always logs.
 
         ``fatal`` notifications reach listeners even while a protocol
-        suppresses non-fatal popups (set via ``set_protocol_running``).
+        suppresses non-fatal popups (set via ``set_unattended_run``).
+
+        ``solicited`` notifications answer a request that just arrived, so
+        neither suppression rule applies to them: the caller is present by
+        construction, and a repeated request is a repeated question. Set it
+        at the funnel that knows the notification is an answer, never at an
+        emitter that cannot tell who asked.
 
         ``operation_key`` marks this as one of a sequence about a single piece
         of work, so a UI listener can replace the earlier message rather than
@@ -181,17 +232,31 @@ class NotificationCenter:
         with self._lock:
             if self._shutting_down:
                 suppressed_reason = 'shutdown'  # logged above; suppressed during close
-            elif self._protocol_running and not fatal:
-                # logged above; non-fatal popups suppressed mid-protocol
-                suppressed_reason = 'protocol_running'
+            elif self._unattended_run and not fatal and not solicited:
+                # logged above; non-fatal popups suppressed on an unattended run
+                suppressed_reason = 'unattended_run'
             else:
                 last = self._dedup.get(key, 0.0)
-                if (now - last) < self._dedup_window_s:
+                # The window still advances for a solicited notification, so a
+                # later unsolicited repeat of the same (category, title) is
+                # measured from the answer the user actually saw.
+                if not solicited and (now - last) < self._dedup_window_s:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
                     listeners = list(self._listeners)
         if suppressed_reason is not None:
+            # The forensic write above happens BEFORE this decision, so on its
+            # own it says "posted", never "seen". Without this line a support
+            # bundle cannot answer whether the user was ever shown a failure --
+            # the popup is the only carrier, so a suppressed one would leave no
+            # record anywhere that it happened. Unconditional, not behind the
+            # profile-trace flag, because the question is asked of customer
+            # logs captured long after the fact.
+            logger.info(
+                f'[{category}] {gui_logger.one_line(title)}: '
+                f'not shown to the user (suppressed: {suppressed_reason})'
+            )
             # Emitted outside the lock: the tracer takes its own module-wide
             # lock, and nesting the two would order a pair of locks for the
             # sake of a diagnostic. What the user never saw IS the
@@ -223,6 +288,7 @@ class NotificationCenter:
             source=source,
             fatal=fatal,
             operation_key=operation_key,
+            solicited=solicited,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:
@@ -230,6 +296,81 @@ class NotificationCenter:
                     cb(n)
                 except Exception as ex:
                     logger.debug(f'notification listener error: {ex}')
+
+    def report_outcome(
+        self,
+        exception: BaseException,
+        *,
+        solicited: bool,
+        category: str,
+        log_only: bool = False,
+        fault_title: str = 'Operation failed',
+    ) -> None:
+        """Log an outcome once and show it at most once, as its type says.
+
+        The one place an exception that ended its flight becomes a log record
+        and a notification. What it is -- a refusal (``Refusal``), a quiet
+        outcome (``Quiet``, or a by-contract cancel) or a fault (anything
+        else) -- and the words, title and level all come from the exception's
+        type; the caller says only whether a person just asked (``solicited``),
+        which ``category`` it belongs to, and, with ``log_only``, that no one
+        is to be shown it.
+
+        A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
+        a refusal that is not shown at WARNING, with no traceback. A shown
+        outcome's display line is ``notify()``'s own, so a shown refusal is one
+        WARNING line and a shown fault is its traceback line and that one. A
+        refusal is shown as a warning under its ``title``; a fault as an error,
+        in its own words when its type writes them for a person and in a
+        generic sentence when it does not, under its ``title`` or
+        ``fault_title``. A quiet outcome is never shown.
+
+        Each half happens once per exception object, whoever reports it and
+        from whichever thread.
+        """
+        refusal = isinstance(exception, Refusal)
+        quiet = isinstance(exception, (Quiet, CancelledError))
+        # Check-and-mark only: notify() takes this same lock, so logging and
+        # notifying happen after it is released.
+        with self._lock:
+            do_log = not getattr(exception, _LOGGED_MARK, False)
+            do_show = not log_only and not quiet and not getattr(exception, _SHOWN_MARK, False)
+            if do_log:
+                setattr(exception, _LOGGED_MARK, True)
+            if do_show:
+                setattr(exception, _SHOWN_MARK, True)
+
+        kind = type(exception).__name__
+        if do_log:
+            if quiet:
+                _outcome_logger.info(f'[{category}] {kind}: {exception}')
+            elif refusal:
+                if not do_show:
+                    reason = getattr(exception, 'reason', None)
+                    because = f', {reason}' if reason else ''
+                    _outcome_logger.warning(f'[{category}] refused ({kind}{because}): {exception}')
+            else:
+                _outcome_logger.error(
+                    f'[{category}] raised {kind}: {exception}', exc_info=exception
+                )
+        if not do_show:
+            return
+        if refusal:
+            self.warning(
+                category,
+                exception.title,
+                str(exception),
+                solicited=solicited,
+                operation_key=REFUSAL_OPERATION_KEY,
+            )
+            return
+        body = (
+            str(exception)
+            if isinstance(exception, _TYPED_FAULTS) and str(exception)
+            else _UNTYPED_FAULT_BODY
+        )
+        title = getattr(exception, 'title', None) or fault_title
+        self.error(category, title, body, solicited=solicited)
 
     # Convenience methods
     def debug(self, category: str, title: str, message: str, **kw) -> None:
@@ -276,6 +417,14 @@ class NotificationCenter:
         with self._lock:
             self._listeners.clear()
             self._dedup.clear()
+
+
+# The operation this key names is "the answer to the user's last refused
+# request". One key for every refusal, deliberately: the newest refusal is
+# the true answer, so the bridge's supersession replaces the dialog on a
+# second press instead of stacking one per press -- which is what bounds the
+# dialogs now that a solicited notification no longer dedups.
+REFUSAL_OPERATION_KEY = 'run_refusal'
 
 
 # Module-level singleton -- import this in producers and consumers.

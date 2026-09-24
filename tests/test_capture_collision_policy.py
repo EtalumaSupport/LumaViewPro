@@ -31,6 +31,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.common_utils import PostFunction
 from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -507,6 +508,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         record_step_row=lambda **kw: rows.append(kw),
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
+        run_claim=lent_run_claim(),
     )
 
     outcomes = []

@@ -32,9 +32,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
@@ -157,21 +156,6 @@ class ScopeCapabilities:
     """Scope model string reported by `motion.get_microscope_model()`, or
     empty string if unknown / not connected."""
 
-    axis_travel_limits_um: Mapping[str, float]
-    """Per-axis travel limit in um, populated only for present axes.
-
-    Read-only mapping (MappingProxyType wrapper) so the frozen-dataclass
-    immutability contract holds for the contents as well as the field
-    binding. A caller passing an absent axis gets KeyError -- which is
-    the correct contract per the Rule 8 capability-probe corollary
-    (test `axis in caps.axes` first; the travel-limit query is only
-    meaningful for present axes).
-
-    Values come from `motion.motorconfig.travel_limit_um(axis)` (mm in
-    motorconfig.json, multiplied by 1000 for um). Empty mapping if
-    motion driver has no motorconfig (NullMotionBoard) or all axes
-    failed to read."""
-
     pixel_size_um: float | None
     """Per-scope camera pixel size in um/pixel, resolved from the first
     real source: motorconfig Optics.PixelSize (LS820/850/850T) ->
@@ -254,28 +238,7 @@ class ScopeCapabilities:
     because the USB-UART bridge batches back-to-back fast-path writes;
     firmware STIM eliminates the bridge-batching problem by running the
     pulse train inside the LED firmware with sub-microsecond pulse-edge
-    accuracy. Caller gates with `caps.supports('firmware_stim')`."""
-
-    def supports(self, feature: str) -> bool:
-        """Return True if the scope advertises the named feature.
-
-        Cross-surface helper for the capability-probe pattern: callers
-        test for a feature by token rather than by knowing which surface
-        owns it. Searches the boolean
-        `has_<feature>` fields (motion-shape: focus / xy_stage /
-        turret) and the boolean `camera_supports_<feature>` fields
-        (camera-shape: auto_gain / auto_exposure) for a match. Unknown
-        feature names return False, never raise.
-
-        Example:
-            caps.supports('turret')      # True if has_turret
-            caps.supports('xy_stage')    # True if has_xy_stage
-            caps.supports('auto_gain')   # True if camera_supports_auto_gain
-            caps.supports('warp_drive')  # False (unknown)
-        """
-        if getattr(self, f'has_{feature}', False):
-            return True
-        return bool(getattr(self, f'camera_supports_{feature}', False))
+    accuracy. Caller gates with `caps.has_firmware_stim`."""
 
     @classmethod
     def from_drivers(
@@ -306,20 +269,9 @@ class ScopeCapabilities:
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
         model = _probe('get_microscope_model', lambda: motion.get_microscope_model() or '', '')
 
-        # Travel limits + optics per present axis (read once at boot;
-        # motorconfig is loaded once at driver init and is immutable
-        # for the run).
-        travel_limits: dict[str, float] = {}
+        # Optics (read once at boot; motorconfig is loaded once at driver
+        # init and is immutable for the run).
         motorconfig = getattr(motion, 'motorconfig', None)
-        if motorconfig is not None:
-            for ax in axes:
-                limit = _probe(
-                    f'travel_limit_um[{ax}]',
-                    lambda ax=ax: float(motorconfig.travel_limit_um(ax)),
-                    None,
-                )
-                if limit is not None:
-                    travel_limits[ax] = limit
         pixel_size_um = _resolve_pixel_size_um(motorconfig, model, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, model)
 
@@ -392,7 +344,6 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
-            axis_travel_limits_um=MappingProxyType(travel_limits),
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
             led_channels=led_channels,

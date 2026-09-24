@@ -4,8 +4,10 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.image_mode as image_mode
+import modules.layer_record as layer_record
 from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
 from modules.exceptions import ConfigError
+from modules.lumascope_api._constants import is_turret_slot
 from lvp_logger import logger
 
 
@@ -50,16 +52,26 @@ class ScopeInitConfig:
     settings (gain, exposure, auto-gain).
 
     `expects_motion` / `expects_led` reflect what the selected scope's
-    `scopes.json` entry says it should have, used by `initialize()` to
-    filter the partial-hardware notification (LS620 correctly has no
-    motor -- don't pop a "Motor Controller missing" warning). Defaults
-    are True so callers that don't supply scope_config preserve the
-    pre-filter behavior.
+    `scopes.json` entry says it should have. A scope that expects no motor
+    board (an LS620 has none) is complete without one: `initialize()` does
+    not warn that it is missing, the connection check does not require it,
+    and startup does not home it. Defaults are True so callers that don't
+    supply scope_config are held to every board.
     """
 
     labware: object
-    objective_id: str
+    # The session's one has-a-turret answer. Required, never defaulted: a
+    # turreted scope treated as turretless would answer with its stored
+    # objective instead of the one in the light path.
+    turreted: bool
+    # The selected objective, on a scope with no turret; None on a turreted
+    # scope, whose objective is derived from the slot and never stored.
+    objective_id: str | None
     turret_config: dict | None
+    # The saved turret position: the slot a person last turned to, which
+    # the slot lookup prefers when two slots carry one objective. None when
+    # nothing usable was saved.
+    preferred_turret_slot: int | None
     binning_size: int
     frame_width: int
     frame_height: int
@@ -79,8 +91,15 @@ class ScopeInitConfig:
         labware: object,
         scope_config: dict | None = None,
         layer_identity: object | None = None,
+        *,
+        turreted: bool,
     ) -> 'ScopeInitConfig':
         """Build config from LVP settings dict and labware object.
+
+        turreted: the session's one has-a-turret answer
+        (``ScopeSession.scope_has_turret``). On a turreted scope the stored
+        ``objective_id`` is neither required nor carried: the objective is
+        the slot's assignment, derived when asked.
 
         scope_config: the entry for the active scope from scopes.json
         (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).
@@ -94,14 +113,16 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame`` or ``objective_id`` is missing. Every
-                other field has a value ``initialize`` can apply harmlessly
-                when absent; these two do not -- a frame the camera never
-                held is silent-wrong geometry, and an objective default that
-                names no shipped objective was prefix-matched to a real one
-                and stamped into every saved image's scale.
+            ConfigError: ``frame`` is missing, or ``objective_id`` is missing
+                on a scope with no turret. Every other field has a value
+                ``initialize`` can apply harmlessly when absent; these two do
+                not -- a frame the camera never held is silent-wrong
+                geometry, and an objective default that names no shipped
+                objective was prefix-matched to a real one and stamped into
+                every saved image's scale.
         """
-        missing = [key for key in ('frame', 'objective_id') if key not in settings]
+        required = ('frame',) if turreted else ('frame', 'objective_id')
+        missing = [key for key in required if key not in settings]
         if missing:
             raise ConfigError(
                 f'settings cannot configure a scope: missing {missing}; '
@@ -116,19 +137,27 @@ class ScopeInitConfig:
         if scope_config is None:
             expects_motion = True
         else:
-            expects_motion = bool(
-                scope_config.get('Focus')
-                or scope_config.get('XYStage')
-                or scope_config.get('Turret')
+            expects_motion = bool(layer_record.entry_axes(scope_config))
+        preferred_turret_slot = settings.get('turret_position')
+        if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
+            # A preference, not a position: a value that names no slot
+            # leaves no preference, which the lookup already handles, and
+            # is said here so a hand-edited file is visible in the record.
+            logger.warning(
+                f'[Session  ] saved turret_position {preferred_turret_slot!r} is not a slot '
+                '1-4; no preferred slot'
             )
+            preferred_turret_slot = None
         if layer_identity is None:
             expects_led = True
         else:
             expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
             labware=labware,
-            objective_id=settings['objective_id'],
+            turreted=turreted,
+            objective_id=None if turreted else settings['objective_id'],
             turret_config=settings.get('turret_objectives'),
+            preferred_turret_slot=preferred_turret_slot,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],

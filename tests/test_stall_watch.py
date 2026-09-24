@@ -62,6 +62,12 @@ class TestStallThreshold:
         # threshold must scale with the exposure, not the fps slot.
         assert stall_threshold_s(2.0, 6.0) == STALL_INTERVAL_MULTIPLE * 6.0
 
+    def test_no_rate_limit_scales_with_exposure_only(self):
+        # Every delivered frame is kept, so the slowest legitimate gap is
+        # the exposure itself.
+        assert stall_threshold_s(None, 0.03) == STALL_FLOOR_S
+        assert stall_threshold_s(None, 6.0) == STALL_INTERVAL_MULTIPLE * 6.0
+
     def test_prologue_threshold_scales_with_exposure_only(self):
         assert prologue_stall_threshold_s(0.03) == STALL_FLOOR_S
         assert prologue_stall_threshold_s(6.0) == STALL_INTERVAL_MULTIPLE * 6.0

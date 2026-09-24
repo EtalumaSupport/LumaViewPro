@@ -172,7 +172,9 @@ def aborted_composite(tmp_path):
             if aborted_at:
                 return
             aborted_at.append(step)
-            runner.abort()
+            # The live run's handle, fetched rather than taken from
+            # start_composite()'s return, which this callback may beat.
+            runner.abort(runner.run_outcome())
             fired.set()
 
         outcome = runner.start_composite(
@@ -219,8 +221,16 @@ class TestAbortMidComposite:
         assert settled is not None, 'the aborted run never settled its merge outcome'
         assert not settled.merged, f'an aborted run reported a merged artifact: {settled}'
         assert settled.artifact_path is None, f'an aborted run named an artifact: {settled}'
-        assert settled.reason == 'aborted', (
-            f"the abort reported reason {settled.reason!r}, not 'aborted'"
+        # status is the KIND of ending, reason is what caused it. A user
+        # Stop is 'aborted'/'stopped'; sharing one field meant the best a
+        # caller could read was the word 'aborted', which said nothing
+        # about whether a person or a ceiling had stopped the run.
+        assert settled.status == 'aborted', f'the abort reported status {settled.status!r}'
+        assert settled.reason == 'stopped', (
+            f"the abort reported reason {settled.reason!r}, not 'stopped'"
+        )
+        assert settled.merge_reason == '', (
+            'the run was stopped before any merge, so there is no merge verdict to report'
         )
 
     def test_the_run_releases_the_scope(self, aborted_composite):

@@ -59,6 +59,7 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -76,6 +77,7 @@ import modules.kivy_utils as _kivy_utils
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 install_mock_deps()
 
@@ -231,6 +233,8 @@ class TestHeadlessProtocolExecution:
                 'Video Config': {'duration': 1, 'fps': 5},
                 'Stim_Config': {},
                 'Step Index': 0,
+                'Label': 'A1_BF',
+                'Auto_Named': False,
             }
         ]
         df = pd.DataFrame(rows)
@@ -255,6 +259,9 @@ class TestHeadlessProtocolExecution:
             from modules.labware_loader import WellPlateLoader
 
             scope = Lumascope(simulate=True)
+            # A bare scope skipped bring-up, which fills the turret from the
+            # persisted slots; an empty turret addresses no glass at all.
+            configure_turret_like_bringup(scope)
             # The session registers the data root at bring-up; a runner over a
             # bare scope needs it too, or the run refuses at start.
             scope.protocols.register_source_path('.')
@@ -282,7 +289,8 @@ class TestHeadlessProtocolExecution:
                     protocol_thread=execs['protocol'],
                     file_io_executor=execs['file_io'],
                     camera_executor=execs['camera'],
-                    autofocus_thread=MagicMock(is_running=False),
+                    autofocus_thread=MagicMock(in_flight_sweep=None),
+                    activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
                 )
                 executor._wellplate_loader = WellPlateLoader()

@@ -49,6 +49,9 @@ USER_EVENTS = (
     'on_text_validate',
     'on_focus',
     'on_state',
+    # PickSpinner's: raised only by a person choosing from the dropdown,
+    # never by a write to the spinner's text.
+    'on_pick',
 )
 
 EMITTERS = (
@@ -198,8 +201,7 @@ def _direct_emitters(fn):
             and func.value.id == 'gui_logger'
             and func.attr in EMITTERS
         )
-        is_shared_helper = isinstance(func, ast.Name) and func.id == 'text_input_debounced'
-        if is_gui_logger_call or is_shared_helper:
+        if is_gui_logger_call:
             found.append(_record_name(node))
     return found
 

@@ -154,19 +154,18 @@ def test_the_close_gate_confirms_an_active_recording_before_the_drain_branch():
     reads = [
         node.attr
         for node in ast.walk(handler)
-        if isinstance(node, ast.Attribute)
-        and node.attr in {'recording_capturing', 'close_drain_pending'}
+        if isinstance(node, ast.Attribute) and node.attr in {'is_recording', 'close_drain_pending'}
     ]
 
-    assert 'recording_capturing' in reads, (
+    assert 'is_recording' in reads, (
         'on_request_close must confirm an actively capturing recording -- closing '
         'ends the take, and what has not been captured yet is gone.'
     )
     assert 'close_drain_pending' in reads, (
         'the drain branch must read the session derivation rather than deciding for itself.'
     )
-    assert reads.index('recording_capturing') < reads.index('close_drain_pending'), (
-        'recording_capturing must be read BEFORE close_drain_pending: a live '
+    assert reads.index('is_recording') < reads.index('close_drain_pending'), (
+        'manual_recording.is_recording must be read BEFORE close_drain_pending: a live '
         'recording is also pending, so the drain branch would shadow the confirm.'
     )
 

@@ -9,6 +9,7 @@ from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
+from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
 
 # The firmware's CH_MAX: the absolute per-channel current limit the
@@ -28,8 +29,8 @@ class LEDBoard(SerialBoard):
     # ----------------------------------------------------------
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
-    def __init__(self, **kwargs):
-        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
+    def __init__(self, backend: SerialBackend = PYSERIAL, **kwargs):
+        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=backend)
 
         self._state_lock = threading.Lock()
         self.led_ma = {
@@ -174,7 +175,7 @@ class LEDBoard(SerialBoard):
         """
         command = 'LEDS_ENT'
         response = self.exchange_command(command)
-        if response is None:
+        if not response:
             logger.error('[LED Class ] leds_enable() got no response')
             self.last_command_error = {
                 'op': 'leds_enable',
@@ -195,7 +196,7 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_ENF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
@@ -352,7 +353,7 @@ class LEDBoard(SerialBoard):
         color, command = self._validate_and_build_led_cmd(channel, mA)
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             self._update_state_cache(color, mA)
             self.last_command_error = None
         else:
@@ -401,7 +402,7 @@ class LEDBoard(SerialBoard):
                     break
                 time.sleep(0.01)
                 response = self.exchange_command(command)
-                if response is not None:
+                if response:
                     self._update_state_cache(color, mA)
 
     def led_off(self, channel: int) -> None:
@@ -415,7 +416,7 @@ class LEDBoard(SerialBoard):
         command = 'LED' + str(int(channel)) + '_OFF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             self._update_state_cache(color, -1)
             self.last_command_error = None
         else:
@@ -464,7 +465,7 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_OFF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1

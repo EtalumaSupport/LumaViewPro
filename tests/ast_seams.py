@@ -43,6 +43,92 @@ def iter_package_modules(packages):
             )
 
 
+def production_modules():
+    """Yield ``(rel_path, ast.Module)`` for every production module.
+
+    ``iter_package_modules`` walks packages only, and the startup path
+    lives in the top-level ``lumaviewpro.py`` -- the one module a
+    package-only sweep would miss.
+    """
+    yield from iter_package_modules(('modules', 'ui'))
+    yield 'lumaviewpro.py', parse_module('lumaviewpro.py')
+
+
+def walk_defs(body, prefix=''):
+    """Yield ``(qualname, node)`` for every def, methods and closures included."""
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            yield from walk_defs(node.body, f'{prefix}{node.name}.')
+        elif isinstance(node, _DEF_TYPES):
+            qualname = f'{prefix}{node.name}'
+            yield qualname, node
+            yield from walk_defs(node.body, f'{qualname}.')
+
+
+def innermost_subscript_key(node, keys):
+    """The literal key in ``keys`` at the innermost slice of a subscript chain, else None.
+
+    A fact written one level in -- ``settings['section'][n] = ...`` --
+    has its key at the inner slice, so a slice-only match on the outer
+    subscript would miss it.
+    """
+    while isinstance(node, ast.Subscript):
+        key = node.slice
+        if isinstance(key, ast.Constant) and key.value in keys:
+            return key.value
+        node = node.value
+    return None
+
+
+def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
+    """``(rel_path, qualname)`` for every production function that writes one of ``keys``.
+
+    A write is a subscript store whose innermost literal key is in
+    ``keys``, or an ``update_settings(key, ...)`` call naming one. The
+    census a single-writer guard pins against: the guard names the one
+    home of each fact and this returns everywhere that fact is written.
+    """
+    found = set()
+    for rel_path, tree in production_modules():
+        for qualname, fn in walk_defs(tree.body):
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+                    if innermost_subscript_key(node, keys) is not None:
+                        found.add((rel_path, qualname))
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == 'update_settings'
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value in keys
+                ):
+                    found.add((rel_path, qualname))
+    return found
+
+
+def direct_call_names(fn) -> list[str]:
+    """Names called in this function's OWN body; nested defs excluded.
+
+    Without the exclusion an outer function would be credited with every
+    call its closures make, and a "called exactly once" count would
+    silently drift.
+    """
+    names = []
+    stack = list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.append(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.append(node.func.attr)
+        stack.extend(ast.iter_child_nodes(node))
+    return names
+
+
 def find_def(rel_path: str, name: str, class_name: str | None = None):
     """Return the FunctionDef node for ``name``, or None when absent.
 

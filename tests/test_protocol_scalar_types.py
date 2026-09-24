@@ -168,12 +168,6 @@ class TestProtocolHandsOutPythonScalars:
         assert idx == 1
         assert type(idx) is int, f'find_nearest_step returned {type(idx).__name__}, not int.'
 
-    def test_has_zstacks_returns_a_python_bool(self):
-        """Same shape as above: annotated bool, returned np.bool_."""
-        protocol = _protocol_from_declared_schema([_step_row()])
-        result = protocol.has_zstacks()
-        assert type(result) is bool, f'has_zstacks returned {type(result).__name__}, not bool.'
-
     def test_the_frame_itself_keeps_its_dtypes(self):
         """steps() is for vectorised work and must NOT be coerced.
 

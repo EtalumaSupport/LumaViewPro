@@ -10,24 +10,99 @@ re-exports everything for existing callers.
 import logging
 import typing
 
-from kivy.clock import Clock
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
-from modules import gui_logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
-from modules.sequential_io_executor import IOTask
+from modules.exceptions import (
+    ObjectiveUnknownError,
+    ProtocolRunRefusedError,
+    RunAlreadyEndedError,
+)
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
-# A turret move can carry a turret home in front of it (the widget homes
-# first when the turret reference is unknown), then a Z-retract, the
-# rotation, and a Z-restore. Sized for that whole chain rather than the
-# rotation alone, so a waiting caller does not give up mid-sequence.
-_TURRET_MOVE_TIMEOUT_S = 180.0
+
+def run_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
+) -> None:
+    """Run an API call a person asked for, here, and report its outcome; then redraw.
+
+    The one place in the GUI where an API call's exception is caught. The
+    exception is the API's answer, and the reporter shows it as its type says
+    -- a refusal as a warning under its own title, a fault as an error -- so
+    no widget writes its own popup or decides what an outcome means. The
+    redraw then shows the scope's state read back from the API, whatever the
+    call did; a widget changes nothing ahead of that answer.
+
+    For members that do not wait on a lane: the call runs on this thread,
+    before the next thing this thread does, so a continuation that reads what
+    the call applied sees it. A member that waits on a lane raises here, by
+    name, instead of freezing the window; it goes through submit_reported.
+
+    Args:
+        call: The API call, closed over any value a widget holds. Its return
+            is ignored: nothing in the GUI branches on it.
+        redraw: Shows the API's state, or None when the call's own callback
+            already does.
+        label: The gesture's interaction-log label; the outcome's category.
+    """
+    from modules.sequential_io_executor import inline_outcome
+
+    with inline_outcome():
+        _reported(call, label)
+    _reported(redraw, label)
+
+
+def submit_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
+) -> None:
+    """Run an API call that may block on the worker pool and report its outcome; then redraw.
+
+    run_reported's twin for members that wait on a lane (hardware, a lane's
+    answer): the call runs on the GUI's worker pool -- one worker, so a
+    person's actions run in the order they were made, and a Stop submitted
+    at high priority goes first -- and the redraw is scheduled back onto the
+    GUI thread afterwards, whatever the outcome. The call reads no widget and
+    touches nothing in the GUI: any value a widget holds is read before this
+    is called and closed over.
+
+    A pool that is not taking work (closing down) still gets its redraw; the
+    pool's own narration is the record of the dropped call.
+    """
+    from modules.sequential_io_executor import ENQUEUED, PRIORITY_MED, IOTask
+
+    def _on_the_pool():
+        _reported(call, label)
+        _schedule_ui(lambda dt: _reported(redraw, label))
+
+    queued = _app_ctx.ctx.worker_pool.put(IOTask(action=_on_the_pool, priority=PRIORITY_MED))
+    if queued is not ENQUEUED:
+        _schedule_ui(lambda dt: _reported(redraw, label))
+
+
+def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
+    """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
+
+    The reporting core both boundary forms share: the only place in the GUI
+    that catches an API call's exception. A redraw goes through it too, so a
+    widget that fails to draw is reported as a fault rather than exiting the
+    app from a clock callback.
+    """
+    if fn is None:
+        return
+    from modules.notification_center import notifications
+
+    try:
+        fn()
+    except Exception as e:
+        notifications.report_outcome(e, solicited=True, category=f'UI:{label}')
 
 
 def run_with_refusal_boundary(
@@ -37,18 +112,78 @@ def run_with_refusal_boundary(
     """The single UI boundary for the runner's typed run refusal.
 
     A refused run is a designed outcome, not a failure to propagate: the
-    runner's refusal funnel has already logged it and notified the user
-    exactly once, and no running-state was committed (commit_ui_state
-    runs only after a successful prepare). What remains is per-starter:
-    undo the pre-gate button cosmetics via on_refused. Every UI starter
-    (scan, protocol, autofocus scan, z-stack) routes its prepare/start
-    sequence through this one handler so refusal handling cannot drift
-    between them.
+    runner's refusal funnel has already logged it, and no running-state
+    was committed (commit_ui_state runs only after a successful
+    prepare). What remains is per-starter: undo the pre-gate button
+    cosmetics via on_refused. Every UI starter (scan, protocol,
+    autofocus scan, z-stack) routes its prepare/start sequence through
+    this one handler so refusal handling cannot drift between them.
+
+    The funnel also DELIVERS the user notification: a refusal answers a
+    button press, so it is posted solicited and reaches the user during
+    a run of any kind. A starter therefore adds no popup of its own --
+    a second one would say what the engine already said, and would say
+    it only to whoever is looking at this GUI.
+
+    One answer arrives without the funnel: an unknown objective. The API
+    raises it as its own typed error while it assembles the run, before
+    any run exists to refuse, so nothing has logged or shown it yet, and
+    it is shown here.
     """
     try:
         start_fn()
     except ProtocolRunRefusedError:
         on_refused()
+    except ObjectiveUnknownError as e:
+        show_objective_unknown_refusal('Run', e)
+        on_refused()
+
+
+def show_objective_unknown_refusal(action: str, error: ObjectiveUnknownError) -> None:
+    """Show the API's unknown-objective answer as a refusal of *action*.
+
+    The API decided and wrote the sentence (home the turret, assign the
+    slot); a click that meets it is refused, not failed, so it is a
+    warning, never an ERROR with a traceback. Posted the way the run
+    funnel posts a refusal -- solicited, under the one refusal key -- so
+    it reaches the user during a run and a second press replaces the
+    dialog rather than stacking one.
+    """
+    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+
+    logger.warning(f'[UI] {action} refused ({error.reason}): {error}')
+    notifications.warning(
+        'Protocol',
+        'Objective Unknown',
+        str(error),
+        solicited=True,
+        operation_key=REFUSAL_OPERATION_KEY,
+    )
+
+
+def reset_with_refusal_boundary(runner, run) -> bool:
+    """Stop *run*, the handle this control's start returned, and say whether anything is left.
+
+    The teardown half of the boundary above. Whether *run* may be stopped
+    is the engine's decision: it stops the live run by its handle and
+    refuses a handle naming any other, having already logged (and, when
+    another run is live, notified) once. What the widget needs back is not
+    the exception but the outcome -- a refused stop while another run is
+    live left that run running, so the caller must not go on to restyle
+    its button as though a stop were under way.
+
+    Returns True when the run was torn down or no run is live, False when
+    another run is live. Without this the refusal reached a starter's
+    blanket handler, which renders str(e) -- the joined `reason: message`
+    debugging form, in a dialog, at a user.
+    """
+    try:
+        runner.reset(run)
+    except RunAlreadyEndedError:
+        return True
+    except ProtocolRunRefusedError:
+        return False
+    return True
 
 
 # ============================================================================
@@ -152,6 +287,15 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
         ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
+    elif axis == 'T':
+        # A run's turret move: show the slot and objective the API reports.
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+    elif axis == 'ALL':
+        # A full home moves every axis the scope has, the turret included.
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.update_xy_stage_control_gui()
+        if ctx.scope.capabilities.has_turret:
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
 
 def _handle_autofocus_ui(pos: float):
@@ -181,81 +325,73 @@ def _user_motion_locked(axis: str) -> bool:
     return True
 
 
-# Wrapper to move and update the UI position. `protocol=False` (UI
-# thread) dispatches via the API's async path. `protocol=True` runs on
-# protocol_thread -- a DIFFERENT thread from the io_executor worker --
-# so the move is queued through io_executor.protocol_put and awaited,
-# keeping it ordered behind the step's leds_off/led_on on the single
-# worker. A direct call would race them and leave the prior step's LED
-# lit through the move. Awaiting is deadlock-free: the caller is
-# protocol_thread, not the worker.
 def move_absolute(
     axis: str,
     position: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
-    protocol: bool = False,
-    vertical_control: bool = False,
-    restore_z: bool = True,
+    frame: str = 'stage',
 ):
+    """Move an axis for a person's gesture, keeping the gesture lock in one place.
+
+    A turret slot goes to the turret widget, which asks the API to move and
+    then shows where the API says the turret is.
+
+    ``frame='plate'`` hands the API the number a user typed, in plate mm,
+    instead of converting first. The conversion and its bound then happen
+    inside the submitted task, which is what keeps a refusal on the worker
+    thread: raised in a Kivy handler's own frame it would reach the crash
+    guard rather than a notification.
+    """
     ctx = _app_ctx.ctx
 
-    if not protocol and _user_motion_locked(axis):
+    if _user_motion_locked(axis):
         return
 
     if axis == 'T':
-        # Turret moves go through the GUI widget which manages homing and objective settings
-        if not protocol:
-            # wait_until_complete has to be honored here, not just accepted.
-            # Startup asks for it so the turret is in position before the
-            # first capture; submitting fire-and-forget returned control
-            # immediately and let the caller proceed mid-rotation.
-            waiter = ctx.io_executor.put(
-                IOTask(
-                    action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                    kwargs={'selected_position': position},
-                    callback=_handle_ui_update_for_axis,
-                    cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-                ),
-                return_future=wait_until_complete,
-            )
-            # `waiter` only holds a waiter when wait_until_complete asked for
-            # one; otherwise it is the ENQUEUED sentinel, which has no
-            # .result(). The first conjunct is what keeps that unreachable, so
-            # it must stay ahead of the None check rather than be folded into it.
-            if wait_until_complete and waiter is not None:
-                waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
-        else:
-            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=position, protocol=True, restore_z=restore_z
-            )
-    else:
-        if not protocol:
-            ctx.scope.motion.move_absolute_async(
-                axis,
-                position,
-                wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled,
-                callback=_handle_ui_update_for_axis,
-                cb_kwargs={'axis': axis},
-            )
-        else:
-            fut = ctx.io_executor.protocol_put(
-                IOTask(
-                    action=ctx.scope.motion._move_absolute_impl,
-                    kwargs={
-                        'axis': axis,
-                        'position': position,
-                        'wait_until_complete': wait_until_complete,
-                        'overshoot_enabled': overshoot_enabled,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                fut.result(timeout=60)
+        ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
+        return
 
-        _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
+    ctx.scope.motion.move_absolute_async(
+        axis,
+        position,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled,
+        callback=_handle_ui_update_for_axis,
+        cb_kwargs={'axis': axis},
+        frame=frame,
+    )
+    _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
+
+
+def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, then: str) -> bool:
+    """The single UI boundary for the motion API's unknown-position refusal.
+
+    A gesture that moves or saves several axes asks the API once, before
+    it does anything, whether the scope knows where those axes are; the
+    API decides, logs and notifies. What remains for the gesture is only
+    to stop, so every gesture asks through here and none carries its own
+    handling of the refusal, the way every run starter routes its refusal
+    through ``run_with_refusal_boundary``.
+
+    Args:
+        axes: The axes the gesture needs.
+        recording: True when the gesture saves the position, False when
+            it moves.
+        then: What the user does once the scope knows its position,
+            ending the refusal the API shows.
+
+    Returns:
+        bool: True when the API refused (already logged and shown); the
+            caller stops. False when the gesture may go ahead.
+    """
+    from modules.exceptions import AxisStateUnknownError
+
+    try:
+        _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=recording, then=then)
+    except AxisStateUnknownError:
+        return True
+    return False
 
 
 def move_relative(
@@ -368,53 +504,6 @@ def live_histo_reverse():
     if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
-
-
-_text_input_debounce_timers: dict = {}
-_TEXT_INPUT_DEBOUNCE_S: float = 1.5
-
-
-def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_DEBOUNCE_S) -> None:
-    """Log a text field's value once the user has stopped typing.
-
-    Each call cancels the previous pending log for ``name`` and schedules a
-    fresh one ``delay_s`` out, so a burst of calls collapses to one log line
-    carrying the settled value.
-
-    The burst it exists for is NOT per-character typing: the text fields that
-    use it commit on enter and on focus loss, and a single edit fires both, so
-    an undebounced log would record the same value twice. A field that also
-    commits per keystroke (the protocol period and duration now do, so the
-    settings store tracks what is on screen) sends a longer burst through the
-    same collapse, which is why the debounce is the right shape either way.
-
-    Lives here rather than beside the other gui_interactions entries because
-    the debounce needs the Kivy Clock and modules/ carries no GUI imports.
-    """
-    # The app's own write coming back around, not something the user typed.
-    # Checked HERE rather than at the emitter, because the cancel below would
-    # already have destroyed the pending typed line by the time it emits.
-    if gui_logger.consume_write_back(name, value):
-        return
-
-    existing = _text_input_debounce_timers.pop(name, None)
-    if existing is not None:
-        try:
-            existing.cancel()
-        except Exception:
-            # A timer that already fired cannot be cancelled; the emit has
-            # happened and popping it above is all the cleanup there is.
-            pass
-
-    def _emit(_dt):
-        _text_input_debounce_timers.pop(name, None)
-        # A declaration nobody echoed (a click-away commit fires the handler
-        # once) must not outlive this line, or it would swallow a later real
-        # entry of the same value.
-        gui_logger.consume_write_back(name, value)
-        gui_logger.text_input(name, value)
-
-    _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
 
 
 # ============================================================================

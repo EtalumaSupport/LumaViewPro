@@ -12,6 +12,7 @@ import pytest
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 
 
 # ---------------------------------------------------------------------------
@@ -41,18 +42,17 @@ class TestLEDListener:
 
     def test_listener_fires_on_led_on(self, scope):
         events = []
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
+        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
         scope.illumination.led_on(channel=0, illumination_ma=100)
         assert len(events) == 1
-        _color, enabled, illumination_ma, owner = events[0]
+        _color, enabled, illumination_ma = events[0]
         assert enabled is True
         assert illumination_ma == 100.0
-        assert owner == ''
 
     def test_listener_fires_on_led_off(self, scope):
         events = []
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
+        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
         scope.illumination.led_off(channel=0)
         assert len(events) == 1
         assert events[0][1] is False  # enabled
@@ -61,7 +61,7 @@ class TestLEDListener:
         events = []
         scope.illumination.led_on(channel=0, illumination_ma=100)
         scope.illumination.led_on(channel=1, illumination_ma=50)
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
+        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
         scope.illumination.leds_off()
         # Should fire once per channel in led_ma
         assert len(events) >= 2
@@ -71,13 +71,13 @@ class TestLEDListener:
         """When led_on is called with same params (skip-check), no listener fires."""
         scope.illumination.led_on(channel=0, illumination_ma=100)
         events = []
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
+        scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e, m)))
         scope.illumination.led_on(channel=0, illumination_ma=100)  # redundant -- should skip
         assert len(events) == 0
 
     def test_remove_listener(self, scope):
         events = []
-        listener = lambda c, e, m, o: events.append((c, e, m, o))
+        listener = lambda c, e, m: events.append((c, e, m))
         scope.illumination.add_led_listener(listener)
         scope.illumination.remove_led_listener(listener)
         scope.illumination.led_on(channel=0, illumination_ma=100)
@@ -86,20 +86,20 @@ class TestLEDListener:
     def test_listener_exception_does_not_propagate(self, scope):
         """A broken listener must not prevent the LED command from succeeding."""
 
-        def bad_listener(c, e, m, o):
+        def bad_listener(c, e, m):
             raise RuntimeError('broken listener')
 
         scope.illumination.add_led_listener(bad_listener)
         # Should not raise
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
 
     def test_listener_fires_from_multiple_threads(self, scope):
         """Listeners fire correctly regardless of which thread calls led_on."""
         events = []
         lock = threading.Lock()
 
-        def listener(c, e, m, o):
+        def listener(c, e, m):
             with lock:
                 events.append(threading.current_thread().name)
 
@@ -128,49 +128,32 @@ class TestLEDListener:
 class TestLEDOwnership:
     """Tests for LED ownership tracking."""
 
-    def test_ownership_blocks_foreign_off(self, scope):
-        """led_off with wrong owner is a no-op."""
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        scope.illumination.led_off(channel=0, owner='protocol')  # wrong owner
-        color = scope.illumination.ch2color(0)
-        assert scope.illumination.led_enabled(color)  # still on
-
     def test_ownership_allows_own_off(self, scope):
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        scope.illumination.led_off(channel=0, owner='autofocus')
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
+        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+        scope.illumination._led_off_impl(channel=0, _lease=lease)
         color = scope.illumination.ch2color(0)
-        assert not scope.illumination.led_enabled(color)
+        assert not scope.illumination.get_led_state(color)['enabled']
 
     def test_no_owner_off_is_unconditional(self, scope):
-        """led_off without owner always works (backwards compatible)."""
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        scope.illumination.led_off(channel=0)  # no owner = unconditional
+        """led_off without a lease works on a channel a (released) lease lit."""
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
+        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
+        lease.release(leave_on=True)
+        scope.illumination.led_off(channel=0)  # no lease = unconditional
         color = scope.illumination.ch2color(0)
-        assert not scope.illumination.led_enabled(color)
+        assert not scope.illumination.get_led_state(color)['enabled']
 
     def test_leds_off_nuclear_clears_all(self, scope):
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        scope.illumination.led_on(channel=1, illumination_ma=50, owner='protocol')
+        protocol = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+        scope.illumination._led_on_impl(channel=1, illumination_ma=50, _lease=protocol)
+        autofocus = protocol.acquire_child('autofocus')
+        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=autofocus)
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
         scope.illumination.leds_off()  # nuclear
-        assert not scope.illumination.led_enabled(scope.illumination.ch2color(0))
-        assert not scope.illumination.led_enabled(scope.illumination.ch2color(1))
-
-    def test_leds_off_owned(self, scope):
-        """leds_off_owned only turns off channels owned by that owner."""
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        scope.illumination.led_on(channel=1, illumination_ma=50, owner='protocol')
-        scope.illumination.leds_off_owned('autofocus')
-        assert not scope.illumination.led_enabled(scope.illumination.ch2color(0))  # AF's LED off
-        assert scope.illumination.led_enabled(
-            scope.illumination.ch2color(1)
-        )  # protocol's LED still on
-
-    def test_ownership_with_listener(self, scope):
-        """Ownership info is passed through to listeners."""
-        events = []
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append(o))
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
-        assert events[-1] == 'autofocus'
+        assert not scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
+        assert not scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
 
 
 # ---------------------------------------------------------------------------
@@ -187,49 +170,44 @@ class TestLEDSaveRestore:
         scope.illumination.led_on(channel=1, illumination_ma=50)
         snapshot = scope.illumination.save_led_state('test')
         scope.illumination.leds_off()
-        assert not scope.illumination.led_enabled(scope.illumination.ch2color(0))
+        assert not scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(1))
-
-    def test_restore_with_owner_only_clears_owned(self, scope):
-        """Restore with owner only turns off that owner's channels first."""
-        scope.illumination.led_on(channel=0, illumination_ma=100, owner='ui')
-        scope.illumination.led_on(channel=1, illumination_ma=50, owner='autofocus')
-        # Save state (both on)
-        snapshot = scope.illumination.save_led_state('test')
-        # AF turns off its channel
-        scope.illumination.leds_off_owned('autofocus')
-        # Restore with owner='autofocus' -- should only affect AF's channels
-        scope.illumination.restore_led_state(snapshot, owner='autofocus')
-        # Both should be back on (ui's was never off, AF's is restored)
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(1))
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
 
     def test_restore_empty_snapshot(self, scope):
         """Restoring None/empty snapshot is a no-op."""
         scope.illumination.led_on(channel=0, illumination_ma=100)
         scope.illumination.restore_led_state(None)
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))  # unchanged
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
+            'enabled'
+        ]  # unchanged
         scope.illumination.restore_led_state({})
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))  # unchanged
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
+            'enabled'
+        ]  # unchanged
 
     def test_af_pattern_save_restore(self, scope):
-        """Simulate the AF pattern: save -> own LED on -> do work -> off owned -> restore."""
+        """Simulate the AF pattern: save -> own LED on -> do work -> release -> restore."""
         # User has Blue LED on
         scope.illumination.led_on(channel=0, illumination_ma=100)
         # AF starts
         snapshot = scope.illumination.save_led_state('autofocus')
-        scope.illumination.led_on(channel=3, illumination_ma=200, owner='autofocus')  # BF for AF
+        lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
+        scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)  # BF for AF
         # AF finishes
-        scope.illumination.leds_off_owned('autofocus')  # only kills AF's LED
-        assert scope.illumination.led_enabled(
-            scope.illumination.ch2color(0)
-        )  # user's Blue still on
-        assert not scope.illumination.led_enabled(scope.illumination.ch2color(3))  # AF's BF off
+        lease.release()  # only kills the LED the AF lease lit
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
+            'enabled'
+        ]  # user's Blue still on
+        assert not scope.illumination.get_led_state(scope.illumination.ch2color(3))[
+            'enabled'
+        ]  # AF's BF off
         # Restore (should be a no-op since user's LED was never touched)
-        scope.illumination.restore_led_state(snapshot, owner='autofocus')
-        assert scope.illumination.led_enabled(scope.illumination.ch2color(0))  # still on
+        scope.illumination.restore_led_state(snapshot)
+        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
+            'enabled'
+        ]  # still on
 
 
 # ---------------------------------------------------------------------------

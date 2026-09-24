@@ -35,6 +35,7 @@ from typing import Any
 import numpy as np
 
 from lvp_logger import logger, version as lvp_version
+from modules.activity_claim import BorrowedClaim
 from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_PER_WRITE_DISK_MB,
@@ -48,6 +49,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.recording_frames import (
     CameraTickRebaser,
+    frame_fact,
     orient_and_fit,
     protocol_frame_filename_template,
     resolve_recording_pixel_size,
@@ -81,22 +83,6 @@ _WAIT_TICK_S = 0.1
 _TITLE_UPDATE_INTERVAL_S = 1.0
 
 
-class _NestedClaim:
-    """Always-granting claim for a recording nested inside a protocol run.
-
-    The run's own session claim (held for the whole run) is the real
-    exclusivity fence; the engine's claim acquisition inside the run
-    must not contend with it. Release is a no-op for the same reason:
-    the run releases its claim at run end, never per step.
-    """
-
-    def try_claim(self, owner: str) -> bool:
-        return True
-
-    def release(self, owner: str) -> None:
-        return None
-
-
 class ProtocolVideoStep:
     """One protocol video step: snapshot, record via the engine, finish.
 
@@ -119,7 +105,8 @@ class ProtocolVideoStep:
             the UI scheduler.
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
-        abort_run_fatal: PIW's fatal-abort funnel, for disk faults.
+        abort_run_fatal: PIW's fatal-abort funnel, for disk faults;
+            called with the cause, then domain, title and message.
         abort_run_on_writer_death: Arms the run abort after the engine
             has already surfaced writer-lane death at critical severity
             (no second popup).
@@ -128,6 +115,9 @@ class ProtocolVideoStep:
             duration_sec, timestamp)``.
         record_dropped_capture: Records a no-artifact row:
             ``record_dropped_capture(reason, capture_time)``.
+        run_claim: The run's activity claim, lent to this step. The
+            recording acts under it, and the step's end leaves it held:
+            the run releases its claim at run end, never per step.
         clock: Injectable time source (seconds); tests drive it.
     """
 
@@ -146,10 +136,11 @@ class ProtocolVideoStep:
         callbacks: dict,
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
-        abort_run_fatal: Callable[[str, str, str], None],
+        abort_run_fatal: Callable[[str, str, str, str], None],
         abort_run_on_writer_death: Callable[[], None],
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
+        run_claim: BorrowedClaim,
         clock: Callable[[], float] = time.time,
     ):
         self._scope = scope
@@ -168,6 +159,7 @@ class ProtocolVideoStep:
         self._abort_run_on_writer_death = abort_run_on_writer_death
         self._record_step_row = record_step_row
         self._record_dropped_capture = record_dropped_capture
+        self._run_claim = run_claim
         self._clock = clock
 
         self._engine: VideoRecordingEngine | None = None
@@ -246,6 +238,7 @@ class ProtocolVideoStep:
             ok, free_mb = True, 0.0
         if not ok:
             self._abort_run_fatal(
+                'disk_space_critical',
                 'FileIO',
                 'Disk Space Critical',
                 f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
@@ -264,6 +257,15 @@ class ProtocolVideoStep:
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
         self._pixel_size_um = resolve_recording_pixel_size(scope)
+        # The plate transform bound now, so every frame is stated in the
+        # frame of reference the step began in. A run always has labware;
+        # a step without one records no plate position and says so.
+        self._to_plate = scope.runtime_state.plate_transform() if self._video_as_frames else None
+        if self._video_as_frames and self._to_plate is None:
+            logger.warning(
+                f'[ProtocolVideo] {self._name}: no labware or stage offset is '
+                'registered; frames will record no plate position'
+            )
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
 
@@ -323,7 +325,7 @@ class ProtocolVideoStep:
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
-            claim=_NestedClaim(),
+            claim=self._run_claim,
             clock=self._clock,
             notify=notifications,
         )
@@ -420,11 +422,8 @@ class ProtocolVideoStep:
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         if step['Auto_Gain']:
-            # Run-internal camera writes bind the impls: the camera lane
-            # is disabled for the whole run, so the public dispatchers
-            # would refuse their own run's work.
-            scope.imaging._set_auto_gain_impl(state=False, settings=self._autogain_settings)
-            scope.imaging._auto_gain_once_impl(
+            scope.imaging.set_auto_gain(False, self._autogain_settings)
+            scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],
@@ -493,18 +492,29 @@ class ProtocolVideoStep:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, image, timestamp, chunks) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine."""
+        """SDK-thread listener: rebase the timestamp, offer to the engine.
+
+        The frame's fact is read HERE, when the frame arrives, and rides
+        the queue with it: the write runs later, behind the backlog, and
+        a read then would put a stage move on the wrong frames. Only the
+        frames leg writes a per-frame file, so only it pays.
+        """
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
         self._frames_seen += 1
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks)
+        fact = (
+            frame_fact(self._scope, channel_tiebreak=self._step['Color'], to_plate=self._to_plate)
+            if self._video_as_frames
+            else None
+        )
+        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
@@ -515,14 +525,16 @@ class ProtocolVideoStep:
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
             metadata, _ts_filename = tiff_frame_metadata(
-                timestamp_s, frame_number, chunks, self._tick_freq_hz, self._pixel_size_um
+                timestamp_s, frame_number, chunks, self._tick_freq_hz, self._pixel_size_um, fact
             )
             file_loc = config.output_dir / config.filename_template.format(n=frame_number)
             image_save.write_video_frame(
                 frame=image,
                 file_loc=file_loc,
                 metadata=metadata,
-                channel=step['Color'],
+                # Rendered as the channel that lit THIS frame, so the file
+                # never states one channel and is coloured as another.
+                channel=fact.channel,
                 false_color_on=bool(step['False_Color']),
                 save_encoding=self._capture_config.save_encoding,
                 capture_depth=self._capture_config.capture_depth,
@@ -558,6 +570,7 @@ class ProtocolVideoStep:
             )
             self._engine.stop('disk_floor')
             self._abort_run_fatal(
+                'disk_space_critical',
                 'FileIO',
                 'Disk Space Critical',
                 f'Free disk fell to {free_mb:.0f} MB during a video step. '

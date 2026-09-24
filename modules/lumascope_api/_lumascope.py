@@ -9,6 +9,7 @@ from lvp_logger import logger
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
+from modules.lumascope_api._constants import SIMULATOR_TIERS
 import modules.image_mode as image_mode
 
 try:
@@ -81,8 +82,8 @@ _PRE_RELEASE_WARNING_TEXT = (
 def _fire_pre_release_warning(stacklevel: int = 3) -> None:
     """Fire the PRE-RELEASE runtime FutureWarning once per process.
 
-    Called from `Lumascope.__init__` and from `ScopeSession.create` /
-    `create_headless` so any L2 entry point trips the warning, even
+    Called from `Lumascope.__init__` and from `ScopeSession.create`
+    so any L2 entry point trips the warning, even
     callers that bypass `Lumascope` directly (e.g. tests that mock
     the scope).
 
@@ -291,6 +292,11 @@ class Lumascope:
         the single point of truth.
         """
         self._simulated = simulated
+        # Whether this scope's model has a motor board. Until initialize()
+        # reads the model's catalogue entry, a missing board counts as
+        # disconnected: holding an unconfigured scope to every board is the
+        # answer that cannot admit a run on a board that fell off.
+        self._motion_expected = True
 
         # Driver slot defaults -- __init__ overrides _camera_driver with
         # the real driver; create_diagnostic leaves it None.
@@ -316,6 +322,41 @@ class Lumascope:
         # leaves it None.
         self.metrics_logger = None
 
+    @staticmethod
+    def _build_simulated_motor_board(model: str, sim_tier: str) -> MotorBoardProtocol:
+        """The simulated scope's motor board, on the tier asked for.
+
+        Both tiers ask the catalogue which axes the model has: a model
+        with no axes has no motor board, so it gets the null driver on
+        either tier. The fast tier goes through the registry's simulator
+        selection with those axes. The firmware tier builds the production
+        driver by name against the emulator: a model with axes whose
+        emulator does not come up raises, because the registry's auto path
+        would fall back to the null driver and a dead emulator would then
+        look exactly like a manual scope.
+        """
+        if sim_tier not in SIMULATOR_TIERS:
+            raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
+        from modules.layer_record import load_scope_models, model_axes
+
+        axes = model_axes(load_scope_models(), model)
+        if not axes:
+            logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
+            return NullMotionBoard()
+        if sim_tier == 'fast':
+            board = motor_registry.create('auto', simulate=True, model=model, axes=axes)
+            logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
+            return board
+        from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
+        backend = SimWireBackend(MotorBoardSpec(model, axes))
+        board = motor_registry.create('rp2040', backend=backend)
+        logger.info(
+            f'[SCOPE API ] Using the motor FIRMWARE in simulation '
+            f'(model={model}, axes={"".join(sorted(axes))})'
+        )
+        return board
+
     def __init__(
         self,
         simulate: bool = False,
@@ -325,6 +366,7 @@ class Lumascope:
         sim_model: str | None = None,
         warn_pre_release: bool = True,
         configured_model: str | None = None,
+        sim_tier: str = 'fast',
     ):
         """Initialize Microscope.
 
@@ -369,6 +411,15 @@ class Lumascope:
                 a unit that also reports no model, layer identity
                 resolves empty and LED use fails loudly by name rather
                 than silently guessing.
+            sim_tier: Which simulated motor board a simulated scope gets.
+                ``'fast'`` (default) is ``SimulatedMotorBoard``, a Python
+                stand-in with no timing, for routine tests. ``'firmware'``
+                is the production ``MotorBoard`` driver connected to the
+                real motor firmware running in a MicroPython process
+                behind an emulated serial port, so every line of the
+                driver runs; it costs the driver's real connect (about a
+                second) and needs a runtime built for this platform.
+                Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
                 code may break under a future release, which is only
@@ -387,8 +438,8 @@ class Lumascope:
         # Driver construction + sub-API wiring happen below.
         self._init_minimal(simulated=simulate)
 
-        # LED state slots (_led_listeners, _led_state, _led_owners,
-        # _led_owner_lock, _led_listeners_lock, _led_lock) live on
+        # LED state slots (_led_listeners, _led_state, _lit_by,
+        # _led_state_lock, _led_listeners_lock, _led_lock) live on
         # IlluminationAPI.
 
         # Camera state slots (_camera_listeners + lock, _frame_buffer,
@@ -402,19 +453,16 @@ class Lumascope:
         # -- 'auto' tries real drivers in descending priority order and
         # falls back to NullMotionBoard if all fail, so no manual
         # try/except needed.
-        motor_kwargs: dict = {}
         if simulate:
             from modules.settings_init import settings
 
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
-            motor_kwargs['model'] = sim_model or configured_model or default_model
-        self._motion_driver: MotorBoardProtocol = motor_registry.create(
-            'auto', simulate=simulate, **motor_kwargs
-        )
-        if simulate:
-            logger.info(
-                f'[SCOPE API ] Using SIMULATED Motor Board (model={motor_kwargs.get("model")})'
+            model = sim_model or configured_model or default_model
+            self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
+                model, sim_tier
             )
+        else:
+            self._motion_driver = motor_registry.create('auto')
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
@@ -448,6 +496,24 @@ class Lumascope:
         camera_kwargs: dict = {}
         if simulate:
             camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
+            # Light reaches the simulated sensor the same way Z does: the
+            # composition root hands it over, because it is the only object
+            # holding both halves and no driver may reach into a peer. The
+            # illumination API is asked rather than the board -- it is where
+            # which channel is lit is decided, and the board holds no state.
+            # Imported here like the other illumination references in this
+            # file: at module scope it closes an import cycle.
+            #
+            # Ordering: this reads self.illumination, which is built further
+            # down, and is safe because the callable only runs while a frame
+            # is being generated and nothing starts the camera grabbing
+            # during construction. Anything that begins streaming before the
+            # sub-APIs exist breaks that, so start it after them.
+            from modules.lumascope_api.illumination import live_lit_pairs
+
+            camera_kwargs['illumination_func'] = lambda: sum(
+                ma for _, ma in live_lit_pairs(self.illumination)
+            )
         try:
             self._camera_driver: Camera = camera_registry.create(
                 camera_type, simulate=simulate, **camera_kwargs
@@ -700,6 +766,7 @@ class Lumascope:
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
         """
+        self._motion_expected = config.expects_motion
         self._notify_partial_hardware(config)
         # The safety-off is bound to the impl like every other write here,
         # never to the public dispatcher: a session factory runs initialize
@@ -716,7 +783,23 @@ class Lumascope:
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
-        self.runtime_state.set_objective(config.objective_id)
+        self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
+        self.runtime_state.set_turreted(config.turreted)
+        if config.turreted:
+            # Nothing to set: the objective is the one assigned to the slot in
+            # the light path, derived on every read. An assignment the
+            # catalogue does not hold reads as unknown whenever its slot is in
+            # the light path; said once here, not raised per read.
+            catalogue = set(self.runtime_state.get_available_objectives())
+            for slot, objective_id in (config.turret_config or {}).items():
+                if objective_id is not None and objective_id not in catalogue:
+                    logger.warning(
+                        f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
+                        'which is not in the objective catalogue; its objective reads '
+                        'as unknown until it is reassigned'
+                    )
+        else:
+            self.runtime_state.set_objective(config.objective_id)
         # Startup applies push PERSISTED settings at the connect boundary, so
         # each value is reconciled to the capabilities the connected hardware
         # actually reports BEFORE the apply -- a settings file written against
@@ -962,6 +1045,16 @@ class Lumascope:
         )
 
     @property
+    def motion_expected(self) -> bool:
+        """Whether this scope's model has a motor board at all.
+
+        False for a manual scope (an LS620 or LS560): it is complete
+        without one, so its absence is not a disconnection. Set from the
+        model's catalogue entry by ``initialize()``; True before that.
+        """
+        return self._motion_expected
+
+    @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected.
 
@@ -970,18 +1063,43 @@ class Lumascope:
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
+    def _camera_is_connected(self) -> bool:
+        """Answer the camera half of every connection question, raising.
+
+        One predicate with two callers that need opposite things from a
+        driver that throws: the display paths below want a bool and get
+        it from the property, while the run gate wants the throw, because
+        "the USB tree went away mid-question" is a different refusal from
+        "the camera is not plugged in" and the user has to be told which.
+
+        It exists because the two were written out separately and drifted:
+        the run gate's copy tested is_connected() alone while the property
+        tested active as well. No camera in the tree tells them apart --
+        all three make is_connected() False whenever active is unset -- so
+        the drift was invisible rather than harmless, which is the worse
+        of the two states to leave a predicate in.
+
+        Returns a real bool rather than the falsy operand that ended the
+        chain: a Pylon camera holds None in ``active`` once it is gone,
+        and the display paths log this value.
+        """
+        driver = getattr(self, '_camera_driver', None)
+        if driver is None or not getattr(driver, 'active', False):
+            return False
+        return driver.is_connected()
+
     @property
     def camera_connected(self) -> bool:
         """Whether the camera is connected and active.
 
         Returns:
             bool: True if a real camera driver is connected and active.
+                A driver that raises reads as not connected: the callers
+                here are display and metrics paths, where the question is
+                asked per frame and has no answer but False.
         """
-        driver = getattr(self, '_camera_driver', None)
-        if driver is None or not getattr(driver, 'active', False):
-            return False
         try:
-            return driver.is_connected()
+            return self._camera_is_connected()
         except Exception:
             return False
 
@@ -1162,16 +1280,69 @@ class Lumascope:
         """
         return self._no_hardware
 
+    def move_to_simulated_sample_plane(self) -> None:
+        """Place the stage where the simulated sample is (not part of the L2 API surface).
+
+        Bring-up's own step, called by ``ScopeSession.start_application_session``.
+        An L2 caller has no reason to reach it: on real hardware it does
+        nothing, and on a simulator bring-up has already run it.
+
+        Homing leaves Z at the bottom of travel on a real instrument and on
+        the simulator alike, and that is correct -- it is what homing means.
+        On a real scope the operator then focuses; in the simulator nobody
+        does, so every session began at the floor, where a z-stack asks for
+        slices below zero and an autofocus sweep starts 5 mm from anything
+        worth focusing on.
+
+        The height is not chosen here. The simulated camera already declares
+        the plane its specimen is sharp at, and reading it is what keeps the
+        two halves of one simulated scene agreeing about where the sample
+        sits rather than each holding a number.
+
+        Placed only on a scope that has a Z axis to place, and only once Z
+        has a reference position. A convenience may not be able to break
+        bring-up: an absolute move on an axis that was never homed refuses
+        rather than guessing, so this asks first instead of provoking that
+        refusal and catching it -- catching would hide a real one.
+        """
+        if not self._simulated:
+            return
+        if not self.capabilities.has_focus:
+            return
+        if not self.motion.position_is_known('Z'):
+            logger.info(
+                '[SCOPE API ] Simulated sample plane not applied: Z has no reference position'
+            )
+            return
+        # A camera that failed to construct leaves a driver that is not the
+        # simulator, so the focal plane is asked for rather than assumed.
+        focal_plane = getattr(self._camera_driver, 'get_focal_z', None)
+        if focal_plane is None:
+            return
+        # Waited, like the home before it: bring-up reports the stage ready,
+        # and a caller that starts a sweep against a Z still in flight reads
+        # a position that is not where the sample is.
+        self.motion.move_absolute('Z', focal_plane(), wait_until_complete=True)
+
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
+
+        Each term is the one the matching single-board question asks, so
+        a run gate and a per-board gate cannot disagree about the same
+        hardware. A driver that RAISES propagates: the run gate that asks
+        this converts it into a refusal that says the state could not be
+        read, which is not the same answer as "not connected".
+
+        A scope whose model has no motor board is not asked for one: a
+        manual scope is complete without it.
 
         Returns:
             bool: True if all three components are connected.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
-        led = not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
-        motion = self.motor_connected
-        camera = self._camera_driver is not None and self._camera_driver.is_connected()
+        led = self.led_connected
+        motion = self.motor_connected or not self._motion_expected
+        camera = self._camera_is_connected()
 
         if not led:
             logger.info('[SCOPE API ] Connection Check: LED Board not connected')
@@ -1220,7 +1391,6 @@ class Lumascope:
         instance.motion._init_axes(present_axes, instance._motion_driver.detect_homed_axes())
         instance.motion._start_monitor()
 
-        instance.camera = None
         instance._frame_buffer = None
 
         # Diagnostic instances have no settings to name a configured

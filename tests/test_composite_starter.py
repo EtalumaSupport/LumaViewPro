@@ -1,18 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The composite button is a run starter, and its guard always has a clearer.
+"""The composite button is a run starter, and it decides nothing.
 
-The starter's whole job is to refuse what it alone can see, hand everything
-else to the engine, and never leave the app in a state a second click
-cannot recover from. The dangerous half is the guard Event: it is shared
-with live capture, and both entry points return at their ``is_set()`` check
-BEFORE enqueuing the work whose completion would clear it. So a guard left
-set is not a transient -- it disables both capture buttons for the life of
-the process, and only a restart brings them back.
-
-That makes "every path that can set the guard has exactly one clearer" the
-invariant worth pinning, rather than any single refusal message. The tests
-below walk the paths that can set it -- a typed refusal, an unexpected
-raise, and a run that genuinely starts -- and check the guard each time.
+Its whole job is to hand the click to the engine, display what the engine
+answers, and never leave the app in a state a second click cannot recover
+from. Every refusal -- a rival run, files draining, too few channels, a
+camera that is absent -- is the engine's; a still mid-capture is not a
+refusal at all (the run waits for it). What the button owns is the toggle:
+a refused or failed start puts it back, a started run keeps it down until
+the run ends, and a second click on its own live run is a Stop.
 """
 
 import sys
@@ -42,6 +37,7 @@ import modules.app_context as _app_ctx
 from modules.exceptions import ProtocolRunRefusedError
 from tests.scope_fakes import spec_scope
 import ui.composite_capture as cc
+import ui.ui_helpers as ui_helpers
 
 
 class _Starter(cc.CompositeCapture):
@@ -65,21 +61,29 @@ def runner():
     r = MagicMock()
     r.is_running.return_value = False
     r.run_trigger_source.return_value = None
+    # Nothing is live, so no handle is the live run -- what the real
+    # runner answers before any run starts.
+    r.is_live_run.return_value = False
     return r
 
 
 @pytest.fixture
-def app_ctx(runner, tmp_path):
+def engine():
+    """The session's sequenced-capture engine, which a Stop is handed to."""
+    return MagicMock()
+
+
+@pytest.fixture
+def app_ctx(runner, engine, tmp_path):
     saved = getattr(_app_ctx, 'ctx', None)
-    scope = spec_scope(camera_connected=True)
-    scope.imaging.active_cached = True
     session = MagicMock()
     session.create_protocol_runner.return_value = runner
     _app_ctx.ctx = SimpleNamespace(
-        scope=scope,
+        scope=spec_scope(camera_connected=True),
         session=session,
         settings={'live_folder': str(tmp_path)},
         worker_pool=MagicMock(),
+        sequenced_capture_runner=engine,
         ui_listener_bridge=MagicMock(),
         # The starter hands the context's live flag to the run; production's
         # context always carries it.
@@ -90,15 +94,8 @@ def app_ctx(runner, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _clean_guard():
-    cc.CompositeCapture._capturing.clear()
-    yield
-    cc.CompositeCapture._capturing.clear()
-
-
-@pytest.fixture(autouse=True)
 def _quiet_ui(monkeypatch):
-    """Neutralise the cosmetics so a test reads the guard, not the theme."""
+    """Neutralise the cosmetics so a test reads the toggle, not the theme."""
     monkeypatch.setattr(cc, 'live_histo_off', MagicMock())
     monkeypatch.setattr(cc, 'live_histo_reverse', MagicMock())
     monkeypatch.setattr(cc, 'set_title_event_text', MagicMock())
@@ -112,40 +109,29 @@ def _click(starter):
     cc.CompositeCapture.composite_capture(starter)
 
 
-def test_an_inactive_camera_refusal_leaves_both_capture_buttons_usable(app_ctx, monkeypatch):
-    # The camera can be connected and still not be streaming, and the engine
-    # has no refusal for that -- its connectivity check never asks. So this
-    # gate stays in the GUI, and it has to refuse without leaving a mark.
-    notifications = MagicMock()
-    monkeypatch.setattr('modules.notification_center.notifications', notifications)
+def test_the_button_hands_the_click_to_the_engine_and_decides_nothing(app_ctx, runner):
+    # No folder: the API owns where a composite goes, so a script's and a
+    # click's land in the same place. No camera pre-check: a camera that
+    # is not streaming is the engine's hardware_disconnected refusal, and
+    # the button cannot know that better than prepare() does.
     app_ctx.scope.imaging.active_cached = False
     starter = _Starter()
 
     _click(starter)
 
-    assert not cc.CompositeCapture._capturing.is_set(), (
-        'a refusal must leave the capture guard clear; a set guard with '
-        'nothing left to clear it wedges BOTH capture buttons for the '
-        'lifetime of the process'
-    )
-    assert not cc.live_histo_off.called, (
-        'the refusal must precede display-state changes; a refused click '
-        'must not leave live-histogram equalization off'
-    )
-    assert not app_ctx.worker_pool.put.called, 'nothing to dispatch on a refusal'
-    assert notifications.warning.called or notifications.error.called, (
-        'the operator must be told why nothing happened'
-    )
-    assert starter.button.state == 'normal', (
-        'a gate that leaves the toggle down makes the NEXT click read as '
-        'the second click of a pair, and be swallowed as an abort'
-    )
+    runner.start_composite.assert_called_once()
+    kwargs = runner.start_composite.call_args.kwargs
+    assert 'parent_dir' not in kwargs, 'the button composed a folder the API already owns'
+    assert kwargs['run_trigger_source'] == 'composite'
+    assert kwargs['engineering_mode'] is False
+    assert not app_ctx.worker_pool.put.called, 'a start is not a stop'
 
 
-def test_the_engines_refusal_clears_the_guard(app_ctx, runner):
-    # The engine owns rival runs, draining files and too-few-channels. The
-    # starter does not pre-check any of them, so the typed refusal is the
-    # only thing telling it the run never started.
+def test_the_engines_refusal_resets_the_toggle(app_ctx, runner):
+    # The engine owns rival runs, draining files, too few channels and a
+    # missing camera; its typed refusal is the only thing telling the
+    # button the run never started. Left 'down', the next click would be
+    # swallowed as an abort of a run that was never started.
     runner.start_composite.side_effect = ProtocolRunRefusedError(
         'already_running', 'Run refused', 'Another run is already in progress.'
     )
@@ -153,36 +139,32 @@ def test_the_engines_refusal_clears_the_guard(app_ctx, runner):
 
     _click(starter)
 
-    assert not cc.CompositeCapture._capturing.is_set()
     assert starter.button.state == 'normal'
+    assert not app_ctx.worker_pool.put.called, 'nothing to dispatch on a refusal'
 
 
-def test_an_unexpected_failure_still_clears_the_guard(app_ctx, runner):
+def test_an_unexpected_failure_resets_the_toggle(app_ctx, runner):
     # The refusal boundary catches only the typed refusal. A programming
     # error at the call site raises straight past it, which is exactly the
-    # path a per-exit clearer would miss.
+    # path a per-exit reset would miss.
     runner.start_composite.side_effect = TypeError('bad call')
     starter = _Starter()
 
     _click(starter)
 
-    assert not cc.CompositeCapture._capturing.is_set(), (
-        'the guard must survive an exception the refusal boundary does not catch'
-    )
     assert starter.button.state == 'normal'
 
 
-def test_a_started_run_holds_the_guard_until_it_completes(app_ctx, runner):
+def test_a_started_run_keeps_its_handle_and_the_toggle_down(app_ctx, runner):
     starter = _Starter()
 
     _click(starter)
 
     runner.start_composite.assert_called_once()
-    assert cc.CompositeCapture._capturing.is_set(), (
-        'a live run must keep the guard set, or a second click starts a '
-        'rival composite instead of stopping this one'
-    )
     assert starter.button.state == 'down', 'the button stays actionable during its own run'
+    assert starter._composite_run is runner.start_composite.return_value, (
+        'the button must keep the handle its start returned: it is what its Stop names'
+    )
 
 
 def test_completion_hands_the_led_buttons_back_to_the_hardware(app_ctx):
@@ -190,42 +172,52 @@ def test_completion_hands_the_led_buttons_back_to_the_hardware(app_ctx):
     # toggles listen for, so completion reconciles them against the driver
     # rather than trusting the events to have arrived.
     starter = _Starter()
-    cc.CompositeCapture._capturing.set()
 
     cc.CompositeCapture._composite_finished(starter)
 
     app_ctx.ui_listener_bridge.reconcile_led_buttons.assert_called_once()
-    assert not cc.CompositeCapture._capturing.is_set()
     assert starter.button.state == 'normal'
 
 
-def test_a_second_click_on_a_live_composite_stops_it(app_ctx, runner):
+def test_a_second_click_on_a_live_composite_stops_it(app_ctx, runner, engine):
     # The stop must not queue behind ordinary pool work: the pool runs one
     # worker, so a stop that waited its turn would not arrive until the
     # thing the user is interrupting had already finished.
+    from modules.run_outcome import PendingRunOutcome
     from modules.sequential_io_executor import PRIORITY_HIGH
 
+    starter = _Starter()
+    starter._composite_run = PendingRunOutcome()
     runner.is_running.return_value = True
     runner.run_trigger_source.return_value = 'composite'
-    starter = _Starter()
+    runner.is_live_run.side_effect = lambda run: run is starter._composite_run
 
     _click(starter)
 
     assert app_ctx.worker_pool.put.called, 'the stop must be dispatched'
     task = app_ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH
-    assert task.action == runner.reset
+    # The stop names the run this starter's own start returned, so the
+    # engine can tell it from a rival's; and it goes through the refusal
+    # boundary like every run control's Stop, not the bare method.
+    assert task.action.func is ui_helpers.reset_with_refusal_boundary
+    assert task.action.args == (engine, starter._composite_run)
+    assert task.action.keywords == {}
     runner.start_composite.assert_not_called()
 
 
 def test_a_click_during_someone_elses_run_is_not_an_abort(app_ctx, runner):
     # A rival run is the engine's to refuse. Treating this as a second click
     # would let the composite button stop a scan it never started.
+    starter = _Starter()
     runner.is_running.return_value = True
     runner.run_trigger_source.return_value = 'protocol'
-    starter = _Starter()
+    # The live run is the rival's, so the handle this button holds (none:
+    # it started nothing) is not the live run.
+    runner.is_live_run.side_effect = lambda run: False
 
     _click(starter)
 
+    runner.is_live_run.assert_called_with(None)
     assert not app_ctx.worker_pool.put.called, 'a rival run must not be aborted from here'
     runner.start_composite.assert_called_once()

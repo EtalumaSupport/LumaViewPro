@@ -2,14 +2,13 @@
 """Regression: a claim-refused run must not strand caller-committed state.
 
 ProtocolRunner commits caller-side running state (the session's
-protocol_running Event, the completion-event re-arm) between prepare()
-and start(). The session activity claim is gated inside start(), so a
-refusal for a held claim (a live video recording) raises AFTER that
-commit: session.protocol_running strands True with no run to ever
-clear it, and the completion event strands cleared so
-wait_for_completion() blocks until timeout for a run that never
-started. Both contradict the documented refusal contract ("no state
-was committed ... wait_for_completion() is not armed").
+protocol_running Event) between prepare() and start(). The session
+activity claim is gated inside start(), so a refusal for a held claim
+(a live video recording) raises AFTER that commit: session.protocol_
+running strands True with no run to ever clear it, and a caller asking
+how the run went is answered about a run that never started. Both
+contradict the documented refusal contract ("no state was committed
+... wait_for_completion() answers None").
 
 The prepare-side refusal contract (refusals that raise before the
 commit) is covered by tests/test_run_refusal_contract.py; this file
@@ -43,12 +42,16 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
+from tests.scope_fakes import home_sim_scope
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
 
 def _make_session_settings(tmp_path):
     return {
+        # The objective this file's protocols name: a scope with no turret
+        # refuses a protocol for any glass other than the selected one.
+        'objective_id': '10x Oly',
         'BF': {'autofocus': False},
         'PC': {'autofocus': False},
         'DF': {'autofocus': False},
@@ -103,6 +106,8 @@ def _make_single_step_protocol():
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'A1_test',
+        'Auto_Named': False,
     }
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -121,9 +126,12 @@ class TestClaimRefusalLeavesNoState:
     def test_recording_held_claim_refusal_strands_nothing(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless(
-            settings=complete_settings(**_make_session_settings(tmp_path))
+        session = ScopeSession.create(
+            complete_settings(**_make_session_settings(tmp_path)), simulate=True
         )
+        # A headless session does not home: an unhomed scope refuses every
+        # XY move, and the run would end on its three-strike ceiling instead.
+        home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         claim_held = False
         try:
@@ -141,8 +149,12 @@ class TestClaimRefusalLeavesNoState:
                     'files_complete': lambda **kw: None,
                 },
             )
-            assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not complete'
-            assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
+            settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            assert settled is not None, 'the first run never reported an outcome'
+            assert (settled.status, settled.reason) == ('completed', 'completed'), (
+                f'the first run reported {settled.status!r} ({settled.reason!r})'
+            )
             # run_complete fires during cleanup; the claim releases at
             # cleanup END, moments later. Wait for the release before
             # claiming as the recording.
@@ -150,11 +162,18 @@ class TestClaimRefusalLeavesNoState:
             while session.activity_claim.owner is not None:
                 assert time.monotonic() < deadline, 'first run never released the claim'
                 time.sleep(0.02)
+            # The completed run is still writing its files, and prepare()
+            # refuses a new run until they land -- a refusal this test is
+            # not about.
+            while session.file_io_executor.is_protocol_queue_active():
+                assert time.monotonic() < deadline, 'first run never finished writing its files'
+                time.sleep(0.02)
 
             # A video recording holds the session's exclusive-activity
             # claim, exactly as the recording engine does for its whole
             # capture + drain lifetime.
-            assert session.activity_claim.try_claim('recording')
+            recording = session.activity_claim.try_claim('recording')
+            assert recording
             claim_held = True
 
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -183,16 +202,16 @@ class TestClaimRefusalLeavesNoState:
             # immediately instead of blocking until timeout on a run
             # that never started.
             t0 = time.monotonic()
-            assert runner.wait_for_completion(timeout=2), (
-                'a claim-refused run must not leave the completion event '
-                'cleared; callers polling wait_for_completion would hang '
-                'on a run that never started'
+            assert runner.wait_for_completion(timeout=2) is None, (
+                'a claim-refused run committed nothing, so wait_for_completion '
+                'must answer None at once rather than blocking on a run that '
+                "never started or handing back an older run's result"
             )
             assert time.monotonic() - t0 < 1.0
 
             # The session is not wedged: once the recording releases the
             # claim, a valid run starts and completes.
-            session.activity_claim.release('recording')
+            recording.release()
             claim_held = False
             done = threading.Event()
             runner.run_single_scan(
@@ -214,6 +233,60 @@ class TestClaimRefusalLeavesNoState:
             assert wait_until_not_running(session)
         finally:
             if claim_held:
-                session.activity_claim.release('recording')
-            runner.shutdown()
+                recording.release()
+            session.shutdown_executors()
+
+
+class TestTheHolderIsTheLiveRun:
+    """Who holds the microscope is answered by the thing that knows
+    whether anything holds it: the session's activity claim."""
+
+    def test_the_claim_and_the_getter_name_the_run_while_it_holds_the_scope(self, tmp_path):
+        from modules.scope_session import ScopeSession
+
+        session = ScopeSession.create(
+            complete_settings(**_make_session_settings(tmp_path)), simulate=True
+        )
+        # A headless session does not home, and a run is refused while any
+        # axis position is unknown.
+        home_sim_scope(session.scope)
+        runner = session.create_protocol_runner()
+        try:
+            # Read from inside the run: run_complete fires during
+            # cleanup, with the claim still held, so this observes the
+            # holder while it holds rather than racing the run's end.
+            observed = {}
+
+            def _observe(**_kwargs):
+                holder = session.activity_claim.holder
+                observed['kind'] = holder.kind if holder is not None else None
+                observed['trigger'] = holder.run_trigger_source if holder is not None else None
+                observed['getter'] = runner.run_trigger_source()
+
+            runner.run_single_scan(
+                protocol=_make_single_step_protocol(),
+                sequence_name='holder_scan',
+                parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+                callbacks={'run_complete': _observe, 'files_complete': lambda **kw: None},
+            )
+            assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT) is not None
+
+            assert observed['kind'] == 'protocol', (
+                'the run did not hold the claim while it was running'
+            )
+            assert observed['trigger'] == 'api_scan', (
+                "the claim must carry the run's own trigger, not a constant"
+            )
+            assert observed['getter'] == 'api_scan', (
+                'the getter must answer off the claim the live run holds'
+            )
+
+            assert wait_until_not_running(session)
+            assert runner.run_trigger_source() is None, (
+                'the getter outlived the run it named: between runs it must '
+                'answer for nobody, not for whoever ran last'
+            )
+            assert session.activity_claim.holder is None
+        finally:
             session.shutdown_executors()

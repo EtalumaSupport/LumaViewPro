@@ -131,6 +131,10 @@ class MetricsLogger:
     def tick_system_metrics(self) -> None:
         """One snapshot of CPU/memory/handles/GC/buffer-churn metrics.
 
+        Internal metrics scheduling -- driven by the host's periodic
+        scheduler and not part of the L2 API surface; an L2 caller reads
+        metrics from the log surface below rather than driving a tick.
+
         Delegates to ``config_helpers.log_system_metrics`` so the format
         + content match the existing log surface; engineering tools
         that grep ``[PDH METRICS]`` / ``[BUFFER METRICS]`` keep working.
@@ -184,7 +188,7 @@ class MetricsLogger:
         So the order is: move fps accounting into the API, then arm.
         Until then a False here is honest and a True would be a guess.
         Whoever arms it should delete this note and the matching entry
-        in tests/test_capability_probe_reality.py, which fails the
+        in tests/guards/test_capability_probe_reality.py, which fails the
         moment `camera` becomes a real attribute.
         """
         try:
@@ -273,9 +277,13 @@ class MetricsLogger:
     def tick_executor_watchdog(self) -> None:
         """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.
 
+        Internal metrics scheduling -- driven by the host's periodic
+        scheduler and not part of the L2 API surface.
+
         WARNING-level log when total backlog exceeds 10; DEBUG otherwise.
-        SCOPEDISPLAY queue >20 is pruned (UI-responsiveness guard).
-        Same thresholds as the pre-LVP-A-12 inline watchdog.
+        SCOPEDISPLAY queue >20 is pruned (UI-responsiveness guard). The
+        thresholds are carried unchanged from the inline watchdog this
+        replaced, so log lines stay comparable across that change.
         """
         try:
             snap = self._bundle.snapshot()
@@ -299,6 +307,9 @@ class MetricsLogger:
 
     def snapshot_executors(self) -> dict[str, int]:
         """On-demand executor depth snapshot for status endpoints.
+
+        Internal queue introspection -- not part of the L2 API surface;
+        the depths are host telemetry, not a contract a client reads.
 
         Returns ``{logical_name: queue_depth}`` from the bundle without
         emitting any log lines.

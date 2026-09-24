@@ -18,12 +18,14 @@ The fix:
     load_settings resolves through them so the fallback can't be applied
     two different ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
-    (exposure + gain ranges + autogain gate) AND clamp_layer_settings_to_caps,
-    which reconciles each layer's stored gain_db/exposure_ms down to the new caps
-    (the blackout fix, matching load_settings); _init_ui (connect) calls that
-    grouping. A scope swap (the auto-reconnect item) re-runs it and re-applies
-    the VISIBLE layer (ImageSettings.open_or_default_layer), never a hardcoded
-    channel -- its acceptance list lives with that item.
+    (exposure + gain ranges + autogain gate) AND reconcile_layers_to_camera_caps,
+    which re-renders and re-applies each layer the attached camera cannot
+    fully reach. The blackout fix lives on the APPLY -- the API caps what it
+    writes to hardware -- so the stored value is never narrowed; _init_ui
+    (connect) calls that grouping. A scope swap (the auto-reconnect item)
+    re-runs it and re-applies the VISIBLE layer
+    (ImageSettings.open_or_default_layer), never a hardcoded channel -- its
+    acceptance list lives with that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -99,22 +101,25 @@ class TestCapResolvers:
 class TestSyncGrouping:
     """sync_camera_capability_ranges groups all three per-layer setters."""
 
-    def test_grouping_calls_all_setters_and_clamp(self):
+    def test_grouping_calls_all_setters_and_reconcile(self):
         method = _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
         for setter in (
             'set_layer_exposure_ranges',
             'set_layer_gain_ranges',
             'set_layer_autogain_support',
-            'clamp_layer_settings_to_caps',
+            'reconcile_layers_to_camera_caps',
         ):
             assert _attr_calls(method, setter), f'sync_camera_capability_ranges must call {setter}.'
 
-    def test_clamp_reconciles_stored_gain_and_exposure_to_caps(self):
-        # The blackout fix: a stored gain_db/exposure_ms above the new camera's cap
-        # must be brought down to the cap (and persisted) for every layer, so a
-        # downshift swap can't push an over-cap value that blacks out.
-        method = _method_node(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
-        clamped = {
+    def test_the_reconcile_never_writes_the_stored_gain_or_exposure(self):
+        # A stored gain_db/exposure_ms above the attached camera's cap is the
+        # user's committed intent, not an error to correct: the API caps what
+        # it writes to hardware and the store is left alone, so putting a
+        # capable camera back applies the intent again. Overwriting it here
+        # destroyed the setting silently -- the periodic current.json flush
+        # persisted the shrunken value with no record of the original.
+        method = _method_node(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        written = {
             t.slice.value
             for node in ast.walk(method)
             if isinstance(node, ast.Assign)
@@ -123,9 +128,10 @@ class TestSyncGrouping:
             and isinstance(t.slice, ast.Constant)
             and t.slice.value in ('gain_db', 'exposure_ms')
         }
-        assert clamped == {'gain_db', 'exposure_ms'}, (
-            'clamp_layer_settings_to_caps must reconcile both stored gain_db and '
-            'exposure_ms down to the camera caps.'
+        assert written == set(), (
+            'reconcile_layers_to_camera_caps must not write gain_db or exposure_ms '
+            f'into the store; found writes to {sorted(written)}. The cap belongs on '
+            'the value sent to the camera, not on the value kept for the user.'
         )
 
     def test_init_ui_uses_the_grouping(self):
@@ -154,7 +160,7 @@ class TestSyncGrouping:
 
 
 class TestLoadSettingsResync:
-    """load_settings resolves the caps and the clamp through the shared owners."""
+    """load_settings resolves the caps and the reconcile through the shared owners."""
 
     def test_load_settings_uses_the_cap_resolvers(self):
         # The de-fragmentation: load_settings resolves caps through the same
@@ -167,12 +173,12 @@ class TestLoadSettingsResync:
             'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
         )
 
-    def test_load_settings_delegates_clamp_not_inline(self):
-        # De-dup: load_settings reconciles over-cap values via the single
-        # clamp_layer_settings_to_caps owner, not a duplicate inline clamp.
+    def test_load_settings_delegates_the_reconcile_not_inline(self):
+        # De-dup: load_settings reconciles an unreachable stored value via the
+        # single reconcile_layers_to_camera_caps owner, never inline.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
-            'load_settings must delegate over-cap reconciliation to clamp_layer_settings_to_caps.'
+        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
+            'load_settings must delegate to reconcile_layers_to_camera_caps.'
         )
         inline = [
             t
@@ -184,8 +190,8 @@ class TestLoadSettingsResync:
             and t.slice.value in ('gain_db', 'exposure_ms')
         ]
         assert not inline, (
-            'load_settings must not carry an inline gain_db/exposure_ms clamp-persist '
-            '(it duplicates clamp_layer_settings_to_caps).'
+            'load_settings must not carry an inline gain_db/exposure_ms write -- the '
+            'store is the user intent and no load path narrows it.'
         )
 
 
@@ -201,8 +207,9 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
     the app -- a stored BF illumination of 500 became 50 in current.json, and
     a stored DF exposure of 500 became 200, each with a matching SLIDER line.
 
-    clamp_layer_settings_to_caps must stay outside the flag: it reconciles a
-    value the hardware cannot honor, which is a real settings change.
+    reconcile_layers_to_camera_caps must stay outside the flag: it delivers to
+    the camera through each layer's apply_settings, and that apply returns
+    early on exactly this flag -- inside, it would push nothing.
     """
 
     def _sync_method(self):
@@ -259,21 +266,21 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
         )
         assert cleared_in_finally, 'The flag must be cleared in a finally, not on the happy path.'
 
-    def test_clamp_stays_outside_the_guard(self):
+    def test_the_reconcile_stays_outside_the_guard(self):
         method = self._sync_method()
         in_try = any(
             isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'clamp_layer_settings_to_caps'
+            and n.func.attr == 'reconcile_layers_to_camera_caps'
             for try_node in [x for x in ast.walk(method) if isinstance(x, ast.Try)]
             for n in ast.walk(try_node)
         )
         assert not in_try, (
-            'clamp_layer_settings_to_caps must stay OUTSIDE the _initializing guard -- '
-            'it reconciles a value the hardware cannot honor, which is a real change.'
+            'reconcile_layers_to_camera_caps must stay OUTSIDE the _initializing guard '
+            '-- apply_settings returns early on that flag, so inside it pushes nothing.'
         )
-        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
-            'sync_camera_capability_ranges must still run the clamp.'
+        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
+            'sync_camera_capability_ranges must still run the reconcile.'
         )
 
 

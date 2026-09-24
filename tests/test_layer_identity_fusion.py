@@ -31,7 +31,7 @@ def scope():
 class TestFusion:
     def test_identity_layer_on_drivable_channel_lights(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=50)
-        assert scope.illumination.led_enabled('Green') is True
+        assert scope.illumination.get_led_state('Green')['enabled'] is True
         scope.illumination.led_off(channel='Green')
 
     def test_unknown_layer_on_raises_by_name(self, scope):
@@ -78,7 +78,7 @@ class TestTwoResolverSplit:
         states = scope.illumination.get_led_states()
         assert states.get('Green', {}).get('enabled') is True
         scope.illumination.led_off(channel=1)
-        assert scope.illumination.led_enabled('Green') is False
+        assert scope.illumination.get_led_state('Green')['enabled'] is False
 
     def test_restore_relights_under_narrowed_identity(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=50)

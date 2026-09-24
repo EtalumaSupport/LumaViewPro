@@ -48,6 +48,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -58,6 +59,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 def _build_single_step_ag_protocol(color='BF', auto_gain=True):
@@ -95,6 +97,8 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Video Config': {'duration': 5, 'fps': 30},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': f'A1_{color}_AG',
+        'Auto_Named': False,
     }
 
     df = pd.DataFrame([step])
@@ -118,6 +122,9 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
 @pytest.fixture
 def scope():
     s = home_sim_scope(Lumascope(simulate=True))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -177,7 +184,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()

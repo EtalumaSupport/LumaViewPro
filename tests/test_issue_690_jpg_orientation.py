@@ -69,7 +69,9 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     monkeypatch.setattr(
         image_save,
         'generate_image_metadata',
-        lambda scope, channel, x, y, z: dict(stub_metadata),
+        lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id: dict(
+            stub_metadata
+        ),
     )
     from types import SimpleNamespace
 
@@ -88,6 +90,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id='4x Oly',
     )
     jpg_path = image_save.save_image(
         scope,
@@ -102,6 +105,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         jpeg_quality=95,
         save_encoding='8bit',
         significant_bits=8,
+        objective_id='4x Oly',
     )
     tiff_px = tifffile.imread(tiff_path)
     jpg_px = cv2.imdecode(

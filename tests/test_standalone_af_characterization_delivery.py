@@ -45,6 +45,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import home_sim_scope
@@ -53,6 +54,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -86,6 +88,8 @@ def _make_af_step_protocol():
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'AF_test',
+        'Auto_Named': False,
     }
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -108,6 +112,9 @@ class TestStandaloneAfDeliversCharacterizationData:
         from modules.protocol_thread import ProtocolThread
 
         scope = home_sim_scope(Lumascope(simulate=True))
+        # A bare scope skipped bring-up, which fills the turret from the
+        # persisted slots; an empty turret addresses no glass at all.
+        configure_turret_like_bringup(scope)
         # The session registers the data root at bring-up; a runner over a
         # bare scope needs it too, or the run refuses at start.
         scope.protocols.register_source_path('.')
@@ -141,6 +148,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
             autofocus_thread=af_thread,
+            activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
         )
         runner._wellplate_loader = WellPlateLoader()

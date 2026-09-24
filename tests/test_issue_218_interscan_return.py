@@ -11,6 +11,8 @@ first step's LED is not powered during the idle inter-scan wait.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from modules.protocol_run_loop import ProtocolRunLoop
 
 
@@ -44,8 +46,11 @@ def test_no_move_when_aborting():
     p._step_executor.default_move.assert_not_called()
 
 
-def test_move_failure_is_swallowed_not_raised():
+def test_move_failure_reaches_the_run_loop():
     loop, p = _make_loop(remaining=2)
     p._step_executor.default_move.side_effect = RuntimeError('motor busy')
-    # A failed return move must not propagate into the run loop.
-    loop._return_to_first_step_between_scans()
+    # The run loop classifies it: a lost axis position ends the run at once,
+    # anything else is one strike. Swallowed here, a lost position waited out
+    # a whole period before the next scan found it.
+    with pytest.raises(RuntimeError, match='motor busy'):
+        loop._return_to_first_step_between_scans()

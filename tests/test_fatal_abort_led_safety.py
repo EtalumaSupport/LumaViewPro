@@ -43,6 +43,9 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 # ---------------------------------------------------------------------------
 
 
+from modules.run_outcome import RunEnding
+
+
 def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     order = []
     fatal_event = threading.Event()
@@ -127,7 +130,7 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
+def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     from modules.protocol_cleanup import run_cleanup
 
     applied = []
@@ -141,9 +144,8 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
     run_cleanup(
         get_state_fn=lambda: state[0],
         set_state_fn=lambda s: state.__setitem__(0, s),
-        run_lock=threading.Lock(),
         scan_in_progress=threading.Event(),
-        fatal_abort=fatal_abort,
+        forced_dark=forced_dark,
         leds_state_at_end=leds_state_at_end,
         original_led_states={'Blue': {'enabled': True, 'illumination_ma': 42.0}},
         autofocus_snapshot=autofocus_snapshot(states={}),
@@ -161,8 +163,8 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
         autofocus_thread=af_thread,
         file_io_executor=file_io_executor,
         camera_executor=_FakeExecutor(),
-        set_run_in_progress_fn=lambda v: None,
-        run_status='aborted',
+        ending=RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'),
+        run_dir=None,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1
@@ -170,7 +172,7 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
 
 
 def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(fatal_abort=True, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(forced_dark=True, leds_state_at_end='return_to_original')
     assert ctx.end_policy is LedEndPolicy.OFF
     assert ctx.snapshot_lit == frozenset(), (
         'a fatal abort must ASSERT dark -- restoring pre-run channels after a '
@@ -179,7 +181,7 @@ def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
 
 
 def test_nonfatal_cleanup_keeps_the_configured_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(fatal_abort=False, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(forced_dark=False, leds_state_at_end='return_to_original')
     assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
     assert ctx.snapshot_lit != frozenset(), 'user Stop keeps the configured restore'
 

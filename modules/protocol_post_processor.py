@@ -11,6 +11,7 @@ import pandas as pd
 import modules.image_utils as image_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
+from modules.exceptions import ConfigError
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -140,14 +141,26 @@ class ProtocolPostProcessor(abc.ABC):
         raise NotImplementedError('Implement in child class')
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
-        if self._has_turret:
-            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)[
-                'short_name'
-            ]
-        else:
-            short_name = None
+        if not self._has_turret:
+            return None
 
-        return short_name
+        # A protocol can name an objective the catalogue no longer holds --
+        # edited or downgraded between the run and the post-processing of its
+        # files. The files exist and only their names are at stake, so the
+        # refusal is caught here and the name omits the objective, which is
+        # what a scope with no turret has always produced. Uncaught, it was
+        # raised inside the loop that plans names for every group, so one bad
+        # id in one well aborted the post-processing of the whole run.
+        try:
+            objective_info = self._objectives_helper.get_objective_info(objective_id=objective_id)
+        except ConfigError as e:
+            logger.warning(
+                f'[{self._name}] Turret available but no objective info for ID '
+                f"'{objective_id}' -- omitting the objective from the output name: {e}"
+            )
+            return None
+
+        return objective_info['short_name']
 
     def _degraded_summary(self, count: int) -> str:
         """One clause naming what a degraded (fallback-produced) output means for

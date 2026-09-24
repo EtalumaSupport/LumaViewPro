@@ -34,7 +34,10 @@ before step 0 or drops the exclusive illumination fails behaviorally.
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock
+
+import pytest
 
 from modules.lumascope_api.illumination import LedTransition
 from tests.af_drives import af_runner_and_scope, drive_af
@@ -120,7 +123,7 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
         # exit via AF_TO_CAPTURE -- both transitions driven on the AF lease,
         # replacing the old direct per-channel LED calls AF made before the
         # authority.
-        af_lease = scope.illumination.acquire_led_lease.return_value
+        af_lease = scope.protocol_lease.acquire_child.return_value
         applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
         assert LedTransition.AF_ENTER in applied, (
             f'AF must illuminate via the authority AF_ENTER; applied: {applied}'
@@ -149,7 +152,7 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, scope = af_runner_and_scope()
         drive_af(runner)
-        af_lease = scope.illumination.acquire_led_lease.return_value
+        af_lease = scope.protocol_lease.acquire_child.return_value
         enter = [
             c
             for c in af_lease.apply.call_args_list
@@ -172,21 +175,27 @@ class TestAutofocusAcquiresLeaseBeforeIllumination:
     AF illuminates by calling apply(AF_ENTER) ON its lease, so holding the
     lease before illumination is now structural: a refused acquire leaves the
     field as-is rather than driving an out-of-turn write that a protocol's
-    held lease would refuse (AF scanning an unlit field). These pin that the
-    AF_ENTER illuminate runs on the correctly-acquired lease on both paths
-    (interactive top-level lease and in-protocol child lease)."""
+    held lease would refuse (AF scanning an unlit field). This pins that the
+    AF_ENTER illuminate runs on the child lease AF takes under its run's."""
 
-    def test_top_level_lease_precedes_illumination(self, monkeypatch):
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+    def test_autofocus_without_a_run_lease_is_refused_before_it_drives(self):
+        """AF always runs inside a run, so a call with no run lease is
+        refused at the call: no lease of its own, no LED or Z traffic."""
         runner, scope = af_runner_and_scope()
         scope.led_connected = True
-        drive_af(runner, led_color='Red', led_illumination=42.0)
-        names = [name for name, args, kwargs in scope.illumination.method_calls]
-        assert 'acquire_led_lease' in names, f'AF must acquire a top-level lease; calls: {names}'
-        af_lease = scope.illumination.acquire_led_lease.return_value
-        applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
-        assert LedTransition.AF_ENTER in applied, (
-            f'AF must illuminate via AF_ENTER on its acquired lease; applied: {applied}'
+        with pytest.raises(TypeError, match='led_lease'):
+            runner.run(
+                objective_id='objective-under-test',
+                run_trigger_source='manual',
+                abort_event=threading.Event(),
+                led_color='Red',
+                led_illumination=42.0,
+            )
+        assert scope.illumination.method_calls == [], (
+            f'no illumination call may precede the refusal; got {scope.illumination.method_calls}'
+        )
+        assert not scope.motion.method_calls, (
+            f'no motion call may precede the refusal; got {scope.motion.method_calls}'
         )
 
     def test_child_lease_precedes_illumination(self, monkeypatch):

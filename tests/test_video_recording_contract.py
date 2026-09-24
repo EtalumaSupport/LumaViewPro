@@ -18,11 +18,11 @@ import pytest
 
 from tests.settings_fixtures import complete_settings
 
+from modules.activity_claim import ActivityClaim
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
-    ClaimStub,
     FakeClock,
     FrameFeed,
     NotifyRecorder,
@@ -95,7 +95,9 @@ class SingleFileWriterStub:
                 return candidate
             n += 1
 
-    def __call__(self, image, timestamp_s, frame_number, config, chunks=None) -> pathlib.Path:
+    def __call__(
+        self, image, timestamp_s, frame_number, config, chunks=None, fact=None
+    ) -> pathlib.Path:
         if self.output_path is None:
             self.output_path = self._resolve()
             self.output_path.write_bytes(b'')
@@ -106,7 +108,7 @@ class SingleFileWriterStub:
 def make_engine(tmp_path, *, clock=None, writer=None, claim=None, notify=None):
     clock = clock or FakeClock()
     writer = writer if writer is not None else WriterStub(tmp_path)
-    claim = claim or ClaimStub()
+    claim = claim or ActivityClaim()
     engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock, notify=notify)
     return engine, writer, clock, claim
 
@@ -118,7 +120,7 @@ def feed_uniform(engine, clock, feed, *, delivery_fps, duration_s, chunks=True):
     for _ in range(n):
         clock.advance(step)
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=chunks)
-        engine.ingest_frame(image, ts, chunk)
+        engine.ingest_frame(image, ts, chunk, fact=None)
 
 
 class TestBudgetContract:
@@ -174,6 +176,48 @@ class TestRateContract:
         # the counts themselves, and it is not an error.
         assert result.frames_selected < result.configured_fps * 2
         assert result.aborted is False
+
+
+class TestNoRateLimit:
+    """A recording with no rate limit keeps every frame the camera delivers."""
+
+    def test_no_budget_without_a_rate(self, tmp_path):
+        assert make_config(tmp_path, fps=None, duration_s=2).frame_budget is None
+
+    def test_every_delivered_frame_is_kept(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=None, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=69, duration_s=1)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.frames_selected == 69
+        assert result.configured_fps is None
+        assert result.measured_fps == pytest.approx(69.0)
+
+    def test_duration_elapsed_closes_selection(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        # 1.025 s sits between the 20th frame (1.00 s) and the 21st
+        # (1.05 s), so float accumulation in the feed cannot move the edge.
+        engine.start(make_config(tmp_path, fps=None, duration_s=1.025))
+        # Deliver well past the duration with no stop(): with no budget,
+        # the duration itself must end selection.
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=3)
+        assert not engine.is_recording
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.end_reason == 'duration_elapsed'
+        assert result.frames_selected == 20
+
+    def test_manifest_records_no_configured_rate(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=None, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        manifest = json.loads(engine.result().manifest_path.read_text())
+        assert manifest['configured_fps'] is None
+        assert manifest['frames_selected'] == 10
 
 
 class TestEnqueueIsUnconditional:
@@ -357,7 +401,7 @@ class TestManifestNamesTheArtifactItDescribes:
         for _ in range(frames):
             clock.advance(1.0 / 5)
             image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
-            engine.ingest_frame(image, ts, chunk)
+            engine.ingest_frame(image, ts, chunk, fact=None)
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
         return engine.result(), writer
@@ -510,30 +554,56 @@ class TestExclusivity:
         assert excinfo.value.reason == 'recording_active'
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         assert claim.try_claim('protocol')
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
         # Busy-with-what rides the payload: the holder's kind always,
-        # and the holding run's trigger when a lookup is wired (none
-        # here, so it stays None rather than guessing).
+        # and the holding run's trigger when the claimant supplied one
+        # (none here, so it stays None rather than guessing).
         assert excinfo.value.holder == 'protocol'
         assert excinfo.value.holder_trigger is None
 
+    def test_a_recording_inside_a_run_leaves_the_runs_claim_held(self, tmp_path):
+        """A video step records under the run's claim; its end must not
+        free the claim the run holds until run end."""
+        claim = ActivityClaim()
+        run = claim.try_claim('protocol', run_trigger_source='scan')
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
+
+        engine.start(make_config(tmp_path, fps=5, duration_s=10))
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+
+        assert claim.owner == 'protocol', "the recording's end released the run's claim"
+        assert claim.try_claim('recording') is None
+        run.release()
+        assert claim.owner is None
+
+    def test_a_recording_lent_a_claim_its_run_no_longer_holds_is_refused(self, tmp_path):
+        claim = ActivityClaim()
+        run = claim.try_claim('protocol', run_trigger_source='scan')
+        lent = run.lend()
+        run.release()
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=lent)
+
+        with pytest.raises(RecordingRefusedError) as excinfo:
+            engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.reason == 'exclusive_activity_running'
+
     def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
-        claim = ClaimStub()
-        assert claim.try_claim('protocol')
+        claim = ActivityClaim()
+        assert claim.try_claim('protocol', run_trigger_source='autofocus_scan')
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
-        engine._run_trigger_lookup = lambda: 'autofocus_scan'
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.holder == 'protocol'
         assert excinfo.value.holder_trigger == 'autofocus_scan'
 
     def test_concurrent_starts_exactly_one_wins(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         outcomes = []
         barrier = threading.Barrier(2)
 
@@ -555,7 +625,7 @@ class TestExclusivity:
         assert sorted(outcomes) == ['refused', 'won']
 
     def test_claim_released_after_drain(self, tmp_path):
-        claim = ClaimStub()
+        claim = ActivityClaim()
         engine, _writer, clock, _ = make_engine(tmp_path, claim=claim)
         engine.start(make_config(tmp_path, fps=5, duration_s=1))
         assert claim.owner == 'recording'
@@ -597,17 +667,19 @@ class TestSessionActivityClaim:
                 },
             },
         }
-        session = ScopeSession.create_headless(settings=complete_settings(**settings))
+        session = ScopeSession.create(complete_settings(**settings), simulate=True)
         yield session
         session.shutdown()
 
     def test_session_owns_one_activity_claim(self, headless_session):
         claim = headless_session.activity_claim
-        assert claim.try_claim('recording')
+        recording = claim.try_claim('recording')
+        assert recording
         assert not claim.try_claim('protocol')
-        claim.release('recording')
-        assert claim.try_claim('protocol')
-        claim.release('protocol')
+        recording.release()
+        protocol = claim.try_claim('protocol')
+        assert protocol
+        protocol.release()
 
     def test_two_thread_claim_atomicity(self, headless_session):
         claim = headless_session.activity_claim
@@ -634,8 +706,8 @@ class TestSessionActivityClaim:
             _make_single_step_protocol,
         )
 
-        headless_session.start_executors()
-        assert headless_session.activity_claim.try_claim('recording')
+        recording = headless_session.activity_claim.try_claim('recording')
+        assert recording
         runner = headless_session.create_protocol_runner()
         with pytest.raises(ProtocolRunRefusedError):
             runner.run_single_scan(
@@ -644,7 +716,7 @@ class TestSessionActivityClaim:
                 parent_dir=str(tmp_path),
                 image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
-        headless_session.activity_claim.release('recording')
+        recording.release()
 
 
 class TestEndReason:
@@ -868,7 +940,7 @@ class TestClaimLifetime:
     def test_lane_death_frees_the_claim_for_the_next_recording(self, tmp_path):
         # The interaction, not just the flag: a lane death that strands the
         # claim is only visible when something later tries to take it.
-        claim = ClaimStub()
+        claim = ActivityClaim()
         writer = WriterStub(tmp_path, die_on_frame=2)
         engine, _writer, clock, _ = make_engine(tmp_path, writer=writer, claim=claim)
         engine.start(make_config(tmp_path, fps=5, duration_s=2))

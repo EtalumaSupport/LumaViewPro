@@ -488,18 +488,26 @@ def test_run_start_owns_a_standing_live_arm():
     assert cam._auto_gain_enabled is True
     assert imaging._auto_gain_arm is not None
 
-    # The seam: start() takes the arm right after it snapshots the camera.
-    start = ast_seams.find_def(
-        'modules/sequenced_capture_runner.py', 'start', class_name='SequencedCaptureRunner'
+    # The seam: the run's camera takeover snapshots the camera, then takes
+    # the arm out of that snapshot, then writes the run's target -- in that
+    # order, after the wait for the lane, so the snapshot records the arm
+    # the lane's last command left and the take reads a real snapshot.
+    takeover = ast_seams.find_def(
+        'modules/sequenced_capture_runner.py', '_take_camera', class_name='SequencedCaptureRunner'
     )
-    assert start is not None
+    assert takeover is not None
     attrs = [
         n.func.attr
-        for n in ast.walk(start)
+        for n in ast.walk(takeover)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
     ]
-    assert 'save_camera_state' in attrs and '_take_auto_gain_arm_for_run' in attrs
-    assert attrs.index('save_camera_state') < attrs.index('_take_auto_gain_arm_for_run')
+    order = (
+        'save_camera_state',
+        '_take_auto_gain_arm_for_run',
+        'update_auto_gain_target_brightness',
+    )
+    assert all(name in attrs for name in order), attrs
+    assert [attrs.index(name) for name in order] == sorted(attrs.index(name) for name in order)
 
 
 class _ApiLogCollector(logging.Handler):

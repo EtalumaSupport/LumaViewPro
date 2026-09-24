@@ -2,6 +2,7 @@
 
 import contextlib
 import datetime
+import math
 import os
 import queue
 import threading
@@ -118,6 +119,53 @@ def describe_device_info(dev_info: Any) -> str:
         if _available:
             _parts.append(f'{_name}={_value!r}')
     return ' '.join(_parts)
+
+
+def _accepted_range(node, name: str) -> tuple[float, float]:
+    """Return a node's (min, max) narrowed to values it will actually accept.
+
+    A GenICam float node reports its range in continuous units but accepts
+    only steps of its own increment, and the reported maximum can carry a
+    float tail past the last real step -- a 48 dB gain node reports
+    48.00000004350822. Published raw, that tail becomes the slider cap and
+    is persisted to the settings store, so a user who types the advertised
+    maximum has it written back as a long decimal, and the camera rejects
+    the very value it advertised.
+
+    The maximum is snapped DOWN to the last accepted step. It is never
+    snapped up: a bound must be a value the camera takes, and rounding to
+    nearest can land past the ceiling.
+
+    A node whose increment is not a single fixed step is published exactly
+    as reported. `listIncrement` means the legal values are an arbitrary
+    list and `noIncrement` means the range really is continuous; in both
+    cases there is no step to snap to, and inventing one would narrow a
+    range the camera did not narrow. `GetInc()` is only meaningful under
+    `fixedIncrement`, and an `IInteger` node has no `HasInc` at all, so
+    the increment MODE is the thing to ask.
+    """
+    low, high = node.GetMin(), node.GetMax()
+    try:
+        if node.GetIncMode() != genicam.fixedIncrement:
+            return low, high
+        increment = node.GetInc()
+    except Exception as e:
+        logger.debug(f'[CAM Class ] {name}: no usable increment ({e}); range as reported')
+        return low, high
+
+    if not increment or increment <= 0 or high < low:
+        return low, high
+
+    steps = math.floor((high - low) / increment)
+    decimals = max(0, -math.floor(math.log10(increment)))
+    snapped = round(low + steps * increment, decimals)
+
+    if snapped != high:
+        logger.info(
+            f'[CAM Class ] {name}: max {high} is not on the {increment} step grid; '
+            f'publishing {snapped}'
+        )
+    return low, snapped
 
 
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
@@ -291,8 +339,9 @@ class PylonCamera(Camera):
             try:
                 gain_node = nm.GetNode('Gain')
                 if gain_node is not None:
-                    self.profile.gain.total_min_db = gain_node.GetMin()
-                    self.profile.gain.total_max_db = gain_node.GetMax()
+                    low, high = _accepted_range(gain_node, 'Gain')
+                    self.profile.gain.total_min_db = low
+                    self.profile.gain.total_max_db = high
                     logger.info(
                         f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
                         f'{self.profile.gain.total_max_db:.1f} dB'
@@ -304,8 +353,9 @@ class PylonCamera(Camera):
             try:
                 exp_node = nm.GetNode('ExposureTime')
                 if exp_node is not None:
-                    self.profile.exposure_min_us = exp_node.GetMin()
-                    self.profile.exposure_max_us = exp_node.GetMax()
+                    low, high = _accepted_range(exp_node, 'ExposureTime')
+                    self.profile.exposure_min_us = low
+                    self.profile.exposure_max_us = high
                     logger.info(
                         f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
                         f'{self.profile.exposure_max_us:.0f} us'
@@ -2541,7 +2591,7 @@ class PylonCamera(Camera):
     def update_auto_gain_target_brightness(
         self,
         auto_target_brightness: float,
-    ) -> None:
+    ) -> bool | None:
         """Update `AutoTargetBrightness` without an over-stop cycle.
 
         Live-writable per Basler -- no `update_camera_config()` wrap
@@ -2568,7 +2618,7 @@ class PylonCamera(Camera):
                         f'pylon AutoTargetBrightness.SetValue'
                         f'({auto_target_brightness:.3f}) short-circuited'
                     )
-                return
+                return True
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             logger.debug(
                 f'[CAM Class ] AutoTargetBrightness short-circuit read failed; '
@@ -2579,6 +2629,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+            return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2589,6 +2640,7 @@ class PylonCamera(Camera):
                 f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2597,6 +2649,7 @@ class PylonCamera(Camera):
             _cam_log.exception(
                 f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}'
             )
+            return False
 
     def update_auto_gain_min_max(
         self,
@@ -2808,7 +2861,7 @@ class PylonCamera(Camera):
                     recording_id=profile_trace.NO_RECORDING,
                 )
 
-    def set_frame_size(self, w, h) -> None:
+    def set_frame_size(self, w: int, h: int) -> dict | bool:
         """Set camera frame size to ``w`` x ``h`` and recenter the ROI.
 
         Width and height are clamped to the camera's reported maxima
@@ -3012,11 +3065,20 @@ class PylonCamera(Camera):
             return False
         return True
 
-    def gain(self, value) -> None:
+    def gain(self, value: float) -> bool | None:
         """Set Gain in dB. Asserts GainSelector='All' first (Basler gain.html three-step).
 
         Caller is responsible for ``GainAuto=Off``. GainSelector write
         failures are tolerated (cameras without the selector).
+
+        The GenICam classes a refused value arrives as -- OutOfRange,
+        Access, InvalidArgument, LogicalError -- are siblings of
+        RuntimeException, not subclasses, so they land in the general
+        handler below with the camera still live and streaming. That
+        handler reports the refusal rather than falling through it.
+
+        Returns:
+            bool | None: See ``Camera.gain``.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3037,7 +3099,7 @@ class PylonCamera(Camera):
                     if _cam_log is not None:
                         _cam_log.info(f'pylon Gain.SetValue({float(value):.3f}) short-circuited')
                     _log_cam('info', f'[CAM Class ] Gain already at {value}')
-                    return
+                    return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Gain short-circuit read failed; '
@@ -3047,24 +3109,27 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
             _log_cam('debug', f'[CAM Class ] Gain set to {value}')
+            return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.exception(f'[CAM Class ] Unexpected error in gain: {e}')
+            return False
 
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
         When enabled, ``GainAuto`` and ``ExposureAuto`` are set to
@@ -3121,20 +3186,23 @@ class PylonCamera(Camera):
                 if _cam_log is not None:
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             _log_cam('info', f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
+            return False
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
         ``GainAuto`` and ``ExposureAuto`` are set to ``Once`` -- the
@@ -3173,13 +3241,16 @@ class PylonCamera(Camera):
                 self.active.GainAuto.SetValue('Off')
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
+            return False
 
-    def exposure_t(self, exposure_ms) -> None:
+    def exposure_t(self, exposure_ms: float) -> float | bool | None:
         """Set the camera's exposure time in milliseconds.
 
         Pylon's ``ExposureTime`` node uses microseconds; this method
@@ -3187,8 +3258,19 @@ class PylonCamera(Camera):
         ``self.max_exposure`` are rejected with a warning. Sub-minimum
         values are clamped to ``ExposureTime.Min``.
 
+        Because the clamp means the applied value can differ from the
+        request, the microseconds actually in effect are RETURNED -- the
+        caller stamps them as the frame-validity chunk target, and a
+        request-derived target would never match the chunk the camera
+        reports.
+
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Returns:
+            float | bool | None: See ``Camera.exposure_t``. Microseconds
+                in effect on both the write and short-circuit paths;
+                ``False`` where the write was refused or failed.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3196,7 +3278,7 @@ class PylonCamera(Camera):
                     f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None'
                 )
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return
+            return False
 
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
@@ -3207,7 +3289,7 @@ class PylonCamera(Camera):
             _cam_log.warning(
                 f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
-            return
+            return False
 
         # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
@@ -3222,7 +3304,7 @@ class PylonCamera(Camera):
                             f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Exposure already at {exposure_ms}ms')
-                    return
+                    return us_value
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] ExposureTime short-circuit read failed; '
@@ -3232,6 +3314,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
             _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            return us_value
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -3239,8 +3322,10 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
+            return False
 
     def get_exposure_t(self) -> float:
         """Read the camera's currently-active exposure time in ms.
@@ -3311,7 +3396,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True) -> None:
+    def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable continuous auto-exposure.
 
         When ``state=True``, ``ExposureAuto`` is set to ``Continuous``;
@@ -3334,11 +3419,14 @@ class PylonCamera(Camera):
             else:
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
+            return False
 
     def set_test_pattern(
         self,

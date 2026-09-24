@@ -486,8 +486,7 @@
 				halign: 'center'
             	input_filter: 'float'
 		        text: ''
-                on_text_validate: root.set_position(self.text)
-				on_focus: if not self.focus: root.set_position(self.text)
+				on_focus: if not self.focus: root.set_position_text(self.text)
 
 			BoxLayout:
 				orientation:'horizontal'
@@ -560,25 +559,24 @@
 
 		RoundedToggleButton:
 			id: turret_pos_1_btn
-			text: '1'
+			text: '< 1 >'
 			tooltip_text: 'Select turret position 1'
-			state: 'down'
-            on_release: root.turret_select(1)
+            on_release: root.turret_gesture(1)
 		RoundedToggleButton:
 			id: turret_pos_2_btn
-			text: '2'
+			text: '< 2 >'
 			tooltip_text: 'Select turret position 2'
-            on_release: root.turret_select(2)
+            on_release: root.turret_gesture(2)
 		RoundedToggleButton:
 			id: turret_pos_3_btn
-			text: '3'
+			text: '< 3 >'
 			tooltip_text: 'Select turret position 3'
-            on_release: root.turret_select(3)
+            on_release: root.turret_gesture(3)
 		RoundedToggleButton:
 			id: turret_pos_4_btn
-			text: '4'
+			text: '< 4 >'
 			tooltip_text: 'Select turret position 4'
-            on_release: root.turret_select(4)
+            on_release: root.turret_gesture(4)
 
 	BoxLayout:
         orientation: 'horizontal'
@@ -590,27 +588,20 @@
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
-	    Spinner:
+	    PickSpinner:
 			id: objective_spinner2
 			sync_height: True
-	        text: 'Select'
+	        text: 'Unknown'
 			font_size:'12sp'
 			option_cls: "SpinnerOption0"
 			# #631: text_autoupdate: True caused .values reassignment to reset
 			# .text to the alphabetically-first option, firing on_text with the
 			# wrong objective_id and tripping the misleading turret warning.
-			# Text is authoritatively driven by settings['objective_id'].
+			# Text shows the active objective the API derives, and only that:
+			# a person's pick arrives as on_pick and reaches the Session, and
+			# the display follows the Session's answer.
 	        on_release: root.load_objectives()
-	        on_text: root.select_objective()
-
-	RoundedButton:
-		id: set_turret_objective_btn
-		text: 'Set Turret Objective'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.controls_locked
-        on_release: root.set_turret_objective()
+	        on_pick: root.pick_objective(args[1])
 
 	RoundedButton:
 		id: reset_turret_objective_btn
@@ -664,7 +655,6 @@
 
 			TextInput:
 				id: zstack_stepsize_id
-				on_text_validate: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
@@ -674,12 +664,10 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
 				id: zstack_range_id
-				on_text_validate: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
@@ -689,7 +677,6 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
@@ -797,7 +784,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_xposition(self.text)
 				on_focus: if not self.focus: root.set_xposition(self.text)
 			
 			# Set X Bookmark
@@ -885,7 +871,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_yposition(self.text)
 				on_focus: if not self.focus: root.set_yposition(self.text)
 
 			# Set Y Bookmark
@@ -1026,7 +1011,6 @@
 					input_filter: 'float'
 					text: format(5, '.3g')
 					on_text: root.commit_period()
-					on_text_validate: root.update_period()
 					on_focus: if not self.focus: root.update_period()
 				Label:
 					text: 'minutes'
@@ -1057,7 +1041,6 @@
 					input_filter: 'float'
 					text: format(48, '.3g')
 					on_text: root.commit_duration()
-					on_text_validate: root.update_duration()
 					on_focus: if not self.focus: root.update_duration()
 				Label:
 					text: 'hours'
@@ -1129,6 +1112,28 @@
 					disabled: app.run_lockout
 					on_release: self.choose('saveas_protocol')
 
+			# Protocol size advisory -- shown when the session reports a protocol
+			# large enough to be worth mentioning before it is run. Advisory only:
+			# nothing here refuses or blocks, and the row collapses to zero height
+			# with nothing to say. The height follows the wrapped texture so a long
+			# sentence is not clipped in a narrow panel.
+			BoxLayout:
+				id: protocol_size_advisory_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: protocol_size_advisory_label.texture_size[1] + dp(6) if root.protocol_size_advisory_active else 0
+				opacity: 1 if root.protocol_size_advisory_active else 0
+				Label:
+					id: protocol_size_advisory_label
+					text: ''
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
+					halign: 'left'
+					valign: 'middle'
+					size_hint_y: None
+					text_size: self.width, None
+					height: self.texture_size[1]
+
 			# Stage Display
 			FloatLayout:
 				padding: '5dp'
@@ -1186,7 +1191,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Filename prefix'
-					on_text_validate: root.update_capture_root(self.text)
 					on_focus: if not self.focus: root.update_capture_root(self.text)
 				
 
@@ -1214,7 +1218,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
-					on_text_validate: root.step_name_validation(self.text)
 					on_focus: if not self.focus: root.step_name_validation(self.text)
 
 			BoxLayout:
@@ -1251,7 +1254,6 @@
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_text_validate: root.handle_step_ui_input_change()
 					on_focus: if not self.focus: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
@@ -1654,7 +1656,6 @@
 			
         TextInput:
             id: video_gen_fps_id
-            on_text_validate: root.log_video_gen_fps()
             on_focus: if not self.focus: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
@@ -2211,8 +2212,7 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
-					on_focus: if not self.focus: root.frame_size()
+					on_focus: if not self.focus: root.frame_size('frame_width_id')
 					font_size: '12sp'
 				Label:
 					text: 'x'
@@ -2229,8 +2229,7 @@
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
-					on_focus: if not self.focus: root.frame_size()
+					on_focus: if not self.focus: root.frame_size('frame_height_id')
 					font_size: '12sp'
 			
 			# Field of View
@@ -2741,7 +2740,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.ill_text()
 					on_focus: if not self.focus: root.ill_text()
 
 			# Stimulation
@@ -2852,7 +2850,6 @@
 					halign: 'right'
 					input_filter: 'int'
 					text: str(int(stim_ill_slider.value))
-					on_text_validate: root.stim_ill_text()
 					on_focus: if not self.focus: root.stim_ill_text()
 
 			BoxLayout:
@@ -2899,7 +2896,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_freq_slider.value, '.4g')
-					on_text_validate: root.stim_freq_text()
 					on_focus: if not self.focus: root.stim_freq_text()
 
 			BoxLayout:
@@ -2946,7 +2942,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_width_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_width_text()
 					on_focus: if not self.focus: root.stim_pulse_width_text()
 
 			
@@ -2994,7 +2989,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_count_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_count_text()
 					on_focus: if not self.focus: root.stim_pulse_count_text()
 
 			# Camera
@@ -3090,7 +3084,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.gain_text()
 					on_focus: if not self.focus: root.gain_text()
 
 			# Exposure
@@ -3143,7 +3136,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					# text: format(10 ** exp_slider.value, '.3g')
-					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()
 				
 			# Exposure Summing
@@ -3190,7 +3182,6 @@
 					halign: 'right'
 					input_filter: "int"
 					text: "{:d}".format(int(sum_slider.value))
-					on_text_validate: root.sum_text()
 					on_focus: if not self.focus: root.sum_text()
 
 			BoxLayout:
@@ -3373,7 +3364,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(video_duration_slider.value, '.4g')
-					on_text_validate: root.video_duration_text()
 					on_focus: if not self.focus: root.video_duration_text()
 
 			# Acquire Settings
@@ -3504,7 +3494,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(composite_threshold_slider.value, '.3g')
-					on_text_validate: root.composite_threshold_text()
 					on_focus: if not self.focus: root.composite_threshold_text()
 				
 			FloatLayout:
@@ -3672,7 +3661,6 @@
 
 			TextInput:
 				id: graph_title_input
-				on_text_validate: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
@@ -3704,7 +3692,6 @@
 
 			TextInput:
 				id: x_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
@@ -3766,7 +3753,6 @@
 
 			TextInput:
 				id: y_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
@@ -3915,7 +3901,6 @@
 
 			TextInput:
 				id: text_cell_count_pixels_per_um_id
-				on_text_validate: root.log_pixels_per_um()
 				on_focus: if not self.focus: root.log_pixels_per_um()
 				valign: 'center'
 				text: "1.0"

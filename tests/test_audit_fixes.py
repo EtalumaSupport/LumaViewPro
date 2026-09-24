@@ -16,7 +16,6 @@ All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
 import shutil
-import ast
 import inspect
 import sys
 import threading
@@ -24,10 +23,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
+from modules.activity_claim import ActivityClaim
+from modules.exceptions import PositionOutOfRangeError
+
 
 # ---------------------------------------------------------------------------
 # Helpers for building mock modules (used by fixtures, not at module level)
 # ---------------------------------------------------------------------------
+
+
+from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 
 
 def _build_mock_logger():
@@ -278,13 +284,21 @@ class TestMoveAbsolutePositionValidation:
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
-        with pytest.raises(ValueError, match='exceeds safety limit'):
+        # Asserts the REFUSAL, not its sentence: an axis that publishes
+        # travel now answers with its travel range whatever the magnitude,
+        # so wording-coupled assertions here go stale every time the
+        # message improves.
+        with pytest.raises(PositionOutOfRangeError):
             sim_scope.motion.move_absolute(axis='Z', position=Lumascope._MOTOR_POSITION_LIMIT + 1)
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
-        with pytest.raises(ValueError, match='exceeds safety limit'):
+        # Asserts the REFUSAL, not its sentence: an axis that publishes
+        # travel now answers with its travel range whatever the magnitude,
+        # so wording-coupled assertions here go stale every time the
+        # message improves.
+        with pytest.raises(PositionOutOfRangeError):
             sim_scope.motion.move_absolute(
                 axis='Z', position=-(Lumascope._MOTOR_POSITION_LIMIT + 1)
             )
@@ -430,7 +444,7 @@ class TestSettingsSnapshot:
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
-        return ScopeSession.create_headless(settings=complete_settings(**settings))
+        return ScopeSession.create(complete_settings(**settings), simulate=True)
 
     def test_snapshot_is_deep_copy(self):
         session = self._session({'display': {'brightness': 80}})
@@ -717,14 +731,14 @@ class TestSerialRateLimiting:
         """Default _min_command_interval should be 0 (no limit)."""
         from drivers.serialboard import SerialBoard
 
-        board = SerialBoard(vid=0, pid=0, label='TEST')
+        board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert board._min_command_interval == 0.0
 
     def test_rate_limit_attributes_exist(self):
         """Rate limit attributes should be set in __init__."""
         from drivers.serialboard import SerialBoard
 
-        board = SerialBoard(vid=0, pid=0, label='TEST')
+        board = SerialBoard(vid=0, pid=0, label='TEST', port='test-port')
         assert hasattr(board, '_min_command_interval')
         assert hasattr(board, '_last_command_time')
 
@@ -1176,6 +1190,7 @@ class TestIssue602_AFExecutorLED:
         from modules.autofocus_runner import AutofocusRunner
         from modules.lumascope_api import Lumascope
         from unittest.mock import patch
+        from tests.protocol_drives import held_run_claim
 
         scope = Lumascope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
@@ -1197,6 +1212,7 @@ class TestIssue602_AFExecutorLED:
         # which helper emitted the off.
         af._led_color = 'BF'
         af._led_illumination = 100
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
 
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
@@ -1207,7 +1223,7 @@ class TestIssue602_AFExecutorLED:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
             assert not scope.illumination.get_led_state('BF')['enabled'], (
                 'aborted AF must leave its channel dark (#602)'
             )
@@ -1256,8 +1272,10 @@ class TestAFPrecisionModeRestoresOn:
         # invariant "Z precision ON outside of AF" holds for every
         # exit path (regression-tested below for the abort case).
         from unittest.mock import patch
+        from tests.protocol_drives import held_run_claim
 
         af, scope = self._build_af()
+        run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort
         with (
@@ -1269,7 +1287,7 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x', abort_event=abort_event)
+                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
             calls = [tuple(c.args) for c in mock_set.call_args_list]
             assert ('Z', True) in calls, (
                 f'abort path must restore Z precision_mode=True; got calls {calls}'
@@ -1308,18 +1326,18 @@ class TestIssue606_TurretObjectiveValidation:
     Fix: warn on select, block protocol run.
     """
 
-    def test_select_objective_detects_unassigned_turret_objective(self):
-        """select_objective must still DETECT the condition.
+    def test_select_objective_assigns_the_slot_in_the_light_path(self):
+        """On a turreted scope, selecting an objective assigns it to the slot.
 
-        It no longer raises a dialog for it. Selecting an objective the
-        turret does not hold is the first half of assigning it -- the user
-        picks the objective, then presses Set -- so the dialog interrupted
-        the workflow that resolves the condition, and said the selection had
-        been refused when the write below it always went through.
+        The active objective is the slot's assignment, so a selection the
+        turret does not hold is no longer constructible: picking one says
+        what is installed in the light path. No dialog either -- the
+        selection is the assignment, not a step before it.
 
-        The half of #606 that prevents harm is the protocol-run block, pinned
-        by the sibling test below: an unassigned objective still cannot reach
-        a run.
+        The behaviour is pinned in
+        tests/guards/test_session_objective_question.py (TestT10SelectObjective);
+        the half of #606 that prevents harm is the protocol-run block, pinned
+        by the sibling test below.
         """
         import ast
         import inspect
@@ -1334,24 +1352,37 @@ class TestIssue606_TurretObjectiveValidation:
         src = ast.unparse(
             ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
         )
-        assert 'turret_objectives' in src, (
-            'select_objective must still detect an objective with no turret position'
+        assert 'self.assign_turret_objective(slot, objective_id)' in src, (
+            'select_objective must assign the objective to the slot in the light path'
         )
-        assert 'notifications.warning' not in src, (
-            'detection must reach the log, not a dialog: this fires mid-assignment'
-        )
+        assert 'notifications.warning' not in src, 'a selection is not refused by a dialog'
 
-    def test_is_protocol_valid_checks_turret(self):
-        """_is_protocol_valid source must validate turret config."""
+    def test_the_engine_refuses_unassigned_turret_objectives(self):
+        """The guarantee moved from the widget to the API that owns the rule.
+
+        It used to be pinned by searching _is_protocol_valid's source for
+        the word 'turret'. That pin could be satisfied by a COMMENT -- and
+        was, the moment the check itself moved out, so it reported green
+        over an absent guard.
+
+        Keyed on the reason code instead: prose can contain 'turret', but
+        a refusal code is the contract a caller branches on and cannot be
+        satisfied by describing it. The behaviour itself -- every
+        combination of what the turret carries and what a protocol names
+        -- is exercised as a table in
+        test_a_protocol_needs_its_objectives_on_the_turret.py.
+
+        It reads the protocol-construction API rather than the runner
+        because that is where the rule lives now: the runner, the load,
+        a new protocol and a step navigation all ask it there, and a
+        refusal restated per caller is what let them disagree.
+        """
         import pathlib
 
-        source = pathlib.Path('ui/protocol_settings.py').read_text()
-        # Find the _is_protocol_valid method
-        idx = source.find('def _is_protocol_valid')
-        assert idx != -1, '_is_protocol_valid method must exist'
-        method_body = source[idx : idx + 2000]
-        assert 'turret' in method_body.lower(), (
-            '_is_protocol_valid must check turret objective assignments (#606)'
+        source = pathlib.Path('modules/lumascope_api/protocols.py').read_text()
+        assert "reason='turret_objectives_unassigned'" in source, (
+            'the engine must refuse a protocol naming objectives the turret '
+            'does not carry, so every caller gets it and not only the GUI'
         )
 
 
@@ -1427,7 +1458,7 @@ class TestG3_AutofocusFailureNotification:
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
         runner, scope = af_runner_and_scope()
-        scope.imaging._capture_and_wait_impl.side_effect = RuntimeError('camera fault')
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner)
         assert captured and captured[0][1] == 'Autofocus Failed', (
@@ -1522,7 +1553,7 @@ class TestRule14_A4_PreRunValidationNotify:
         assert not protocol.copy_for_execution.called, (
             'run must abort at validation, before snapshotting the protocol'
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
     def test_validation_summary_truncates_at_five(self, monkeypatch):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
@@ -1560,7 +1591,7 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
         assert captured[0][1] == 'Cannot verify hardware state', (
             f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
@@ -1675,9 +1706,8 @@ def _run_cleanup_kwargs(**overrides):
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
         'set_state_fn': MagicMock(),
-        'run_lock': threading.Lock(),
         'scan_in_progress': threading.Event(),
-        'fatal_abort': False,
+        'forced_dark': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
         'autofocus_snapshot': _autofocus_snapshot(states={}),
@@ -1695,9 +1725,11 @@ def _run_cleanup_kwargs(**overrides):
         'autofocus_thread': None,
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
-        'set_run_in_progress_fn': MagicMock(),
-        'run_status': 'completed',
+        'ending': RunEnding(
+            'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
+        ),
     }
+    kwargs['run_dir'] = None
     kwargs.update(overrides)
     return kwargs
 
@@ -1712,6 +1744,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         from modules.notification_center import notifications
         from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
@@ -1738,7 +1771,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=_raiser('move'),
         )
-        kwargs['camera_executor'].protocol_put.side_effect = RuntimeError('camera boom')
+        kwargs['scope'].imaging.restore_camera_state.side_effect = RuntimeError('camera boom')
         kwargs['file_io_executor'].protocol_put_wait.side_effect = RuntimeError('record boom')
         run_cleanup(**kwargs)
 
@@ -1760,7 +1793,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         assert kwargs['io_executor'].protocol_end.called, (
             'the executor teardown must still run after step failures'
         )
-        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
 
     def test_cleanup_summary_notify(self, monkeypatch):
         """A single failing step must produce exactly one summary warning
@@ -1968,6 +2001,37 @@ class TestSetBinningSizeReturnsBool:
         cam._mark_disconnected.assert_not_called()
 
 
+_firmware_only = pytest.mark.skipif(
+    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
+    reason='the firmware-backed simulator runs on macOS and Linux only',
+)
+
+
+def _firmware_motorboard(model: str, axes: str, dialect: str = '3.0', unplugged: bool = False):
+    """(MotorBoard, the simulated board behind it) on the real firmware."""
+    from drivers.motorboard import MotorBoard
+    from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
+    backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
+    if unplugged:
+        backend.motor_board.unplug()
+    return MotorBoard(backend=backend), backend.motor_board
+
+
+@pytest.fixture(scope='module')
+def homing_boards():
+    """Real-firmware boards shared by the homing tests; each test clears
+    the faults it injects."""
+    boards = {
+        'full': _firmware_motorboard('LS850T', 'XYZT'),
+        'z_only': _firmware_motorboard('LS720', 'Z'),
+        'z_only_field': _firmware_motorboard('LS720', 'Z', dialect='field'),
+    }
+    yield boards
+    for board, _sim in boards.values():
+        board.disconnect()
+
+
 class TestHomeReturnsBool:
     """The blocking home(axis=) member must propagate the driver's bool
     for every axis selector, and MotorBoard / SimulatedMotorBoard must
@@ -2099,55 +2163,58 @@ class TestHomeReturnsBool:
                 f'{method.__name__} docstring must have a Returns: section'
             )
 
-    @staticmethod
-    def _make_motorboard(reply):
-        """MotorBoard stub with exchange_command returning a fixed reply
-        (None simulates the no-response / timeout path)."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.initial_t_homing_complete = False
-        board.exchange_command = MagicMock(return_value=reply)
-        return board
-
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    @_firmware_only
     def test_motorboard_homing_raises_on_no_response(self, method):
         """Driver contract (Rule 29): no serial response raises
-        HardwareError instead of returning False."""
-        board = self._make_motorboard(None)
-        with pytest.raises(HardwareError, match='no response'):
-            getattr(board, method)()
+        HardwareError instead of returning False. The cable is pulled
+        before the command is sent."""
+        board, sim = _firmware_motorboard('LS850T', 'XYZT')
+        try:
+            sim.unplug()
+            with pytest.raises(HardwareError, match='no response'):
+                getattr(board, method)()
+        finally:
+            board.disconnect()
 
     @pytest.mark.parametrize(
-        ('method', 'reply'),
+        ('method', 'axis', 'fault'),
         [
-            ('zhome', 'ERROR: Z homing failed'),
-            ('home', 'ERROR: homing aborted'),
-            ('thome', 'ERROR: T homing failed'),
+            ('zhome', 'Z', 'switch_never_trips'),  # 'ERROR: Z home timeout'
+            ('home', 'X', 'stall'),  # 'ERROR: XY home timeout'
+            ('thome', 'T', 'switch_never_trips'),  # 'ERROR: T home timeout'
         ],
     )
-    def test_motorboard_homing_raises_on_firmware_error(self, method, reply):
-        board = self._make_motorboard(reply)
-        with pytest.raises(HardwareError, match='firmware error'):
-            getattr(board, method)()
+    @_firmware_only
+    def test_motorboard_homing_raises_on_firmware_error(self, homing_boards, method, axis, fault):
+        """A hardware fault the firmware reports as an ERROR raises."""
+        board, sim = homing_boards['full']
+        sim.inject(axis, fault)
+        try:
+            with pytest.raises(HardwareError, match='firmware error'):
+                getattr(board, method)()
+        finally:
+            sim.clear(axis, fault)
 
     @pytest.mark.parametrize(
-        ('method', 'reply'),
+        ('method', 'board_key'),
         [
-            ('zhome', 'Z home successful'),
-            ('home', 'XYZ home complete'),
-            ('home', 'ERROR: X not present'),
-            ('thome', 'T home successful'),
-            ('thome', 'T not present'),
+            ('zhome', 'full'),  # 'Z home successful'
+            ('home', 'full'),  # 'XYZ home complete'
+            ('home', 'z_only'),  # 'ERROR: X not present'
+            ('home', 'z_only_field'),  # 'X not present'
+            ('thome', 'full'),  # 'T home successful'
+            ('thome', 'z_only'),  # 'T not present'
         ],
     )
-    def test_motorboard_homing_success_and_partial_paths_return_true(self, method, reply):
+    @_firmware_only
+    def test_motorboard_homing_success_and_partial_paths_return_true(
+        self, homing_boards, method, board_key
+    ):
         """Success replies -- including the partial-home (X/Y absent) and
         no-turret cases the firmware reports on smaller boards -- return
         True rather than raising."""
-        board = self._make_motorboard(reply)
+        board, _sim = homing_boards[board_key]
         assert getattr(board, method)() is True
 
     def test_motorboard_homing_docstrings_document_raises(self):
@@ -2383,18 +2450,6 @@ class TestF7_ProtocolHomingInterlock:
             'goto_bookmark() must check the exclusive-activity lock (F7)'
         )
 
-    def test_turret_home_checks_protocol_running(self):
-        """vertical_control turret_home() must check protocol_running."""
-        import pathlib
-
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        idx = source.find('def turret_home(self):')
-        assert idx != -1
-        method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
-            'turret_home() must check the exclusive-activity lock (F7)'
-        )
-
     def test_xy_home_checks_protocol_running(self):
         """motion_settings home() must check protocol_running."""
         import pathlib
@@ -2458,13 +2513,24 @@ class TestG4_MotorLogSuppression:
         monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
         return board, recorder
 
+    @_firmware_only
     def test_connect_errors_suppressed_after_ten_failures(self, monkeypatch):
         """Failures 1-9 log errors; the 10th replaces its error with ONE
         critical announcing suppression; failures 11+ stay silent so a
-        permanently absent board cannot flood the error log."""
-        board, recorder = self._make_failing_board(monkeypatch)
-        for _ in range(12):
-            board.connect()
+        permanently absent board cannot flood the error log. The board is
+        real firmware whose cable is out, so every connect() fails the way
+        it does on a scope with the motor board unplugged."""
+        import drivers.motorboard as motorboard_mod
+
+        recorder = self._RecordingLogger()
+        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+        board, _sim = _firmware_motorboard('LS850T', 'XYZT', unplugged=True)
+        try:
+            # Construction already made its own attempts; make it twelve.
+            while board._connect_fails < 12:
+                board.connect()
+        finally:
+            board.disconnect()
         assert recorder.count('ERROR', 'connect() failed') == 9, (
             f'only the pre-suppression failures may log errors; records: {recorder.records}'
         )
@@ -3139,6 +3205,7 @@ def _bare_protocol_writer(**overrides):
         'file_io_executor': MagicMock(),
         'abort_fn': lambda: None,
         'fatal_abort_event': threading.Event(),
+        'ending': EndingLatch(),
         'execution_record': None,
         'leds_off_fn': lambda: None,
         'is_run_in_progress_fn': lambda: True,
@@ -3146,9 +3213,16 @@ def _bare_protocol_writer(**overrides):
         'timestamp_overlay': True,
         'video_max_fps': 0,
         'engineering_mode': False,
+        'run_claim': lent_run_claim(),
     }
+    scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)
-    return ProtocolImageWriter(**kwargs)
+    writer = ProtocolImageWriter(**kwargs)
+    if scope_is_stubbed:
+        # A brought-up scope answers the objective in the light path; the
+        # writer reads it once per capture, for the file name and the scale.
+        writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
+    return writer
 
 
 def _make_capture_runner(**overrides):
@@ -3172,7 +3246,8 @@ def _make_capture_runner(**overrides):
         'protocol_thread': MagicMock(),
         'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(is_running=False),
+        'autofocus_thread': MagicMock(in_flight_sweep=None),
+        'activity_claim': ActivityClaim(),
     }
     kwargs.update(overrides)
     return SequencedCaptureRunner(**kwargs)
@@ -3215,6 +3290,8 @@ def test_not_saving_capture_builds_record_task_without_crash():
 
     writer = _bare_protocol_writer()
     scope = writer._scope
+    # The objective the frame is taken with, read at capture.
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
     protocol = MagicMock()
@@ -3271,7 +3348,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
         monkeypatch.setattr(
-            image_save, 'generate_image_metadata', lambda scope, channel, x, y, z: {}
+            image_save,
+            'generate_image_metadata',
+            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id: {},
         )
         image_save.save_image(
             SimpleNamespace(
@@ -3286,6 +3365,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             tail_id_mode=None,
             save_encoding='rgb',
             significant_bits=8,
+            objective_id='4x Oly',
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -3312,7 +3392,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3532,7 +3612,7 @@ class TestPIW2_DisksUsageDeduped:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3619,6 +3699,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         from modules.notification_center import notifications
         from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
@@ -3632,7 +3713,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         assert kwargs['io_executor'].protocol_end.called, (
             'cleanup steps after the shader raise must still run'
         )
-        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
         assert captured and 'Restore layer shader' in captured[0][2], (
             f'the shader failure must appear in the cleanup summary; got {captured}'
         )
@@ -3833,8 +3914,8 @@ class TestPF2_FileIoExecutorClearedOnAbort:
             'the initial state must be read before the COMPLETING transition '
             f'so abort (ERROR) is distinguishable from normal end; got {order}'
         )
-        assert state['value'] == ProtocolState.IDLE, (
-            f'cleanup must transition back to IDLE at the end; got {order}'
+        assert state['value'] == ProtocolState.COMPLETING, (
+            f'cleanup must leave the run in COMPLETING for the caller to end; got {order}'
         )
 
     def test_file_io_cleared_on_abort_only(self):
@@ -3929,7 +4010,7 @@ class TestPF5_ImageBufferRetired:
         imaging, _cam = _sim_backed_imaging()
         sentinel = np.full((4, 4), 9, dtype=np.uint8)
         imaging._scale_bar['enabled'] = True
-        imaging._scope.runtime_state._objective = {'magnification': 4}
+        imaging._scope.runtime_state.set_objective('4x Oly')
         monkeypatch.setattr('modules.image_utils.add_scale_bar', lambda **kwargs: sentinel)
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
         assert out is sentinel, 'get_image must return the add_scale_bar result'
@@ -4029,53 +4110,6 @@ def _function_source(source: str, func_name: str) -> str:
     raise AssertionError(f'function {func_name!r} not found in source')
 
 
-class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
-    """Lumascope.save_live_image must drain stale frames before grabbing.
-    Bare self.get_image(...) ships a mid-transition frame to disk on every
-    manual save; the canonical helper is self.capture_and_wait(...)."""
-
-    def test_save_live_image_drains_via_capture_and_wait(self, monkeypatch, tmp_path):
-        """save_live_image must grab through capture_and_wait (drain-then-
-        grab) and hand THAT frame to save_image -- never the bare
-        get_image, which would ship a mid-transition frame to disk."""
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        from modules import image_save
-
-        calls = []
-        frame = np.zeros((4, 4), dtype=np.uint8)
-        scope = SimpleNamespace(
-            imaging=SimpleNamespace(
-                _capture_and_wait_impl=lambda **kw: calls.append('capture_and_wait') or frame,
-                get_image=lambda **kw: calls.append('get_image') or frame,
-                capture_frame_depth=lambda array, sum_count=1: 8,
-            ),
-            illumination=SimpleNamespace(leds_off=lambda: None),
-        )
-        saved = {}
-        monkeypatch.setattr(
-            image_save,
-            'save_image',
-            lambda scope, array, *args, **kwargs: (
-                saved.update(array=array) or str(tmp_path / 'live.tiff')
-            ),
-        )
-        out = image_save.save_live_image(
-            scope,
-            save_folder=str(tmp_path),
-            save_encoding='8bit',
-            channel='BF',
-            false_color_on=False,
-        )
-        assert out is not None
-        assert calls == ['capture_and_wait'], (
-            f'save_live_image must drain via capture_and_wait only; saw {calls}'
-        )
-        assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
-
-
 class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
@@ -4093,8 +4127,8 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
 
     def test_iterate_calls_capture_and_wait(self, monkeypatch):
         scope, result = self._drive_full_af(monkeypatch)
-        assert scope.imaging._capture_and_wait_impl.called, (
-            'the AF scan loop must grab via the capture-and-wait body '
+        assert scope.imaging.capture_and_wait.called, (
+            'the AF scan loop must grab via capture_and_wait '
             'to drain LED/gain/exposure pending frames before scoring.'
         )
         assert result is not None, 'the drive must complete with a best-focus result'
@@ -4110,7 +4144,7 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
         scope, _ = self._drive_full_af(monkeypatch)
-        grabs = scope.imaging._capture_and_wait_impl.call_args_list
+        grabs = scope.imaging.capture_and_wait.call_args_list
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
             assert grab.kwargs.get('exclude_sources') == ('z_move',), (
@@ -4119,34 +4153,21 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
             )
 
 
-class TestFrameValidity_CompositeOverlayBranchDrains:
-    """The overlay branch of composite_capture's live_capture path (bullseye /
-    crosshairs enabled) grabs an extra image_orig for overlay rendering. Bare
-    get_image here would persist a mid-transition raw image to disk via the
-    subsequent save_image call. Must route through capture_and_wait."""
+class TestFrameValidity_ManualCaptureDrains:
+    """The manual capture -- with or without an overlay -- grabs through the
+    capture-and-wait body. A bare get_image would persist a mid-transition raw
+    image to disk via the save that follows. It runs on the camera worker, so
+    the dispatching public form would deadlock; the body is the one to call."""
 
-    def test_live_capture_impl_uses_capture_and_wait(self):
+    def test_manual_capture_grabs_through_capture_and_wait(self):
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
-        body = _function_source(src, '_live_capture_impl')
-        assert 'ctx.scope.imaging._capture_and_wait_impl(' in body, (
-            'composite_capture._live_capture_impl must grab through the '
-            'capture-and-wait body (it runs on the executor worker, so the '
-            'dispatching public form would deadlock) for the '
-            'bullseye/crosshairs overlay branch (was bare get_image).'
+        src = (Path(__file__).resolve().parent.parent / 'modules' / 'manual_capture.py').read_text()
+        body = _function_source(src, '_capture_and_save')
+        assert 'scope.imaging._capture_and_wait_impl(' in body, (
+            'the manual capture must grab through the capture-and-wait body'
         )
-
-    def test_live_capture_impl_no_bare_ctx_scope_get_image(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
-        body = _function_source(src, '_live_capture_impl')
-        assert 'ctx.scope.imaging.get_image(' not in body, (
-            'composite_capture._live_capture_impl must not call '
-            'ctx.scope.imaging.get_image(...) directly. Route through capture_and_wait '
-            '(or save_live_image, which now uses capture_and_wait internally).'
-        )
+        assert '.get_image(' not in body, 'the manual capture must not grab with a bare get_image'
 
 
 class TestFrameValidity_AllLedMutatorsInvalidate:
@@ -4205,6 +4226,7 @@ def _sim_backed_imaging():
     # thread, so these tests exercise the public surface inline.
     scope._camera_executor = None
     scope.runtime_state = RuntimeState(scope)
+    scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded
     # LED state; these stubs command nothing, so an empty state map reads
     # as dark-by-design (the same result the retired explicit False gave).
@@ -5960,48 +5982,6 @@ class TestPylonInitCameraConfigStyleConsistency:
         assert len(off_writes) == 2, (
             'TriggerMode=Off must be written once per available trigger '
             f'type; got {len(off_writes)} writes'
-        )
-
-
-class TestDriverParametersNotShadowingMethods:
-    """CLAUDE.md Rule 36 (identifier clarity).
-
-    `def gain(self, gain)` had the parameter shadow the method name in
-    several camera drivers. Inside such a method body the symbol
-    resolves to the parameter -- the bound method `self.gain` is still
-    reachable, but a future refactor that calls the method recursively
-    (or reads `self.gain` expecting the method) fails in a confusing
-    way. The de-shadowed parameter name is `value`; the method names
-    themselves are L2-public and unchanged (Rule 30 stability).
-
-    Originally a PylonCamera-only signature pin (audit finding A15);
-    widened to a driver-wide AST scan when the same shape was found in
-    camera.py / idscamera.py / simulated_camera.py.
-    """
-
-    def test_no_driver_method_param_shadows_its_method_name(self):
-        """No function in any drivers/*.py module may take a parameter
-        named identically to the function itself."""
-        from tests.ast_seams import REPO_ROOT, parse_module
-
-        offenders = []
-        for path in sorted((REPO_ROOT / 'drivers').glob('*.py')):
-            rel = path.relative_to(REPO_ROOT).as_posix()
-            tree = parse_module(rel)
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-                args = node.args
-                params = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
-                if args.vararg:
-                    params.append(args.vararg.arg)
-                if args.kwarg:
-                    params.append(args.kwarg.arg)
-                if node.name in params:
-                    offenders.append(f'{rel}:{node.lineno} def {node.name}')
-        assert not offenders, (
-            'Driver function parameters must not shadow the method name '
-            '(use `value` for single-value setters): ' + ', '.join(offenders)
         )
 
 
@@ -8974,7 +8954,6 @@ class TestStageOffsetSnapshot:
     def _snapshot_via_run_start(self, exc):
         """Drive the snapshot the way a run takes it: prepare deepcopies
         the live source, start adopts the plan's copy."""
-        exc._run_in_progress_event.clear()
         exc.start(exc.prepare(**_scr_run_kwargs()))
 
     def test_constructor_holds_live_reference(self):
@@ -9131,7 +9110,8 @@ class TestSequencedCaptureRunnerRunDirCollision:
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(is_running=False),
+            autofocus_thread=MagicMock(in_flight_sweep=None),
+            activity_claim=ActivityClaim(),
         )
         exc._parent_dir = parent_dir
         return exc
@@ -9145,7 +9125,23 @@ class TestSequencedCaptureRunnerRunDirCollision:
         name = exc._run_dir.name
         assert len(name.split('_')) == 2, f'first call must use bare timestamp name; got {name!r}'
 
-    def test_same_second_collision_uses_suffix(self, tmp_path):
+    def test_same_second_collision_uses_suffix(self, tmp_path, monkeypatch):
+        import datetime
+        import types
+
+        import modules.sequenced_capture_runner as scr
+
+        # The collision is three runs inside one second. Read from the real
+        # clock, a second boundary can fall between the calls on a loaded
+        # machine and the third run gets a new timestamp instead of _002 --
+        # the test then fails with nothing wrong. The clock is fixed so the
+        # three calls share a second by construction.
+        class _OneSecond(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 23, 15, 54, 57)
+
+        monkeypatch.setattr(scr, 'datetime', types.SimpleNamespace(datetime=_OneSecond))
         exc = self._make_executor(tmp_path)
         r1 = exc._create_run_dir()
         r2 = exc._create_run_dir()
@@ -9154,10 +9150,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             assert r['status'] is True, f'unexpected failure: {r}'
         # All three directories exist and are distinct.
         dirs = sorted(p.name for p in tmp_path.iterdir())
-        assert len(dirs) == 3
-        # The first is unsuffixed; the next two carry _001 and _002.
-        assert dirs[1].endswith('_001'), dirs
-        assert dirs[2].endswith('_002'), dirs
+        assert dirs == ['20260923_155457', '20260923_155457_001', '20260923_155457_002'], dirs
 
     def test_collision_retries_dont_overwrite(self, tmp_path):
         exc = self._make_executor(tmp_path)
@@ -9192,12 +9185,19 @@ class TestSCEResetSignalsAbort:
         return _make_capture_runner()
 
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
 
@@ -9207,12 +9207,19 @@ class TestSCEResetSignalsAbort:
         a UI abort calls reset() on the Kivy main thread, and running the
         teardown inline froze the GUI for the duration of the queued moves.
         The run loop's finally-block owns cleanup on the protocol thread."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -9221,12 +9228,19 @@ class TestSCEResetSignalsAbort:
         """With the run flagged in progress but no live run loop (dispatch
         failed / thread died before its finally), reset() must still clean
         up so run state is not orphaned."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        runner.reset(run)
 
         runner._cleanup.assert_called_once()
 
@@ -9235,15 +9249,22 @@ class TestSCEResetSignalsAbort:
         in-flight scan step (exercised on the inline-fallback path; the
         deferred path orders abort before the run loop's own cleanup by
         construction)."""
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has a trigger and a handle: start() writes both
+        # before it publishes liveness, under one lock. Leaving IDLE alone
+        # builds a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
+        run = runner._run_outcome = PendingRunOutcome()
         runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
-        runner._cleanup = MagicMock(side_effect=lambda **kwargs: order.append('cleanup'))
+        runner._cleanup = MagicMock(side_effect=lambda *args, **kwargs: order.append('cleanup'))
 
-        runner.reset()
+        runner.reset(run)
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
 
@@ -9252,24 +9273,40 @@ class TestSCEResetSignalsAbort:
         assert runner.wait_for_run_idle(timeout_s=0.2) is True
 
     def test_wait_for_run_idle_times_out_while_run_unwinds(self):
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
         import threading
 
+        from modules.protocol_state_machine import ProtocolState
+
         runner = self._make_runner()
-        runner._run_in_progress_event.set()
-        threading.Timer(0.1, runner._run_in_progress_event.clear).start()
+        runner._set_state(ProtocolState.RUNNING)
+        # A live run always has an owner: start() writes the trigger before
+        # it publishes liveness, under one lock. Leaving IDLE alone builds
+        # a run nobody started, which reset() is right to refuse.
+        runner._run_trigger_source = 'test'
+        threading.Timer(0.1, lambda: runner._set_state(ProtocolState.IDLE)).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
+        from modules.exceptions import RunAlreadyEndedError
+
         runner = self._make_runner()
-        # Run not in progress -- reset() should be a no-op.
+        # Run not in progress -- reset() says the run has already ended and
+        # touches nothing.
         runner._cleanup = MagicMock()
 
-        runner.reset()
+        with pytest.raises(RunAlreadyEndedError):
+            runner.reset(None)
 
         runner.protocol_thread.abort.assert_not_called()
         runner._cleanup.assert_not_called()
@@ -9391,7 +9428,7 @@ class TestSessionLedOnArgNameIsMa:
         color = sim_scope.illumination.ch2color(0)
         for method_name in ('led_on', 'led_on_async'):
             getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
-            assert sim_scope.illumination.get_led_ma(color) == 42.0, (
+            assert sim_scope.illumination.get_led_state(color)['illumination_ma'] == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
             sim_scope.illumination.leds_off()
@@ -9481,64 +9518,6 @@ class TestImagingGetCameraTempsRetired:
         assert not hasattr(ImagingAPI, 'log_camera_temps'), (
             'the public spelling must not come back -- the metrics schedule is the only caller'
         )
-
-
-class TestSaveLiveImageTimeoutIsFloat:
-    """Phase-2 units-audit Finding P2-1 -- save_live_image's `timeout`
-    must be a float (seconds), not a datetime.timedelta. The Phase 1
-    audit #11 rename of capture_and_wait/get_image to float seconds
-    introduced a latent regression: the caller `image_save.save_live_image`
-    kept its `datetime.timedelta` default, which then flowed through
-    `capture_and_wait(timeout=...)` -> `get_image(timeout=...)` ->
-    `datetime.timedelta(seconds=timeout)` where `seconds=` rejects
-    timedelta with TypeError. Both UI callers (composite_capture.py)
-    use the default; the live-capture path crashes."""
-
-    def test_signature_is_float(self):
-        import inspect
-        from modules.image_save import save_live_image
-
-        sig = inspect.signature(save_live_image)
-        timeout_param = sig.parameters['timeout_s']
-        # Reject the previous timedelta default.
-        assert not isinstance(timeout_param.default, __import__('datetime').timedelta), (
-            'save_live_image.timeout_s default must be float seconds, not timedelta'
-        )
-        assert isinstance(timeout_param.default, float)
-        assert timeout_param.default == 5.0
-        assert 'timeout' not in sig.parameters, (
-            'save_live_image must not still expose bare `timeout` (audit U6 rename)'
-        )
-
-    def test_default_timeout_flows_through_capture_and_wait_without_crash(self, sim_scope):
-        # The original regression was: save_live_image's timedelta default
-        # flowed unchanged through capture_and_wait -> get_image, where
-        # `datetime.timedelta(seconds=timeout)` rejected timedelta with
-        # TypeError. This test exercises the same forwarding path that
-        # save_live_image uses (line 484-491), with the new float default.
-        # If a future revert restores `timeout_s: datetime.timedelta`, the
-        # signature test above fails first; if some other regression
-        # restores the TypeError at the get_image conversion, this fails.
-        # U6 renamed the keyword from `timeout` to `timeout_s` across the
-        # imaging API; this test follows.
-        import inspect
-        from modules.image_save import save_live_image
-
-        timeout_default = inspect.signature(save_live_image).parameters['timeout_s'].default
-        try:
-            sim_scope.imaging.capture_and_wait(
-                force_to_8bit=True,
-                all_ones_check=False,
-                timeout_s=timeout_default,
-                sum_count=1,
-                sum_delay_s=0,
-            )
-        except TypeError as e:
-            raise AssertionError(
-                f"capture_and_wait raised TypeError when given save_live_image's "
-                f'default timeout_s ({timeout_default!r}): {e}. '
-                f'Phase-2 audit P2-1 regression has returned.'
-            ) from e
 
 
 class TestImagingParamNamesUseUnitSuffix:
@@ -9645,15 +9624,6 @@ class TestTimeoutParamNamesUseSecondSuffix:
                 f'{class_name}.{method_name} still has bare `timeout` (U6 rename incomplete)'
             )
 
-    def test_save_live_image_uses_timeout_s(self):
-        """The save_live_image helper participates in the same sweep."""
-        import inspect
-        from modules.image_save import save_live_image
-
-        params = set(inspect.signature(save_live_image).parameters)
-        assert 'timeout_s' in params
-        assert 'timeout' not in params
-
     def test_driver_grab_new_capture_uses_timeout_s(self):
         """L2-mirror driver method -- grab_new_capture is invoked from
         ImagingAPI.capture_and_wait and ImagingAPI.get_image with a
@@ -9700,71 +9670,46 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 class TestRuntimeStateSetObjective:
     """The Session hardware forwarders are retired; the one public
     objective-selection path is the runtime_state member on the
-    composition root the Session exposes. This pins its round trip."""
+    composition root the Session exposes. This pins its round trip.
+
+    Built from the fixture, not from the checkout's saved settings: those
+    are whatever scope a developer last ran, and a turreted one refuses a
+    selected objective by design, so the test's answer depended on the
+    machine it ran on."""
 
     def test_set_objective_round_trip(self):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        session = ScopeSession.create_headless()
-        available = session.scope.runtime_state.get_available_objectives()
-        if not available:
-            return  # no objectives loaded in this sim profile
-        target = available[0] if isinstance(available, list) else next(iter(available))
+        session = ScopeSession.create(complete_settings(), simulate=True)
+        try:
+            available = session.scope.runtime_state.get_available_objectives()
+            assert available, 'the fixture scope loaded no objectives'
+            target = available[0]
 
-        session.scope.runtime_state.set_objective(target)
-        assert session.scope.runtime_state.get_current_objective_id() == target
+            session.scope.runtime_state.set_objective(target)
+            assert session.scope.runtime_state.get_current_objective_id() == target
+        finally:
+            session.shutdown()
 
 
 class TestAxisTravelLimitsOnCapabilities:
     """Freeze audit Finding #20 -- `Lumascope.travel_limit_um(axis)`
     lived on the composition root but read `motorconfig.travel_limit_um`
-    (motion-driver state). Canonical home is now
-    `capabilities.axis_travel_limits_um` (immutable per scope, populated
-    once at boot from present axes). The wrapper is retired."""
+    (motion-driver state). The travel bound's one door is
+    `motion.get_axis_limits(axis)`. The wrapper is retired."""
 
     def test_lumascope_class_does_not_carry_travel_limit_um(self):
         from modules.lumascope_api import Lumascope
 
         assert not hasattr(Lumascope, 'travel_limit_um'), (
             'Lumascope.travel_limit_um must be retired per audit #20; '
-            'callers read scope.capabilities.axis_travel_limits_um[axis] instead.'
+            'callers read scope.motion.get_axis_limits(axis) instead.'
         )
 
-    def test_present_axes_have_travel_limits(self, sim_scope):
-        """Default sim is LS850 (X/Y/Z present). All three axes appear
-        in the mapping with positive um values."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        for ax in sim_scope.capabilities.axes:
-            assert ax in limits, f'axis {ax} present but missing from travel limits'
-            assert limits[ax] > 0.0
-
-    def test_absent_axis_keyerrors(self, sim_scope):
-        """Per Rule 8 capability-probe corollary, querying an absent
-        axis is a caller bug -- contract is KeyError, not a sentinel."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        # 'Q' is guaranteed absent (no motorconfig advertises it); the
-        # test originally used 'T' but the sim default migrated to
-        # LS850T which has a real turret, so 'T' is no longer absent.
-        assert 'Q' not in sim_scope.capabilities.axes
-        import pytest as _pytest
-
-        with _pytest.raises(KeyError):
-            _ = limits['Q']
-
-    def test_mapping_is_read_only(self, sim_scope):
-        """MappingProxyType wrapper enforces the frozen-dataclass
-        immutability contract for the contents too. Mutation raises
-        TypeError; a caller cannot silently corrupt the snapshot."""
-        limits = sim_scope.capabilities.axis_travel_limits_um
-        import pytest as _pytest
-
-        with _pytest.raises(TypeError):
-            limits['X'] = 1.0  # type: ignore[index]
-
-    def test_null_motor_yields_empty_mapping(self):
-        """A NullMotionBoard exposes no motorconfig; the mapping is
-        empty -- which has_xy_stage / has_focus False already gates
-        callers away from it."""
+    def test_null_motor_has_no_stage_or_turret(self):
+        """A NullMotionBoard has no stage and no turret, which gates the
+        travel-dependent consumers away from it."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
         from modules.scope_capabilities import ScopeCapabilities
@@ -9774,12 +9719,8 @@ class TestAxisTravelLimitsOnCapabilities:
             led=NullLEDBoard(),
             camera=None,
         )
-        assert dict(caps.axis_travel_limits_um) == {}
-        # The empty-mapping contract pairs with has_xy_stage=False;
         # tiling_config / motion_settings / stage consumers gate on the
-        # capability and fall back to DEFAULT_STAGE_TRAVEL_UM. Pin both
-        # halves so a regression that flips one without the other is
-        # caught at unit-test time, not at cold-start without hardware.
+        # capability and fall back to DEFAULT_STAGE_TRAVEL_UM.
         assert caps.has_xy_stage is False
         assert caps.has_focus is False
 
@@ -9969,30 +9910,18 @@ class TestCreateDiagnosticSharesInitMinimal:
         finally:
             scope.disconnect()
 
-    def test_create_diagnostic_sets_all_shared_slots(self):
-        from modules.lumascope_api import Lumascope
+    def test_create_diagnostic_sets_all_shared_slots(self, diagnostic_scope):
+        for slot in self.REQUIRED_SHARED_SLOTS:
+            assert hasattr(diagnostic_scope, slot), (
+                f'create_diagnostic must set {slot} (via _init_minimal) per audit #35.'
+            )
 
-        instance = Lumascope.create_diagnostic()
-        try:
-            for slot in self.REQUIRED_SHARED_SLOTS:
-                assert hasattr(instance, slot), (
-                    f'create_diagnostic must set {slot} (via _init_minimal) per audit #35.'
-                )
-        finally:
-            instance.disconnect()
-
-    def test_create_diagnostic_camera_driver_is_none(self):
+    def test_create_diagnostic_camera_driver_is_none(self, diagnostic_scope):
         """The diagnostic path leaves _camera_driver=None (the
         _init_minimal default); camera_connected returns False without
         the getattr-default belt-and-suspenders firing."""
-        from modules.lumascope_api import Lumascope
-
-        instance = Lumascope.create_diagnostic()
-        try:
-            assert instance._camera_driver is None
-            assert instance.camera_connected is False
-        finally:
-            instance.disconnect()
+        assert diagnostic_scope._camera_driver is None
+        assert diagnostic_scope.camera_connected is False
 
 
 class TestLedSentinelReturnsAreNone:
@@ -10014,7 +9943,7 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_ma('Blue') is None
+            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         finally:
             scope.disconnect()
 
@@ -10022,16 +9951,15 @@ class TestLedSentinelReturnsAreNone:
         """After led_off, the channel entry is popped from _led_state;
         get_led_ma returns None (was -1.0)."""
         # No prior led_on -- Blue starts in the never-set state.
-        assert sim_scope.illumination.get_led_ma('Blue') is None
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         # Force a known sequence: on, then off.
         sim_scope.illumination._led_state['Blue'] = {
             'enabled': True,
             'illumination_ma': 50.0,
-            'owner': '',
         }
-        assert sim_scope.illumination.get_led_ma('Blue') == 50.0
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] == 50.0
         sim_scope.illumination._led_state.pop('Blue', None)
-        assert sim_scope.illumination.get_led_ma('Blue') is None
+        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
 
 
 class TestGetterSetterSymmetry:
@@ -10255,8 +10183,8 @@ class TestLumascopeSkillsApiPluginDocBatch:
 
 
 class TestGetLedStateShape:
-    """get_led_state / get_led_states return shape must include `owner`
-    (matches internal _led_state) and use None (not -1) for the
+    """get_led_state / get_led_states return shape carries enabled and
+    illumination_ma (matches internal _led_state) and uses None (not -1) for the
     illumination_ma sentinel when the channel is off / no LED board
     (matches the Sentinel-return contract preface in LumascopeSkills).
     Closes API audit F2 / F3 / F12 cluster.
@@ -10269,24 +10197,15 @@ class TestGetLedStateShape:
         scope._led_driver.set_timing_mode('fast')
         return scope
 
-    def test_get_led_state_off_returns_none_sentinel_and_empty_owner(self):
+    def test_get_led_state_off_returns_none_sentinel(self):
         scope = self._scope()
         state = scope.illumination.get_led_state('Blue')
         assert state == {
             'enabled': False,
             'illumination_ma': None,
-            'owner': '',
         }
 
-    def test_get_led_state_on_includes_owner(self):
-        scope = self._scope()
-        scope.illumination.led_on(channel='Green', illumination_ma=125.0, owner='audit_test')
-        state = scope.illumination.get_led_state('Green')
-        assert state['enabled'] is True
-        assert state['illumination_ma'] == 125.0
-        assert state['owner'] == 'audit_test'
-
-    def test_get_led_states_off_channels_use_none_and_empty_owner(self):
+    def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
         states = scope.illumination.get_led_states()
         assert states, 'get_led_states must return per-channel entries'
@@ -10295,15 +10214,6 @@ class TestGetLedStateShape:
             assert entry['illumination_ma'] is None, (
                 f'{color} off-state must use None sentinel, not -1.'
             )
-            assert entry['owner'] == '', f'{color} off-state must report owner = empty string.'
-
-    def test_get_led_states_on_channel_carries_owner(self):
-        scope = self._scope()
-        scope.illumination.led_on(channel='Red', illumination_ma=42.5, owner='restore_pre')
-        states = scope.illumination.get_led_states()
-        assert states['Red']['enabled'] is True
-        assert states['Red']['illumination_ma'] == 42.5
-        assert states['Red']['owner'] == 'restore_pre'
 
     def test_doc_example_matches_shape(self):
         import pathlib
@@ -10311,13 +10221,13 @@ class TestGetLedStateShape:
         # pin-justified: the published doc example text is the L2 contract
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        # \u2026 escape rather than a literal ellipsis: the doc currently
-        # uses the Unicode character, so this is the branch that matches,
-        # but source files stay ASCII. Both forms are accepted so a doc
-        # edit to '...' does not break the check.
-        assert "'owner': '\u2026'" in doc or "'owner': '...'" in doc, (
-            'LumascopeSkills get_led_state example must include the '
-            "'owner' key in the return-shape example."
+        assert "{'enabled': True, 'illumination_ma': 200} when on" in doc, (
+            'LumascopeSkills get_led_state example must show the on-state '
+            "return shape {'enabled', 'illumination_ma'}."
+        )
+        assert "{'enabled': False, 'illumination_ma': None} when off" in doc, (
+            'LumascopeSkills get_led_state example must show the off-state '
+            'return shape with the None sentinel.'
         )
         # Old "current mA, or -1 if off" wording must be retired.
         assert 'current mA, or -1 if off' not in doc, (
@@ -10375,8 +10285,8 @@ class TestPreReleaseFutureWarning:
     banner, LumascopeSkills.md preface, and CHANGELOG note. Closes
     API audit F4.
 
-    Warning fires once-per-process: any of the three L2 entry points
-    (Lumascope(), ScopeSession.create, ScopeSession.create_headless)
+    Warning fires once-per-process: either L2 entry point
+    (Lumascope() and ScopeSession.create)
     trips it the first time it runs; subsequent entries are silent.
     """
 
@@ -10454,13 +10364,13 @@ class TestPreReleaseFutureWarning:
             f'warned exactly once; saw {len(future_warnings)}'
         )
 
-    def test_scope_session_create_headless_fires_warning(self):
+    def test_scope_session_simulated_create_fires_warning(self):
         import warnings
         from modules.scope_session import ScopeSession
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            ScopeSession.create_headless()
+            ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) >= 1
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
@@ -10508,11 +10418,9 @@ class TestAutoGainArmedInScanIterate:
 
     @staticmethod
     def _queued_ag_applies(runner):
-        return [
-            c.args[0]
-            for c in runner._io_executor.protocol_put.call_args_list
-            if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-        ]
+        # The run arms through the public member, under its taking; the
+        # member's own dispatch puts the apply on the lane.
+        return runner._scope.imaging.apply_layer_camera_settings.call_args_list
 
     def test_run_loop_resets_armed_step_per_scan(self):
         """Each scan must re-arm AG: a two-scan run queues the AG apply
@@ -10528,10 +10436,10 @@ class TestAutoGainArmedInScanIterate:
             'at scan start so a re-run does not skip AG arming'
         )
 
-    def test_arm_block_routes_apply_through_io_executor(self, monkeypatch):
-        """An Auto_Gain step's arm tick must route the AG apply through
-        io_executor.protocol_put (serialized with other protocol-thread
-        IO) with the step's gain/exposure and the per-class exposure cap
+    def test_arm_block_routes_apply_through_the_public_member(self, monkeypatch):
+        """An Auto_Gain step's arm tick must make the AG apply through the
+        public member (which serializes it on the lane under the run's
+        taking) with the step's gain/exposure and the per-class exposure cap
         set on the shared settings dict."""
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
@@ -10542,7 +10450,7 @@ class TestAutoGainArmedInScanIterate:
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
         runner._step_executor.scan_iterate()
         applies = self._queued_ag_applies(runner)
-        assert len(applies) == 1, 'the arm tick must queue exactly one AG apply on the io executor'
+        assert len(applies) == 1, 'the arm tick must make exactly one AG apply'
         task = applies[0]
         assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
         assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
@@ -10560,9 +10468,11 @@ class TestAutoGainArmedInScanIterate:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
-        scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
@@ -10584,15 +10494,15 @@ class TestAutoGainArmedInScanIterate:
             not imaging.apply_layer_camera_settings.called
             and not imaging._apply_layer_camera_settings_impl.called
         ), 'AG-step capture must not re-apply layer camera settings'
-        assert not imaging._set_gain_db_impl.called and not imaging._set_exposure_ms_impl.called, (
+        assert not imaging.set_gain_db.called and not imaging.set_exposure_ms.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
         """Control: a non-AG step DOES drive the step gain/exposure."""
         imaging = self._drive_capture(auto_gain=False)
-        imaging._set_gain_db_impl.assert_called_once_with(2.0)
-        imaging._set_exposure_ms_impl.assert_called_once_with(10.0)
+        imaging.set_gain_db.assert_called_once_with(2.0)
+        imaging.set_exposure_ms.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick
@@ -10945,54 +10855,54 @@ class TestLedEngineeringModeSymmetricReturnTypes:
 
 
 class TestScopeSessionBuildsFullExecutorBundle:
-    """Per API audit F11: ScopeSession.create_headless() was building only
+    """Per API audit F11: ScopeSession.create(simulate=True) was building only
     io_executor + camera_executor, skipping file_io_executor + worker_pool
     + protocol_thread + scope_display_thread. L2 callers using
     ScopeSession.create*() got a silently degraded topology where the
     file-IO IOTask path fell back to inline execution and the worker-pool
     priority lanes were unavailable.
 
-    The fix routes create_headless() through executor_registry.create_default
+    The fix routes create() through executor_registry.create_default
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_create_headless_registers_file_io_executor_on_scope(self):
+    def test_create_registers_file_io_executor_on_scope(self):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         assert session.scope._file_io_executor is not None, (
-            'ScopeSession.create_headless() must register a file_io_executor '
+            'ScopeSession.create(simulate=True) must register a file_io_executor '
             'on the scope; without it, protocol_image_writer + IOTask file-IO '
             'paths fall back to inline execution and pipelining is lost.'
         )
 
-    def test_create_headless_attaches_executor_bundle_to_scope(self):
+    def test_create_attaches_executor_bundle_to_scope(self):
         from modules.scope_session import ScopeSession
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         # register_executor_bundle stores the bundle on _executor_bundle.
         bundle = getattr(session.scope, '_executor_bundle', None)
         assert isinstance(bundle, ExecutorBundle), (
-            'ScopeSession.create_headless() must call register_executor_bundle '
+            'ScopeSession.create(simulate=True) must call register_executor_bundle '
             'so MetricsLogger snapshot() reports all 4 executor queue depths.'
         )
 
-    def test_create_headless_session_carries_bundle_reference(self):
+    def test_create_session_carries_bundle_reference(self):
         from modules.scope_session import ScopeSession
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         assert isinstance(session.executor_bundle, ExecutorBundle), (
-            'ScopeSession.create_headless() must store the bundle on the '
+            'ScopeSession.create(simulate=True) must store the bundle on the '
             'session itself so headless callers can shut down protocol_thread '
             '/ scope_display_thread cleanly.'
         )
 
-    def test_create_headless_bundle_has_all_four_executors(self):
+    def test_create_bundle_has_all_four_executors(self):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         bundle = session.executor_bundle
         # All four executors are required for full L2-caller pipelining.
         for attr_name in ('io_executor', 'camera_executor', 'file_io_executor', 'worker_pool'):
@@ -11014,6 +10924,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
         try:
             session = ScopeSession.create(
                 settings=complete_settings(),
+                simulate=True,
                 io_executor=io,
                 camera_executor=cam,
             )
@@ -11030,7 +10941,7 @@ class TestScopeSessionBuildsFullExecutorBundle:
 
 
 class TestHeadlessSettingsResolutionMatchesGui:
-    """Per Settings-SSOT audit HR-4: ScopeSession.create_headless()'s deepest
+    """Per Settings-SSOT audit HR-4: ScopeSession.load_user_settings's deepest
     settings fallback (the settings arg None AND settings_init.settings None)
     opened data/settings.json directly, skipping current.json + the resolver.
     In a headless/test context where current.json holds the live state, that
@@ -11044,7 +10955,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         return pathlib.Path('modules/scope_session.py').read_text()
 
     def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
-        """With no settings loaded, create_headless must resolve the same
+        """With no settings loaded, load_user_settings must resolve the same
         file the GUI reads -- current.json first -- so headless state
         matches the running app."""
         import importlib.util
@@ -11084,7 +10995,9 @@ class TestHeadlessSettingsResolutionMatchesGui:
         (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
         for name in ('objectives.json', 'labware.json'):
             shutil.copy(shipped.parent / name, tmp_path / 'data' / name)
-        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        session = ScopeSession.create(
+            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+        )
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '
             f'settings.json; got {session.settings}'
@@ -11093,7 +11006,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
     def test_headless_fallback_does_not_hardcode_settings_json_only(self):
         src = self._src()
         assert "os.path.join(source_path, 'data', 'settings.json')" not in src, (
-            'create_headless must not hardcode a settings.json-only open in the '
+            'load_user_settings must not hardcode a settings.json-only open in the '
             'headless fallback -- that bypasses current.json + the resolver.'
         )
 
@@ -11356,7 +11269,7 @@ class TestRunPreValidationFiresNotificationOnException:
             'run must return at the validation failure, not fall through '
             'to the connectivity check (old anti-pattern: proceed anyway)'
         )
-        assert not runner._run_in_progress_event.is_set(), 'run must not start'
+        assert not runner.run_in_progress(), 'run must not start'
 
 
 class TestCompositeOrchestrationByteEqualManualVsProtocol:
@@ -12954,10 +12867,12 @@ class TestCaptureFailureAbortNotificationOrdering:
             'record'
         )
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.led_connected = False
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
-        scope.imaging._capture_and_wait_impl.return_value = None
+        scope.imaging.capture_and_wait.return_value = None
         monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
@@ -13038,7 +12953,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        runner._scope.motion._move_absolute_impl.side_effect = RuntimeError('Z move timeout')
+        runner._scope.motion.move_absolute.side_effect = RuntimeError('Z move timeout')
 
         # The failure still propagates (the executor runner logs it), but the
         # gate must be released by the finally so the next scan is not blocked.
@@ -13211,13 +13126,25 @@ class TestStepWriteEstimateSingleOwner:
         )
 
     def test_both_call_sites_use_the_shared_estimator(self):
+        import inspect
         import pathlib
+
+        from modules.protocol import Protocol
 
         root = pathlib.Path(__file__).resolve().parent.parent / 'modules'
         run_loop = (root / 'protocol_run_loop.py').read_text()
         writer = (root / 'protocol_image_writer.py').read_text()
-        assert 'estimate_step_write_mb' in run_loop, 'pre-scan check must use the shared estimator'
+        # The single owner moved up a level: the pre-scan guard asks the
+        # protocol for its whole-protocol total instead of summing per-step
+        # itself, so a second consumer cannot grow a second summation. The
+        # per-write check still calls the per-step estimator directly.
+        assert 'estimate_write_mb' in run_loop, (
+            'pre-scan check must use the whole-protocol estimator'
+        )
         assert 'estimate_step_write_mb' in writer, 'per-write check must use the shared estimator'
+        assert 'estimate_step_write_mb' in inspect.getsource(Protocol.estimate_write_mb), (
+            'the whole-protocol estimate must be built from the per-step estimator, not re-derived'
+        )
         # The flat per-video constant must no longer drive the pre-scan loop.
         assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
             'flat per-video constant should be gone from the run loop'

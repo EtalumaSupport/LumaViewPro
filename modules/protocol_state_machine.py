@@ -32,6 +32,15 @@ class ProtocolState(enum.Enum):
         SCANNING -> ERROR                (unrecoverable error during scan)
         COMPLETING -> IDLE               (cleanup finished)
         ERROR    -> IDLE                 (cleanup finished after error)
+        RUNNING  -> IDLE                 (cleanup finished from any phase)
+        SCANNING -> IDLE                 (cleanup finished from any phase)
+
+    IDLE is reachable from every state because a run that has stopped is
+    idle whatever phase it stopped in: cleanup restores it in a finally
+    that runs on every path out of a run, including one that raised
+    before the phase ever reached COMPLETING. A table that could not
+    express that would make the restore itself raise, inside the block
+    whose whole purpose is to run anyway.
     """
 
     IDLE = 'idle'
@@ -44,8 +53,18 @@ class ProtocolState(enum.Enum):
 # Allowed state transitions: {from_state: {set of valid to_states}}
 PROTOCOL_STATE_TRANSITIONS: dict[ProtocolState, set[ProtocolState]] = {
     ProtocolState.IDLE: {ProtocolState.RUNNING},
-    ProtocolState.RUNNING: {ProtocolState.SCANNING, ProtocolState.COMPLETING, ProtocolState.ERROR},
-    ProtocolState.SCANNING: {ProtocolState.RUNNING, ProtocolState.COMPLETING, ProtocolState.ERROR},
+    ProtocolState.RUNNING: {
+        ProtocolState.SCANNING,
+        ProtocolState.COMPLETING,
+        ProtocolState.ERROR,
+        ProtocolState.IDLE,
+    },
+    ProtocolState.SCANNING: {
+        ProtocolState.RUNNING,
+        ProtocolState.COMPLETING,
+        ProtocolState.ERROR,
+        ProtocolState.IDLE,
+    },
     ProtocolState.COMPLETING: {ProtocolState.IDLE},
     ProtocolState.ERROR: {ProtocolState.IDLE},
 }

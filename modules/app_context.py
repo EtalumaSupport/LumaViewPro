@@ -85,13 +85,12 @@ class AppContext:
     quick_enhance_controls: object = None
     # No metrics_logger field: it mirrored scope.metrics_logger and went
     # stale at every reconnect; the session owns the metrics lifecycle.
-    ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
+    ui_listener_bridge: object = None  # the GUI's subscriber to scope state events
 
     # Plugin platform: registry + entry-points discovery
     plugins: PluginRegistry = field(default_factory=PluginRegistry)
 
     # State
-    protocol: object = None  # Protocol instance (canonical owner, not UI)
     engineering_mode: bool = False
     no_engineering: bool = (
         False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable

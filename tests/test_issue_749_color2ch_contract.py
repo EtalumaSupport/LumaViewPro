@@ -133,8 +133,16 @@ class TestSeamBehaviour:
 
 
 class TestTaskFailureNotificationWording:
-    """The failure popup names the failed action; a protocol is blamed only
-    when the task actually came off the protocol queue."""
+    """A protocol is named only when the task came off the protocol queue,
+    and nothing the user reads is spelled from the callable.
+
+    Originally this asserted the failed action's SYMBOL appeared in the
+    body. Field evidence retired that half: a bundle showed the generic
+    popup reading "The '_grease_redist_w_pos' step operation failed" at an
+    L1 researcher, 81 times in one run, and queue membership turned out not
+    to be evidence that a step was skipped at all. The surviving property is
+    where the failure happened, which the title carries.
+    """
 
     def _fire(self, monkeypatch, *, protocol: bool):
         from modules import notification_center
@@ -146,7 +154,7 @@ class TestTaskFailureNotificationWording:
             monkeypatch.setattr(
                 notification_center.notifications,
                 'error',
-                lambda title, subject, body, **kw: calls.append(body),
+                lambda category, title, body, **kw: calls.append((title, body)),
             )
 
             def sample_operation():
@@ -165,15 +173,21 @@ class TestTaskFailureNotificationWording:
         finally:
             executor.shutdown(wait=False)
 
-    def test_live_task_names_action_not_protocol(self, monkeypatch):
-        body = self._fire(monkeypatch, protocol=False)
-        assert 'sample_operation' in body
-        assert 'protocol' not in body.lower()
+    def test_live_task_does_not_blame_a_protocol(self, monkeypatch):
+        title, body = self._fire(monkeypatch, protocol=False)
+        seen = f'{title} {body}'.lower()
+        assert 'protocol' not in seen, f'a manual live action blamed a protocol: {seen!r}'
+        assert 'sample_operation' not in seen, f'the user was shown a Python symbol: {seen!r}'
 
-    def test_protocol_task_may_blame_the_protocol(self, monkeypatch):
-        body = self._fire(monkeypatch, protocol=True)
-        assert 'sample_operation' in body
-        assert 'protocol' in body.lower()
+    def test_protocol_task_says_where_it_happened(self, monkeypatch):
+        title, body = self._fire(monkeypatch, protocol=True)
+        seen = f'{title} {body}'.lower()
+        assert 'protocol' in seen, f'a protocol-queue failure must say so: {seen!r}'
+        assert 'skipped' not in seen, (
+            'queue membership is not evidence a step was skipped -- this '
+            f'claim was false 81 times in one measured run: {seen!r}'
+        )
+        assert 'sample_operation' not in seen, f'the user was shown a Python symbol: {seen!r}'
 
 
 class TestLayersWithLedSemantics:
@@ -210,6 +224,8 @@ class TestDarkFloorKeysOnLedDrivability:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
         if writer_setup is not None:
@@ -223,7 +239,7 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
+        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
         # The capture path derives dark-by-design from commanded state (a
@@ -279,10 +295,12 @@ class TestCaptureAbortWording:
         )
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging._capture_and_wait_impl.return_value = None
+        scope.imaging.capture_and_wait.return_value = None
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

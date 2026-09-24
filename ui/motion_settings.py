@@ -11,8 +11,14 @@ from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import move_absolute, move_home, move_relative
 from ui.image_settings import AccordionItemXyStageControl
+from ui.ui_helpers import (
+    move_absolute,
+    move_home,
+    move_relative,
+    run_reported,
+    unknown_position_refused,
+)
 
 logger = logging.getLogger('LVP.ui.motion_settings')
 
@@ -294,8 +300,6 @@ class MotionSettings(BoxLayout):
         for turret_id in ('turret_selection_label', 'turret_btn_box'):
             vert_control.ids[turret_id].visible = visible
 
-        vert_control.ids['set_turret_objective_btn'].disabled = not visible
-        vert_control.ids['set_turret_objective_btn'].opacity = 1 if visible else 0
         vert_control.ids['reset_turret_objective_btn'].disabled = not visible
         vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
 
@@ -374,7 +378,7 @@ class XYStageControl(BoxLayout):
     def get_xy_targets(self):
         ctx = _app_ctx.ctx
         scope = ctx.lumaview.scope
-        # Cold-start without motor leaves axis_travel_limits_um empty;
+        # Cold-start without motor has no X/Y travel;
         # gate on has_xy_stage so the KeyError doesn't get swallowed by
         # the broad except below into a misleading "Error talking to
         # Motor board" log line.
@@ -382,9 +386,9 @@ class XYStageControl(BoxLayout):
             return None
         try:
             x_target = scope.motion.get_target_position('X')
-            x_target = np.clip(x_target, 0, scope.capabilities.axis_travel_limits_um['X'])
+            x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
             y_target = scope.motion.get_target_position('Y')
-            y_target = np.clip(y_target, 0, scope.capabilities.axis_travel_limits_um['Y'])
+            y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
@@ -410,18 +414,18 @@ class XYStageControl(BoxLayout):
                 return
             settings = ctx.settings
             coordinate_transformer = ctx.coordinate_transformer
-            stage_x, stage_y = coordinate_transformer.stage_to_plate(
+            plate_x, plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
             )
 
             if not self.ids['x_pos_id'].focus:
                 # Cache text to prevent redundant ScrollView updates
-                new_x_text = format(max(0, stage_x), '.2f')
+                new_x_text = format(plate_x, '.2f')
                 if self.ids['x_pos_id'].text != new_x_text:
                     self.ids['x_pos_id'].text = new_x_text  # Update x position text box
 
             if not self.ids['y_pos_id'].focus:
-                new_y_text = format(max(0, stage_y), '.2f')
+                new_y_text = format(plate_y, '.2f')
                 if self.ids['y_pos_id'].text != new_y_text:
                     self.ids['y_pos_id'].text = new_y_text  # Update y position text box
 
@@ -440,13 +444,11 @@ class XYStageControl(BoxLayout):
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
-        try:
-            _, objective = ctx.session.get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] {label}: no objective info: {e}')
-            return
-        step = objective['xy_coarse' if coarse else 'xy_fine']
-        move_relative(axis, direction * step)
+        run_reported(
+            lambda: move_relative(axis, direction * ctx.scope.motion.jog_step(axis, coarse)),
+            redraw=None,
+            label=label,
+        )
 
     @debounce(0.2)
     def fine_left(self):
@@ -489,22 +491,17 @@ class XYStageControl(BoxLayout):
             x_pos = float(x_pos)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
+            # An entry the box refuses is still the user pressing this control.
+            # Returning silently left the bundle with no line at all, so a
+            # stage that did not move looked like a stage nobody asked to move.
+            gui_logger.button('SET_X_POSITION', f'refused: {x_pos!r}')
             return
         gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
-        # x_pos is the the plate position in mm
-        # Find the coordinates for the stage
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        stage_x, _ = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
-        )
-
-        logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
-
-        # Move to x-position
-        move_absolute('X', stage_x)
+        # The typed number goes to the API in the frame it was typed in;
+        # the API owns both the conversion and the bound, so a refusal can
+        # name the number the user entered instead of its stage equivalent.
+        move_absolute('X', x_pos, frame='plate')
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
@@ -516,20 +513,14 @@ class XYStageControl(BoxLayout):
             y_pos = float(y_pos)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
+            # An entry the box refuses is still the user pressing this control.
+            # Returning silently left the bundle with no line at all, so a
+            # stage that did not move looked like a stage nobody asked to move.
+            gui_logger.button('SET_Y_POSITION', f'refused: {y_pos!r}')
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
-        # y_pos is the the plate position in mm
-        # Find the coordinates for the stage
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        _, stage_y = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
-        )
-
-        # Move to y-position
-        move_absolute('Y', stage_y)
+        move_absolute('Y', y_pos, frame='plate')
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -539,6 +530,9 @@ class XYStageControl(BoxLayout):
 
     def ex_set_xbookmark(self):
         ctx = _app_ctx.ctx
+
+        if unknown_position_refused(('X',), recording=True, then='save the bookmark'):
+            return
 
         # Get current stage x-position in um
         x_pos = ctx.lumaview.scope.motion.get_current_position('X')
@@ -562,6 +556,8 @@ class XYStageControl(BoxLayout):
 
     def ex_set_ybookmark(self):
         ctx = _app_ctx.ctx
+        if unknown_position_refused(('Y',), recording=True, then='save the bookmark'):
+            return
         y_pos = ctx.lumaview.scope.motion.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings
@@ -580,17 +576,11 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
 
         settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate x-position in mm
         x_pos = settings['bookmark']['x']
 
-        # Move to x-position
-        _, labware = get_selected_labware()
-        stage_x, _ = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
-        )
-        move_absolute('X', stage_x)
+        move_absolute('X', x_pos, frame='plate')
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
@@ -598,17 +588,11 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
 
         settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate y-position in mm
         y_pos = settings['bookmark']['y']
 
-        # Move to y-position
-        _, labware = get_selected_labware()
-        _, stage_y = coordinate_transformer.plate_to_stage(
-            labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
-        )
-        move_absolute('Y', stage_y)  # set current y position in um
+        move_absolute('Y', y_pos, frame='plate')
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -634,11 +618,9 @@ class XYStageControl(BoxLayout):
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
+                # The home's display shows every axis, the turret included:
+                # the firmware's home returns the turret to position 1.
                 move_home(axis='ALL')
-
-                # Firmware seems to move the turret back to position 1 when performing XY homing
-                # Use this command to make sure the UI is in-sync
-                ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
 
             else:
                 logger.warning('[LVP Main  ] Motion controller not available.')

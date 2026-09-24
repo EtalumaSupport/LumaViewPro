@@ -44,6 +44,10 @@ def complete_settings(**overrides) -> dict:
     si = _real_settings_init()
     merged = copy.deepcopy(overrides)
     template = si.read_settings_json(str(_TEMPLATE), None)
+    # The template ships the firmware tier; the suite runs the fast one
+    # unless a test asks for the other by name. Moving a test class to the
+    # firmware tier is a decision taken per class, not by the template.
+    template['simulator_tier'] = 'fast'
     si._normalize_turret_slot_keys(merged)
     si._normalize_turret_slot_keys(template)
     si._deep_merge_defaults(merged, template)

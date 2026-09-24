@@ -20,7 +20,7 @@ import pytest
 
 from modules.exceptions import CaptureError
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from modules.run_outcome import MergeOutcome, RunMergeOutcome
+from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
 
 
@@ -34,6 +34,7 @@ def _runner(acquiring=('BF', 'Blue')):
 
     session = MagicMock()
     session.settings = _settings(acquiring=acquiring)
+    session.capture_settings_snapshot.return_value = session.settings
     session.get_current_plate_position.return_value = {'x': 1.0, 'y': 2.0, 'z': 3.0}
     session.objective_helper.get_objective_info.return_value = {'magnification': 10}
     return ProtocolRunner(session)
@@ -97,18 +98,24 @@ class TestCompositeRunsAsItsOwnKind:
 class TestCompositeOutcomeIsObservable:
     """B17: the merge, not the capture, is what the caller learns about."""
 
-    def _runner_whose_merge(self, outcome):
+    _COMPLETED = RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished.')
+
+    def _runner_whose_run(
+        self, ending, *, merged=False, artifact_path=None, merge_reason='', settle=True
+    ):
         runner = _runner()
-        settled = RunMergeOutcome()
-        if outcome is not None:
-            token = settled.arm()
-            settled.resolve(token, outcome)
+        settled = PendingRunOutcome()
+        if settle:
+            token = settled.arm(ending)
+            settled.resolve(
+                token, merged=merged, artifact_path=artifact_path, merge_reason=merge_reason
+            )
         runner._executor.start.return_value = settled
         return runner
 
     def test_run_composite_returns_the_merged_artifact_path(self):
-        runner = self._runner_whose_merge(
-            MergeOutcome(merged=True, artifact_path='/runs/1/A1_Composite_1.tiff', reason='')
+        runner = self._runner_whose_run(
+            self._COMPLETED, merged=True, artifact_path='/runs/1/A1_Composite_1.tiff'
         )
 
         assert runner.run_composite() == '/runs/1/A1_Composite_1.tiff', (
@@ -117,26 +124,41 @@ class TestCompositeOutcomeIsObservable:
             'from a successful merge'
         )
 
+    @pytest.mark.parametrize('merge_reason', ['merge_timeout', 'merge_failed', 'no_run_dir'])
+    def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(self, merge_reason):
+        runner = self._runner_whose_run(self._COMPLETED, merge_reason=merge_reason)
+
+        with pytest.raises(CaptureError) as excinfo:
+            runner.run_composite()
+        assert excinfo.value.reason == merge_reason, (
+            'the failure must CARRY its machine-readable cause, so a caller '
+            'can tell an aborted run from a failed merge from a timeout '
+            'without pattern-matching the prose'
+        )
+        assert merge_reason in str(excinfo.value), 'the human-readable message still names it too'
+
     @pytest.mark.parametrize(
-        'reason',
-        ['aborted', 'merge_timeout', 'inputs_discarded', 'merge_failed'],
+        ('status', 'reason'),
+        [('aborted', 'stopped'), ('failed', 'motion_timeout'), ('failed', 'disk_space_critical')],
     )
-    def test_a_run_that_produced_no_composite_raises_typed(self, reason):
-        runner = self._runner_whose_merge(
-            MergeOutcome(merged=False, artifact_path=None, reason=reason)
+    def test_a_run_that_never_completed_names_its_own_ending(self, status, reason):
+        # There was no merge to blame: the run died first, so merge_reason
+        # is empty and the code the caller gets is why the RUN stopped.
+        # Collapsing both into one field is what made 'aborted' and
+        # 'merge_failed' indistinguishable to anyone deciding what to retry.
+        runner = self._runner_whose_run(
+            RunEnding(status, reason, 'Protocol Stopped', 'The run did not finish.')
         )
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
         assert excinfo.value.reason == reason, (
-            'the failure must CARRY its machine-readable cause, so a caller '
-            'can tell an aborted run from a failed merge from a timeout '
-            'without pattern-matching the prose'
+            f'a run that ended {status!r} for {reason!r} reported '
+            f'{excinfo.value.reason!r} to its caller'
         )
-        assert reason in str(excinfo.value), 'the human-readable message still names it too'
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
-        runner = self._runner_whose_merge(None)
+        runner = self._runner_whose_run(self._COMPLETED, settle=False)
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite(merge_timeout_s=0.05)

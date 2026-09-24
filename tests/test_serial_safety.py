@@ -516,7 +516,7 @@ class TestMotorBoardCommands:
         board.timeout = 30
         board.write_timeout = 5
         board.driver = _make_mock_serial()
-        board._fullinfo = None
+        board._fullinfo = {'model': 'unknown', 'serial_number': 'unknown', 'present_axes': []}
         board._connect_fails = 0
         board.axes_config = {
             'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},
@@ -847,7 +847,12 @@ class TestMotorBoardConversions:
 
 
 class TestMotorBoardMovement:
-    """Verify move_abs_pos limit clamping and overshoot logic."""
+    """Verify move_abs_pos drives the target it is given, and overshoot logic.
+
+    Travel is refused by the motion API before it reaches the driver; a
+    driver that clamped instead made a refused move look like one that
+    succeeded and stopped short.
+    """
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
@@ -880,33 +885,27 @@ class TestMotorBoardMovement:
         }
         return board
 
-    def test_z_clamped_to_max(self):
-        """move_abs_pos('Z', 99999) should clamp to Z max (14000um)."""
+    def test_z_above_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', 99999) writes 99999, not the 14000um max."""
         board = self._make_board()
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(14000)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_z_clamped_to_min(self):
-        """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
-        board = self._make_board()
-        board.move_abs_pos('Z', -100, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(0)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_x_clamped_to_max(self):
-        """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
-        board = self._make_board()
-        board.move_abs_pos('X', 200000, overshoot_enabled=False)
-        expected_ustep = board.xy_um2ustep(120000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
-
-    def test_ignore_limits(self):
-        """move_abs_pos with ignore_limits=True should not clamp."""
-        board = self._make_board()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
         expected_ustep = board.z_um2ustep(99999)
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
+
+    def test_z_below_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', -100) writes -100, not the 0um min."""
+        board = self._make_board()
+        board.move_abs_pos('Z', -100, overshoot_enabled=False)
+        # A negative target goes to the firmware in two's complement.
+        expected_ustep = board.z_um2ustep(-100) + 0x100000000
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
+
+    def test_x_above_travel_is_driven_not_clamped(self):
+        """move_abs_pos('X', 200000) writes 200000, not the 120000um max."""
+        board = self._make_board()
+        board.move_abs_pos('X', 200000, overshoot_enabled=False)
+        expected_ustep = board.xy_um2ustep(200000)
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""
@@ -1205,7 +1204,13 @@ class TestSimulatorFirmwareVersion:
 
 
 class TestLEDNoneHandling:
-    """Verify LED methods handle None from exchange_command without crashing."""
+    """Verify LED methods treat an unusable reply as a failed command.
+
+    Unusable means None (port closed, write timeout, silent-board reject) OR
+    the empty string, which is what a readline() timeout yields: a board whose
+    firmware is wedged accepts the write and never answers, and the LED is not
+    energized. Both must reach last_command_error.
+    """
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -1271,6 +1276,43 @@ class TestLEDNoneHandling:
         # Should return without sending any commands
         board.wait_until_on()
         board.driver.write.assert_not_called()
+
+    @pytest.mark.parametrize(
+        'op,call',
+        [
+            ('leds_enable', lambda b: b.leds_enable()),
+            ('leds_disable', lambda b: b.leds_disable()),
+            ('led_on', lambda b: b.led_on(channel=3, mA=5)),
+            ('led_off', lambda b: b.led_off(channel=3)),
+            ('leds_off', lambda b: b.leds_off()),
+        ],
+    )
+    def test_empty_reply_is_not_an_ack(self, op, call):
+        """A wedged board answers every command with an empty line, not silence.
+
+        readline() returns b'' on timeout, so exchange_command hands back ''
+        rather than None. Treating that as success cleared the error field and
+        left the API reporting a channel lit while the hardware was dark -- the
+        18-minute wedge in the SNlogs-2026-05-14-134147 bundle.
+        """
+        board = self._make_board()
+        board.driver.readline.return_value = b''
+        board.last_command_error = None
+
+        call(board)
+
+        assert board.last_command_error is not None, f'{op}: empty reply recorded as success'
+        assert board.last_command_error['op'].startswith(op)
+
+    def test_real_reply_still_acks(self):
+        """The ordinary path is untouched: a firmware reply confirms."""
+        board = self._make_board()
+        board.driver.readline.return_value = b'LED 3 set to 5 mA.\r\n'
+        board.last_command_error = {'op': 'stale', 'reason': 'stale'}
+
+        board.led_on(channel=3, mA=5)
+
+        assert board.last_command_error is None
 
 
 # ==========================================================================
@@ -1900,7 +1942,7 @@ class TestMotorBoardStateLock:
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
-        board._fullinfo = {'model': 'LS720', 'serial_number': '12345'}
+        board._fullinfo = {'model': 'LS720', 'serial_number': '12345', 'present_axes': []}
         board.port = '/dev/fake'
         board._lock = threading.RLock()
         board._label = '[XYZ Class ]'

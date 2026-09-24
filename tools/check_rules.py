@@ -20,6 +20,9 @@ in untouched lines are not blocked. Use --all to flag every violation in
 every modified file (useful for cleanup sweeps).
 
 Checks implemented (universal -- both repos):
+    build_untracked -- nothing under build/ is committed (BLOCK on any staged
+                add, modify or rename into it): the directory is local evidence,
+                clones and toolchains; 1,020 files got in by convention alone
     rule_24  -- ASCII-only over the full source text per CLAUDE.md spec
                 ('every string ... every comment ... every docstring ...
                 every identifier in .py / .c / .h / .kv / similar files').
@@ -62,6 +65,11 @@ Firmware-only (doc_status family):
                 shard docs/DAILY_LOG_<YYYY-MM>.md)
     daily_log_ordering -- shard entries are newest-first; an entry dated
                 newer than the one above it is BLOCKED (insert at top)
+    daily_log_entries_kept -- a shard commit that drops an entry HEAD has
+                is BLOCKED (a prepend that truncated the file)
+    handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
+                outside Branch tips / Next / Rulings / What not to touch,
+                and a new one has all four (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -81,6 +89,7 @@ import subprocess
 import sys
 import tokenize
 import tomllib
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -947,7 +956,10 @@ def _is_rule_45_doc(path: str) -> bool:
     """Mechanical proxy for "plan / audit / design / roadmap doc" (Rule 45).
 
     Fires on docs/ markdown whose basename is AUDIT_* or contains _PLAN
-    (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...).
+    (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...). The
+    program reference (PROGRAM_OVERVIEW) is not a tracker: it is the
+    definitive description of the program, kept current by editing, with
+    no Status to date its facts against, so it is exempt by construction.
     Archived docs under docs/completed/ are exempt -- they are frozen
     records, not live trackers. Handovers are exempt by name: their
     basename used to carry a free-text headline, and one headline
@@ -1027,7 +1039,9 @@ def _check_rule_45(content: str, path: str, added: set[int] | None) -> list[Viol
 
 
 _DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
-_DAILY_LOG_RE = re.compile(r'(?:^|/)docs/DAILY_LOG(?:_\d{4}-\d{2})?\.md$')
+# RETROSPECTIVES shards are top-inserted by four tracks exactly as the log
+# is, so they get the same newest-first check.
+_DAILY_LOG_RE = re.compile(r'(?:^|/)docs/(?:DAILY_LOG|RETROSPECTIVES)(?:_\d{4}-\d{2})?\.md$')
 
 
 def _is_daily_log(path: str) -> bool:
@@ -1063,8 +1077,76 @@ def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation
     ]
 
 
+_HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
+_HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
+# Mirrors the H2 lines of the handover block in the handover-close skill's
+# references/templates.md; a rename lands in both or every next close WARNs.
+_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings', 'What not to touch')
+
+
+def _is_handover(path: str) -> bool:
+    """A live session handover (docs/SESSION_HANDOVER_*.md). Archived
+    copies under docs/completed/ are frozen history and never checked.
+    """
+    return _HANDOVER_RE.search(path.replace('\\', '/')) is not None
+
+
+def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a handover gains a heading outside its closed shape, or a
+    new handover arrives without one of the four.
+
+    The handover's length lives in sections the writer adds beside the
+    template's ("the three facts a builder will rediscover", "what was
+    established"), not in the template's own sections, so the shape is
+    closed: the plan paragraph under the H1, then exactly Branch tips /
+    Next / Rulings / What not to touch, and nothing deeper. Diff-aware:
+    only an ADDED heading line fires, so an old handover left as written
+    stays silent; a missing section is reported only when every line of
+    the file is added (a new handover), for the same reason. WARN, not
+    BLOCK, so the close commit lands and the writer fixes it in the same
+    session.
+    """
+    if not _is_handover(path) or not added:
+        return []
+    lines = content.splitlines()
+    violations: list[Violation] = []
+    shape = ' / '.join(_HANDOVER_SECTIONS)
+    for ln in sorted(added):
+        if ln - 1 >= len(lines):
+            continue
+        m = _HEADING_RE.match(lines[ln - 1])
+        if m and m.group(1) not in _HANDOVER_SECTIONS:
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'handover_shape',
+                    f'handover section `{m.group(1)}` is outside the closed shape '
+                    f'({shape}); a fact goes to its doc with a pointer in Next, '
+                    'a lesson to the RETROSPECTIVES entry',
+                    severity='warn',
+                )
+            )
+    if added >= set(range(1, len(lines) + 1)):
+        present = {m.group(1) for m in map(_HEADING_RE.match, lines) if m}
+        for name in _HANDOVER_SECTIONS:
+            if name not in present:
+                violations.append(
+                    Violation(
+                        path,
+                        1,
+                        0,
+                        'handover_shape',
+                        f'new handover has no `## {name}` section; the closed shape is {shape}',
+                        severity='warn',
+                    )
+                )
+    return violations
+
+
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
-    """BLOCK a DAILY_LOG shard whose entry dates are not newest-first.
+    """BLOCK a DAILY_LOG or RETROSPECTIVES shard whose entry dates are not newest-first.
 
     The shard header promises newest-at-top; four recurrences of
     bottom-appended entries outlived that prose, and the Rulings check
@@ -1089,14 +1171,59 @@ def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
                     lineno,
                     0,
                     'daily_log_ordering',
-                    f'DAILY_LOG shard entries are newest-first: the {date} '
-                    f'entry sits below the older {prev[0]} entry (line '
+                    f'{p.rsplit("/", 1)[-1]} entries are newest-first: the '
+                    f'{date} entry sits below the older {prev[0]} entry (line '
                     f'{prev[1]}); insert new entries at the TOP, directly '
                     'under the header block',
                 )
             )
         prev = (date, lineno)
     return violations
+
+
+def _entry_keys(content: str) -> Counter[str]:
+    """The identity of each shard entry: its heading up to the first colon
+    (date, track, session), so a reworded headline is the same entry and
+    only a vanished one counts. A Counter, because two closes of one track
+    on one day can share a key."""
+    keys: Counter[str] = Counter()
+    for line in content.splitlines():
+        if _DAILY_LOG_ENTRY_RE.match(line):
+            keys[line.split(':', 1)[0].rstrip()] += 1
+    return keys
+
+
+def _check_daily_log_entries_kept(content: str, path: str, previous: str | None) -> list[Violation]:
+    """BLOCK a shard commit that loses an entry the previous revision had.
+
+    Every close prepends its entry with a freshly written command, four
+    tracks a day; one of them opened the file for writing before reading
+    it, which truncates the file first, so the committed shard was the
+    new entry alone and the ordering check saw a valid newest-first file
+    of one entry. Only what the commit REMOVES tells the two apart.
+    `previous` is the shard as the parent revision has it; None means
+    there is no parent copy (a new shard, or no diff context), and the
+    check has nothing to compare.
+    """
+    p = path.replace('\\', '/')
+    if previous is None or not _is_daily_log(p) or p.endswith('docs/DAILY_LOG.md'):
+        return []
+    missing = _entry_keys(previous) - _entry_keys(content)
+    if not missing:
+        return []
+    lost = sum(missing.values())
+    first = next(iter(missing))
+    return [
+        Violation(
+            path,
+            1,
+            0,
+            'daily_log_entries_kept',
+            f'{p.rsplit("/", 1)[-1]} loses {lost} entr{"y" if lost == 1 else "ies"} '
+            f'the previous revision has (first: `{first}`); a close PREPENDS '
+            'its entry -- read the file before opening it for writing',
+        )
+    ]
 
 
 def _merge_in_progress() -> bool:
@@ -1235,12 +1362,20 @@ def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[V
     return violations
 
 
-def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation]:
-    """Run the doc-status checks against one markdown file's content."""
+def check_doc(
+    content: str, path: str, added: set[int] | None, previous: str | None = None
+) -> list[Violation]:
+    """Run the doc-status checks against one markdown file's content.
+
+    `previous` is the parent revision's copy of the file, for the checks
+    that look at what a commit removes; None where no parent copy exists.
+    """
     violations: list[Violation] = []
     violations.extend(_check_rule_45(content, path, added))
     violations.extend(_check_daily_log_frozen(path, added))
     violations.extend(_check_daily_log_ordering(content, path))
+    violations.extend(_check_daily_log_entries_kept(content, path, previous))
+    violations.extend(_check_handover_shape(content, path, added))
     return violations
 
 
@@ -1252,13 +1387,60 @@ def _staged_files(suffix: str) -> list[str]:
     return [p for p in out.splitlines() if p.endswith(suffix)]
 
 
+def _staged_paths_entering() -> list[str]:
+    """Every path a commit would add, change or rename INTO; deletions and
+    rename sources are not entries."""
+    out = subprocess.check_output(
+        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AMR'],
+        text=True,
+    )
+    return out.splitlines()
+
+
+def _check_build_untracked(paths: list[str]) -> list[Violation]:
+    """BLOCK a commit that puts anything under build/.
+
+    build/ is local: bench evidence, pass reports, skeptic clones, the
+    MicroPython source and toolchain. The convention held it out of the
+    repo in prose only, and 1,020 files got in over five months; sources,
+    images and curated vendor docs that had landed there were moved to
+    boards/, tools/ and docs/vendor/ when the directory was untracked.
+    One violation names the first path and the count.
+    """
+    inside = [p for p in paths if p.replace('\\', '/').startswith('build/')]
+    if not inside:
+        return []
+    return [
+        Violation(
+            inside[0],
+            1,
+            0,
+            'build_untracked',
+            f'{len(inside)} staged path(s) under build/ (first: {inside[0]}); build/ is '
+            'local and never committed -- sources go to boards/ or tools/, curated '
+            'vendor docs to docs/vendor/, evidence stays on disk or in the archive',
+        )
+    ]
+
+
 def _staged_doc_files() -> list[str]:
     docs = _staged_files('.md')
-    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p)]
+    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p) or _is_handover(p)]
 
 
 def _read_staged_content(path: str) -> str:
     return subprocess.check_output(['git', 'show', f':{path}'], text=True)
+
+
+def _read_head_content(path: str) -> str | None:
+    """The committed copy the staged one replaces; None when HEAD has no
+    such file (a new file, or an unborn branch)."""
+    try:
+        return subprocess.check_output(
+            ['git', 'show', f'HEAD:{path}'], text=True, stderr=subprocess.DEVNULL
+        )
+    except subprocess.CalledProcessError:
+        return None
 
 
 _HUNK_HEADER = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
@@ -1315,6 +1497,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.staged:
         merging = _merge_in_progress()
+        violations.extend(_check_build_untracked(_staged_paths_entering()))
         for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
@@ -1349,7 +1532,7 @@ def main(argv: list[str] | None = None) -> int:
                 # The doc checks are diff-aware (freshness) and content-aware
                 # (structure); they do their own line-range filtering, so they
                 # are not subject to the --all / added-line filter above.
-                violations.extend(check_doc(content, p, _added_lines(p)))
+                violations.extend(check_doc(content, p, _added_lines(p), _read_head_content(p)))
     else:
         for p in args.paths or []:
             try:

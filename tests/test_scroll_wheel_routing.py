@@ -241,7 +241,7 @@ class TestWheelDirectionIsConsistent:
             _scroll_z_trigger=lambda *a: None,
         )
 
-    def _scroll_live_image(self, monkeypatch, token, ctrl_held, scale=1.0):
+    def _scroll_live_image(self, monkeypatch, token, ctrl_held, scale=1.0, jog_step=None):
         import types
 
         from ui import shader
@@ -255,12 +255,13 @@ class TestWheelDirectionIsConsistent:
             types.SimpleNamespace(
                 image_settings=panel,
                 motion_settings=panel,
-                session=types.SimpleNamespace(
-                    controls_locked=False,
-                    get_current_objective_info=lambda: (
-                        None,
-                        {'z_fine': 10.0, 'z_coarse': 100.0},
-                    ),
+                session=types.SimpleNamespace(controls_locked=False),
+                # The step comes from the API's jog step, as the jog
+                # buttons' does.
+                scope=types.SimpleNamespace(
+                    motion=types.SimpleNamespace(
+                        jog_step=jog_step or (lambda axis, coarse: 100.0 if coarse else 10.0)
+                    )
                 ),
             ),
         )
@@ -277,12 +278,32 @@ class TestWheelDirectionIsConsistent:
     def test_wheel_up_raises_the_objective(self, monkeypatch):
         up = self._scroll_live_image(monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=True)
         down = self._scroll_live_image(monkeypatch, self.TOKEN_PHYSICAL_DOWN, ctrl_held=True)
-        assert up._scroll_z_pending > 0, (
-            'ctrl + wheel up must queue a POSITIVE Z delta -- move_relative '
-            'consumes this directly, so the sign IS the direction the '
-            'objective travels. It must match the Z slider.'
+        # The tick queues (signed speed factor, coarse); the move is the
+        # factor times the API's jog step, so the sign IS the direction the
+        # objective travels. It must match the Z slider.
+        assert up._scroll_z_pending[0] > 0, 'ctrl + wheel up must queue a POSITIVE Z move.'
+        assert down._scroll_z_pending[0] < 0, 'ctrl + wheel down must lower the objective.'
+
+    def test_focus_with_the_objective_unknown_is_refused_visibly(self, monkeypatch):
+        """The step scales with the objective. With none known nothing
+        moves, and the refusal is shown as the jog buttons show theirs --
+        not a debug line nobody sees."""
+        from modules.exceptions import ObjectiveUnknownError
+        from tests.shown_outcomes import capture_shown
+        from ui import shader, ui_helpers
+
+        def _unknown(axis, coarse):
+            raise ObjectiveUnknownError('slot_unknown')
+
+        moved = []
+        monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
+        shown = capture_shown(monkeypatch)
+        viewer = self._scroll_live_image(
+            monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=True, jog_step=_unknown
         )
-        assert down._scroll_z_pending < 0, 'ctrl + wheel down must lower the objective.'
+        shader.ShaderViewer._flush_scroll_z(viewer, 0)
+        assert moved == []
+        assert [n.title for n in shown] == ['Objective Unknown']
 
     def test_wheel_up_zooms_in(self, monkeypatch):
         up = self._scroll_live_image(monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=False)

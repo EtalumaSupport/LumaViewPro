@@ -15,13 +15,14 @@ cadence must not change.
 
 import datetime
 import threading
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest import mock
 
 import pytest
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
 class FakeClock:
@@ -46,10 +47,13 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     p._n_scans = n_scans
     p._scan_count = 0
     p.remaining_scans = lambda: p._n_scans - p._scan_count
-    p._run_in_progress_event = threading.Event()
-    p._run_in_progress_event.set()
     p._aborted = threading.Event()
     p._state = ProtocolState.RUNNING
+    # The production predicate over the stub's own state, so the stub
+    # cannot answer 'is a run live' differently from the runner.
+    p._is_run_live = MethodType(SequencedCaptureRunner._is_run_live, p)
+    # The loop takes the camera first; a stub with a mock scope has no lane to wait for.
+    p._take_camera = lambda: None
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(seconds=period_s)

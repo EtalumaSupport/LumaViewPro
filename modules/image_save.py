@@ -22,7 +22,6 @@ from __future__ import annotations
 import datetime
 import os
 import pathlib
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -33,7 +32,6 @@ import modules.image_utils as image_utils
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
 from modules.exceptions import CaptureError, ConfigError
-from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 
 if TYPE_CHECKING:
@@ -122,7 +120,7 @@ def write_video_frame(
     )
 
 
-def get_next_save_path(scope: Lumascope, path) -> str:
+def get_next_save_path(scope: Lumascope, path: pathlib.Path | str) -> pathlib.Path:
     """Get the next save path given an existing save path.
 
     Increments the trailing numeric ID component on the filename and
@@ -136,7 +134,9 @@ def get_next_save_path(scope: Lumascope, path) -> str:
             ``./{save_folder}/{well_label}_{color}_{file_id}.tiff``.
 
     Returns:
-        str: Next save path with ``file_id`` incremented.
+        pathlib.Path: Next save path with ``file_id`` incremented -- a Path,
+        as ``generate_image_save_path`` promises its callers after a
+        collision as well as before one.
     """
     # Handle both .tiff and .ome.tiff by detecting multiple extensions
     # if present -- pathlib doesn't handle multi-extension stems
@@ -152,8 +152,7 @@ def get_next_save_path(scope: Lumascope, path) -> str:
     next_seq_num = seq_num + 1
     next_seq_num_str = f'{next_seq_num:0>{_NUM_SEQ_DIGITS}}'
 
-    new_path = path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
-    return str(new_path)
+    return path2.parent / f'{stem_base}_{next_seq_num_str}{extension}'
 
 
 def generate_image_save_path(
@@ -243,25 +242,86 @@ def generate_image_save_path(
     return path
 
 
+def position_metadata_fields(
+    plate_x_mm: float | None, plate_y_mm: float | None, stage_z_um: float | None
+) -> dict:
+    """The position keys a captured file carries, for the position it has.
+
+    A capture that has no position states none, the same way the metadata
+    builders decline to state a pixel size they cannot compute, a gain or
+    exposure whose read failed, and a well label on labware that has no
+    wells. A missing value used to be defaulted to zero and written, so
+    files carried a real point on the plate in a key whose siblings are
+    all measurements.
+
+    X and Y travel as a pair because half a plate coordinate is not one.
+    Z is independent: a focus-only capture knows its depth and not its
+    place. One builder for the still and for a recording's frames, so the
+    two can never spell a position differently.
+
+    Args:
+        plate_x_mm: Plate X in mm, or None when unknown.
+        plate_y_mm: Plate Y in mm, or None when unknown.
+        stage_z_um: Stage Z in um, or None when unknown.
+
+    Returns:
+        dict: ``plate_pos_mm`` / ``x_pos`` / ``y_pos`` when X and Y are
+            both known, ``z_pos_um`` when Z is; empty otherwise.
+    """
+    fields: dict = {}
+    if plate_x_mm is not None and plate_y_mm is not None:
+        px = round(plate_x_mm, common_utils.max_decimal_precision('x'))
+        py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
+        fields['plate_pos_mm'] = {'x': px, 'y': py}
+        fields['x_pos'] = px
+        fields['y_pos'] = py
+    if stage_z_um is not None:
+        fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
+    return fields
+
+
 def generate_image_metadata(
-    scope: Lumascope, channel: str, x: float | None, y: float | None, z: float | None
+    scope: Lumascope,
+    channel: str,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
+    *,
+    objective_id: str,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
+    The XY position arrives in the frame the file records -- plate millimetres
+    -- and is written through unconverted. The parameters carry their frame in
+    their names because the alternative was tried: they were `x` and `y`,
+    documented as stage micrometres, and the protocol writer filled them with
+    plate millimetres. This function converted a second time, so steps nine
+    millimetres apart were recorded nine microns apart and inverted, in numbers
+    that still looked like plate coordinates. A position whose frame is stated
+    only in prose is a position that will arrive in the wrong one.
+
+    Z is unconverted in either direction: the file declares it in micrometres
+    and every producer already holds it that way.
+
     Args:
         scope: Read for objective / labware / stage-offset state,
-            coordinate transformer, current camera + LED settings,
-            and pending camera chunk metadata.
+            current camera + LED settings, and pending camera chunk metadata.
         channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
-        x (float): Stage X position in um (or None).
-        y (float): Stage Y position in um (or None).
-        z (float): Stage Z position in um (or None).
+        plate_x_mm (float): Plate X position in mm (or None).
+        plate_y_mm (float): Plate Y position in mm (or None).
+        stage_z_um (float): Stage Z position in um (or None).
+        objective_id: The objective in the light path when the frame was
+            taken. Required: the save runs later, on the file writer, when a
+            turret move for the next step may already have changed the live
+            objective -- read then, the file would claim the wrong scale or
+            none. The caller reads it when it takes the frame.
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
 
     Raises:
-        ConfigError: If objective, labware, or stage offset are not set.
+        ConfigError: If ``objective_id`` is not a catalogue key, or labware
+            or stage offset are not set.
         ValueError: If channel is not a known layer or 'Composite'.
     """
     # This is the last point that can tell a real channel from a placeholder,
@@ -274,9 +334,7 @@ def generate_image_metadata(
             f"{common_utils.get_layers()} or 'Composite'"
         )
 
-    objective = scope.runtime_state.get_current_objective()
-    if objective is None:
-        raise ConfigError('[SCOPE API ] Objective not set')
+    objective = scope.runtime_state.get_objective_info(objective_id)
 
     if 'focal_length' not in objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
@@ -288,19 +346,9 @@ def generate_image_metadata(
     if scope.runtime_state.get_stage_offset() is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
-    if x is None:
-        x = 0
-    if y is None:
-        y = 0
-    if z is None:
-        z = 0
-
-    px, py = scope.runtime_state.stage_to_plate(sx=x, sy=y)
     well_label = scope.runtime_state.get_well_label()
 
-    px = round(px, common_utils.max_decimal_precision('x'))
-    py = round(py, common_utils.max_decimal_precision('y'))
-    z = round(z, common_utils.max_decimal_precision('z'))
+    _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
@@ -417,10 +465,7 @@ def generate_image_metadata(
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
         'objective': objective,
         'focal_length': objective['focal_length'],
-        'plate_pos_mm': {'x': px, 'y': py},
-        'x_pos': px,
-        'y_pos': py,
-        'z_pos_um': z,
+        **_position_fields,
         **_frame_settings,
         # An LED that is off, never set, or on an absent board has no
         # drive current -- a normal state for dark and luminescence
@@ -428,7 +473,7 @@ def generate_image_metadata(
         # exposure/gain omissions above, which indicate a failed read).
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
-            if (_ma := scope.illumination.get_led_ma(channel=channel)) is not None
+            if (_ma := scope.illumination.get_led_state(channel)['illumination_ma']) is not None
             else {}
         ),
         'binning_size': scope.imaging._binning_size,
@@ -489,12 +534,13 @@ def prepare_image_for_saving(
     append: str,
     tail_id_mode: str,
     output_format: str,
-    x,
-    y,
-    z,
+    plate_x_mm: float | None,
+    plate_y_mm: float | None,
+    stage_z_um: float | None,
     *,
     channel: str,
     significant_bits: int,
+    objective_id: str,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -511,9 +557,9 @@ def prepare_image_for_saving(
         append: String appended to filename (e.g. channel label).
         tail_id_mode: "increment" for auto-numbered files, or None.
         output_format: "TIFF" or "OME-TIFF".
-        x: Stage X position in um.
-        y: Stage Y position in um.
-        z: Stage Z position in um.
+        plate_x_mm: Plate X position in mm -- the frame the file records.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
         channel: Channel the frame was acquired on. Required and keyword-only:
             it is the sole durable carrier of channel identity, so a save that
             never states its channel must not be constructible. It is
@@ -524,11 +570,20 @@ def prepare_image_for_saving(
             single wider frame, 16 for a summed 16-bit container) -- a save
             cannot re-derive it from the camera's live state, which may already
             describe a newer format.
+        objective_id: The objective in the light path when the frame was
+            taken, for the same reason (see ``generate_image_metadata``).
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
-    metadata = generate_image_metadata(scope, channel=channel, x=x, y=y, z=z)
+    metadata = generate_image_metadata(
+        scope,
+        channel=channel,
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        stage_z_um=stage_z_um,
+        objective_id=objective_id,
+    )
 
     metadata['significant_bits'] = significant_bits
 
@@ -563,14 +618,15 @@ def save_image(
     false_color_on: bool,
     save_encoding: str,
     output_format: str = 'TIFF',
-    x: float | None = None,
-    y: float | None = None,
-    z: float | None = None,
+    plate_x_mm: float | None = None,
+    plate_y_mm: float | None = None,
+    stage_z_um: float | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
     significant_bits: int,
-) -> str:
+    objective_id: str,
+) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
 
     Args:
@@ -587,9 +643,12 @@ def save_image(
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
         output_format: "TIFF", "OME-TIFF", or "JPG".
-        x: Stage X position in um.
-        y: Stage Y position in um.
-        z: Stage Z position in um.
+        plate_x_mm: Plate X position in mm -- the frame the file records, and
+            the frame the caller must supply. Named for its frame because the
+            defect this replaces was a plate value passed into a parameter
+            documented as stage micrometres.
+        plate_y_mm: Plate Y position in mm.
+        stage_z_um: Stage Z position in um.
         save_encoding: The derived on-disk encoding from the image_mode
             config layer (rgb / msb_aligned / right_aligned / 8bit). Required
             and keyword-only: it is the single value that drives the save
@@ -599,9 +658,13 @@ def save_image(
         rgb_buf: Preallocated RGB buffer.
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
+        significant_bits: Payload depth the frame was captured at.
+        objective_id: The objective in the light path when the frame was
+            taken; recorded as the file's scale. Required: read by the
+            caller when it takes the frame, never at save time.
 
     Returns:
-        str: Path to the saved file.
+        pathlib.Path: Path to the saved file.
 
     Raises:
         CaptureError: If ``array`` is None (camera silent-stuck or
@@ -651,10 +714,11 @@ def save_image(
             tail_id_mode=tail_id_mode,
             output_format=output_format,
             channel=channel,
-            x=x,
-            y=y,
-            z=z,
+            plate_x_mm=plate_x_mm,
+            plate_y_mm=plate_y_mm,
+            stage_z_um=stage_z_um,
             significant_bits=significant_bits,
+            objective_id=objective_id,
         )
         image = image_data['image']
         metadata = image_data['metadata']
@@ -708,130 +772,3 @@ def save_image(
     _h_tick('save_image')
 
     return file_loc
-
-
-def report_manual_capture_failure(scope: Lumascope) -> None:
-    """Tell the user a manual capture saved nothing, and why.
-
-    A rejected frame returned None exactly as a dead camera did, and the
-    manual path passed that None up to a button that only re-enabled
-    itself: three captures in a row rejected against a stale target on a
-    field unit with no sign to the user, while the composite path
-    notified for the identical rejection. The notice is the API's, so a
-    headless caller of the same save gets the same failure.
-    """
-    cause = capture_failure_cause(scope.imaging.last_capture_info)
-    logger.error(f'[ImageSave] manual capture saved nothing: {cause}')
-    notifications.error(
-        'Capture',
-        'Capture rejected',
-        f'No image was saved: {cause}. Check the live view, then try again.',
-    )
-
-
-def save_live_image(
-    scope: Lumascope,
-    save_folder: str | pathlib.Path = './capture',
-    file_root: str = 'img_',
-    append: str = 'ms',
-    tail_id_mode: str | None = 'increment',
-    force_to_8bit: bool = True,
-    output_format: str = 'TIFF',
-    timeout_s: float = 5.0,
-    all_ones_check: bool = False,
-    sum_count: int = 1,
-    sum_delay_s: float = 0,
-    sum_iteration_callback: Callable[..., None] | None = None,
-    turn_off_all_leds_after: bool = False,
-    use_executor: bool = False,
-    jpeg_quality: int = 90,
-    *,
-    channel: str,
-    false_color_on: bool,
-    save_encoding: str,
-) -> str | None:
-    """Grab the current live image from the camera and save to a TIFF file.
-
-    Combines capture_and_wait() and save_image() in one call. Optionally
-    turns off all LEDs after capture.
-
-    Args:
-        scope: Source of imaging.capture_and_wait + illumination.leds_off.
-        save_folder: Directory to save into.
-        file_root: Filename prefix.
-        append: String appended to filename.
-        tail_id_mode: "increment" for auto-numbered files, or None.
-        force_to_8bit: Convert 12-bit images to 8-bit.
-        output_format: "TIFF" or "OME-TIFF".
-        timeout_s: Max seconds to wait for a valid frame.
-        all_ones_check: Reject saturated frames.
-        sum_count: Number of frames to sum.
-        sum_delay_s: Delay between summed frames.
-        sum_iteration_callback: Called after each summed frame.
-        turn_off_all_leds_after: Turn off all LEDs after capture.
-        use_executor: Reserved for future use.
-        jpeg_quality: JPEG quality 1-100, used only when output_format
-            is "JPG".
-        channel: Channel the frame was acquired on, forwarded to save_image as
-            the file's identity. Required and keyword-only.
-        false_color_on: Whether the channel's false-color toggle was on,
-            forwarded as the rendering choice. Required and keyword-only.
-        save_encoding: The derived on-disk encoding from the image_mode
-            config layer; required and keyword-only, forwarded to save_image
-            so the live-capture path cannot drop the image mode.
-    Returns:
-        str | None: Path to saved file, or None on failure.
-    """
-    try:
-        array = scope.imaging._capture_and_wait_impl(
-            force_to_8bit=force_to_8bit,
-            timeout_s=timeout_s,
-            all_ones_check=all_ones_check,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
-    finally:
-        # The off must hold even when the capture raises -- a caller that
-        # asked for it is relying on this call to end illumination.
-        if turn_off_all_leds_after:
-            scope.illumination._leds_off_impl()
-
-    if array is None:
-        report_manual_capture_failure(scope)
-        return None
-
-    # Depth resolved here, right after the capture that produced the frame
-    # (uint8 -> 8, summed -> 16, else the per-frame delivery stamp), and
-    # handed down with it -- the shared capture-time depth rule.
-    significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
-
-    path = save_image(
-        scope,
-        array,
-        save_folder=save_folder,
-        file_root=file_root,
-        append=append,
-        tail_id_mode=tail_id_mode,
-        channel=channel,
-        false_color_on=false_color_on,
-        output_format=output_format,
-        jpeg_quality=jpeg_quality,
-        significant_bits=significant_bits,
-        save_encoding=save_encoding,
-    )
-
-    # Record what the manual capture actually wrote, so a saved-file bundle is
-    # self-describing. Report the sensor's acquired depth AND the depth stamped
-    # on the file separately: a scaled encoding left-justifies a 12-bit capture
-    # to fill the 16-bit container, so the file is 16-bit while the sensor gave
-    # 12. Reporting only the acquired depth read as if the file were mis-tagged.
-    saved_significant_bits = image_utils.written_significant_bits(
-        save_encoding, significant_bits, array.dtype, image_utils.is_color_image(array)
-    )
-    logger.info(
-        f'[ImageSave] manual capture encoding={save_encoding} '
-        f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
-        f'dtype={array.dtype} shape={array.shape} -> {pathlib.Path(path).name}'
-    )
-    return path

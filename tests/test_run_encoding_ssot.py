@@ -28,6 +28,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
     ImageCaptureConfig,
@@ -44,6 +46,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -56,6 +59,9 @@ SAVE_FLUSH_TIMEOUT = 5  # seconds to wait for the file-IO thread's save
 # ---------------------------------------------------------------------------
 # Full-stack harness (mirrors tests/test_protocol_roundtrip.py)
 # ---------------------------------------------------------------------------
+
+
+from modules.run_outcome import EndingLatch
 
 
 def _make_step(color='BF'):
@@ -110,6 +116,9 @@ def _build_protocol():
 @pytest.fixture
 def scope():
     s = Lumascope(simulate=True)
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')
@@ -162,7 +171,8 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     mock_transformer = MagicMock()
@@ -266,13 +276,18 @@ class TestOneRunOneEncoding:
     def _writer(config):
         from modules.protocol_image_writer import ProtocolImageWriter
 
+        scope = MagicMock()
+        # A brought-up scope answers the objective in the light path; the
+        # writer reads it once per capture, for the file name and the scale.
+        scope.runtime_state.resolve_current_objective.return_value = ('10x Oly', {})
         return ProtocolImageWriter(
-            scope=MagicMock(),
+            scope=scope,
             callbacks=ProtocolCallbacks(),
             aborted=threading.Event(),
             file_io_executor=MagicMock(),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
+            ending=EndingLatch(),
             execution_record=None,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,
@@ -280,6 +295,7 @@ class TestOneRunOneEncoding:
             timestamp_overlay=True,
             video_max_fps=0,
             engineering_mode=False,
+            run_claim=lent_run_claim(),
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
@@ -301,7 +317,7 @@ class TestOneRunOneEncoding:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12
+                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12, objective_id='4x Oly'
             ),
             step=step,
             name='A1_BF',
@@ -519,7 +535,7 @@ class TestNoSilentHeadlessDefault:
     def test_configless_run_raises_before_anything_starts(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create_headless()
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
         try:
             runner = session.create_protocol_runner()
             with pytest.raises(ConfigError, match='image_mode'):

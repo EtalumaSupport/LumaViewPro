@@ -16,22 +16,23 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    runner.run_single_scan(
+    pending = runner.run_single_scan(
         protocol,
         sequence_name="test_scan",
         image_capture_config=runner.build_image_capture_config(image_mode="8bit"),
     )
-    runner.wait_for_completion()
+    result = pending.wait(timeout_s=300)     # or runner.wait_for_completion()
+    print(result.status, result.reason, result.message)
 """
 
 import pathlib
-import threading
 import typing
 
 import modules.image_mode as image_mode_module
-from modules.exceptions import CaptureError, ConfigError, ProtocolRunRefusedError
+from modules.activity_claim import HeldClaim
+from modules.exceptions import CaptureError, ConfigError
 from modules.protocol import Protocol
-from modules.run_outcome import RunMergeOutcome
+from modules.run_outcome import PendingRunOutcome, RunOutcome
 from modules.sequenced_capture_runner import (
     RunPlan,
     SequencedCaptureRunner,
@@ -62,15 +63,18 @@ class ProtocolRunner:
         if session.protocol_thread is None:
             raise RuntimeError(
                 'ProtocolRunner requires a session composed with a protocol '
-                'thread; build the session via ScopeSession.create / '
-                'create_headless, or inject protocol_thread at session '
-                'construction.'
+                'thread; build the session via ScopeSession.create, or '
+                'inject protocol_thread at session construction.'
             )
         self.session = session
         self._protocol_thread = session.protocol_thread
         self._file_io_executor = session.file_io_executor
-        self._completion_event = threading.Event()
         self._executor = session.sequenced_capture_runner
+        # The outcome of the last run THIS runner committed, and what
+        # wait_for_completion answers from. None until a run commits, and
+        # None again the moment a later call is refused: a refusal ran
+        # nothing, so the previous run's result is not an answer about it.
+        self._last_outcome: PendingRunOutcome | None = None
 
     @property
     def sequenced_capture_runner(self) -> SequencedCaptureRunner:
@@ -121,7 +125,7 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
-    ):
+    ) -> PendingRunOutcome:
         """Run a single scan through the protocol steps.
 
         Args:
@@ -134,15 +138,19 @@ class ProtocolRunner:
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
 
+        Returns:
+            The committed run's outcome. wait(timeout_s=...) on it for the
+            status, reason, title and message the run ended with.
+
         Raises:
             ConfigError: image_capture_config was not provided -- there is
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; is_running() stays False and
-                wait_for_completion() is not armed.
+                wait_for_completion() answers None.
         """
-        self._run(
+        return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             run_trigger_source='api_scan',
@@ -163,7 +171,7 @@ class ProtocolRunner:
         image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
-    ):
+    ) -> PendingRunOutcome:
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -175,15 +183,19 @@ class ProtocolRunner:
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
 
+        Returns:
+            The committed run's outcome. wait(timeout_s=...) on it for the
+            status, reason, title and message the run ended with.
+
         Raises:
             ConfigError: image_capture_config was not provided -- there is
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; is_running() stays False and
-                wait_for_completion() is not armed.
+                wait_for_completion() answers None.
         """
-        self._run(
+        return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             run_trigger_source='api_protocol',
@@ -202,7 +214,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_composite',
         engineering_mode: bool | None = None,
-    ) -> RunMergeOutcome:
+    ) -> PendingRunOutcome:
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -213,21 +225,21 @@ class ProtocolRunner:
 
         Args:
             sequence_name: Name for the output folder.
-            parent_dir: Parent directory for output (defaults to
-                settings['live_folder']/ProtocolData).
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Composites' under the live folder, where the button
+                already puts it, so a script's composite and a click's land
+                in the same place.
             callbacks: Optional dict of callback functions.
-            run_trigger_source: Provenance recorded on the run. A parameter
-                rather than a constant because the rival-run check compares
-                it: were a GUI click to record the API's token, a click
-                during an API composite would read as that run's own and
-                abort the API caller instead of being refused.
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so a GUI click records its own token rather
+                than the API's.
             engineering_mode: Whether the run stamps the turret position
                 into its filenames. A GUI caller passes its live flag, which
                 a plugin may have flipped after the session was built; None
                 reads the mode the session was built in.
 
         Returns:
-            The run's merge outcome, to wait on or to ignore.
+            The run's outcome, to wait on or to ignore.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -237,13 +249,18 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
-        settings = self.session.settings
+        settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_composite_capture_config_from_settings(
             settings,
             self.session.objective_helper,
             position=self.session.get_current_plate_position(),
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Composites'
+            )
 
         return self._run(
             protocol=protocol,
@@ -263,6 +280,229 @@ class ProtocolRunner:
             # unattended scan does.
             leds_state_at_end='return_to_original',
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
+            engineering_mode=engineering_mode,
+        )
+
+    def run_autofocus(
+        self,
+        layer: str,
+        save_characterization_data: bool = False,
+        sequence_name: str = 'autofocus',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+        claim: HeldClaim | None = None,
+    ) -> PendingRunOutcome:
+        """Autofocus once on *layer*, at the current stage position.
+
+        The headless twin of the standalone autofocus button: a
+        one-position, one-layer run with autofocus on, saving no images and
+        no run artifacts, that leaves the stage at the focus it found.
+
+        The layer is named rather than discovered. A GUI reads it from
+        whichever drawer is open, which is a fact about a running GUI and
+        means nothing to a caller that has none, so this asks for it and
+        has no default -- an autofocus on a layer nobody chose is not a
+        useful answer.
+
+        Everything else comes from the settings store, so this run and a
+        click on the button resolve the same way.
+
+        The stage is deliberately left where the focus was found, and there
+        is no return-to-position input: ending at the focus is the point.
+        A caller sweeping the same field repeatedly sets its own Z between
+        runs, which it must do anyway for the measurements to be comparable.
+
+        Args:
+            layer: Which layer to focus on ('BF', 'Green', ...).
+            save_characterization_data: Whether to write the per-position
+                focus scores this sweep measured. Off by default: a caller
+                that does not ask for data gets no folder. When on, the
+                run's outcome reports whether the file was written and
+                names it (af_data_saved / af_data_path), which is the only
+                way a headless caller can tell a delivered file from a
+                requested one.
+            sequence_name: Name for the run.
+            parent_dir: Where characterization data goes. Defaults to
+                'Autofocus Characterization' under the live folder, where
+                the button already puts it.
+            callbacks: Optional dict of callback functions.
+            claim: A claim the caller holds -- the one
+                ``session.diagnostic_claim()`` yields -- to run under
+                instead of taking the scope. The run acts inside the
+                caller's activity and cannot release its claim; it is
+                refused if that claim no longer holds. None takes the scope
+                for this run alone.
+
+        Returns:
+            The run's outcome, to wait on or to ignore.
+
+        Raises:
+            ConfigError: *layer* is not a layer this release has.
+            ProtocolRunRefusedError: The runner refused the request
+                (already running, files still writing, hardware not
+                connected); no state was committed.
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.capture_settings_snapshot()
+        input_config = config_helpers.get_standalone_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            self.session.wellplate_loader,
+            layer=layer,
+            position=self.session.get_current_plate_position(),
+            position_name='Autofocus',
+            autofocus=True,
+            use_zstacking=False,
+            # A standalone autofocus never pulses stimulation at the sample:
+            # it is a measurement of focus, and firing the stim hardware
+            # during one is something no caller has asked for.
+            stim_config={},
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve()
+                / 'Autofocus Characterization'
+            )
+
+        # Resolved here rather than left empty: the prepare boundary reads an
+        # empty parent directory as "suppress artifacts", and the autofocus
+        # engine raises outright when asked to save with nowhere to save to.
+        # Suppressing artifacts and delivering data are not in conflict --
+        # the run directory setup returns early on suppression while the
+        # parent directory is still taken from the plan.
+        return self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_trigger_source='api_autofocus',
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
+            enable_image_saving=False,
+            callbacks=callbacks,
+            # A one-field operation at a scope someone is standing at, so it
+            # hands the illumination back the way it was found rather than
+            # forcing every channel dark the way a plate traverse does.
+            leds_state_at_end='return_to_original',
+            disable_saving_artifacts=True,
+            save_autofocus_data=save_characterization_data,
+            claim=claim,
+        )
+
+    def run_zstack(
+        self,
+        layer: str,
+        sequence_name: str = 'zstack',
+        parent_dir: pathlib.Path | str | None = None,
+        callbacks: dict[str, typing.Callable] | None = None,
+        return_to_start: bool = True,
+        run_trigger_source: str = 'api_zstack',
+        engineering_mode: bool | None = None,
+        enable_image_saving: bool = True,
+    ) -> PendingRunOutcome:
+        """Capture a z-stack on *layer*, around the current stage position.
+
+        The one implementation of a z-stack run, for a script and for the
+        Acquire button on the z-stack panel alike: a one-position,
+        one-layer run that expands into one step per slice. The slices are
+        its product, so unlike an autofocus this one saves its images
+        unless the caller says otherwise.
+
+        The stack's range, step size and reference -- whether the current
+        position is the top, centre or bottom of the sweep -- come from the
+        settings store, as does everything else about the capture, so this
+        run and a click on the button resolve the same way. The layer is named by the
+        caller for the same reason run_autofocus asks for it: an open
+        drawer is a fact about a running GUI.
+
+        Autofocus is forced OFF for the step, matching the button. A
+        z-stack with autofocus enabled refocuses at each slice and
+        flattens the stack it was asked to capture.
+
+        Stimulation configs are carried onto the step as stored, enabled or
+        not. Stated rather than
+        inherited silently: if the API should instead carry only the
+        enabled ones, this is the line that changes.
+
+        Args:
+            layer: Which layer to capture ('BF', 'Green', ...).
+            sequence_name: Name for the output folder.
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Z-Stacks' under the live folder, where the button
+                already puts it.
+            callbacks: Optional dict of callback functions.
+            return_to_start: Whether to put the stage back where the stack
+                was centred when the run ends. On by default, because a
+                stack leaves Z at whichever end it finished on, which is
+                not where the operator was looking. A bool rather than a
+                position, so a caller cannot hand back coordinates in a
+                frame this run never used.
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so a GUI click records its own token rather
+                than the API's.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames. A GUI caller passes its live flag, which
+                a plugin may have flipped after the session was built; None
+                reads the mode the session was built in.
+            enable_image_saving: Whether the slices are written. On by
+                default; the engineering panel's "disable image saving"
+                switch is the one caller that turns it off, to exercise the
+                stage without filling the disk.
+
+        Returns:
+            The run's outcome, to wait on or to ignore.
+
+        Raises:
+            ConfigError: *layer* is not a layer this release has.
+            ObjectiveUnknownError: The objective in the light path is
+                unknown, so no slice could say what it was taken with.
+            ProtocolRunRefusedError: The runner refused the request
+                (already running, files still writing, hardware not
+                connected); no state was committed.
+        """
+        import modules.config_helpers as config_helpers
+
+        settings = self.session.capture_settings_snapshot()
+        position = self.session.get_current_plate_position()
+        input_config = config_helpers.get_standalone_capture_config_from_settings(
+            settings,
+            self.session.objective_helper,
+            self.session.wellplate_loader,
+            layer=layer,
+            position=position,
+            position_name='ZStack',
+            # Off, and not a caller's choice: an autofocus at every slice
+            # re-centres the very range the stack is sweeping.
+            autofocus=False,
+            use_zstacking=True,
+            # Unfiltered, matching the starter: every layer's stored config
+            # rides along whether or not that layer is enabled.
+            stim_config=config_helpers.get_stim_configs(settings),
+        )
+        protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
+
+        if parent_dir is None:
+            parent_dir = (
+                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Z-Stacks'
+            )
+
+        return self._run(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+            run_trigger_source=run_trigger_source,
+            max_scans=1,
+            sequence_name=sequence_name,
+            parent_dir=parent_dir,
+            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
+            enable_image_saving=enable_image_saving,
+            callbacks=callbacks,
+            return_to_position=position if return_to_start else None,
+            # A one-field operation at a scope someone is standing at, so it
+            # hands the illumination back the way it was found.
+            leds_state_at_end='return_to_original',
             engineering_mode=engineering_mode,
         )
 
@@ -293,8 +533,8 @@ class ProtocolRunner:
 
         Args:
             sequence_name: Name for the output folder.
-            parent_dir: Parent directory for output (defaults to
-                settings['live_folder']/ProtocolData).
+            parent_dir: Parent directory for output. Defaults to
+                'Manual/Composites' under the live folder, as start_composite.
             callbacks: Optional dict of callback functions.
             merge_timeout_s: Upper bound on the whole capture-and-merge
                 wait. Covers the run itself, so it is longer than the
@@ -329,7 +569,12 @@ class ProtocolRunner:
                 'merge_timeout',
             )
         if not settled.merged:
-            raise CaptureError(f'no composite was produced ({settled.reason})', settled.reason)
+            # A run that did not complete names its own ending; a completed
+            # run with no artifact names what the merge did. One field is
+            # empty in each case, so the caller never has to guess which
+            # vocabulary it is reading.
+            code = settled.merge_reason or settled.reason
+            raise CaptureError(f'no composite was produced ({code})', code)
         return settled.artifact_path
 
     def _run(
@@ -347,11 +592,14 @@ class ProtocolRunner:
         leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
-    ):
+        disable_saving_artifacts: bool = False,
+        save_autofocus_data: bool = False,
+        claim: HeldClaim | None = None,
+    ) -> PendingRunOutcome:
         """Internal: configure and launch the sequenced capture executor.
 
         Returns:
-            The committed run's merge outcome.
+            The committed run's outcome.
 
         Raises:
             ConfigError: image_capture_config was not provided; raised
@@ -361,6 +609,11 @@ class ProtocolRunner:
                 hardware not connected); no state was committed and the
                 user was already notified once.
         """
+        # Cleared before the gate, stored only once a run has committed:
+        # whatever this call does, wait_for_completion must not go on
+        # answering with the previous run's result.
+        self._last_outcome = None
+
         # No silent default: an unstated image mode silently decided the
         # data's bit depth (an older-release script that captured full depth
         # would quietly produce 8-bit files). The caller states intent once;
@@ -403,16 +656,8 @@ class ProtocolRunner:
         if engineering_mode is None:
             engineering_mode = self.session.engineering_mode
 
-        merged_callbacks = dict(callbacks or {})
-        # Wire up a completion callback
-        user_complete = merged_callbacks.get('run_complete')
-
-        def _on_complete(**kwargs):
-            if user_complete:
-                user_complete(**kwargs)
-            self._completion_event.set()
-
-        merged_callbacks['run_complete'] = _on_complete
+        # Copied so the engine cannot mutate the caller's dict.
+        run_callbacks = dict(callbacks or {})
 
         plan = self._executor.prepare(
             protocol=protocol,
@@ -424,11 +669,18 @@ class ProtocolRunner:
             image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             autogain_settings=autogain_settings,
-            callbacks=merged_callbacks,
+            callbacks=run_callbacks,
             return_to_position=return_to_position,
             leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
+            # Forwarded with the boundary's own names and its own defaults,
+            # so this helper and the prepare it wraps stay one-to-one. No
+            # existing caller passes either; both were reachable only from
+            # inside the engine until a run kind needed to ask for them.
+            disable_saving_artifacts=disable_saving_artifacts,
+            save_autofocus_data=save_autofocus_data,
+            borrowed_claim=claim.lend() if claim is not None else None,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock
             ),
@@ -436,23 +688,15 @@ class ProtocolRunner:
         )
 
         # Run-state truth is the session claim, committed inside
-        # start()'s gate-and-commit -- a refusal means no state changed.
-        # The completion event is caller convenience, re-armed here and
-        # restored on a start()-stage refusal: for the already-running
-        # race the prior state was cleared (a live rival run resolves it
-        # when its run_complete fires -- every _run wires the same
-        # shared event), and for a claim refusal (e.g. a recording
-        # holds the scope) the prior state was set, so restoring it lets
-        # wait_for_completion return immediately instead of hanging on a
-        # run that never started.
-        completion_was_set = self._completion_event.is_set()
-        self._completion_event.clear()
-        try:
-            return self._executor.start(plan)
-        except ProtocolRunRefusedError:
-            if completion_was_set:
-                self._completion_event.set()
-            raise
+        # start()'s gate-and-commit -- a refusal means no state changed,
+        # and leaves _last_outcome None so a caller that waits is told
+        # "nothing ran" rather than blocked on a run that never started.
+        # The local is what this call returns: reading the attribute back
+        # is a race, because a run that fails at start releases the claim
+        # synchronously and a rival can commit in between.
+        outcome = self._executor.start(plan)
+        self._last_outcome = outcome
+        return outcome
 
     # ------------------------------------------------------------------
     # Status
@@ -465,8 +709,17 @@ class ProtocolRunner:
         return self._executor.run_dir()
 
     def run_trigger_source(self) -> 'str | None':
-        """The current (or, between runs, most recent) run's trigger kind."""
+        """The trigger kind of the run holding the scope; None when no
+        run holds it."""
         return self._executor.run_trigger_source()
+
+    def run_outcome(self) -> PendingRunOutcome | None:
+        """The live or last run's handle -- what abort() names to stop it."""
+        return self._executor.run_outcome()
+
+    def is_live_run(self, run: PendingRunOutcome | None) -> bool:
+        """Whether *run*, a handle a run call returned, is the live run."""
+        return self._executor.is_live_run(run)
 
     def remaining_scans(self) -> int:
         return self._executor.remaining_scans()
@@ -478,11 +731,10 @@ class ProtocolRunner:
     def current_step_color(self) -> 'str | None':
         return self._executor.current_step_color()
 
-    def video_drain_busy(self) -> bool:
-        return self._executor.video_drain_busy()
-
+    @property
     def video_pending_writes(self) -> int:
-        return self._executor.video_pending_writes()
+        """Frames across the run's video steps not yet on disk; read, not called."""
+        return self._executor.video_pending_writes
 
     def discard_video_pending(self) -> None:
         self._executor.discard_video_pending()
@@ -495,54 +747,57 @@ class ProtocolRunner:
         """
         return self._executor.prepare(**kwargs)
 
-    def start(self, plan: RunPlan) -> RunMergeOutcome:
-        """Forward to the engine's start() -- the commitment point."""
-        return self._executor.start(plan)
+    def start(self, plan: RunPlan) -> PendingRunOutcome:
+        """Forward to the engine's start() -- the commitment point.
 
-    def reset(self) -> None:
-        """Unwind the current run without tearing the runner down.
-
-        Distinct from abort(): reset() leaves the completion event and
-        protocol thread alone (abort-and-continue); abort() also aborts
-        the scan loop and resolves waiters (abort-and-teardown for this
-        run's callers).
+        Records the committed run as this runner's last, so a caller that
+        drove prepare/start directly still has wait_for_completion.
         """
-        self._executor.reset()
+        self._last_outcome = None
+        outcome = self._executor.start(plan)
+        self._last_outcome = outcome
+        return outcome
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
-        """Block until the engine's cleanup fully lands (claim released),
-        not merely until run_complete fires -- the completion-event wait
-        (wait_for_completion) resolves at the run-complete callback,
-        moments before cleanup's end."""
+        """Block until the engine's cleanup fully lands (claim released).
+
+        Distinct from wait_for_completion, which answers with the run's
+        outcome: this one answers only whether the runner is idle, for a
+        caller about to start something else."""
         return self._executor.wait_for_run_idle(timeout_s)
 
-    def set_scope(self, scope) -> None:
-        """Rewire onto a new scope via the session's one bring-up seam.
+    def abort(self, run: PendingRunOutcome | None) -> None:
+        """Abort *run*, the handle a run call returned.
 
-        The session services the new scope (executor registration,
-        bundle, source path) and rewires every holder; a pre-serviced
-        foreign scope carrying DIFFERENT executors is refused there --
-        a session and its scope must share one executor topology.
-        Refuses while an exclusive activity (run, recording incl. its
-        drain) owns the hardware.
+        Anyone may stop the live run. A handle naming a run that has ended
+        raises out of reset() below -- RunAlreadyEndedError when nothing is
+        live, the 'run_not_live' refusal when another run is -- ahead of
+        every side effect here, because a
+        refused abort must leave the protocol thread running and its
+        waiters waiting. Ordering is the guard: the thread signal is
+        unconditional once reset() has returned.
+
+        Waiters are NOT released here. The run's outcome settles inside
+        cleanup's finally, so a caller that wakes from
+        wait_for_completion knows the teardown happened rather than only
+        that someone asked for it.
         """
-        self.session.set_scope(scope)
-
-    def abort(self):
-        """Abort the current run."""
+        self._executor.reset(run)
         self._protocol_thread.abort()
-        self._executor.reset()
-        self._completion_event.set()
 
-    def wait_for_completion(self, timeout: float | None = None) -> bool:
-        """Block until the run completes. Returns True if completed, False on timeout."""
-        return self._completion_event.wait(timeout=timeout)
+    def wait_for_completion(self, timeout: float | None = None) -> RunOutcome | None:
+        """How did the last run this runner committed end?
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+        Blocks until that run settles, then returns its outcome: the
+        status and reason it ended with, the title and message a user
+        would read, and what the merge produced.
 
-    def shutdown(self):
-        """Retained for callers that paired shutdown() with
-        create_protocol_runner(); the engine, threads, and executors are
-        session composition now, torn down by session.shutdown()."""
+        None when the bound expires, and None AT ONCE when the last call
+        was refused or no run has ever been committed -- a refused start
+        ran nothing, and answering with an earlier run's 'completed'
+        would be a stale answer to a question about this one.
+        """
+        outcome = self._last_outcome
+        if outcome is None:
+            return None
+        return outcome.wait(timeout_s=timeout)

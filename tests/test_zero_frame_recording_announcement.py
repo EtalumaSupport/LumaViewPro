@@ -34,10 +34,10 @@ from tests.test_manual_recording_controller import (
 
 @pytest.fixture(autouse=True)
 def _healthy_disk(monkeypatch):
-    # conftest mocks psutil, so the real probe returns MagicMocks and the
-    # start refusal compares one against an int. The sibling controller
-    # tests carry the same fixture; importing their helpers does not
-    # import it.
+    # The disk probe would report this machine's free space, and the start
+    # refusal compares it against a floor; report ample free disk so the
+    # refusal is the test's, not the host's. The sibling controller tests
+    # carry the same fixture; importing their helpers does not import it.
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )

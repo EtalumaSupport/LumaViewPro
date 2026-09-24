@@ -11,6 +11,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 
@@ -285,7 +286,11 @@ class TestProtocolVideoDropNotification:
             protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
         )
 
+        written = []
+        self.written = written
+
         def _write_frame(**kwargs):
+            written.append(kwargs)
             if write_fails:
                 raise OSError('disk said no')
 
@@ -293,6 +298,11 @@ class TestProtocolVideoDropNotification:
 
         listeners = {}
         scope = MagicMock()
+        # The frames leg reads the scope's tracked state per frame; a
+        # MagicMock answers a MagicMock, which is not a position.
+        scope.motion.axis_positions = lambda: {}
+        scope.runtime_state.plate_transform = lambda: None
+        scope.illumination.get_led_states = lambda: {}
         scope.imaging.frames_until_valid.return_value = 0
         scope.imaging.active_cached = True
         scope.imaging.camera_identity = {
@@ -328,6 +338,7 @@ class TestProtocolVideoDropNotification:
             record_step_row=MagicMock(),
             record_dropped_capture=MagicMock(),
             clock=lambda: clock['t'],
+            run_claim=lent_run_claim(),
         )
         worker = threading.Thread(target=recorder.run_blocking)
         worker.start()
@@ -353,6 +364,22 @@ class TestProtocolVideoDropNotification:
         fired = self._capture_notifications(monkeypatch)
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
+
+    def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
+        self, tmp_path, monkeypatch
+    ):
+        # The protocol leg reads the scope's tracked state when the frame
+        # arrives, like the manual leg: with no LED reported lit the channel
+        # is the step's, the stage is not moving, and with no plate transform
+        # the frame states no plate position rather than a number.
+        self._capture_notifications(monkeypatch)
+        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        (kwargs,) = self.written
+        metadata = kwargs['metadata']
+        assert metadata['channel'] == 'Blue'
+        assert metadata['stage_moving'] is False
+        assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
+        assert kwargs['channel'] == 'Blue', 'rendered as the channel the frame records'
 
 
 class TestVideoBuilderDropAccounting:

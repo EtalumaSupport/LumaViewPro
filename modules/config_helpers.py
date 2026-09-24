@@ -29,6 +29,7 @@ from modules.tiling_config import TilingConfig
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
+    from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -990,11 +991,30 @@ def camera_max_exposure_for_ui(imaging) -> float:
     return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
-def camera_max_gain_for_ui(imaging) -> float:
+def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
     """The gain-slider upper bound from the live camera, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
+
+    Normalised to the same precision every other gain number in the app
+    carries. A GenICam float node reports its maximum in continuous units and
+    that value can carry a float tail past the last real step -- a 48 dB gain
+    node reports 48.00000004350822 -- which the driver publishes raw whenever
+    the node declares no fixed increment, deliberately, because inventing a
+    step would narrow a range the camera did not narrow. Raw, it becomes the
+    slider maximum, the ceiling a typed entry is clamped to, and the value
+    written into the store when a layer is reconciled down to the cap, so the
+    tail reaches current.json and the gain box. This resolver is the one point
+    the whole chain passes through, so it is the one place to normalise it.
+
+    The precision comes from the existing owner rather than a number chosen
+    here: a second authority on the same quantity could disagree with the
+    first. Rounding rather than flooring matches how every other gain value is
+    normalised, and the overshoot it can introduce is orders below the
+    driver's own short-circuit tolerance, so it cannot produce a request the
+    camera treats as a change.
     """
-    return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    return round(cap, common_utils.max_decimal_precision('gain'))
 
 
 # Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
@@ -1385,9 +1405,15 @@ def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn
     API caller gets the same typed error either way.
     """
     logger.error(f'[Composite] Run refused ({reason}): {message}')
-    from modules.notification_center import notifications
+    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
 
-    notifications.warning('Composite', title, message)
+    notifications.warning(
+        'Composite',
+        title,
+        message,
+        solicited=True,
+        operation_key=REFUSAL_OPERATION_KEY,
+    )
     raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
 
 
@@ -1495,26 +1521,165 @@ def get_composite_capture_config_from_settings(
     )
 
 
-def get_sequenced_capture_config_from_settings(
+def get_standalone_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,
-    wellplate_loader: WellPlateLoader | None = None,
+    wellplate_loader: WellPlateLoader,
+    *,
+    layer: str,
+    position: dict,
+    position_name: str,
+    autofocus: bool,
+    use_zstacking: bool,
+    stim_config: dict,
 ) -> dict:
-    """Build sequenced capture config from settings dict (no UI needed).
+    """Build the input_config for a one-position, one-layer run at *position*.
 
-    This is the headless equivalent of config_getters.get_sequenced_capture_config_from_ui().
+    The third settings lane into the canonical builder, beside the
+    plate-wide and composite ones. It serves the degenerate case both
+    standalone buttons drive -- a single field, a single layer, with
+    autofocus or z-stacking turned on -- which until now had no named
+    selector, so each starter chose the same thirteen values inline.
+
+    Not expressed as the plate-wide selector plus arguments on purpose:
+    this case does not subset that one. It forces tiling off, period and
+    duration to nothing, names its position, and overrides the layer's
+    stored autofocus flag -- arguments the plate-wide callers could not
+    use, in combinations that would mean nothing to them.
+
+    The position keeps its z, unlike the composite lane which nulls it so
+    each channel falls to its own focus. Here the z IS the input: it is
+    where the autofocus sweep starts, and the plane a z-stack is built
+    around.
+
+    Args:
+        layer: Which layer to capture. Named by the caller because a GUI
+            reads it from the open drawer and a script has none.
+        position: Plate coordinates for the single step, from
+            get_current_plate_position.
+        position_name: What the step is called in the saved data.
+        autofocus: Whether the step runs autofocus. Overrides the layer's
+            stored flag either way, so a caller gets what it asked for
+            rather than what the user last left switched on.
+        use_zstacking: Whether the step expands into a z-stack. The
+            z-stack parameters are read from settings only when this is
+            set; a caller that is not stacking gets none rather than
+            stale ones.
+        stim_config: Per-layer stimulation to stamp onto the step. An
+            empty dict keeps the run stim-free.
+
+    Raises:
+        ConfigError: *layer* is not a layer this release has.
     """
+    # Validated BEFORE anything indexes settings by it. The layer selector
+    # below iterates the release catalogue and skips what does not match,
+    # so an unknown name does not fail there -- it yields no layers, and
+    # the run is refused several steps later as "Protocol has no steps",
+    # naming a cause that has nothing to do with what the caller got
+    # wrong.
+    known_layers = common_utils.get_layers()
+    # A GUI caller with no drawer open has no layer to name; printing None
+    # into the catalogue sentence below would tell the user nothing.
+    if layer is None:
+        raise ConfigError(f'No layer is selected; choose one of: {", ".join(known_layers)}')
+    if layer not in known_layers:
+        raise ConfigError(
+            f'{layer!r} is not a layer on this scope; available: {", ".join(known_layers)}'
+        )
+
     objective_id, _ = get_current_objective_info(settings, objective_helper)
-    time_params = get_protocol_time_params_from_settings(settings)
-    protocol = settings.get('protocol', {})
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+
+    layer_configs = get_layer_configs(settings, specific_layers=[layer])
+    layer_config = layer_configs[layer]
+    # Both starters do exactly this: the step captures an image, and the
+    # caller's intent decides autofocus rather than the layer's stored
+    # flag. Assembling a config is not the place to honour a leftover
+    # switch the caller said nothing about.
+    layer_config['acquire'] = 'image'
+    layer_config['autofocus'] = autofocus
+
+    step_position = dict(position)
+    step_position['name'] = position_name
 
     return build_sequenced_capture_config(
         {
-            'labware_id': protocol.get('labware', ''),
+            'labware_id': labware_id,
+            'objective_id': objective_id,
+            'zstack_params': get_zstack_params_from_settings(settings) if use_zstacking else {},
+            'use_zstacking': use_zstacking,
+            'tiling': TilingConfig.no_tiling_label(),
+            'tiling_overlap_percent': 0.0,
+            'layer_configs': {layer: layer_config},
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            'stim_config': stim_config,
+            'positions': [step_position],
+        }
+    )
+
+
+def get_empty_protocol_config_from_settings(
+    settings: dict,
+    wellplate_loader: WellPlateLoader,
+) -> dict:
+    """The config an empty-steps protocol takes: labware, timing, geometry.
+
+    No objective: an empty protocol has no step to stamp one into, so it
+    can be built while the objective in the light path is unknown. Reached
+    through ScopeSession.create_empty_protocol.
+    """
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+    time_params = get_protocol_time_params_from_settings(settings)
+    return {
+        'labware_id': labware_id,
+        'period': time_params['period'],
+        'duration': time_params['duration'],
+        'frame_dimensions': get_frame_dimensions_from_settings(settings),
+        'binning_size': get_binning_from_settings(settings),
+    }
+
+
+def get_sequenced_capture_config_from_settings(
+    settings: dict,
+    objective_helper: ObjectiveLoader,
+    wellplate_loader: WellPlateLoader,
+    *,
+    tiling: str = '1x1',
+    use_zstacking: bool = False,
+) -> dict:
+    """Build a sequenced capture config from settings (no UI needed).
+
+    The single builder for this config; every caller, the GUI included,
+    reaches it through ScopeSession.get_sequenced_capture_config, and the
+    GUI supplies the two authoring choices below from its widgets.
+
+    tiling and use_zstacking are ARGUMENTS, not settings reads. They are
+    authoring inputs with no settings home: tiling's store is the
+    protocol itself (its steps carry a Tile column, which is where a
+    saved tiling is recovered from), and neither survives a restart by
+    design. They used to be read as settings['protocol'] keys that
+    nothing writes, so this builder answered '1x1' and False for every
+    caller regardless of what the user had chosen.
+
+    wellplate_loader is required: labware goes through the accessor that
+    falls back to the shipped default and warns, so this lane and the
+    GUI's resolve a missing or unloadable plate the same way instead of
+    handing a bare '' to the protocol.
+    """
+    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    time_params = get_protocol_time_params_from_settings(settings)
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+
+    return build_sequenced_capture_config(
+        {
+            'labware_id': labware_id,
             'objective_id': objective_id,
             'zstack_params': get_zstack_params_from_settings(settings),
-            'use_zstacking': protocol.get('use_zstacking', False),
-            'tiling': protocol.get('tiling', '1x1'),
+            'use_zstacking': use_zstacking,
+            'tiling': tiling,
             # Overlap is stored top-level, not under protocol. Reading it from
             # under protocol found nothing and silently gave every headless
             # run 0% overlap regardless of what the user had configured.

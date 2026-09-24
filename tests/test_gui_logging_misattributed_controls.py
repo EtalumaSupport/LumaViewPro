@@ -22,7 +22,7 @@ import ast
 
 from tests.ast_seams import find_def
 
-_EMITTERS = {'button', 'toggle', 'slider', 'select', 'text_input', 'text_input_debounced'}
+_EMITTERS = {'button', 'toggle', 'slider', 'select', 'text_input'}
 
 # control id -> (module, class, handler)
 _SITES = {

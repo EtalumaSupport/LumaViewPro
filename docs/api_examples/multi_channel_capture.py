@@ -20,7 +20,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 #               mocks the test conftest installs before collection
 # The sys.path line serves the standalone form; in-suite it is a no-op.
 
-from modules.lumascope_api import Lumascope
+from modules.exceptions import ConfigError
+from modules.scope_session import ScopeSession
 
 
 # Channel configurations: channel name, LED current (mA), exposure time (ms)
@@ -32,12 +33,28 @@ CHANNELS = [
 
 
 def main():
-    # Create scope in simulate mode -- no hardware required
-    scope = Lumascope(simulate=True)
-    print('Scope initialized (simulate=True)')
+    # create(simulate=True) is the supported factory for a simulated session: it
+    # wires the simulated drivers, configures the scope from settings and
+    # releases the camera start gate, so there is no separate bring-up and no
+    # start_streaming() call to make here.
+    #
+    # source_path defaults to the working directory, which must be an LVP
+    # installation root. ConfigError is caught and printed rather than left to
+    # propagate because an uncaught exception in a process that imports
+    # lvp_logger is written to the log file and never to the terminal: this
+    # message is the only thing that would tell you what went wrong.
+    try:
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    except ConfigError as exc:
+        print(f'Could not create a headless session: {exc}')
+        print(
+            'Run this from a LumaViewPro installation root -- a directory '
+            'holding data/settings.json.'
+        )
+        raise SystemExit(1) from exc
 
-    # Begin the live camera feed (required before capture on every backend).
-    scope.imaging.start_streaming()
+    scope = session.scope
+    print('Headless session created (simulate=True)')
 
     # Capture each fluorescence channel
     for ch in CHANNELS:
@@ -70,11 +87,17 @@ def main():
     scope.illumination.leds_off()
     print('\nAll LEDs off')
 
-    scope.disconnect()
-    print('Scope disconnected')
+    # shutdown() tears down everything the factory built: the LEDs drain
+    # through the io lane while its worker is still alive, motion stops, the
+    # scope disconnects, and the consumer threads stop before the lanes they
+    # consume. A bare scope.disconnect() would leave the lanes running.
+    session.shutdown()
+    print('Session shut down')
 
-    # NOTE: To save images, import from modules.image_save:
-    #     from modules.image_save import save_image, save_live_image
+    # NOTE: To capture and save one still the way the GUI's Capture button
+    # does, call session.manual_capture.capture(layer=..., false_color_on=...)
+    # before shutdown. To save an array you already hold:
+    #     from modules.image_save import save_image
     #     save_image(scope, array=image, save_folder='./out', ...)
     # These require an objective, labware, and stage offset for metadata
     # generation -- what session.configure_scope() (or the factories that

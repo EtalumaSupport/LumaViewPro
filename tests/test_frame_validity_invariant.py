@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
+from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
@@ -178,7 +179,11 @@ class TestMotionValiditySources:
         the settle-check cleared before the turret physically arrived."""
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_absolute(axis, pos, wait_until_complete=True)
+            # The public door refuses T; the turret's own move is the body
+            # move_turret drives between its Z park and restore, whose Z
+            # moves would record 'z_move' beside the source under test.
+            mover = scope.motion._move_absolute_impl if axis == 'T' else scope.motion.move_absolute
+            mover(axis, pos, wait_until_complete=True)
             assert source in recorded, (
                 f'move_absolute({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
@@ -306,7 +311,11 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
-        imaging.set_gain_db(7.0)
+        # The public setter also raises the rejection to its caller; what this
+        # test pins is what happens on the way out -- the user is told, and the
+        # cache keeps the value the camera actually holds.
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_gain_db(7.0)
 
         assert captured, 'A confirmed gain rejection must notify the user'
         assert imaging.gain_db_cached == 2.0, (
@@ -323,7 +332,10 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_exposure_ms(20.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
-        imaging.set_exposure_ms(50.0)
+        # See the gain case above: the raise is the public setter's contract,
+        # the notification and the held cache are what this test pins.
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_exposure_ms(50.0)
 
         assert captured, 'A confirmed exposure rejection must notify the user'
         assert imaging.exposure_ms_cached == 20.0, (

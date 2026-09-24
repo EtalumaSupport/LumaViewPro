@@ -27,7 +27,7 @@ from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
 from modules.video_builder import VideoBuilder
-import modules.common_utils as common_utils
+import modules.config_helpers as config_helpers
 from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
@@ -401,11 +401,14 @@ class CompositeGenControls(BoxLayout):
         # user configuration.
         with ctx.settings_lock:
             output_format = ctx.settings['image_output_format']['sequenced']
-            brightness_thresholds_percent = {
-                layer: ctx.settings[layer]['composite_brightness_threshold']
-                for layer in common_utils.get_layers()
-                if 'composite_brightness_threshold' in ctx.settings.get(layer, {})
-            }
+            # Read through the same helper the protocol path uses, so a manual
+            # composite and a run-driven one cannot disagree about what the
+            # user configured. Called inside this lock, not holding one of its
+            # own: the protocol path calls it unlocked, and settings_lock is
+            # not reentrant.
+            brightness_thresholds_percent = config_helpers.get_composite_blend_thresholds(
+                ctx.settings
+            )
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
@@ -519,9 +522,7 @@ class VideoCreationControls(BoxLayout):
         recording's own measured rate, which is what the field's hint says.
         The raw text is recorded so that choice is visible as the user left it.
         """
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced('VIDEO_GEN_FPS', self.ids['video_gen_fps_id'].text)
+        gui_logger.text_input('VIDEO_GEN_FPS', self.ids['video_gen_fps_id'].text)
 
     def log_timestamp_overlay(self) -> None:
         """Record the timestamp-overlay toggle.
@@ -671,12 +672,10 @@ class GraphingControls(BoxLayout):
 
         The name and widget id are passed in because all three fields share
         this method. A no-argument version could not say which field fired it,
-        and since the debounce table is keyed by record name and cancels a
-        pending line on a repeat, the three would also overwrite each other.
+        so all three would report under one name and a bundle could not tell
+        which label the user edited.
         """
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(name, self.ids[widget_id].text)
+        gui_logger.text_input(name, self.ids[widget_id].text)
 
     def update_available_axes(self):
         self.available_x_axes = list(self.available_axes)
@@ -1297,9 +1296,7 @@ class CellCountControls(BoxLayout):
         box alone rather than coercing it, so there is no corrected value to
         report -- the second line exists only where something was changed.
         """
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(
+        gui_logger.text_input(
             'CELL_COUNT_PIXELS_PER_UM', self.ids['text_cell_count_pixels_per_um_id'].text
         )
 

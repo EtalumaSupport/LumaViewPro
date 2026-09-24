@@ -31,7 +31,7 @@ from drivers.registry import camera_registry
 
 # modules.aoi_geometry (plan_aoi) and modules.image_utils (center_crop) are
 # imported function-locally where used: the driver layer must not import from
-# modules/ at top level (enforced by tests/test_architecture_fixes.py). Both are
+# modules/ at top level (enforced by tests/guards/test_architecture_fixes.py). Both are
 # pure helpers, so the lazy import carries no cycle risk; after first use the
 # import is a sys.modules dict hit, negligible even on the per-frame unpack path.
 
@@ -2688,11 +2688,17 @@ class IDSCamera(Camera):
                 _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
-    def exposure_t(self, exposure_ms) -> bool:
-        """Set exposure. Returns True on success, False on a confirmed
-        hardware rejection -- per-frame chunk metadata is not yet wired, so a
-        swallowed write failure here would stream frames at the stale exposure
-        with no downstream backstop; the caller needs the failure signal."""
+    def exposure_t(self, exposure_ms: float) -> float | bool:
+        """Set exposure. Returns the microseconds actually in effect, or
+        False on a confirmed hardware rejection -- per-frame chunk metadata is
+        not yet wired, so a swallowed write failure here would stream frames at
+        the stale exposure with no downstream backstop; the caller needs the
+        failure signal.
+
+        The applied value is returned rather than a bare success flag because
+        the request is clamped up to the live node minimum below: a caller that
+        recorded the REQUEST as its chunk-match target would reject every frame
+        the camera then stamped with the clamped value."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
@@ -2735,7 +2741,7 @@ class IDSCamera(Camera):
                     f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
                 )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
-            return True
+            return us_value
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')

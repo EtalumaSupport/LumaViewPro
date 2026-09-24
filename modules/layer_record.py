@@ -147,9 +147,10 @@ def load_scope_models(data_file: str | None = None) -> dict:
     The identity resolver above tolerates an unreadable file: an empty
     catalogue resolves no identity, and LED use then fails by name. The
     settings-to-scope bring-up cannot tolerate it: with no catalogue the
-    declared model has no entry, `model_has_turret` answers False, and the
-    slot-1 objective adoption silently never runs -- the one thing the
-    bring-up exists to do on a turret scope. So a missing or malformed
+    declared model has no entry, `model_has_turret` answers False, and a
+    turret scope whose board is not talking is configured as turretless --
+    answering with its stored objective instead of the one in the light
+    path. So a missing or malformed
     section refuses here, naming the file, instead of returning {}.
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
@@ -160,6 +161,33 @@ def load_scope_models(data_file: str | None = None) -> dict:
             f'(found {type(models).__name__}); reinstall or restore the file'
         )
     return models
+
+
+# The catalogue's three hardware flags and the motor axes each one stands
+# for: a focus drive is Z, a stage is X and Y, a turret is T.
+_AXES_BY_FLAG = (('Focus', 'Z'), ('XYStage', 'XY'), ('Turret', 'T'))
+
+
+def model_axes(models: dict, model: str) -> frozenset[str]:
+    """The motor axes the catalogue says a model has, or a refusal.
+
+    A model the catalogue does not list is refused rather than answered
+    as axis-less: an axis-less answer builds a manual scope, and a typo in
+    the model name would then look like a scope with no motor board.
+    """
+    entry = models.get(model)
+    if not isinstance(entry, dict):
+        raise ConfigError(
+            f'scopes.json lists no model {model!r} (known: {sorted(models)}); '
+            'the microscope setting names a model the catalogue lacks'
+        )
+    return entry_axes(entry)
+
+
+def entry_axes(entry: dict) -> frozenset[str]:
+    """The motor axes one catalogue entry declares. Empty for a manual
+    scope, which has no motor board at all."""
+    return frozenset(axis for flag, axes in _AXES_BY_FLAG if entry.get(flag) for axis in axes)
 
 
 def load_layer_catalogue(scopes_data: dict) -> tuple[str, ...]:

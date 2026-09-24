@@ -1,9 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Run-end LED policy is decided by whether the run leaves the user's field.
 
-Every sequenced-capture starter hands ``SequencedCaptureRunner.prepare`` a
-``leds_state_at_end`` literal, and the two correct answers depend on one fact
-about the run:
+Every sequenced-capture starter hands the engine a ``leds_state_at_end``
+literal -- a GUI starter to ``SequencedCaptureRunner.prepare``, a run member to
+``ProtocolRunner._run`` -- and the two correct answers depend on one fact about
+the run:
 
 * A run that stays at the position the user is already watching (the standalone
   autofocus button, a manual z-stack) is an interruption of live view, not an
@@ -31,35 +32,42 @@ import pytest
 
 from tests.ast_seams import parse_module
 
-# starter function -> (module, expected policy, why that policy)
+# starter function -> (module, the call it hands the policy to, expected policy,
+# why that policy)
 STARTERS = {
     'run_autofocus_from_ui': (
         'ui/vertical_control.py',
+        'prepare',
         'return_to_original',
         'the standalone autofocus button runs at the current position and '
         'returns the user to the live view they were focusing',
     ),
-    'run_zstack_acquire_from_ui': (
-        'ui/zstack.py',
+    # The Acquire button runs through this member, so the member is where
+    # the z-stack's policy is stated.
+    'run_zstack': (
+        'modules/protocol_runner.py',
+        '_run',
         'return_to_original',
         'a manual z-stack runs at the current position and returns to it',
     ),
     'run_autofocus_scan_from_ui': (
         'ui/protocol_settings.py',
+        'prepare',
         'off',
         'autofocus-all-steps traverses every protocol position; holding the '
         'excitation LED across those moves would photobleach the sample',
     ),
     'run_sequenced_capture': (
         'ui/protocol_settings.py',
+        'prepare',
         'off',
         'a protocol scan traverses the plate and may end unattended',
     ),
 }
 
 
-def _prepare_policies(module_path: str, func_name: str) -> list[ast.expr]:
-    """Every leds_state_at_end argument passed to prepare() inside func_name.
+def _policies(module_path: str, func_name: str, call: str) -> list[ast.expr]:
+    """Every leds_state_at_end argument passed to *call* inside func_name.
 
     Walks nested defs too: the starters build their plan inside a local
     prepare_and_start() closure handed to the refusal boundary.
@@ -79,7 +87,7 @@ def _prepare_policies(module_path: str, func_name: str) -> list[ast.expr]:
         for node in ast.walk(target)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == 'prepare'
+        and node.func.attr == call
         for kw in node.keywords
         if kw.arg == 'leds_state_at_end'
     ]
@@ -87,11 +95,11 @@ def _prepare_policies(module_path: str, func_name: str) -> list[ast.expr]:
 
 @pytest.mark.parametrize('func_name', sorted(STARTERS))
 def test_starter_run_end_led_policy_matches_whether_it_leaves_the_field(func_name):
-    module_path, expected, why = STARTERS[func_name]
-    policies = _prepare_policies(module_path, func_name)
+    module_path, call, expected, why = STARTERS[func_name]
+    policies = _policies(module_path, func_name, call)
 
     assert policies, (
-        f'{module_path}::{func_name} must pass leds_state_at_end to prepare() '
+        f'{module_path}::{func_name} must pass leds_state_at_end to {call}() '
         'explicitly -- the run-end LED state is never left to a default'
     )
     for value in policies:

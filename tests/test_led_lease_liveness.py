@@ -1,17 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Liveness arbitration for the LED ownership lease.
 
-Every lease carries its owner's authoritative in-flight probe plus the
-acquiring thread, so "the holder is stranded" is a provable fact instead of
-an assumption a contender has to make. Contention is decided on the resource:
+A top-level lease is taken under its owner's held activity claim, so "the
+holder is stranded" is a provable fact instead of an assumption a contender
+has to make. Contention is decided on the resource:
 
-- A holder whose probe answers False is reclaimed inside the next acquire
-  with the evidence logged.
+- A holder whose claim is no longer held is reclaimed inside the next
+  acquire with the evidence logged.
 - A LIVE holder refuses the contender, and the refused operation must refuse
   itself (autofocus aborts its own run) rather than proceed without
   illumination authority.
-- The probe is mandatory and must answer True at acquire time, so a
-  mis-ordered probe cannot create a window in which a live holder looks dead.
+- The claim is mandatory and must be held at acquire time, so a mis-ordered
+  acquire cannot create a window in which a live holder looks dead.
 """
 
 import logging
@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.lumascope_api import Lumascope
+from tests.protocol_drives import held_run_claim
 
 
 @pytest.fixture
@@ -54,30 +55,32 @@ def _af_runner(scope):
 
 
 # ---------------------------------------------------------------------------
-# The contract is unmissable: the probe is required and must answer True.
+# The contract is unmissable: the claim is required and must be held.
 # ---------------------------------------------------------------------------
 
 
 def test_acquire_without_alive_probe_raises_type_error(scope):
     with pytest.raises(TypeError):
         scope.illumination.acquire_led_lease('x')
-    assert scope.illumination.led_lease_owner is None
+    assert scope.illumination.led_lease_purpose is None
 
 
-def test_acquire_with_false_probe_raises_value_error(scope):
-    # The probe must already answer True at acquire time: acquiring before
-    # setting the in-flight fact would make this holder look stranded (and
-    # reclaimable) from the moment it acquired.
+def test_acquire_under_a_released_claim_raises_value_error(scope):
+    # The claim must still be held at acquire time: a lease taken under a
+    # released claim would look stranded (and reclaimable) from the moment
+    # it was acquired.
+    released = held_run_claim()
+    released.release()
     with pytest.raises(ValueError):
-        scope.illumination.acquire_led_lease('x', alive=lambda: False)
-    assert scope.illumination.led_lease_owner is None
+        scope.illumination.acquire_led_lease('x', claim=released)
+    assert scope.illumination.led_lease_purpose is None
 
 
 # ---------------------------------------------------------------------------
 # Thread identity is NOT liveness evidence: leases are acquired on caller
 # threads (UI, scripts) while the work runs on persistent workers, so a dead
 # acquiring thread must neither strand a live holder nor be needed to
-# reclaim a dead one -- the probe is the sole evidence either way.
+# reclaim a dead one -- the claim is the sole evidence either way.
 # ---------------------------------------------------------------------------
 
 
@@ -86,7 +89,7 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
     holder: dict = {}
 
     def _acquire_on_worker():
-        holder['lease'] = ill.acquire_led_lease('worker', alive=lambda: True)
+        holder['lease'] = ill.acquire_led_lease('worker', claim=held_run_claim())
 
     t = threading.Thread(target=_acquire_on_worker)
     t.start()
@@ -94,12 +97,11 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
     lease = holder['lease']
     assert lease is not None and lease.held
 
-    contender = ill.acquire_led_lease('next', alive=lambda: True)
-    assert contender is None, (
-        'a holder whose probe answers True is LIVE even though its acquiring '
-        'thread died -- the contender must be refused, not handed a reclaim'
-    )
-    assert ill.led_lease_owner == 'worker'
+    # A holder whose claim is still held is LIVE even though its acquiring
+    # thread died -- the contender must not be handed a reclaim.
+    with pytest.raises(RuntimeError, match='two live activities'):
+        ill.acquire_led_lease('next', claim=held_run_claim())
+    assert ill.led_lease_purpose == 'worker'
     assert lease.held
     lease.release(leave_on=False)
 
@@ -107,23 +109,23 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
 def test_dead_probe_reclaims_regardless_of_thread_state(scope, caplog):
     ill = scope.illumination
 
-    # Acquire with a probe we can flip after the fact.
-    probe_state = {'alive': True}
-    lease = ill.acquire_led_lease('worker', alive=lambda: probe_state['alive'])
+    # Acquire under a claim we can release after the fact.
+    worker_claim = held_run_claim()
+    lease = ill.acquire_led_lease('worker', claim=worker_claim)
     assert lease is not None and lease.held
-    probe_state['alive'] = False
+    worker_claim.release()
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        nxt = ill.acquire_led_lease('next', alive=lambda: True)
+        nxt = ill.acquire_led_lease('next', claim=held_run_claim())
 
-    assert nxt is not None, 'a dead-probe holder must not lock out the next acquire'
-    assert ill.led_lease_owner == 'next'
+    assert nxt is not None, 'a holder whose claim ended must not lock out the next acquire'
+    assert ill.led_lease_purpose == 'next'
     assert not lease.held, 'the reclaimed lease must report not held'
     reclaims = [
         r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
     ]
-    assert any("'worker'" in m and 'liveness probe returned False' in m for m in reclaims), (
-        f'the warning must name the dead owner and the probe evidence; got {reclaims}'
+    assert any("'worker'" in m and 'its activity claim is no longer held' in m for m in reclaims), (
+        f'the warning must name the dead owner and the claim evidence; got {reclaims}'
     )
     nxt.release(leave_on=False)
 
@@ -151,9 +153,13 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     )
 
     ill = scope.illumination
-    holder = ill.acquire_led_lease('protocol', alive=lambda: True)
+    # AF is handed the lease of a run that already ended; the live holder
+    # took the LEDs after it, so AF's child acquire is refused.
+    ended_run = ill.acquire_led_lease('protocol', claim=held_run_claim())
+    ended_run.release(leave_on=False)
+    holder = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert holder is not None
-    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='protocol')
+    ill._led_on_impl(channel=ill.color2ch('Blue'), illumination_ma=120.0, _lease=holder)
 
     runner = _af_runner(scope)
     iterations = []
@@ -179,6 +185,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
             abort_event=threading.Event(),
             led_color='Green',
             led_illumination=250.0,
+            led_lease=ended_run,
         )
 
     assert iterations == [], 'no focus iteration may run without the LED lease'
@@ -196,7 +203,9 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     # The live holder is undisturbed: lease held, channel still lit, and the
     # AF channel was never lit.
     assert holder.held
-    assert ill.led_lease_owner == 'protocol'
-    assert ill.led_enabled('Blue'), "the holder's lit channel must survive the refused AF"
-    assert not ill.led_enabled('Green'), 'the refused AF must not light its channel'
+    assert ill.led_lease_purpose == 'protocol'
+    assert ill.get_led_state('Blue')['enabled'], (
+        "the holder's lit channel must survive the refused AF"
+    )
+    assert not ill.get_led_state('Green')['enabled'], 'the refused AF must not light its channel'
     holder.release(leave_on=False)

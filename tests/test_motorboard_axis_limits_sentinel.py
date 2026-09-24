@@ -163,6 +163,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
     def test_caller_skips_axes_without_limits(self, monkeypatch):
         from unittest.mock import MagicMock
 
+        from modules.activity_claim import ActivityClaim
         from modules.exceptions import ProtocolRunRefusedError
         from modules.image_mode import ImageCaptureConfig
         from modules.notification_center import notifications
@@ -180,7 +181,8 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(is_running=False),
+            autofocus_thread=MagicMock(in_flight_sweep=None),
+            activity_claim=ActivityClaim(),
             autofocus_runner=MagicMock(),
         )
         runner.file_io_executor.is_protocol_queue_active.return_value = False

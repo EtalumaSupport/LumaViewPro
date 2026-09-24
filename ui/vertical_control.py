@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import functools
 import logging
 import pathlib
 
@@ -7,20 +8,19 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.config_ui_getters as config_ui_getters
 import modules.config_helpers as config_helpers
+from modules import gui_logger
 from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
-    get_current_frame_dimensions,
     get_image_capture_config_from_ui,
     get_selected_labware,
 )
-from modules import gui_logger
 from modules.debounce import debounce
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
+from modules.sequential_io_executor import PRIORITY_HIGH, IOTask
 from modules.tiling_config import TilingConfig
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
@@ -31,7 +31,10 @@ from ui.ui_helpers import (
     move_absolute,
     move_home,
     move_relative,
+    reset_with_refusal_boundary,
+    run_reported,
     run_with_refusal_boundary,
+    unknown_position_refused,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -55,6 +58,9 @@ class VerticalControl(BoxLayout):
         self.record_autofocus_to_file = False
         self._next_pos = None
         self._af_safety_event = None
+        # The handle this button's last start returned: what its Stop and
+        # its stuck-AF bound name. The engine answers whether it is live.
+        self._autofocus_run: PendingRunOutcome | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -77,22 +83,33 @@ class VerticalControl(BoxLayout):
         else:
             Clock.schedule_once(lambda dt: self.update_text_only(), 0)
 
+    def _write_z_text(self, pos):
+        """Write a Z read-back into its box, unless the user is typing in it.
+
+        The box commits on focus loss (`on_focus: if not self.focus:
+        root.set_position_text(self.text)`), so a value written underneath a
+        part-typed entry is not merely displayed -- it is committed as a Z
+        move when the user clicks away. Every read-back write goes through
+        here so the guard cannot be present at three sites and missing at
+        the fourth.
+        """
+        box = self.ids['z_position_id']
+        if box.focus:
+            return
+        new_text = format(max(0, pos), '.2f')
+        # Cache text to prevent redundant ScrollView updates
+        if box.text != new_text:
+            box.text = new_text
+
     def update_autofocus_gui(self, pos=None):
         if pos is None:
             return
 
         self.ids['obj_position'].value = max(0, pos)
-        # Cache text to prevent redundant ScrollView updates
-        new_text = format(max(0, pos), '.2f')
-        if self.ids['z_position_id'].text != new_text:
-            self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def update_text_only(self):
-        # Cache text to prevent redundant ScrollView updates
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, self.ids['obj_position'].value), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(self.ids['obj_position'].value)
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
         """IOTask callback -- runs on worker thread. Must schedule widget access."""
@@ -121,17 +138,11 @@ class VerticalControl(BoxLayout):
         position during motion then snaps to target -- confusing.
         """
         self.ids['obj_position'].value = max(0, pos)
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, pos), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def _update_z_text(self, pos):
         """Update Z text only -- must be called on main thread."""
-        if not self.ids['z_position_id'].focus:
-            new_text = format(max(0, pos), '.2f')
-            if self.ids['z_position_id'].text != new_text:
-                self.ids['z_position_id'].text = new_text
+        self._write_z_text(pos)
 
     def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
         """Shared Z-axis jog handler.
@@ -147,13 +158,15 @@ class VerticalControl(BoxLayout):
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
-        try:
-            _, objective = ctx.session.get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] {label}: no objective info: {e}')
-            return
-        step = objective['z_coarse' if coarse else 'z_fine']
-        move_relative('Z', direction * step, overshoot_enabled=overshoot_enabled)
+        run_reported(
+            lambda: move_relative(
+                'Z',
+                direction * ctx.scope.motion.jog_step('Z', coarse),
+                overshoot_enabled=overshoot_enabled,
+            ),
+            redraw=None,
+            label=label,
+        )
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -171,18 +184,42 @@ class VerticalControl(BoxLayout):
     def coarse_down(self, overshoot_enabled: bool = False):
         self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
-    def set_position(self, pos):
+    def _queue_z_move(self, pos):
+        """Parse a committed Z value and queue the move; None when refused.
+
+        The slider and the text box share the move but not the record. The
+        slider reports the value it resolved to; the box reports what the user
+        typed, before anything parsed it. A drag and a keystroke have to stay
+        distinguishable in the bundle, so each caller writes its own line and
+        only the move lives here.
+        """
         ctx = _app_ctx.ctx
         if ctx.session.controls_locked:
-            return
+            return None
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         try:
             self._next_pos = float(pos)
         except Exception:
-            return
-        gui_logger.slider('Z_POSITION', self._next_pos)
+            return None
         self.queue_slider_position_trigger()
+        return self._next_pos
+
+    def set_position(self, pos):
+        """The SLIDER's commit -- the kv binds this to its on_release."""
+        resolved = self._queue_z_move(pos)
+        if resolved is not None:
+            gui_logger.slider('Z_POSITION', resolved)
+
+    def set_position_text(self, text):
+        """The BOX's commit -- what was typed is recorded before the move.
+
+        Separate from ``set_position`` so a typed commit does not report
+        itself as a drag; the record name is shared because it is the same
+        setting, and the verb is what tells them apart.
+        """
+        gui_logger.text_input('Z_POSITION', text)
+        self._queue_z_move(text)
 
     def queue_slider_position(self):
         move_absolute('Z', self._next_pos)
@@ -196,6 +233,8 @@ class VerticalControl(BoxLayout):
 
     def ex_set_bookmark(self):
         ctx = _app_ctx.ctx
+        if unknown_position_refused(('Z',), recording=True, then='save the bookmark'):
+            return
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             ctx.settings['bookmark']['z'] = height
@@ -208,6 +247,9 @@ class VerticalControl(BoxLayout):
 
     def ex_set_all_bookmarks(self):
         ctx = _app_ctx.ctx
+        # This one also writes every layer's focus from the Z.
+        if unknown_position_refused(('Z',), recording=True, then='save the bookmarks'):
+            return
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             settings = ctx.settings
@@ -251,43 +293,65 @@ class VerticalControl(BoxLayout):
         spinner = self.ids['objective_spinner2']
         spinner.values = ctx.objective_helper.get_objectives_list()
 
-    def select_objective(self):
-        try:
-            ctx = _app_ctx.ctx
-            objective_id = self.ids['objective_spinner2'].text
+    def pick_objective(self, objective_id):
+        """A person picked an objective from the spinner; the Session decides.
 
-            # on_text fires for programmatic text writes too (settings load,
-            # a turret move, the prompt's own answer); the Session reports
-            # whether anything changed and writes nothing when it did not.
-            changed = ctx.session.select_objective(objective_id)
-            if not changed:
-                return
-
-            # Only log objective changes from user interaction, not protocol
-            if not ctx.session.is_protocol_running:
-                gui_logger.select('OBJECTIVE', objective_id)
-            logger.info('[LVP Main  ] VerticalControl.select_objective()')
-
-            self._refresh_fov(objective_id)
-        except Exception as e:
-            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-
-    def _refresh_fov(self, objective_id):
-        """Show the field of view the objective gives at the current frame."""
-        ctx = _app_ctx.ctx
-        objective = ctx.session.get_objective_info(objective_id=objective_id)
-        microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-        fov_size = config_ui_getters.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=ctx.settings['frame'],
-            binning_size=get_binning_from_ui(),
+        On a turreted scope the pick says what is installed in the slot in
+        the light path, so the Session assigns it there; with no turret it
+        selects it. A refusal -- the slot is unknown, a run holds the scope
+        -- is shown, and either way the display shows the API's answer, so
+        a refused pick never stays on screen as if it had been taken.
+        """
+        gui_logger.select('OBJECTIVE', objective_id)
+        run_reported(
+            lambda: _app_ctx.ctx.session.select_objective(objective_id),
+            redraw=lambda: self.show_turret_state(prompt=False),
+            label='OBJECTIVE',
         )
-        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
-        microscope_settings_id.ids['field_of_view_width_id'].text = fov_w_text
-        microscope_settings_id.ids['field_of_view_height_id'].text = fov_h_text
+
+    def show_turret_state(self, prompt=True):
+        """Show what the API says: the turret slot in the light path, each
+        slot's assignment, and the active objective.
+
+        Every turret action ends here, a failed one included -- a press,
+        a home, a run's step, startup, an objective answer -- because only
+        the API knows where the turret is. The button down is the slot the
+        API reports and none is down while that slot is unknown; the
+        spinner shows the active objective, or 'Unknown'.
+
+        Args:
+            prompt: Ask the objective question when the objective is
+                unknown, unless a run holds the scope -- a prompt must
+                never interrupt an unattended run. The Session decides
+                whether a question is owed at all.
+        """
+        ctx = _app_ctx.ctx
+        slot = ctx.scope.motion.get_turret_slot()
+        catalogue = ctx.objective_helper.get_objectives_list()
+        for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
+            button = self.ids[f'turret_pos_{position}_btn']
+            button.state = 'down' if position == slot else 'normal'
+            if assigned is None:
+                button.text = f'< {position} >'
+            elif assigned in catalogue:
+                magnification = ctx.session.get_objective_info(objective_id=assigned)[
+                    'magnification'
+                ]
+                button.text = f'{magnification}x'
+            else:
+                # Shown as assigned, because it is: the active objective
+                # there is unknown, and the spinner says so.
+                button.text = assigned
+
+        objective_id = ctx.scope.runtime_state.get_current_objective_id()
+        self.ids['objective_spinner2'].text = objective_id or 'Unknown'
+        ctx.motion_settings.ids['microscope_settings_id'].refresh_fov_labels()
+        if objective_id is None and prompt and not ctx.session.is_protocol_running:
+            # Scheduled, never opened from here: the startup home's display
+            # runs before the event loop, and a popup opened then is painted
+            # under the app root -- open, and invisible. On the Clock it
+            # waits for the loop and folds into the startup question.
+            Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
 
     def _reset_run_autofocus_button_cosmetics(self, **kwargs):
         self.ids['autofocus_id'].state = 'normal'
@@ -298,9 +362,15 @@ class VerticalControl(BoxLayout):
         # too, so it must never touch the shared lockout state -- the
         # standalone release is generation-owned and lives with the
         # standalone exits.
-        ctx = _app_ctx.ctx
-        if ctx.autofocus_thread is not None:
-            ctx.autofocus_thread.abort()
+        #
+        # Cosmetics only, deliberately. This runs as the completion
+        # callback of the teardown task, and a completion callback fires
+        # whatever the outcome -- including a teardown the engine
+        # REFUSED. An abort here therefore killed the autofocus of a run
+        # the caller had just been told it did not own. Unwinding the
+        # autofocus belongs to the engine's cleanup, which does it for
+        # the run's owner and waits for the sweep to finish before
+        # restoring the LEDs.
         self._reset_run_autofocus_button_cosmetics()
 
     def _set_run_autofocus_button(self, **kwargs):
@@ -317,8 +387,23 @@ class VerticalControl(BoxLayout):
         # next AFE.run().
         ctx.worker_pool.put(
             IOTask(
-                action=ctx.sequenced_capture_runner.reset,
+                # Through the boundary, which returns the outcome instead
+                # of raising: a stop naming a run that is not the live one
+                # is refused, and the callback below must still run to put
+                # the button back -- a refused stop is not a stop, and a
+                # button left mid-stop is dead until the process ends.
+                action=functools.partial(
+                    reset_with_refusal_boundary,
+                    ctx.sequenced_capture_runner,
+                    self._autofocus_run,
+                ),
                 callback=self._reset_run_autofocus_button,
+                # The engine logs and notifies a refusal exactly once.
+                # Without this the executor's generic failure popup fires a
+                # SECOND notification for the same event -- and titles it
+                # from the action, which for a partial is its repr, heap
+                # address and all.
+                silent_on_failure=True,
                 priority=PRIORITY_HIGH,
             )
         )
@@ -342,7 +427,7 @@ class VerticalControl(BoxLayout):
             # Key on this button's own run, not on the AF thread being
             # busy: a rival run's AF step in flight when a stale timer
             # fires must stay out of reach.
-            if runner.run_in_progress() and runner.run_trigger_source() == 'autofocus':
+            if runner.is_live_run(self._autofocus_run):
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
                 self._cleanup_at_end_of_autofocus()
 
@@ -400,29 +485,28 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             trigger_source = 'autofocus'
             runner = ctx.sequenced_capture_runner
-            run_trigger_source = runner.run_trigger_source()
 
-            # Abort click: the toggle is back to 'normal', or re-clicked
-            # while this button's own run is live.
-            if self.ids['autofocus_id'].state == 'normal' or (
-                runner.run_in_progress() and run_trigger_source == trigger_source
+            # A click during someone else's run falls through to the stop
+            # branch below and the engine refuses the teardown, naming the
+            # run that holds the scope. This widget asks nothing about
+            # rival runs: the same refusal has to reach a script and REST,
+            # so it is the engine's to give.
+
+            # Stop click: the toggle is back to 'normal', or re-clicked
+            # while this button's own run is live. The live-run term is
+            # load-bearing -- a run callback can reset this button to
+            # 'normal' mid-run, and Kivy flips a toggle at touch-down, so
+            # the user's own Stop can arrive reading 'down'.
+            if self.ids['autofocus_id'].state == 'normal' or runner.is_live_run(
+                self._autofocus_run
             ):
                 self._cleanup_at_end_of_autofocus()
                 return
 
-            # A rival run owns the scope; undo cosmetics ONLY -- the
-            # lockout is that run's to keep.
-            if runner.run_in_progress():
-                self._reset_run_autofocus_button_cosmetics()
-                logger.warning(
-                    'Cannot start autofocus: run already in progress '
-                    f'(trigger={run_trigger_source})'
-                )
-                return
-
-            # The post-run file drain deliberately holds the lockout
-            # while run_in_progress() is already False; the gate helper
-            # owns the stalled-writer recovery popup.
+            # The post-run file drain outlives the run by design: writes
+            # keep landing after the run itself has ended, so it needs a
+            # gate of its own here rather than riding on the run's. The
+            # gate helper owns the stalled-writer recovery popup.
             if not require_file_writes_idle('start autofocus'):
                 self._reset_run_autofocus_button_cosmetics()
                 return
@@ -443,15 +527,24 @@ class VerticalControl(BoxLayout):
                 live_histo_reverse()
 
             self._set_run_autofocus_button()
-            self._schedule_af_safety_timer()
 
             # A one-position run at the current location: the active
             # layer with autofocus enabled, nothing saved. The same
             # degenerate-plan recipe as the z-stack starter, so the
             # standalone button and a protocol AF step share one engine.
             labware_id, _ = get_selected_labware()
-            objective_id, _ = ctx.session.get_current_objective_info()
-            active_layer, active_layer_config = get_active_layer_config()
+            objective_id = ctx.scope.runtime_state.get_current_objective_id()
+            if objective_id is None:
+                from modules.notification_center import notifications
+
+                reason = 'The objective in the light path is unknown.'
+                logger.warning(f'[LVP Main  ] Autofocus: {reason}')
+                notifications.warning('Autofocus', 'Objective Unknown', reason)
+                run_refused_func()
+                return
+            active_layer, active_layer_config = get_active_layer_config(
+                common_utils.get_opened_layer(ctx.image_settings)
+            )
             active_layer_config['acquire'] = 'image'
             active_layer_config['autofocus'] = True
 
@@ -473,7 +566,7 @@ class VerticalControl(BoxLayout):
                     'layer_configs': {active_layer: active_layer_config},
                     'period': None,
                     'duration': None,
-                    'frame_dimensions': get_current_frame_dimensions(),
+                    'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
                     'binning_size': get_binning_from_ui(),
                     # A standalone autofocus never pulses stimulation;
                     # an empty config keeps the built step stim-free.
@@ -525,7 +618,14 @@ class VerticalControl(BoxLayout):
                         settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
                     ),
                 )
-                runner.start(plan)
+                self._autofocus_run = runner.start(plan)
+                # Armed by the run it bounds, never before it. Arming
+                # ahead of prepare() outlived every exit between the arm
+                # and a committed run -- a refusal, a raise out of the
+                # builder, anything the blanket handler below catches --
+                # and a click that started nothing reached forward and
+                # aborted the next autofocus that did.
+                self._schedule_af_safety_timer()
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
@@ -534,77 +634,29 @@ class VerticalControl(BoxLayout):
 
             show_notification_popup(title='Error', message=str(e))
 
-    @debounce(1.0)
-    def turret_home(self):
-        gui_logger.button('HOME_TURRET')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
+    def reset_turret_objective(self):
+        """Clear the assignment of the slot in the light path.
 
-        def _on_turret_homed():
-            Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
-
-        ctx.io_executor.put(
-            IOTask(
-                action=ctx.lumaview.scope.motion._home_turret_impl,
-                callback=_on_turret_homed,
-            )
+        The Session clears the slot the API reports and refuses while that
+        slot is unknown; the refusal is shown, and the display follows the
+        API either way.
+        """
+        gui_logger.button('RESET_TURRET_OBJECTIVE')
+        run_reported(
+            _app_ctx.ctx.session.clear_current_turret_objective,
+            redraw=lambda: self.show_turret_state(prompt=False),
+            label='RESET_TURRET_OBJECTIVE',
         )
 
-    def _reset_turret_buttons(self):
-        self.ids['turret_pos_1_btn'].state = 'normal'
-        self.ids['turret_pos_2_btn'].state = 'normal'
-        self.ids['turret_pos_3_btn'].state = 'normal'
-        self.ids['turret_pos_4_btn'].state = 'normal'
+        # No prompt follows, deliberately. The press IS the user saying
+        # this slot is empty, and the objective prompt has no cancel
+        # path -- so asking here forced an objective back into the slot
+        # that had just been cleared, leaving the button unable to do
+        # its job at any position. Arriving at an unassigned slot still
+        # asks, and so does startup, so no position goes unasked before
+        # its objective matters.
 
-    def _selected_turret_position(self):
-        """The slot whose button is down, or None when none is."""
-        for position in range(1, 5):
-            if self.ids[f'turret_pos_{position}_btn'].state == 'down':
-                return position
-        return None
-
-    def set_turret_objective(self):
-        ctx = _app_ctx.ctx
-        desired_objective_id = self.ids['objective_spinner2'].text
-        gui_logger.select('TURRET_OBJECTIVE', desired_objective_id)
-
-        selected_turret = self._selected_turret_position()
-        if selected_turret is None:
-            logger.error('VerticalControl] SetTurretObjective] No turret button selected')
-            return
-
-        try:
-            magnification = ctx.session.get_objective_info(objective_id=desired_objective_id)[
-                'magnification'
-            ]
-            self.ids[f'turret_pos_{selected_turret}_btn'].text = f'{magnification}x'
-            ctx.session.assign_turret_objective(selected_turret, desired_objective_id)
-        except Exception as e:
-            logger.exception(f'SetTurretObjective] Error: {e}')
-            return
-
-    def reset_turret_objective(self):
-        gui_logger.button('RESET_TURRET_OBJECTIVE')
-
-        selected_turret = self._selected_turret_position()
-        if selected_turret is None:
-            logger.error('VerticalControl] ResetTurretObjective] No turret button selected')
-            return
-
-        try:
-            self.ids[f'turret_pos_{selected_turret}_btn'].text = str(selected_turret)
-            _app_ctx.ctx.session.clear_turret_objective(selected_turret)
-        except Exception as e:
-            logger.exception(f'ResetTurretObjective] Error: {e}')
-            return
-
-        # Clearing the assignment at the position the turret is sitting
-        # on leaves the app unable to say what is in the light path; the
-        # Session decides whether that is so and the prompt asks.
-        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
-
-    def prompt_if_objective_unknown(self):
+    def prompt_if_objective_unknown(self, on_resolved=None):
         """Ask the Session whether the objective needs confirming; render the answer.
 
         The decision is the Session's (first run, or an unassigned slot at
@@ -613,25 +665,56 @@ class VerticalControl(BoxLayout):
         the choice back. A raise anywhere on the path becomes a
         notification: this runs on Clock callbacks, where a raise exits
         the app.
+
+        Args:
+            on_resolved: Run once the objective is settled, however it
+                settles -- answered, not owed, or the question itself
+                failing. The startup sequence hangs the persisted protocol
+                load on it, because what the turret carries decides
+                whether that protocol can be performed at all. It is NOT
+                run while settings are provisional: the question is owed
+                but unanswerable, and the host re-asks when they resolve.
+                Hanging it only on the answer would strand the load behind
+                the two failure paths here, which report to the user and
+                return.
         """
         try:
             question = _app_ctx.ctx.session.objective_question()
             if question is None:
+                if not _app_ctx.ctx.session.settings_are_provisional():
+                    self._resolve_objective(on_resolved)
                 return
-            self._render_objective_question(question)
+            self._render_objective_question(question, on_resolved=on_resolved)
         except Exception as e:
             logger.error(f'[UI] objective question failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
 
+            # An objective that cannot be confirmed is unknown, and captures
+            # refuse while it is: no file is written with a guessed scale.
             show_notification_popup(
                 title='Objective not confirmed',
                 message=(
-                    'The installed objective could not be confirmed, so the image scale '
-                    f'recorded with captures may be wrong: {e}'
+                    f'The installed objective could not be confirmed: {e}\n'
+                    'Captures are refused until the objective, and so the image scale, '
+                    'is known.'
                 ),
             )
+            self._resolve_objective(on_resolved)
 
-    def _render_objective_question(self, question):
+    def _resolve_objective(self, on_resolved) -> None:
+        """Run the continuation, and never let it take the caller down.
+
+        This runs on a Clock callback and inside except branches, where a
+        raise exits the app or replaces one reported failure with another.
+        """
+        if on_resolved is None:
+            return
+        try:
+            on_resolved()
+        except Exception as e:
+            logger.error(f'[UI] post-objective startup step failed: {e}', exc_info=True)
+
+    def _render_objective_question(self, question, on_resolved=None):
         """The one popup for the objective question; the answer applies below."""
         if question.turret_position is not None:
             first_line = (
@@ -650,154 +733,64 @@ class VerticalControl(BoxLayout):
             objectives=list(question.choices),
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
-                chosen, question.turret_position
+                chosen, question.turret_position, on_resolved=on_resolved
             ),
+            on_folded=lambda: self._resolve_objective(on_resolved),
         )
 
-    def _apply_objective_answer(self, chosen, turret_position):
+    def _apply_objective_answer(self, chosen, turret_position, on_resolved=None):
         """Hand the answer to the Session and render what it did."""
-        try:
-            ctx = _app_ctx.ctx
-            changed = ctx.session.confirm_objective(chosen, turret_position=turret_position)
-            if changed and not ctx.session.is_protocol_running:
-                gui_logger.select('OBJECTIVE', chosen)
-            if changed:
-                logger.info('[LVP Main  ] VerticalControl.select_objective()')
-            # on_text reaches select_objective, whose Session call reports
-            # no change and does nothing further.
-            self.ids['objective_spinner2'].text = chosen
-            if changed:
-                self._refresh_fov(chosen)
-            if turret_position is not None:
-                gui_logger.select('TURRET_OBJECTIVE', chosen)
-                self.update_all_turret_btn_states(turret_position)
-                magnification = ctx.session.get_objective_info(objective_id=chosen)['magnification']
-                self.ids[f'turret_pos_{turret_position}_btn'].text = f'{magnification}x'
-        except Exception as e:
-            logger.error(f'[UI] objective answer failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+        def _redraw():
+            try:
+                # Asks again only if the objective is still unknown -- the
+                # turret moved to an unassigned slot while this question was
+                # on screen -- and then about that slot, not this one.
+                self.show_turret_state()
+            finally:
+                # Whatever the rendering above did, the objective question
+                # is answered and the Session has it. A startup step waiting
+                # on that must not be stranded by a widget write that failed.
+                self._resolve_objective(on_resolved)
+
+        run_reported(
+            lambda: _app_ctx.ctx.session.confirm_objective(chosen, turret_position=turret_position),
+            redraw=_redraw,
+            label='OBJECTIVE_ANSWER',
+        )
 
     @debounce(0.5)
-    def turret_select(self, selected_position, protocol=False, restore_z=True):
-        try:
-            if not protocol:
-                gui_logger.button(f'TURRET_POS_{selected_position}')
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-            if not ctx.lumaview.scope.motion.has_turret_homed():
-                if not protocol:
-                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._home_turret_impl))
-                else:
-                    # Protocol context runs on protocol_thread, not the io
-                    # worker -- route the turret home through the protocol queue so it
-                    # stays ordered ahead of the subsequent move_turret/X/Y/Z and
-                    # behind the prior step's leds_off on the single worker.
-                    fut = ctx.io_executor.protocol_put(
-                        IOTask(ctx.lumaview.scope.motion._home_turret_impl), return_future=True
-                    )
-                    if fut:
-                        fut.result(timeout=120)
+    def turret_gesture(self, selected_position):
+        """A person pressed a turret position button.
 
-            if not isinstance(selected_position, int) and not isinstance(selected_position, float):
-                # A digit string names a slot; anything else falls back to
-                # slot 1. Left as a string, a digit would match no slot in the
-                # loop below and skip the spinner sync and the prompt.
-                selected_position = int(selected_position) if selected_position.isdigit() else 1
-            else:
-                selected_position = int(selected_position)
+        Absorbing a double-press and recording a press are properties of
+        the GESTURE, not of the turret move, so they live here and not on
+        turret_select. While they sat on turret_select, the debounce keyed
+        on the instance plus the method name, which is ONE window shared by
+        these four buttons, the step-navigation path, the XY home and the
+        protocol lane: a click within half a second of a run's turret move
+        silently dropped the run's move while X, Y and Z went on to the
+        step's coordinates. The record had the matching fault in the other
+        direction, naming program-initiated moves as presses nobody made.
+        """
+        gui_logger.button(f'TURRET_POS_{selected_position}')
+        self.turret_select(selected_position)
 
-            if not protocol:
-                ctx.io_executor.put(
-                    IOTask(
-                        ctx.lumaview.scope.motion._move_turret_impl,
-                        kwargs={'position': selected_position},
-                    )
-                )
-            else:
-                # See the turret-home branch above: route the protocol-context
-                # move_turret through the protocol queue so it serializes with the
-                # step's other moves and LED ops on the single io worker
-                # instead of racing them from protocol_thread.
-                fut = ctx.io_executor.protocol_put(
-                    IOTask(
-                        ctx.lumaview.scope.motion._move_turret_impl,
-                        kwargs={'position': selected_position, 'restore_z': restore_z},
-                    ),
-                    return_future=True,
-                )
-                if fut:
-                    fut.result(timeout=60)
+    def turret_select(self, selected_position):
+        """Ask the API to turn the turret to a slot, then show where it is.
 
-            # Record the user's explicit turret choice so the next session
-            # (or any post-home lookup) prefers this position when the
-            # objective at this slot is duplicated elsewhere on the turret.
-            ctx.session.set_turret_position(selected_position)
-
-            for available_position in range(1, 5):
-                if selected_position == available_position:
-                    # Check if an objective has been saved to that turret
-                    turret_position_objective = settings['turret_objectives'][selected_position]
-                    if turret_position_objective is not None:
-                        # If an objective has been assigned to the turret position, change to that objective
-                        Clock.schedule_once(
-                            lambda dt: self.update_spinner_text(selected_position), 0
-                        )
-                        Clock.schedule_once(lambda dt: self.select_objective(), 0)
-                    elif not protocol:
-                        # The turret is moving to a position with no
-                        # assignment: the previous objective would keep
-                        # setting the image scale silently. The Session
-                        # decides whether to ask (a declared non-turret
-                        # model, e.g. the XY-home resync, is never asked)
-                        # and has already warned for every host. A prompt
-                        # must never interrupt an unattended run.
-                        Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
-
-            Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
-        except Exception as e:
-            logger.error(f'[UI] turret_select failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-
-    def update_spinner_text(self, selected_position):
-        settings = _app_ctx.ctx.settings
-        self.ids['objective_spinner2'].text = settings['turret_objectives'][selected_position]
-
-    def update_turret_btn_state(self, position, state):
-        self.ids[f'turret_pos_{position}_btn'].state = state
-
-    def update_all_turret_btn_states(self, selected_position):
-        for available_position in range(1, 5):
-            if selected_position == available_position:
-                state = 'down'
-            else:
-                state = 'normal'
-            self.update_turret_btn_state(available_position, state)
-
-    def update_turret_gui(self, turret_position):
+        The gesture above and step navigation reach this. It is therefore
+        not debounced and writes no interaction record -- a program-initiated
+        move is neither a double-press to absorb nor a press to report. The
+        API refuses a slot that is not one and a turret that is not homed;
+        the display runs after the move either way, so a failed move shows
+        the turret in no known slot rather than in the one that was asked for.
+        """
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        # Record the position the turret physically ended up at -- this
-        # is called after every protocol-driven or step-navigation T
-        # move, so the recorded value tracks reality across moves.
-        ctx.session.set_turret_position(int(turret_position))
-        for available_position in range(1, 5):
-            if turret_position == available_position:
-                state = 'down'
-
-                # Check if an objective has been saved to that turret
-                turret_position_objective = settings['turret_objectives'][turret_position]
-                if turret_position_objective is not None:
-                    # If an objective has been assigned to the turret position, change to that objective
-                    self.ids['objective_spinner2'].text = settings['turret_objectives'][
-                        turret_position
-                    ]
-                    self.select_objective()
-
-            else:
-                state = 'normal'
-
-            self.ids[f'turret_pos_{available_position}_btn'].state = state
+        ctx.io_executor.put(
+            IOTask(
+                ctx.lumaview.scope.motion._move_turret_impl,
+                kwargs={'position': selected_position},
+                callback=self.show_turret_state,
+            )
+        )

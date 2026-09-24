@@ -137,15 +137,15 @@ class TestRenamePathsRouteThroughHelper:
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
-                and node.func.attr == 'modify_step'
+                and node.func.attr == 'update_step'
                 and isinstance(node.func.value, ast.Attribute)
-                and node.func.value.attr == '_protocol'
+                and node.func.value.attr == 'session'
             ):
                 for kw in node.keywords:
                     if kw.arg == 'label':
                         label_kwarg = kw.value
         assert label_kwarg is not None, (
-            'self._protocol.modify_step(...) must receive the rename via label='
+            'ctx.session.update_step(...) must receive the rename via label='
         )
         assert isinstance(label_kwarg, ast.Name) and label_kwarg.id == resolved_var, (
             'the label kwarg must be the unmodified resolve_step_rename '

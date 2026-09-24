@@ -16,20 +16,21 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
-from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
-from tests.video_engine_harness import ClaimStub, FakeClock, ManualFireScheduler, NotifyRecorder
+from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
+from modules.lumascope_api import AxisPosition, AxisState
 
 TICK_HZ = 1_000_000_000
 
 
 @pytest.fixture(autouse=True)
 def _healthy_disk(monkeypatch):
-    # conftest mocks psutil, so the real probe returns MagicMocks; the
-    # default here reports ample free disk and the floor tests re-patch.
+    # The disk probe would report this machine's free space; the default
+    # here reports ample free disk and the floor tests re-patch.
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )
@@ -70,8 +71,27 @@ class _FakeImaging:
 
 
 class _FakeMotion:
+    def __init__(self):
+        # Every axis knows its position unless a test loses one.
+        self.unknown = {}
+        # Stage micrometres; a test moves the stage by writing here.
+        self.positions = {'X': 1000.0, 'Y': 2000.0, 'Z': 3.0}
+        # 'moving' / 'homing' per axis when a test sets it; idle otherwise.
+        self.states = {}
+
+    def axes_without_position(self):
+        return dict(self.unknown)
+
     def get_current_position(self):
-        return {'X': 1.0, 'Y': 2.0, 'Z': 3.0}
+        return dict(self.positions)
+
+    def axis_positions(self):
+        out = {}
+        for ax, pos in self.positions.items():
+            state = self.unknown.get(ax) or self.states.get(ax, AxisState.IDLE)
+            known = state in (AxisState.IDLE, AxisState.MOVING)
+            out[ax] = AxisPosition(state, pos if known else None)
+        return out
 
 
 class _FakeIllumination:
@@ -108,6 +128,14 @@ class _FakeRuntimeState:
     def get_current_objective(self):
         return self._objective
 
+    def stage_to_plate(self, sx, sy):
+        # A stand-in transform, distinct from the identity so a stage number
+        # recorded as a plate one shows.
+        return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
+
+    def plate_transform(self):
+        return self.stage_to_plate
+
 
 class _FakeScope:
     def __init__(self, lit=None, board=True, **imaging_kwargs):
@@ -143,7 +171,7 @@ def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kw
     controller = ManualRecordingController(
         scope=scope,
         settings=make_settings(tmp_path, **settings_kwargs),
-        activity_claim=ClaimStub(),
+        activity_claim=ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
     )
@@ -212,11 +240,11 @@ class TestStartRefusals:
         assert not controller.is_recording and not controller.is_draining
 
 
-class TestRateClamp:
-    def test_exposure_bounds_the_rate(self, tmp_path):
-        controller, _, _ = make_controller(tmp_path)  # 100 ms -> 10 fps
+class TestRateLimit:
+    def test_no_limit_asks_for_no_rate(self, tmp_path):
+        controller, _, _ = make_controller(tmp_path)  # max_fps 0
         controller.start()
-        assert controller._config.fps == pytest.approx(10.0)
+        assert controller._config.fps is None
         controller.stop()
         finish(controller)
 
@@ -227,13 +255,30 @@ class TestRateClamp:
         controller.stop()
         finish(controller)
 
-    def test_uncapped_fast_exposure_bounded_by_delivery_constant(self, tmp_path):
-        scope = _FakeScope(exposure_ms=1.0)  # 1000 fps by exposure alone
-        controller, _, _ = make_controller(tmp_path, scope=scope)
+    def test_no_limit_records_every_frame_a_fast_camera_delivers(self, tmp_path):
+        # The camera's maximum is whatever it delivers: a fast camera at a
+        # short exposure must not be sampled down to any fixed rate.
+        scope = _FakeScope(exposure_ms=1.0)
+        controller, scope, clock = make_controller(tmp_path, scope=scope)
         controller.start()
-        assert controller._config.fps == pytest.approx(INTERIM_DELIVERY_BOUND_FPS)
+        feed_frames(scope, clock, 69, fps=69.0)
         controller.stop()
         finish(controller)
+        result = controller._engine.result()
+        assert result.frames_selected == 69
+        assert result.configured_fps is None
+        assert result.measured_fps == pytest.approx(69.0)
+
+    def test_user_limit_samples_a_faster_camera_down(self, tmp_path):
+        scope = _FakeScope(exposure_ms=1.0)
+        controller, scope, clock = make_controller(tmp_path, scope=scope, max_fps=25)
+        controller.start()
+        feed_frames(scope, clock, 69, fps=69.0)
+        controller.stop()
+        finish(controller)
+        result = controller._engine.result()
+        assert result.configured_fps == pytest.approx(25.0)
+        assert result.frames_selected == 25
 
     def test_uncapped_never_fires_fps_budget_warning(self, tmp_path, monkeypatch):
         # max_fps == 0 means uncapped: a fresh install must not see the
@@ -256,7 +301,7 @@ class TestRateClamp:
         controller = ManualRecordingController(
             scope=scope,
             settings=settings,
-            activity_claim=ClaimStub(),
+            activity_claim=ActivityClaim(),
             scheduler=ManualFireScheduler(),
             clock=FakeClock(),
         )
@@ -1011,3 +1056,252 @@ class TestHealthCheckArming:
         finish(controller)
         assert sched.unscheduled, 'the finish path must disarm the health check'
         assert controller.end_reason == 'duration_elapsed'
+
+
+class TestTheRecordedPosition:
+    """The hyperstack labels X and Y as plate millimetres, so that is what is
+    recorded; an axis the scope does not know is not recorded, the others
+    are; and every row is its own frame's, not the recording's first."""
+
+    def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 1.5]
+        assert list(captured['df']['Y']) == [2.5, 2.5]
+        assert list(captured['df']['Z']) == [3.0, 3.0]
+
+    def test_an_unknown_axis_is_not_recorded_the_others_are_and_it_says_so_once(
+        self, tmp_path, monkeypatch
+    ):
+        captured = _capture_hyperstack_df(monkeypatch)
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append((title, message)),
+        )
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'X': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert captured['df']['X'].isna().all()
+        assert captured['df']['Y'].isna().all(), 'X and Y travel as a pair'
+        assert list(captured['df']['Z']) == [3.0, 3.0], 'Z is independent of the pair'
+        titles = [title for title, _ in shown]
+        assert titles.count('Position Not Recorded') == 1
+        (message,) = [m for t, m in shown if t == 'Position Not Recorded']
+        assert 'X position' in message and 'once it is known' in message
+
+    def test_an_axis_known_later_is_recorded_from_then_on(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'X': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        xs = captured['df']['X'].tolist()
+        assert xs[0] != xs[0], 'the first frame has no X (NaN)'
+        assert xs[1] == 1.5
+
+    def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller.start(layer='Blue', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.positions['X'] = 3000.0
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 3.5]
+        assert list(captured['df']['Color']) == ['Blue', 'Green']
+
+    def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(title),
+        )
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.motion.unknown = {'Z': 'homing'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert shown.count('Position Not Recorded') == 1
+
+    def test_no_labware_is_said_once_and_an_mp4_recording_says_nothing(self, tmp_path, monkeypatch):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'warning',
+            lambda category, title, message, **kwargs: shown.append(message),
+        )
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert [m for m in shown if 'No labware' in m] == [
+            'No labware or stage offset is selected, so frames record no plate position.'
+        ]
+
+        shown.clear()
+        controller, scope, clock = make_controller(tmp_path, lit='BF', video_as_frames=False)
+        scope.motion.unknown = {'X': 'unknown'}
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert shown == [], 'an MP4 recording has no per-frame record to warn about'
+
+    def test_an_unknown_turret_does_not_drop_the_stage_position(self, tmp_path, monkeypatch):
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        scope.motion.unknown = {'T': 'unknown'}
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['X']) == [1.5, 1.5]
+
+
+class TestEachFrameRecordsItsOwnMoment:
+    """A frames recording writes, into each frame's own file, the stage
+    position, the moving flag and the lit channel as the scope tracked them
+    when THAT frame arrived -- not what the recording started with. The
+    stage and the LEDs are open to other callers while a manual recording
+    runs, so the start-time snapshot was a claim about frames it never saw.
+    """
+
+    @staticmethod
+    def _described_frames(tmp_path):
+        import tifffile as tf
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        described = []
+        for path in folder.glob('*.tiff'):
+            with tf.TiffFile(path) as t:
+                described.append(json.loads(t.pages[0].tags['ImageDescription'].value))
+        return sorted(described, key=lambda d: d['frame_num'])
+
+    def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.positions['X'] = 3000.0
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        first, second = self._described_frames(tmp_path)
+        assert first['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+        assert second['plate_pos_mm'] == {'x': 3.5, 'y': 2.5}
+
+    def test_an_axis_unknown_at_one_frame_is_unknown_on_that_frame_only(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {'X': 'unknown'}
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.unknown = {}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        known, lost, regained = self._described_frames(tmp_path)
+        assert known['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+        assert 'plate_pos_mm' not in lost and 'x_pos' not in lost
+        assert lost['z_pos_um'] == 3.0, 'Z is independent of the X/Y pair'
+        assert regained['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
+
+    def test_a_moving_stage_is_marked_on_that_frame(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.motion.states = {'Z': AxisState.MOVING}
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        still, moving = self._described_frames(tmp_path)
+        assert still['stage_moving'] is False
+        assert moving['stage_moving'] is True
+        assert moving['z_pos_um'] == 3.0, 'a moving axis still knows its frame of reference'
+
+    def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller.start(layer='Blue', false_color_on=True)
+        feed_frames(scope, clock, 1, fps=10.0)
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        blue, green = self._described_frames(tmp_path)
+        assert blue['channel'] == 'Blue'
+        assert green['channel'] == 'Green'
+
+    def test_without_labware_frames_record_no_plate_position_but_keep_z(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
+        scope.runtime_state.plate_transform = lambda: None
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 1, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        (only,) = self._described_frames(tmp_path)
+        assert 'plate_pos_mm' not in only
+        assert only['z_pos_um'] == 3.0
+
+
+class TestARecordingThatCannotBeOneHyperstackSaysWhy:
+    """A channel change during a hyperstack recording leaves frames that no
+    single T x C cube can hold. The rows tell the truth, the builder refuses,
+    and the user reads the builder's reason, in the builder's words, in its
+    own notification -- not a KeyError on a well column a recording never
+    had, and not "check the log".
+    """
+
+    def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
+        self, tmp_path, monkeypatch
+    ):
+        shown = []
+        monkeypatch.setattr(
+            manual_recording_module.notifications,
+            'error',
+            lambda category, title, message, **kwargs: shown.append((title, message)),
+        )
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller.start(layer='Blue', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        scope.illumination._lit = 'Green'
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        assert len(list(folder.glob('*.tiff'))) == 4, 'the frames are saved as recorded'
+        assert not (folder / MANUAL_HYPERSTACK_FILENAME).exists()
+        (message,) = [m for t, m in shown if t == 'Hyperstack Not Built']
+        assert message.startswith('Cannot build a hyperstack for this recording')
+        assert '2 channels' in message
+        assert 'Recording Finalize Failed' not in [t for t, _ in shown]

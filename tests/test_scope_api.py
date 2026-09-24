@@ -73,7 +73,7 @@ def _make_settings(layers=None, with_stim=False):
         },
         'labware': 'test_plate',
     }
-    settings['objective_id'] = '4x'
+    settings['objective_id'] = '4x Oly'
     settings['stage_offset'] = {'x': 0, 'y': 0}
     settings['live_folder'] = '/tmp'
     return settings
@@ -127,7 +127,9 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     The caller owns shutdown: `scope.disconnect()` plus `shutdown()` on
     each executor, or the worker threads outlive the test.
     """
-    scope = lumascope_api.Lumascope(simulate=True)
+    from tests.scope_fakes import record_turret_answer
+
+    scope = record_turret_answer(lumascope_api.Lumascope(simulate=True))
     if not led:
         from drivers.null_ledboard import NullLEDBoard
 
@@ -311,9 +313,9 @@ class TestGetCurrentObjectiveInfo:
         helper = MagicMock()
         helper.get_objective_info.return_value = {'magnification': 4, 'focal_length': 10}
         obj_id, obj = config_helpers.get_current_objective_info(settings, helper)
-        assert obj_id == '4x'
+        assert obj_id == '4x Oly'
         assert obj['magnification'] == 4
-        helper.get_objective_info.assert_called_once_with(objective_id='4x')
+        helper.get_objective_info.assert_called_once_with(objective_id='4x Oly')
 
 
 class TestFindNearestStep:
@@ -490,7 +492,7 @@ class TestLumascopeLedAPI:
         scope.illumination.led_on(channel=1, illumination_ma=75)
         assert len(io_ex.submitted) == 1
         color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_ma(color) == 75.0
+        assert scope.illumination.get_led_state(color)['illumination_ma'] == 75.0
 
     def test_led_on_skips_when_no_led(self):
         # Nothing is queued AND nothing is recorded as lit. The second half
@@ -514,9 +516,9 @@ class TestLumascopeLedAPI:
         try:
             scope.illumination.led_on_async(channel=0, illumination_ma=30)
             color = scope.illumination.ch2color(0)
-            assert scope.illumination.get_led_ma(color) == 30.0
+            assert scope.illumination.get_led_state(color)['illumination_ma'] == 30.0
             scope.illumination.leds_off_async()
-            assert scope.illumination.get_led_ma(color) in (None, 0.0)
+            assert scope.illumination.get_led_state(color)['illumination_ma'] in (None, 0.0)
         finally:
             scope.disconnect()
 
@@ -622,13 +624,13 @@ class TestScopeSession:
         defaults.update(kwargs)
         return ScopeSession(**defaults)
 
-    def test_create_headless_releases_camera_start_gate(self):
+    def test_a_simulated_create_releases_camera_start_gate(self):
         # connect() leaves the camera configured but NOT grabbing (the
         # start gate); the headless factory is the whole bring-up for the
         # sessions it builds, so it must release the gate itself -- without
         # this, every headless capture times out with no error naming the
         # closed gate.
-        session = ScopeSession.create_headless(settings=complete_settings(**_make_settings()))
+        session = ScopeSession.create(complete_settings(**_make_settings()), simulate=True)
         try:
             assert session.scope._camera_driver.is_grabbing()
         finally:
@@ -649,7 +651,6 @@ class TestScopeSession:
         assert session.io_executor is io
         assert session.camera_executor is cam
         assert session.source_path == '/test'
-        assert session.focus_round == 0
         assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):
@@ -670,42 +671,40 @@ class TestScopeSession:
         assert 'max_duration' in result
         assert isinstance(result['max_duration'], datetime.timedelta)
 
-    def test_get_current_objective_info_delegates(self):
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'magnification': 10}
-        session = self._make_session(objective_helper=helper)
-        obj_id, obj = session.get_current_objective_info()
-        assert obj_id == '4x'
-        assert obj['magnification'] == 10
+    def test_the_current_objective_is_the_runtime_states(self):
+        # The answer is the runtime state's, not the settings dict's: on
+        # this turret scope, the assignment of the slot in the light path.
+        from tests.scope_fakes import home_sim_scope
+
+        session = self._make_session()
+        session.scope.runtime_state.set_turret_config({1: '10x Oly', 2: None, 3: None, 4: None})
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(1)
+        obj_id, obj = session.scope.runtime_state.resolve_current_objective()
+        assert obj_id == '10x Oly'
+        assert obj == session.scope.runtime_state.get_objective_info('10x Oly')
+
+    def test_the_current_objective_raises_when_nothing_is_known(self):
+        from modules.exceptions import ObjectiveUnknownError
+
+        session = self._make_session()
+        with pytest.raises(ObjectiveUnknownError):
+            session.scope.runtime_state.resolve_current_objective()
 
     def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()
         assert session.is_protocol_running is False
-        assert session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol')
+        assert held
         assert session.is_protocol_running is True
-        session.activity_claim.release('protocol')
+        held.release()
         assert session.is_protocol_running is False
 
-    # These two assert only start/shutdown forwarding onto the mocks, so
-    # they build on a fresh spec scope: constructing a session registers
+    # This asserts only shutdown forwarding onto the mocks, so it builds
+    # on a fresh spec scope: constructing a session registers
     # its executors on the scope, and registering mock handles over the
     # rig's live pre-registered ones is exactly the silent-swap state
     # register_executors refuses.
-    def test_start_executors(self):
-        from tests.scope_fakes import spec_scope
-
-        io = MagicMock()
-        cam = MagicMock()
-        session = ScopeSession(
-            settings=_make_settings(),
-            scope=spec_scope(),
-            io_executor=io,
-            camera_executor=cam,
-        )
-        session.start_executors()
-        io.start.assert_called_once()
-        cam.start.assert_called_once()
-
     def test_shutdown_executors(self):
         from tests.scope_fakes import spec_scope
 

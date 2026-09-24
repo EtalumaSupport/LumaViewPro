@@ -256,7 +256,7 @@
                     "excitation_nm": 488
                 }
             ],
-            "Filterset": "405/488/589"
+            "Filterset": "488"
         }
     }
 }

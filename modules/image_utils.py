@@ -666,8 +666,10 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     Pixels PhysicalSizeX, and Channel Name. Gain/Illumination, Objective,
     Instrument, and Plate are dropped at write and cannot be recovered -- they
     take the same sentinel defaults build_postproc_output_metadata applies when
-    no structured metadata is present. Returns None on a parse failure or a
-    missing Plane position so the caller falls back to defaults.
+    no structured metadata is present. Returns None on a parse failure, or when
+    there is no Pixels / Plane element to read at all, so the caller falls back
+    to defaults. A Plane that simply states no position is NOT a parse failure:
+    the position is optional here because it is optional at the writer.
     """
     try:
         root = ET.fromstring(ome_xml)
@@ -694,15 +696,11 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
 
     pos_x = _float(plane.attrib, 'PositionX')
     pos_y = _float(plane.attrib, 'PositionY')
-    if pos_x is None or pos_y is None:
-        return None
     pos_z = _float(plane.attrib, 'PositionZ')
     exposure = _float(plane.attrib, 'ExposureTime')
     pixel_size = _float(pixels.attrib, 'PhysicalSizeX')
 
     flat: dict = {
-        'plate_pos_mm': {'x': pos_x, 'y': pos_y},
-        'z_pos_um': pos_z if pos_z is not None else 0.0,
         # Dropped by tifffile's auto-OME serializer; default to match the
         # no-structured-metadata path so the derived output is consistent.
         'objective': {},
@@ -711,6 +709,13 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
         'illumination_ma': 0.0,
         'pixel_size_um': pixel_size if pixel_size is not None else 1.0,
     }
+    # Position is optional on the way in because it is optional on the way
+    # out: a capture with no coordinate writes no Plane position, and a file
+    # that honestly states no position must not be discarded for it.
+    if pos_x is not None and pos_y is not None:
+        flat['plate_pos_mm'] = {'x': pos_x, 'y': pos_y}
+    if pos_z is not None:
+        flat['z_pos_um'] = pos_z
     if channel is not None and channel.attrib.get('Name'):
         flat['channel'] = channel.attrib['Name']
         # ExcitationWavelength is a schema OME Channel attribute, so it
@@ -877,11 +882,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     plane = structured['Plane']
     try:
         flat: dict = {
-            'plate_pos_mm': {
-                'x': plane['PositionX'],
-                'y': plane['PositionY'],
-            },
-            'z_pos_um': plane['PositionZ'],
             'objective': plane.get('Objective', {}),
             'pixel_size_um': structured['PhysicalSizeX'],
             'channel': structured['Channel']['Name'][0],
@@ -892,13 +892,21 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # frame type); fall back to defaults rather than crashing the
         # post-processing job, per this function's documented contract.
         return None
-    # Exposure, gain, and illumination are the writer's optional fields:
-    # the producer omits the key when the value was genuinely unknown at
-    # capture (a failed camera read; an LED that was off, as on every
-    # dark or luminescence frame). Mirror that here -- reconstruct them
-    # only when present -- so such a frame still forwards its positions
-    # and pixel size, and no fabricated stand-in value is invented on
-    # the way back out to a derived output.
+    # Position, exposure, gain and illumination are the writer's optional
+    # fields: the producer omits the key when the value was genuinely unknown
+    # at capture (a failed camera read; an LED that was off, as on every dark
+    # or luminescence frame; a manual or composite capture, which has no
+    # planned coordinate to state). Mirror that here -- reconstruct them only
+    # when present -- so such a frame still forwards everything it DOES state
+    # and no fabricated stand-in is invented on the way back out to a derived
+    # output. Discarding the whole file over one absent field is the
+    # expensive failure: the caller's fallback then invents a position, an
+    # exposure, a gain, an illumination and a pixel size of 1.0, and a wrong
+    # scale is measured off the derived output forever.
+    if 'PositionX' in plane and 'PositionY' in plane:
+        flat['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
+    if 'PositionZ' in plane:
+        flat['z_pos_um'] = plane['PositionZ']
     if 'Illumination' in plane:
         flat['illumination_ma'] = plane['Illumination']
     if 'ExposureTime' in plane:
@@ -1276,14 +1284,27 @@ def build_hyperstack_output_metadata(
             colormap_type = LvpColormap.GRAY
         channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
 
-    plane: dict = {
-        'PositionX': plane_positions['PositionX'],
-        'PositionY': plane_positions['PositionY'],
-        'PositionZ': plane_positions['PositionZ'],
-        'PositionXUnit': ['mm'] * num_planes,
-        'PositionYUnit': ['mm'] * num_planes,
-        'PositionZUnit': [OME_UNIT_MICROMETER] * num_planes,
-    }
+    # A position is written only when every plane has one, like the timing
+    # below: tifffile writes a missing value as the literal PositionX="None",
+    # which no OME reader accepts as a number. A recording whose position the
+    # scope did not know, or a scope with no stage, states no position. X and
+    # Y travel as a pair because half a plate coordinate is not one; Z is
+    # independent.
+    # A pandas column holding a missing value hands it back as NaN, not None.
+    def _every_plane_has(values) -> bool:
+        return all(v is not None and not np.isnan(v) for v in values)
+
+    plane: dict = {}
+    if _every_plane_has(plane_positions['PositionX']) and _every_plane_has(
+        plane_positions['PositionY']
+    ):
+        plane['PositionX'] = plane_positions['PositionX']
+        plane['PositionY'] = plane_positions['PositionY']
+        plane['PositionXUnit'] = ['mm'] * num_planes
+        plane['PositionYUnit'] = ['mm'] * num_planes
+    if _every_plane_has(plane_positions['PositionZ']):
+        plane['PositionZ'] = plane_positions['PositionZ']
+        plane['PositionZUnit'] = [OME_UNIT_MICROMETER] * num_planes
     # Timing is written only when the caller measured it (per-plane
     # seconds from the earliest plane; DeltaT is a required key, None when
     # unmeasured). Like the pixel-size claim below, an absent DeltaT is
@@ -2176,16 +2197,26 @@ def generate_tiff_data(
     # write -- and ImageJ's own convention is 'um'.
     micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
 
-    # Shared plane metadata for all structured image types
+    # Shared plane metadata for all structured image types. The position
+    # follows the same optional-fields contract as the exposure, gain and
+    # illumination below it: a producer that has no position omits the keys,
+    # and a stand-in written here would be measured off the file downstream
+    # as the place the capture was taken. A manual live capture and both
+    # composite captures are exactly that producer.
     plane = {
-        'PositionX': metadata['plate_pos_mm']['x'],
-        'PositionY': metadata['plate_pos_mm']['y'],
-        'PositionZ': metadata['z_pos_um'],
-        'PositionXUnit': 'mm',
-        'PositionYUnit': 'mm',
-        'PositionZUnit': micron,
         'Objective': metadata['objective'],
     }
+    # Each unit travels with the value it describes, as ExposureTimeUnit and
+    # GainUnit do below: a unit standing alone declares a measurement the file
+    # does not carry.
+    if 'plate_pos_mm' in metadata:
+        plane['PositionX'] = metadata['plate_pos_mm']['x']
+        plane['PositionY'] = metadata['plate_pos_mm']['y']
+        plane['PositionXUnit'] = 'mm'
+        plane['PositionYUnit'] = 'mm'
+    if 'z_pos_um' in metadata:
+        plane['PositionZ'] = metadata['z_pos_um']
+        plane['PositionZUnit'] = micron
     # Exposure, gain, and illumination share the optional-fields contract
     # with the per-frame timestamps below: the producer omits the key when
     # the value is genuinely unknown (a failed camera read, an LED that is

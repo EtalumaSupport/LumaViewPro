@@ -24,7 +24,7 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from modules.exceptions import CameraSettingRejected
 from modules.frame_validity import FrameValidity
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
@@ -120,6 +120,50 @@ def capture_failure_cause(info: dict | None) -> str:
 def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
     """The exposure to store as a manual setting after an auto-gain lock."""
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
+
+
+@dataclasses.dataclass(frozen=True)
+class AppliedCameraSetting:
+    """What a stored camera setting actually becomes on the attached body.
+
+    A stored gain or exposure is the user's committed intent and outlives
+    whichever camera happens to be attached. A smaller body cannot reach it,
+    so the value written to hardware is the cap while the stored value is
+    left alone -- put a capable camera back and the intent applies again.
+
+    The three facts travel together because both consumers need all three:
+    the apply path writes ``applied``, and a display has to show ``stored``
+    while saying the camera is holding it down. Handing out a bare float
+    would make each consumer recompute ``capped`` for itself, which is the
+    second answerer this type exists to prevent.
+    """
+
+    stored: float
+    applied: float
+    capped: bool
+
+    def __post_init__(self) -> None:
+        # capped is not a caller's opinion: it is whether the write differs
+        # from the intent. A consumer that renders one while testing the
+        # other would report a limit that is not being applied.
+        if self.capped != (self.applied != self.stored):
+            raise ValueError(
+                f'AppliedCameraSetting: capped={self.capped!r} contradicts '
+                f'stored={self.stored!r} applied={self.applied!r}'
+            )
+
+
+def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
+    """Resolve a stored setting against a published maximum.
+
+    An unknown cap (no camera, or a driver that publishes none) narrows
+    nothing: a missing bound is not a bound of zero, and inventing one here
+    would apply a limit no hardware asked for.
+    """
+    value = float(stored)
+    if cap is None or value <= cap:
+        return AppliedCameraSetting(stored=value, applied=value, capped=False)
+    return AppliedCameraSetting(stored=value, applied=float(cap), capped=True)
 
 
 if TYPE_CHECKING:
@@ -296,6 +340,11 @@ class ImagingAPI:
         # drained frame count, chunk-verified exposure / gain). Read via
         # last_capture_info by callers that log per-capture provenance.
         self._last_capture_info = None
+        # Set by the dark-floor guard when it rejects, read by capture_and_wait
+        # so the failure names darkness rather than falling through to the
+        # cause ladder's camera-inactive default. Cleared at the start of every
+        # capture -- a stale True would misattribute the NEXT failure.
+        self._dark_saved = False
 
         # The commanded continuous auto-gain arm, or None. Only the API
         # commands the auto mode and no driver reads it back, so this is
@@ -599,6 +648,7 @@ class ImagingAPI:
         targets: tuple[tuple[str, float | None], ...] = (),
         force_clear: tuple[str, ...] = (),
         cache_update: dict[str, object] | None = None,
+        target_from_result: tuple[str, ...] = (),
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
         consequence. Every camera setter routes its hardware write through here
@@ -631,6 +681,17 @@ class ImagingAPI:
                 target, never record one for a possibly-rejected value.
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
+            target_from_result: Sources whose chunk target is taken from the
+                driver's own return value instead of from ``targets``. A driver
+                may clamp, snap or quantize the request before the hardware
+                sees it; the frame then carries chunk data describing what was
+                APPLIED, so a target recorded from the request can never match
+                and every subsequent frame is rejected. Declaring the target
+                here -- rather than computing it at the call site -- is what
+                keeps a transforming setter from silently reintroducing that
+                mismatch. A driver returning a non-numeric result (applied, but
+                unable to report a value) falls back to the ``targets`` entry
+                for that source.
 
         Returns:
             The driver write's result, so the caller can do its own rejection
@@ -646,6 +707,16 @@ class ImagingAPI:
             for source in invalidates:
                 self.frame_validity.invalidate(source)
             for source, value in targets:
+                if (
+                    source in target_from_result
+                    and isinstance(result, (int, float))
+                    and not isinstance(result, bool)
+                ):
+                    # bool is an int subclass, so a driver reporting a bare
+                    # True would otherwise stamp a 1.0 target and reject
+                    # every frame -- the failure this parameter exists to
+                    # prevent, reintroduced by the check meant to prevent it.
+                    value = float(result)
                 self.frame_validity.set_target(source, value)
             if cache_update:
                 self._commit_camera_writes(cache_update)
@@ -696,11 +767,51 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
-    def _set_gain_db_impl(self, gain_db: float) -> None:
+    def _removed_during_write(self, setting: str, absent_label: str, requested: float) -> bool:
+        """Whether a write that reported refused had in fact lost its camera.
+
+        ``_mark_disconnected()`` deliberately leaves ``_active`` attached --
+        the SDK handle is released later, off this thread, so the C++
+        destructor cannot fire on an SDK callback thread -- so the driver's
+        own inactive branch never fires for a removed device, and a write
+        that failed because the hardware vanished arrives at the value
+        setters looking exactly like a refusal. Reporting it as one names
+        the wrong cause: it tells the user to check that their value is
+        within the camera limits, and raises ``CameraSettingRejected`` at
+        the public setter for what the missing-hardware contract calls a
+        quiet no-op. True here means the caller answers "not confirmed"
+        instead, which is what a vanished camera actually leaves behind.
+        """
+        if not self._driver.is_device_removed():
+            return False
+        logger.error(
+            f'[SCOPE API ] {setting}: camera removed during the write; '
+            f'{requested!r} was not applied'
+        )
+        self._notify_camera_absent(absent_label)
+        return True
+
+    def _set_gain_db_impl(self, gain_db: float) -> bool | None:
         """Set the camera gain.
+
+        Deliberately does NOT raise on a rejection, unlike the public
+        ``set_gain_db`` that wraps it. This body is the composition primitive
+        the auto-gain lock, the exposure ceiling and the layer apply build on,
+        and it is what a protocol step and an autofocus sweep bind directly.
+        An exception from here reaches the protocol scan loop, which classifies
+        anything raised with the boards still connected as transient and
+        abandons the remainder of the scan -- so one refused gain on an early
+        step would discard every step after it. The refusal is reported and the
+        caller continues at the gain the camera actually holds.
 
         Args:
             gain_db: Gain value in dB.
+
+        Returns:
+            bool | None: ``False`` on a confirmed driver rejection. ``None``
+                when no camera is active, when the camera was removed
+                during the write, or when the driver has no confirmation
+                signal -- none of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -725,11 +836,16 @@ class ImagingAPI:
             cache_update={'gain_db': float(gain_db)},
         )
         if ok is False:
+            if self._removed_during_write('gain_db', 'gain', float(gain_db)):
+                return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD gain,
             # and IDS has no chunk backstop to catch the mismatch
             # downstream -- surface it instead of recording the requested
-            # value as truth in the cache.
+            # value as truth in the cache. Logged as well as notified: the
+            # popup is suppressed for the whole of an unattended run, which
+            # is exactly when a per-step rejection matters most.
+            logger.error(f'[SCOPE API ] gain_db: driver rejected {float(gain_db)!r}')
             notifications.error(
                 'Camera',
                 'Camera Setting Not Applied',
@@ -740,12 +856,24 @@ class ImagingAPI:
         elif changed:
             _api_log.info(f'set_gain_db {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
+        return ok
 
-    def _set_exposure_ms_impl(self, exposure_ms: float) -> None:
+    def _set_exposure_ms_impl(self, exposure_ms: float) -> bool | None:
         """Set the camera exposure time.
+
+        Non-raising for the same reason as ``_set_gain_db_impl``: this body is
+        bound directly by the protocol step and the autofocus sweep, where an
+        exception reaches the scan loop's transient classifier and costs the
+        rest of the scan.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Returns:
+            bool | None: ``False`` on a confirmed driver rejection. ``None``
+                when no camera is active, when the camera was removed
+                during the write, or when the driver has no confirmation
+                signal -- none of those is a refusal.
         """
         if not self._driver or not self._driver.active:
             return
@@ -785,14 +913,20 @@ class ImagingAPI:
             _write_exposure,
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
+            target_from_result=('exposure',),
             cache_update={'exposure_ms': float(exposure_ms)},
         )
         if ok is False:
+            if self._removed_during_write('exposure_ms', 'exposure', float(exposure_ms)):
+                return None
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD
             # exposure, and IDS has no chunk backstop to catch the
             # mismatch downstream -- surface it instead of recording the
-            # requested value as truth in the cache.
+            # requested value as truth in the cache. Logged as well as
+            # notified: the popup is suppressed for the whole of an
+            # unattended run, which is when a per-step rejection matters most.
+            logger.error(f'[SCOPE API ] exposure_ms: driver rejected {float(exposure_ms)!r}')
             notifications.error(
                 'Camera',
                 'Camera Setting Not Applied',
@@ -803,12 +937,14 @@ class ImagingAPI:
         elif changed:
             _api_log.info(f'set_exposure {exposure_ms}ms')
             self._fire_camera_listeners('exposure', float(exposure_ms))
+        return ok
 
     # --- Public dispatch ---
-    # These three are what an external caller reaches: an SDK script, a REST
-    # handler, the GUI. Every internal caller binds the matching `_impl`
-    # instead, so nothing already running on an executor worker or on the
-    # protocol or autofocus thread ever arrives here.
+    # These three are what every caller reaches: an SDK script, a REST
+    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
+    # which call them under their taking so the lane admits their work while
+    # they hold the scope. From a task already on the lane's worker the lane
+    # runs the body inline.
 
     # How long a dispatched camera write waits on the camera worker before
     # giving up. A gain or exposure write is a short SDK call behind at most
@@ -865,10 +1001,9 @@ class ImagingAPI:
         alternative is `put` returning None and the command disappearing
         with nothing raised and nothing logged.
 
-        The refusal asks only WHETHER work is accepted. A run disables the
-        camera executor outright (io and file are fenced instead), and `put`
-        reports both states the same way, so a branch that asked WHY would
-        need a list of executor states kept in sync with the executor.
+        The lane's ``call`` decides a refusal and raises it to the caller:
+        the lane is closed, or a run or a diagnostic holds the scope and this
+        call is not made under its taking.
 
         Unlike the LED dispatcher there is no connected pre-check here: the
         camera slot holds None when no camera is present -- there is no Null
@@ -879,42 +1014,62 @@ class ImagingAPI:
         ex = self._scope._camera_executor
         if ex is None:
             return impl(*args, **kwargs)
-        if not ex.accepts_work():
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
-        if fut is None:
-            # A protocol fence can land between the check above and the
-            # submit; without this the race surfaces as an AttributeError on
-            # the missing future instead of the typed refusal.
-            raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        return fut.result(timeout=timeout_s)
+        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, timeout_s)
 
-    def set_gain_db(self, gain_db: float) -> None:
+    def set_gain_db(self, gain_db: float) -> bool | None:
         """Set the camera gain, and wait for it.
 
         See ``_set_gain_db_impl`` for the value contract and the rejection
-        notification; this adds only the dispatch described on
-        ``_dispatch_camera``.
+        notification; this adds the dispatch described on ``_dispatch_camera``
+        and the raise below.
+
+        The raise is here rather than in the impl because this is the L2
+        surface -- an SDK, headless or REST caller -- and it has no in-run
+        callers to strand. Success is observed by returning; a refusal cannot
+        be mistaken for one by a caller that forgets to check a return code.
+
+        Raises:
+            CameraSettingRejected: A live driver confirmed it refused the
+                gain. Already logged and notified when it arrives. Not
+                raised for a camera-absent no-op or for a driver with no
+                confirmation signal -- neither is a refusal.
         """
-        return self._dispatch_camera(
+        applied = self._dispatch_camera(
             self._set_gain_db_impl,
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if applied is False:
+            raise CameraSettingRejected('gain_db', gain_db)
+        # Passed through, not swallowed: every dispatcher in this class returns
+        # what its impl returned, and a test pins that contract across all of
+        # them. The raise is added to that, not substituted for it.
+        return applied
 
-    def set_exposure_ms(self, exposure_ms: float) -> None:
+    def set_exposure_ms(self, exposure_ms: float) -> bool | None:
         """Set the camera exposure time, and wait for it.
 
         See ``_set_exposure_ms_impl`` for the value contract and the
-        unit-confusion warning it carries.
+        unit-confusion warning it carries. The raise is placed here, on the
+        L2 surface, for the reason given on ``set_gain_db``.
+
+        Raises:
+            CameraSettingRejected: A live driver confirmed it refused the
+                exposure. Already logged and notified when it arrives. Not
+                raised for a camera-absent no-op or for a driver with no
+                confirmation signal -- neither is a refusal.
         """
-        return self._dispatch_camera(
+        applied = self._dispatch_camera(
             self._set_exposure_ms_impl,
             'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if applied is False:
+            raise CameraSettingRejected('exposure_ms', exposure_ms)
+        # See set_gain_db: the dispatcher's pass-through contract holds.
+        return applied
 
     def set_auto_gain(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
@@ -2540,6 +2695,8 @@ class ImagingAPI:
             # the window is exactly what makes the old derivation stale.
             expected_lit = bool(live_lit_pairs(self._scope.illumination))
 
+            with self._state_lock:
+                self._dark_saved = False
             image = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
@@ -2586,6 +2743,13 @@ class ImagingAPI:
             stale = self._chunk_target_mismatch()
             if stale is not None:
                 extra['chunk_rejected'] = stale
+        # Recorded whether or not a frame came back, and OUTSIDE the None
+        # branch: a dark frame is delivered, not refused, so this fact rides
+        # a SUCCESSFUL capture. It is the only way a caller that did not
+        # measure the pixels itself can tell a dark frame from a lit one.
+        with self._state_lock:
+            if self._dark_saved:
+                extra['dark_saved'] = True
         _record_capture_info(
             chunk_exposure_us=chunks.get('ExposureTime'),
             chunk_gain_db=chunks.get('Gain'),
@@ -2878,10 +3042,15 @@ class ImagingAPI:
                         # The caller declared illumination ON, yet no pixel
                         # clears the floor: the frame integrated before the
                         # LED lit, or the camera is delivering black frames.
-                        # Retry (the next frame usually integrates under the
-                        # lit LED), then reject loudly -- a black file must
-                        # become either a good file or a named failure, never
-                        # a silent save.
+                        # Retry first -- the next frame usually integrates
+                        # under the lit LED. When the budget runs out the
+                        # frame is SAVED anyway: a dark frame is an
+                        # observation the operator can see on screen, not a
+                        # failure, and destroying it loses real data (a dim
+                        # transmitted setting, a genuinely dark sample).
+                        # Darkness says nothing about the LED -- only tracked
+                        # illumination state does -- so it decides nothing
+                        # here beyond what gets logged and recorded.
                         if datetime.datetime.now() > stop_time:
                             logger.warning(
                                 f'[SCOPE API ] get_image: frame is dark -- '
@@ -2889,17 +3058,30 @@ class ImagingAPI:
                                 f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
                                 f'(minimum {self._DARK_MIN_LIT_FRACTION}) with '
                                 f'illumination expected ON; no lit frame within '
-                                f'{timeout_s:.1f}s. Capture rejected.'
+                                f'{timeout_s:.1f}s. Saving the dark frame.'
                             )
-                            return None
-                        logger.debug(
-                            '[SCOPE API ] get_image: rejecting dark frame; waiting for a lit frame'
-                        )
-                        if not force_new_capture:
-                            # Buffered grabs return the same frame until a new
-                            # one arrives; pace the retry instead of spinning.
-                            time.sleep(0.05)
-                        continue
+                            # Carried out as a FACT about the frame, never a
+                            # failure cause: the writer records it on the run
+                            # row and an L2/REST caller reads it off
+                            # last_capture_info, so a dark frame stays
+                            # distinguishable from a lit one without anyone
+                            # re-measuring pixels downstream.
+                            with self._state_lock:
+                                self._dark_saved = True
+                            # No break/continue: the dark frame is this
+                            # capture, so it falls through the remaining
+                            # gates (chunk targets, sum accumulation) on
+                            # exactly the path a lit frame takes.
+                        else:
+                            logger.debug(
+                                '[SCOPE API ] get_image: dark frame; waiting for a lit frame'
+                            )
+                            if not force_new_capture:
+                                # Buffered grabs return the same frame until a
+                                # new one arrives; pace the retry instead of
+                                # spinning.
+                                time.sleep(0.05)
+                            continue
 
                 if verify_chunk_targets:
                     # The frame must prove its own settings: its chunk
@@ -3353,6 +3535,24 @@ class ImagingAPI:
             return None
         return float(value)
 
+    def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
+        """What a stored gain becomes on the attached camera.
+
+        The one place the gain cap is applied. A caller that narrows a
+        stored value itself -- against this cap or against a widget's
+        range -- is a second answerer, and the store it writes back is
+        how a user's setting gets destroyed by connecting a smaller body.
+        """
+        return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
+
+    def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
+        """What a stored exposure becomes on the attached camera.
+
+        See ``applied_gain_db_for``; the same contract for the other
+        quantity, so both travel the same path to hardware and to display.
+        """
+        return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
+
     @property
     def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
@@ -3422,6 +3622,24 @@ class ImagingAPI:
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
+        """Restore camera gain, exposure and auto-gain arm from a saved state, and wait.
+
+        See ``_restore_camera_state_impl`` for the contract; this adds the
+        dispatch described on ``_dispatch_camera``, so the restore is one
+        task on the camera lane and its writes cannot interleave with
+        another caller's.
+
+        Args:
+            snapshot: Return value from ``save_camera_state``.
+        """
+        return self._dispatch_camera(
+            self._restore_camera_state_impl,
+            'restore_camera_state',
+            args=(snapshot,),
+            timeout_s=3 * self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _restore_camera_state_impl(self, snapshot: dict) -> None:
         """Restore camera gain, exposure and auto-gain arm from a saved state.
 
         Fields absent from the snapshot are skipped and named in the log:
@@ -3560,15 +3778,30 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
             return
-        self._set_gain_db_impl(gain_db)
-        self._set_exposure_ms_impl(exposure_ms)
+        # These arrive as the layer's STORED values, which a smaller camera
+        # need not be able to reach. Capping here is what lets the store keep
+        # the user's intent: the write below carries a value this body takes,
+        # so the chunk target and the cache record what the sensor is actually
+        # at, and no driver is asked for a value it would refuse (pylon) or
+        # silently self-clamp while reporting success (IDS, FX2) -- that
+        # divergence is why the cap cannot be left to the driver.
+        gain = self.applied_gain_db_for(gain_db)
+        exposure = self.applied_exposure_ms_for(exposure_ms)
+        self._set_gain_db_impl(gain.applied)
+        self._set_exposure_ms_impl(exposure.applied)
         if auto_gain_settings is not None:
             self._set_auto_gain_impl(
                 auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
+        # Both numbers when the camera held one down, so a bundle shows the
+        # intent that was stored next to the value the sensor took; one
+        # number would read as the user having chosen the lower one.
+        capped_note = ''
+        if gain.capped or exposure.capped:
+            capped_note = f' capped(stored gain={gain.stored}dB exp={exposure.stored}ms)'
         _api_log.info(
-            f'apply_layer_camera_settings layer={layer} gain={gain_db}dB '
-            f'exp={exposure_ms}ms auto_gain={auto_gain}'
+            f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
+            f'exp={exposure.applied}ms auto_gain={auto_gain}{capped_note}'
         )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
@@ -3789,8 +4022,8 @@ class ImagingAPI:
         if enabled and not self._scale_bar_objective_skip_logged:
             self._scale_bar_objective_skip_logged = True
             logger.warning(
-                '[SCOPE API ] Scale bar is enabled but no objective is '
-                'selected; skipping the bar until an objective is set.'
+                '[SCOPE API ] Scale bar is enabled but the objective in the '
+                'light path is unknown; skipping the bar until it is known.'
             )
         return False
 

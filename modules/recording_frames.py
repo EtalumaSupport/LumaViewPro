@@ -13,14 +13,17 @@ import datetime
 import pathlib
 import re
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
+import modules.image_save as image_save
 import modules.image_utils as image_utils
+from modules.lumascope_api._constants import AxisState
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
@@ -202,18 +205,87 @@ def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
     return round(pixel_size_um, common_utils.max_decimal_precision('pixel_size'))
 
 
+class FrameFact(NamedTuple):
+    """What was true of the scope when one recorded frame arrived.
+
+    Read on the camera callback and carried with the frame to its write,
+    because the write runs later, behind the backlog, and a read then
+    would describe a different moment. Positions are None where the scope
+    did not know them: X and Y as a pair in plate millimetres, Z alone in
+    micrometres. ``moving`` says an axis was MOVING or HOMING when the
+    frame was delivered -- delivery follows exposure and readout, so this
+    is the state at delivery, not during the exposure. ``channel`` is the
+    channel that lit the frame, resolved the way a still's is.
+    """
+
+    plate_x_mm: float | None
+    plate_y_mm: float | None
+    z_um: float | None
+    moving: bool
+    channel: str
+
+
+def frame_fact(
+    scope: 'Lumascope',
+    *,
+    channel_tiebreak: str,
+    to_plate: Callable[[float, float], tuple[float, float]] | None,
+) -> FrameFact:
+    """The fact for the frame arriving now; called on the camera callback.
+
+    Every read is a lock-guarded memory read and nothing here can raise
+    once a recording has started: the listener that calls this swallows a
+    raise and drops the frame, and a recording that lost every frame that
+    way would end blaming the camera.
+
+    Args:
+        scope: The scope the recording runs against.
+        channel_tiebreak: The channel to record when no LED is lit -- the
+            one the recording started on -- so luminescence frames are
+            named, as a still's are.
+        to_plate: The plate transform bound when the recording started
+            (``runtime_state.plate_transform()``), or None when the scope
+            had no labware or offset then; X and Y are then unknown.
+    """
+    positions = scope.motion.axis_positions()
+    moving = any(p.state in (AxisState.MOVING, AxisState.HOMING) for p in positions.values())
+    x = positions.get('X')
+    y = positions.get('Y')
+    z = positions.get('Z')
+    plate_x_mm = plate_y_mm = None
+    if (
+        to_plate is not None
+        and x is not None
+        and y is not None
+        and x.position is not None
+        and y.position is not None
+    ):
+        plate_x_mm, plate_y_mm = to_plate(x.position, y.position)
+    return FrameFact(
+        plate_x_mm=plate_x_mm,
+        plate_y_mm=plate_y_mm,
+        z_um=z.position if z is not None else None,
+        moving=moving,
+        channel=common_utils.resolve_channel_identity(scope.illumination, channel_tiebreak),
+    )
+
+
 def tiff_frame_metadata(
     timestamp_s: float,
     frame_number: int,
-    chunks,
+    chunks: Mapping[str, Any] | None,
     tick_freq_hz: float | None,
     pixel_size_um: float | None,
+    fact: FrameFact,
 ) -> tuple[dict, str]:
     """Per-frame TIFF metadata plus a path-safe timestamp string.
 
     The timestamp travels in metadata, not pixels -- Create Video draws
     it at build time when the overlay is enabled. Camera chunk identity
-    (hardware ticks, FrameID) is recorded when the frame carried it.
+    (hardware ticks, FrameID) is recorded when the frame carried it. The
+    frame's own fact -- where it was taken, whether the stage was moving,
+    which channel lit it -- is recorded with the still capture's position
+    keys, so the file says what it is with or without a hyperstack.
 
     Args:
         timestamp_s: Frame time, epoch seconds.
@@ -226,12 +298,21 @@ def tiff_frame_metadata(
             recording legs have, so a caller that omits it would write
             unmeasurable files, and a default would hide that at the one
             place it must be visible.
+        fact: What was true when the frame arrived (``frame_fact``).
+            Required for the same reason, and refused as None: a frame
+            file with no fact would claim nothing about where it was
+            taken, silently.
 
     Returns:
         ``(metadata, ts_filename)`` -- the metadata dict for the TIFF
         writer, and a colon-free millisecond-precision timestamp string
         safe for Windows filenames.
+
+    Raises:
+        ValueError: If ``fact`` is None.
     """
+    if fact is None:
+        raise ValueError('a recorded frame needs its fact; none was given')
     ts = datetime.datetime.fromtimestamp(timestamp_s)
     ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
     metadata = {
@@ -239,6 +320,9 @@ def tiff_frame_metadata(
         'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
         'timestamp_iso': ts.isoformat(timespec='microseconds'),
         'frame_num': frame_number,
+        'channel': fact.channel,
+        'stage_moving': fact.moving,
+        **image_save.position_metadata_fields(fact.plate_x_mm, fact.plate_y_mm, fact.z_um),
         # The writer reads this as a required key. A real value makes the file
         # declare its scale; None makes it declare no absolute unit rather than
         # inherit tifffile's 1/1 default under a centimetre unit, which reads as

@@ -186,12 +186,13 @@ class TestCoalescingApplier:
         fn.assert_not_called()
 
     def test_duplicate_of_applied_value_absorbed(self):
-        """One user edit fires the bound handler up to FOUR times with
-        the identical (width, height) pair (on_text_validate + on_focus
-        loss per field, and the handler reads both fields every call).
-        On a fast camera (FX2, millisecond applies) the in-flight gate
-        closes between events, so each repeat became a real hardware
-        apply. Exact repeats of the applied value must be absorbed."""
+        """The handler reads both fields every call, so committing width
+        and then height sends the identical (width, height) pair twice
+        when only one changed, and a retype of the displayed size is a
+        repeat as well. On a fast camera (FX2, millisecond applies) the
+        in-flight gate closes between events, so each repeat became a
+        real hardware apply. Exact repeats of the applied value must be
+        absorbed."""
         applier = self._make()
         # Bare True: acceptance without a value -> the request itself is
         # recorded (a MagicMock return is truthy-but-not-True and would be
@@ -352,19 +353,51 @@ class TestCoalescingApplier:
 # ---------------------------------------------------------------------------
 
 
-def _extract_ms_method(method_name: str) -> str:
+def _ms_source_tree():
+    """The module's AST, read once so every extractor below shares one read."""
     import ast
     import pathlib
 
     src = pathlib.Path(__file__).parent.parent / 'ui' / 'microscope_settings.py'
-    source = src.read_text()
-    tree = ast.parse(source)
+    return ast.parse(src.read_text())
+
+
+def _extract_ms_constant(name: str):
+    """A module-level constant, taken from the source the methods come from.
+
+    Hand-copying it into the test would let the two drift apart in silence,
+    which is the whole failure this extraction harness exists to avoid.
+    """
+    import ast
+
+    for node in _ms_source_tree().body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f'microscope_settings.{name} not found')
+
+
+def _extract_ms_method(method_name: str) -> str:
+    import ast
+
+    tree = _ms_source_tree()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == 'MicroscopeSettings':
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.unparse(child)
     raise AssertionError(f'MicroscopeSettings.{method_name} not found')
+
+
+def _bind_write_frame_text(fake_self):
+    """Give a fake panel the REAL frame-box write funnel.
+
+    Stubbing it would hide the focus guard from every test that writes these
+    boxes, and the guard is the only reason the funnel exists.
+    """
+    fn = _compile_ms_method('_write_frame_text', {})
+    return lambda width, height: fn(fake_self, width, height)
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
@@ -474,14 +507,15 @@ class TestFrameSizeMirrorChain:
             {'_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings))},
         )
         ids = {
-            'frame_width_id': SimpleNamespace(text=''),
-            'frame_height_id': SimpleNamespace(text=''),
+            'frame_width_id': SimpleNamespace(text='', focus=False),
+            'frame_height_id': SimpleNamespace(text='', focus=False),
         }
         fov_refreshes = []
         fake_self = SimpleNamespace(
             ids=ids,
-            _refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
+            refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
 
         fn(fake_self, {'width': 1896, 'height': 1900})
 
@@ -492,26 +526,27 @@ class TestFrameSizeMirrorChain:
         # delivered geometry.
         assert fov_refreshes == [{'width': 1896, 'height': 1900}]
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+    def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
+        """Run the refresh against a scope whose active objective is
+        ``objective`` (None when unknown); returns the two label texts."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         import modules.common_utils as common_utils_real
         import modules.config_ui_getters as config_ui_getters_real
 
-        settings = {'frame': {'width': 1896, 'height': 1900}, 'objective_id': '4x'}
-        objective = {'focal_length': 9.0}
         ctx = SimpleNamespace(
-            settings=settings,
-            session=SimpleNamespace(
-                get_objective_info=lambda objective_id: objective,
+            settings={'frame': {'width': 1896, 'height': 1900}},
+            # The active objective is the runtime state's answer.
+            scope=SimpleNamespace(
+                runtime_state=SimpleNamespace(get_current_objective=lambda: objective)
             ),
             # The GUI getter resolves the scale off the LIVE scope.
             lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
-            '_refresh_fov_labels',
+            'refresh_fov_labels',
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'common_utils': common_utils_real,
@@ -520,12 +555,17 @@ class TestFrameSizeMirrorChain:
             },
         )
         ids = {
-            'field_of_view_width_id': SimpleNamespace(text=''),
-            'field_of_view_height_id': SimpleNamespace(text=''),
+            'field_of_view_width_id': SimpleNamespace(text='stale'),
+            'field_of_view_height_id': SimpleNamespace(text='stale'),
         }
-        fake_self = SimpleNamespace(ids=ids)
+        fn(SimpleNamespace(ids=ids))
+        return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-        fn(fake_self)
+    def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+        import modules.common_utils as common_utils_real
+
+        objective = {'focal_length': 9.0}
+        width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
 
         expected_fov = common_utils_real.get_field_of_view(
             focal_length=objective['focal_length'],
@@ -533,8 +573,13 @@ class TestFrameSizeMirrorChain:
             binning_size=1,
             capabilities=scale_capabilities,
         )
-        assert ids['field_of_view_width_id'].text == str(round(expected_fov['width'], 0))
-        assert ids['field_of_view_height_id'].text == str(round(expected_fov['height'], 0))
+        assert width == str(round(expected_fov['width'], 0))
+        assert height == str(round(expected_fov['height'], 0))
+
+    def test_an_unknown_objective_blanks_the_readout(self, scale_capabilities, monkeypatch):
+        # No objective, no field of view: the readout says nothing rather
+        # than keep a stale value or compute one from a guess.
+        assert self._refresh_fov(scale_capabilities, monkeypatch, None) == ('', '')
 
 
 class TestBinningApplyOutcome:
@@ -638,8 +683,8 @@ class TestSelectBinningSynchronousCommit:
         fake_self = SimpleNamespace(
             ids={
                 'binning_spinner': SimpleNamespace(text='2x2'),
-                'frame_width_id': SimpleNamespace(text='1920'),
-                'frame_height_id': SimpleNamespace(text='1200'),
+                'frame_width_id': SimpleNamespace(text='1920', focus=False),
+                'frame_height_id': SimpleNamespace(text='1200', focus=False),
             },
             _native_roi=lambda: {'width': 1920, 'height': 1200},
             _store_native_roi=lambda native: None,
@@ -647,6 +692,7 @@ class TestSelectBinningSynchronousCommit:
             _apply_displayed_frame=lambda frame: pushed_frames.append(frame),
             _on_binning_apply_outcome=lambda *a, **kw: None,
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
         return fn, fake_self, pushed_frames
 
     def test_initializing_commits_synchronously_without_iotask(self):
@@ -796,3 +842,127 @@ class TestImageModeMirrorAgreesWithTheStore:
             assert (
                 image_mode_real.resolve_settings_image_mode(settings) == scope_display.image_mode
             ), f'revert to {prior} left the mirror and the store disagreeing'
+
+
+class TestTheFrameBoxesRecordWhatWasTyped:
+    """A frame edit reports what the user entered, before anything acts on it.
+
+    The boxes are an editor: until an apply lands they can hold a size no
+    camera is at. Two things follow, and both are pinned here. The typed value
+    is recorded FIRST, so a bundle reads in the order the user acted and a
+    freeze cannot swallow the entry. And an entry that is not a pair of
+    integers is a CORRECTION, not a request -- emptying a box used to log
+    FRAME_SIZE for the size already in force, so the record claimed an edit
+    that never happened while the box sat blank.
+    """
+
+    def _make(self, width_text, unparseable=False):
+        from types import SimpleNamespace
+
+        import modules.binning as binning_real
+
+        records = []
+        settings = {'frame': {'width': 768, 'height': 1200}}
+        boxes = {
+            'frame_width_id': SimpleNamespace(text=width_text, focus=False),
+            'frame_height_id': SimpleNamespace(text='1200', focus=False),
+        }
+
+        def _typed():
+            if unparseable:
+                raise ValueError('Invalid value for frame width/height')
+            return {
+                'width': int(boxes['frame_width_id'].text),
+                'height': int(boxes['frame_height_id'].text),
+            }
+
+        imaging = SimpleNamespace(
+            get_native_resolution=lambda: {'width': 3840, 'height': 2400},
+            get_pixel_alignment=lambda: {'width': 4, 'height': 4},
+        )
+        ctx = SimpleNamespace(
+            settings=settings,
+            lumaview=SimpleNamespace(scope=SimpleNamespace(camera_connected=True, imaging=imaging)),
+        )
+        applied = []
+        fn = _compile_ms_method(
+            'frame_size',
+            {
+                '_app_ctx': SimpleNamespace(ctx=ctx),
+                'binning': binning_real,
+                'logger': MagicMock(),
+                '_FRAME_BOXES': _extract_ms_constant('_FRAME_BOXES'),
+                'gui_logger': SimpleNamespace(
+                    text_input=lambda name, value: records.append((name, str(value)))
+                ),
+            },
+        )
+        fake_self = SimpleNamespace(
+            ids=boxes,
+            _typed_frame_dimensions=_typed,
+            _ui_binning_size=lambda: 1,
+            _store_native_roi=lambda native: None,
+            _apply_displayed_frame=lambda frame: applied.append(frame),
+        )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
+        return fn, fake_self, records, applied, settings, boxes
+
+    def test_the_typed_width_is_recorded_before_the_apply(self):
+        fn, fake_self, records, applied, _settings, _boxes = self._make('800')
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '800') in records, (
+            f'the typed width left no record of its own: {records}'
+        )
+        assert applied, 'a parseable entry must still reach the camera'
+        assert records[0] == ('FRAME_WIDTH', '800'), (
+            'the typed value must be the first thing recorded, so a bundle '
+            f'reads in the order the user acted. Got {records}'
+        )
+
+    def test_the_committed_box_names_itself(self):
+        fn, fake_self, records, _applied, _settings, boxes = self._make('800')
+        boxes['frame_height_id'].text = '640'
+
+        fn(fake_self, 'frame_height_id')
+
+        assert records[0] == ('FRAME_HEIGHT', '640'), (
+            f'the height box reported under the wrong name: {records}'
+        )
+
+    def test_a_blank_entry_is_reported_as_a_correction_and_applies_nothing(self):
+        fn, fake_self, records, applied, _settings, _boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '') in records, (
+            f'the blank entry itself was never recorded: {records}'
+        )
+        assert ('FRAME_WIDTH_APPLIED', '768') in records, (
+            f'the correction was not reported under _APPLIED: {records}'
+        )
+        assert applied == [], (
+            'an unparseable entry must not be applied -- substituting the '
+            f'stored size reports a framing the user never asked for: {applied}'
+        )
+
+    def test_a_blank_entry_puts_both_boxes_back(self):
+        fn, fake_self, _records, _applied, settings, boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert boxes['frame_width_id'].text == str(settings['frame']['width'])
+        assert boxes['frame_height_id'].text == str(settings['frame']['height'])
+
+    def test_a_disconnected_camera_still_records_the_entry(self):
+        """The user typed it whether or not a camera was there to hear it."""
+        fn, fake_self, records, applied, _settings, _boxes = self._make('800')
+        fn.__globals__['_app_ctx'].ctx.lumaview.scope.camera_connected = False
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '800') in records, (
+            f'a frame edit with no camera left no trace at all: {records}'
+        )
+        assert applied == []

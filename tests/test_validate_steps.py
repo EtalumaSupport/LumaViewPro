@@ -153,6 +153,30 @@ class TestValidateObjective:
         p = _make_protocol([_valid_step(Objective='10x Oly')])
         assert p.validate_steps() == []
 
+    def test_the_catalogue_consulted_is_the_protocols_own(self):
+        """The validator used to build a second loader over the shipped file,
+        so a protocol whose own catalogue lacked the objective still validated
+        clean. One loader per protocol; the check reads it."""
+        from types import SimpleNamespace
+
+        p = _make_protocol([_valid_step(Objective='10x Oly')])
+        p._objective_loader = SimpleNamespace(get_objectives_list=lambda: ['4x Oly'])
+        errors = p.validate_steps()
+        assert len(errors) == 1
+        assert "Objective '10x Oly'" in errors[0]
+
+    def test_an_empty_catalogue_refuses_every_step_objective(self):
+        """An empty catalogue used to skip the objective check entirely, so
+        the protocol that could not run anywhere was the one that validated.
+        No catalogue entry means no valid objective, so every step is flagged."""
+        from types import SimpleNamespace
+
+        p = _make_protocol([_valid_step(Objective='10x Oly'), _valid_step(Objective='4x Oly')])
+        p._objective_loader = SimpleNamespace(get_objectives_list=lambda: [])
+        errors = p.validate_steps()
+        assert len(errors) == 2
+        assert all('not found in objectives.json' in e for e in errors)
+
 
 class TestValidateExposure:
     def test_zero_exposure_is_valid(self):

@@ -21,6 +21,7 @@ from modules.config_ui_getters import (
 )
 from modules.exceptions import ProtocolError
 from modules.sequential_io_executor import IOTask
+from ui.ui_helpers import unknown_position_refused
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -203,33 +204,42 @@ class LayerControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
-        from ui.ui_helpers import text_input_debounced
+        # Read once and share: the refusal path below restores it, and the
+        # no-edit check needs it. Two traversals of the same path drift.
+        if settings_path:
+            val = settings[self.layer]
+            for p in settings_path.split('.'):
+                val = val[p]
+        else:
+            val = settings[self.layer][settings_key]
 
         try:
             raw = cast(typed_text)
         except (ValueError, TypeError):
             logger.debug(f'[LVP Main  ] Invalid {settings_key} input: {self.ids[text_id].text!r}')
-            # Reset to current valid value (M21)
-            if settings_path:
-                parts = settings_path.split('.')
-                val = settings[self.layer]
-                for p in parts:
-                    val = val[p]
-            else:
-                val = settings[self.layer][settings_key]
             self._initializing = True
             try:
                 self.ids[text_id].text = str(val)
             finally:
                 self._initializing = False
-            # An unparseable entry is still a user action, and until now it left
-            # no trace at all -- the handler reset the box and returned. Both
-            # halves are recorded: what was typed, and what the box was put back
-            # to. Separate names because the debounce table is keyed by name and
-            # cancels a pending line for it, so one name would discard the other.
-            text_input_debounced(record_name, typed_text)
-            text_input_debounced(f'{record_name}_APPLIED', val)
-            gui_logger.note_write_back(record_name, val)
+            # An unparseable entry is still a user action, and the reset above
+            # would otherwise leave no trace of it. Both halves are recorded:
+            # what was typed, and what the box was put back to. Separate names
+            # because both lines have to survive -- the pair is what says the
+            # entry was refused rather than accepted.
+            gui_logger.text_input(record_name, typed_text)
+            gui_logger.text_input(f'{record_name}_APPLIED', val)
+            return False
+
+        # The kv fires this handler on focus LOSS, not on edit
+        # (`on_focus: if not self.focus: root.gain_text()`), so clicking into
+        # a box and out again arrives here with the untouched stored value.
+        # Clipping it would rewrite the store with the widget's bound: a layer
+        # whose stored value legitimately sits above this camera's cap -- the
+        # user's intent, kept on purpose -- would be destroyed by a stray
+        # click, and the periodic flush would persist the loss. No edit, no
+        # commit; the box already shows the stored value.
+        if raw == val:
             return False
 
         upper = slider.max if value_max is None else value_max
@@ -250,18 +260,14 @@ class LayerControl(BoxLayout):
 
         # text_input (not slider): this is a typed commit, and the twin slider
         # emits SLIDER for the same setting, so sharing the verb would make a
-        # drag and a keystroke indistinguishable in the bundle. Debounced
-        # because the kv binds both on_text_validate and on_focus, so one Enter
-        # runs this handler twice; the debounce collapses the pair to one line.
-        text_input_debounced(record_name, typed_text)
+        # drag and a keystroke indistinguishable in the bundle.
+        gui_logger.text_input(record_name, typed_text)
 
         # Only when clipping actually moved the value. The comparison is on the
         # PARSED number, not the strings: '5' typed into a float box becomes
         # 5.0, which is the same value and must not look like a correction.
         if raw != clipped:
-            text_input_debounced(f'{record_name}_APPLIED', clipped)
-
-        gui_logger.note_write_back(record_name, clipped)
+            gui_logger.text_input(f'{record_name}_APPLIED', clipped)
 
         return True
 
@@ -366,9 +372,7 @@ class LayerControl(BoxLayout):
         # returns early below, and until now this box produced no record of its
         # own at all -- a typed illumination was credited to the LED toggle that
         # apply_settings happens to reach, which reads as a button press.
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
+        gui_logger.text_input(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
         ill_min = self.ids['ill_slider'].min
         # Before the scope is built the slider's placeholder is the only bound.
         ill_max = get_layer_illumination_text_max(self.layer)
@@ -384,11 +388,8 @@ class LayerControl(BoxLayout):
                 self.ids['ill_text'].text = str(settings[self.layer]['illumination_ma'])
             finally:
                 self._initializing = False
-            text_input_debounced(
+            gui_logger.text_input(
                 f'ILLUMINATION_{self.layer}_APPLIED', settings[self.layer]['illumination_ma']
-            )
-            gui_logger.note_write_back(
-                f'ILLUMINATION_{self.layer}', settings[self.layer]['illumination_ma']
             )
             return
 
@@ -396,7 +397,7 @@ class LayerControl(BoxLayout):
 
         # Only when clipping moved it; comparing parsed numbers, not strings.
         if ill_val != illumination:
-            text_input_debounced(f'ILLUMINATION_{self.layer}_APPLIED', illumination)
+            gui_logger.text_input(f'ILLUMINATION_{self.layer}_APPLIED', illumination)
         # Text-entry divergence trace for the > ~150 mA silent-fail
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence
@@ -414,8 +415,6 @@ class LayerControl(BoxLayout):
         settings[self.layer]['illumination_ma'] = illumination
 
         self._show_value_on_widgets('ill_slider', 'ill_text', illumination)
-
-        gui_logger.note_write_back(f'ILLUMINATION_{self.layer}', illumination)
 
         self.apply_settings()
 
@@ -500,19 +499,13 @@ class LayerControl(BoxLayout):
             if gain_known:
                 settings[self.layer]['gain_db'] = round(gain, 1)
             if exp_known:
-                # The API decided the value (the achieved exposure floored
-                # to the class's usable floor); what is STORED is that value
-                # reconciled against the camera's own range, which is what
-                # this slider's bounds carry. The raw value reaches the user
-                # through the lock's state below.
-                stored = float(
-                    np.clip(
-                        lock.stored_exposure_ms,
-                        self.ids['exp_slider'].min,
-                        self.ids['exp_slider'].max,
-                    )
-                )
-                settings[self.layer]['exposure_ms'] = round(stored, 2)
+                # The API decided this value -- the achieved exposure floored
+                # to the class's usable floor -- so that a GUI and a REST
+                # caller store the same thing. Narrowing it again to this
+                # slider's range would make the widget a second answerer over
+                # the API's own answer, and a slider whose max sits below the
+                # achieved exposure would silently shrink what gets stored.
+                settings[self.layer]['exposure_ms'] = round(lock.stored_exposure_ms, 2)
             if gain_known or exp_known:
                 self.render_layer_values_from_settings()
 
@@ -583,12 +576,9 @@ class LayerControl(BoxLayout):
         # Logged before validation, and with the raw text: an entry this
         # handler rejects still returns early, and a rejected keystroke is
         # exactly the user action a forensic reader needs to see. The layer
-        # suffix is required -- the debounce table is keyed by record name and
-        # cancels a pending line on a repeat, so two channels sharing a name
-        # would silently discard one of them.
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
+        # suffix is required -- every channel has its own box, and without it
+        # a bundle could not say which channel's exposure was edited.
+        gui_logger.text_input(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
         exp_min = self.ids['exp_slider'].min
         # The box is bounded by what the sensor can actually honor, not by the
         # slider's manual range. With no camera to report a cap there is no
@@ -607,11 +597,8 @@ class LayerControl(BoxLayout):
                 self.ids['exp_text'].text = str(settings[self.layer]['exposure_ms'])
             finally:
                 self._initializing = False
-            text_input_debounced(
+            gui_logger.text_input(
                 f'EXPOSURE_{self.layer}_APPLIED', settings[self.layer]['exposure_ms']
-            )
-            gui_logger.note_write_back(
-                f'EXPOSURE_{self.layer}', settings[self.layer]['exposure_ms']
             )
             return
 
@@ -619,13 +606,11 @@ class LayerControl(BoxLayout):
 
         # Only when clipping moved it; comparing parsed numbers, not strings.
         if exp_val != exposure:
-            text_input_debounced(f'EXPOSURE_{self.layer}_APPLIED', exposure)
+            gui_logger.text_input(f'EXPOSURE_{self.layer}_APPLIED', exposure)
 
         settings[self.layer]['exposure_ms'] = exposure
 
         self._show_value_on_widgets('exp_slider', 'exp_text', exposure)
-
-        gui_logger.note_write_back(f'EXPOSURE_{self.layer}', exposure)
 
         self.apply_exp_slider()
 
@@ -823,6 +808,10 @@ class LayerControl(BoxLayout):
         # `project_lumaviewclassic_repo.md` in auto-memory.
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        # A Z that lost its reference keeps answering the last number it
+        # reported; saved, it would become every future step's focus.
+        if unknown_position_refused(('Z',), recording=True, then='save the focus'):
+            return
         try:
             pos = ctx.scope.motion.get_current_position('Z')
             with ctx.settings_lock:
@@ -914,6 +903,10 @@ class LayerControl(BoxLayout):
         # See execute_save_focus comment for the pattern rationale.
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        # As Save Focus, and this one writes the Z into every step of the
+        # channel.
+        if unknown_position_refused(('Z',), recording=True, then='apply the focus'):
+            return
         try:
             pos = ctx.scope.motion.get_current_position('Z')
             with ctx.settings_lock:

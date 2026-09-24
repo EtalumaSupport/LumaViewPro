@@ -8,7 +8,7 @@ truth is a synchronous derivation over them:
 
     is_protocol_running = owner == 'protocol'
     run_lockout         = owner == 'protocol' or protocol_files_draining
-    controls_locked     = run_lockout or (owner == 'recording' and recording_capturing)
+    controls_locked     = run_lockout or (owner == 'recording' and manual_recording.is_recording)
     motion_enabled      = capabilities.has_xy_stage and not run_lockout
 
 The drain terms encode today's documented asymmetry: a draining
@@ -75,7 +75,7 @@ class TestDerivations:
         session = _make_session(_file_executor(active=False))
         assert session.activity_claim.try_claim('recording')
         session.manual_recording._engine = MagicMock(is_recording=True)
-        assert session.recording_capturing is True
+        assert session.manual_recording.is_recording is True
         assert session.run_lockout is False, (
             'a recording is not a run: run_lockout carries only runs and the protocol file drain'
         )
@@ -122,14 +122,14 @@ class TestDerivations:
     def test_a_live_recording_is_both_capturing_and_close_pending(self):
         """The close gate needs the two apart, and they overlap.
 
-        recording_capturing is the narrower fact: it alone means the rest
+        manual_recording.is_recording is the narrower fact: it alone means the rest
         of the take is still to come, which is what the close confirms
         about. close_drain_pending stays true across the whole window.
         """
         session = _make_session(_file_executor(active=False))
         session.sequenced_capture_runner = MagicMock(video_drain_busy=False)
         session.manual_recording._engine = MagicMock(is_recording=True, is_draining=False)
-        assert session.recording_capturing is True
+        assert session.manual_recording.is_recording is True
         assert session.close_drain_pending is True
 
 
@@ -138,9 +138,10 @@ class TestTransitionNotification:
         session = _make_session(_file_executor(active=False))
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
-        assert session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol')
+        assert held
         assert len(fired) == 1
-        session.activity_claim.release('protocol')
+        held.release()
         assert len(fired) == 2
 
     def test_registration_level_syncs_immediately(self):

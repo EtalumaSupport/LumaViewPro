@@ -18,7 +18,7 @@ def _ctx_reporting_stim(supported):
     # The gate reads the LIVE scope (ctx.lumaview.scope), the reference reconnect
     # rebuilds -- not the build-time ctx.scope registry field.
     ctx = MagicMock()
-    ctx.lumaview.scope.capabilities.supports.return_value = supported
+    ctx.lumaview.scope.capabilities.has_firmware_stim = supported
     return ctx
 
 
@@ -26,7 +26,6 @@ def test_gate_true_when_firmware_supports(monkeypatch):
     ctx = _ctx_reporting_stim(True)
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     assert firmware_stim_supported() is True
-    ctx.lumaview.scope.capabilities.supports.assert_called_with('firmware_stim')
 
 
 def test_gate_false_when_firmware_lacks_support(monkeypatch):
@@ -46,4 +45,4 @@ def test_default_simulated_scope_reports_no_firmware_stim():
     # must read False so the gate hides stim. This is the real-path anchor for
     # the mocked gate tests above.
     scope = Lumascope(simulate=True)
-    assert scope.capabilities.supports('firmware_stim') is False
+    assert scope.capabilities.has_firmware_stim is False

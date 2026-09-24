@@ -539,9 +539,9 @@ class ImageSettings(BoxLayout):
         the bound. Every other programmatic widget write in LayerControl takes
         the same flag for the same reason.
 
-        clamp_layer_settings_to_caps stays OUTSIDE the flag: its store write is
-        the deliberate reconciliation of a value the hardware cannot honor, not
-        a display correction.
+        reconcile_layers_to_camera_caps stays OUTSIDE the flag: it delivers to
+        the camera through each layer's apply, and that apply returns early on
+        exactly this flag -- inside, it would render and push nothing.
         """
         layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_layers()]
         for layer_obj in layer_objs:
@@ -554,40 +554,40 @@ class ImageSettings(BoxLayout):
         finally:
             for layer_obj in layer_objs:
                 layer_obj._initializing = False
-        self.clamp_layer_settings_to_caps()
+        self.reconcile_layers_to_camera_caps()
 
-    def clamp_layer_settings_to_caps(self):
-        """Bring every layer's stored gain/exposure within the live camera caps.
+    def reconcile_layers_to_camera_caps(self):
+        """Render and re-apply every layer the attached camera cannot fully reach.
 
-        A camera swap can leave a layer's persisted gain_db/exposure_ms above the new
-        body's physical maximum; applying that value blacks the channel out (and
-        it would persist to current.json on the next save). Reconcile the stored
-        value -- and its slider -- down to the cap for every layer, the same
-        reconciliation load_settings performs, so connect and reconnect agree.
-        An over-cap value cannot be honored by the hardware regardless.
+        A camera swap can leave a layer's persisted gain_db/exposure_ms above
+        the new body's maximum. The stored value is the user's committed
+        intent, so it is NOT rewritten: the API caps what it writes to
+        hardware, the channel runs at the most that body can do, and putting a
+        capable camera back applies the intent again. Overwriting the store
+        instead destroyed the setting silently -- the periodic current.json
+        flush persisted the shrunken value and nothing recorded the original.
 
-        Runs BEFORE anything renders the store, on every path that reaches it:
-        a value the camera cannot honor is wrong in the store, so rendering it
-        first would pin the slider against the cap and present the pending
-        reconciliation as a legitimate divergence between the two widgets.
+        The divergence itself is the trigger. Firing for every layer would
+        drive each one's LED state through apply_settings, changing what
+        startup does to the illuminators; firing for none would leave the
+        widgets showing a value never pushed to the camera.
+
+        Runs BEFORE anything renders the store, on every path that reaches it,
+        so the slider's pinned position and the box's stored value are in
+        agreement the first time they are drawn.
 
         The re-render and the apply are both explicit. They used to arrive as
         side effects of writing the slider -- the layer's handler re-committed
         the value (crediting the user with a drag it never made) and its
-        debounced trigger was what actually told the camera, which on the
-        reconnect path was the only apply there was.
+        debounced trigger was what actually told the camera.
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        imaging = ctx.lumaview.scope.imaging
         for layer in common_utils.get_layers():
-            reconciled = False
-            if settings[layer]['gain_db'] > ctx.max_gain:
-                settings[layer]['gain_db'] = ctx.max_gain
-                reconciled = True
-            if settings[layer]['exposure_ms'] > ctx.max_exposure:
-                settings[layer]['exposure_ms'] = ctx.max_exposure
-                reconciled = True
-            if reconciled:
+            gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
+            exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
+            if gain.capped or exposure.capped:
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.render_layer_values_from_settings()
                 layer_obj.apply_settings()

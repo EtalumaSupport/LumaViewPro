@@ -521,7 +521,7 @@ class FileChooseBTN(HoverBehavior, Button):
         if self.selection:
             if self.context == 'load_protocol':
                 ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
-                    filepath=self.selection[0]
+                    filepath=self.selection[0], navigate=True
                 )
 
             elif self.context == 'load_cell_count_input_image':

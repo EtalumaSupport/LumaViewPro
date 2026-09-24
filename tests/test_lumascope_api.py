@@ -25,9 +25,9 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
     and #618 to land. The rename retires the trap.
 """
 
+import sys
 import threading
 from typing import ClassVar
-from unittest.mock import MagicMock
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -309,6 +309,23 @@ class TestLumascopeHome:
             assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
 
+def _firmware_board(model: str, axes: str, dialect: str = '3.0', unplugged: bool = False):
+    """A MotorBoard on the real firmware (the firmware-backed simulator)."""
+    from drivers.motorboard import MotorBoard
+    from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+
+    backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
+    if unplugged:
+        backend.motor_board.unplug()
+    return MotorBoard(backend=backend), backend.motor_board
+
+
+firmware_only = pytest.mark.skipif(
+    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
+    reason='the firmware-backed simulator runs on macOS and Linux only',
+)
+
+
 class TestMotorBoardGetMicroscopeModelDisconnect:
     """drivers/motorboard.py::get_microscope_model() must NOT raise when
     the board is disconnected (self._fullinfo is None). Issue #632
@@ -317,27 +334,26 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
     settings-load on first launch with Thonny holding the motor port.
     """
 
+    @firmware_only
     def test_returns_none_when_fullinfo_not_cached(self):
-        from drivers.motorboard import MotorBoard
+        # A board whose cable is out never connects, so no FULLINFO record
+        # is cached.
+        board, _sim = _firmware_board('LS850', 'XYZ', unplugged=True)
+        try:
+            assert not board.is_connected()
+            # Must return None, must not raise. Caller (UI) treats None
+            # as "use saved settings" -- safe path.
+            assert board.get_microscope_model() is None
+        finally:
+            board.disconnect()
 
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board._fullinfo = None
-        # Must return None, must not raise. Caller (UI) treats None
-        # as "use saved settings" -- safe path.
-        assert board.get_microscope_model() is None
-
+    @firmware_only
     def test_returns_model_from_cached_fullinfo(self):
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board._fullinfo = {'model': 'LS850', 'serial': '12074'}
-        assert board.get_microscope_model() == 'LS850'
+        board, _sim = _firmware_board('LS850', 'XYZ')
+        try:
+            assert board.get_microscope_model() == 'LS850'
+        finally:
+            board.disconnect()
 
     def test_returns_none_when_model_key_missing(self):
         # Defense-in-depth: malformed cache shouldn't crash either.
@@ -351,6 +367,7 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
         assert board.get_microscope_model() is None
 
 
+@firmware_only
 class TestMotorBoardHomePartialResponse:
     """drivers/motorboard.py::home() must recognize the firmware partial-
     home response ('ERROR: X not present' on LS820) as a success rather
@@ -358,92 +375,77 @@ class TestMotorBoardHomePartialResponse:
     API layer trusts the driver's verdict, so the partial-home logic
     must live in the driver where the firmware response is already known.
 
-    These tests cover the driver in isolation. test_serial_safety.py
-    has the wire-level versions that go through exchange_command.
+    These tests run the driver against the real firmware: each reply is
+    the one the firmware gives for the scope's axes, a stuck reference
+    switch, or a pulled cable.
     """
 
-    def test_partial_home_x_not_present_returns_true(self):
-        """LS820: firmware homes Z, then returns 'ERROR: X not present'.
-        Driver must return True -- Z is at its reference position."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value='ERROR: X not present')
-
-        result = board.home()
-
-        assert result is True, (
-            "Driver must treat 'ERROR: X not present' as partial-home "
-            'success -- firmware homed Z (and T) before reporting missing X'
-        )
-        assert board.initial_homing_complete is True
+    @pytest.mark.parametrize('dialect', ['3.0', 'field'])
+    def test_partial_home_x_not_present_returns_true(self, dialect):
+        """LS820: firmware homes Z, then reports the missing X (3.0:
+        'ERROR: X not present'; field: 'X not present'). Driver must
+        return True -- Z is at its reference position."""
+        board, _sim = _firmware_board('LS820', 'Z', dialect=dialect)
+        try:
+            assert board.initial_homing_complete is False
+            result = board.home()
+            assert result is True, (
+                "Driver must treat 'ERROR: X not present' as partial-home "
+                'success -- firmware homed Z (and T) before reporting missing X'
+            )
+            assert board.initial_homing_complete is True
+        finally:
+            board.disconnect()
 
     def test_partial_home_y_not_present_returns_true(self):
-        """Same as above for missing Y (one-axis bench config)."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value='ERROR: Y not present')
-
-        assert board.home() is True
-        assert board.initial_homing_complete is True
+        """Same as above for missing Y (one-axis bench config): the
+        firmware answers 'ERROR: Y not present'."""
+        board, _sim = _firmware_board('LS850', 'XZ')
+        try:
+            assert board.home() is True
+            assert board.initial_homing_complete is True
+        finally:
+            board.disconnect()
 
     def test_full_home_complete_returns_true(self):
         """Full XYZ board: firmware returns 'XYZ home complete'."""
-        from drivers.motorboard import MotorBoard
-
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value='XYZ home complete')
-
-        assert board.home() is True
-        assert board.initial_homing_complete is True
+        board, _sim = _firmware_board('LS850T', 'XYZT')
+        try:
+            assert board.home() is True
+            assert board.initial_homing_complete is True
+        finally:
+            board.disconnect()
 
     def test_real_failure_raises_hardware_error(self):
         """Non-partial errors (timeout, hardware fault, Z homing aborted)
         must raise HardwareError -- the API layer catches and raises the
-        Homing Failed popup. (Wave 2 / D1: Rule 29 typed-exception migration.)"""
-        from drivers.motorboard import MotorBoard
+        Homing Failed popup. Here Z's reference switch never trips, and the
+        3.0 firmware answers 'ERROR: Z home timeout'. (The field firmware
+        reports a full HOME complete even then, so it cannot show this.)"""
         from drivers.exceptions import HardwareError
 
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value='ERROR: timeout')
-
-        with pytest.raises(HardwareError, match='firmware error'):
-            board.home()
-        assert board.initial_homing_complete is False
+        board, sim = _firmware_board('LS850T', 'XYZT')
+        try:
+            sim.inject('Z', 'switch_never_trips')
+            with pytest.raises(HardwareError, match='firmware error'):
+                board.home()
+            assert board.initial_homing_complete is False
+        finally:
+            board.disconnect()
 
     def test_no_response_raises_hardware_error(self):
-        """No response (None) means disconnect/timeout -- raises HardwareError.
-        (Wave 2 / D1: Rule 29 typed-exception migration.)"""
-        from drivers.motorboard import MotorBoard
+        """No response means disconnect/timeout -- raises HardwareError.
+        Here the cable is pulled before HOME is sent."""
         from drivers.exceptions import HardwareError
 
-        board = MotorBoard.__new__(MotorBoard)
-        import threading
-
-        board._state_lock = threading.Lock()
-        board.initial_homing_complete = False
-        board.exchange_command = MagicMock(return_value=None)
-
-        with pytest.raises(HardwareError, match='no response'):
-            board.home()
-        assert board.initial_homing_complete is False
+        board, sim = _firmware_board('LS850T', 'XYZT')
+        try:
+            sim.unplug()
+            with pytest.raises(HardwareError, match='no response'):
+                board.home()
+            assert board.initial_homing_complete is False
+        finally:
+            board.disconnect()
 
 
 class TestFrameValidityDuringHoming:
@@ -795,7 +797,10 @@ class TestPerAxisDictsFromDriver:
 
         scope.motion.move_absolute('X', 100)
         scope.motion.move_absolute('Y', 100)
-        scope.motion.move_absolute('T', 0)
+        # T is not an absent axis to no-op: the generic door refuses the
+        # turret on every scope, because the turret moves only by slot.
+        with pytest.raises(ValueError, match='move_turret'):
+            scope.motion.move_absolute('T', 0)
         assert 'X' not in scope.motion._pos_cache
         assert 'Y' not in scope.motion._pos_cache
         assert 'T' not in scope.motion._pos_cache
@@ -1072,46 +1077,6 @@ class TestScopeCapabilities:
         assert caps.has_focus is False
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
-
-    def test_runtime_state_placeholder_ships_with_empty_fields(self):
-        """Audit Finding #5: scope.runtime_state ships as an empty
-        placeholder per design doc sec.10. Both fields are empty dicts
-        with the documented types. Callers treat empty as 'feature
-        unknown' per Rule 8 corollary."""
-        from modules.lumascope_api.runtime_state import RuntimeState
-
-        scope_stub = object()
-        rs = RuntimeState(scope_stub)
-        assert rs.firmware_versions == {}
-        assert isinstance(rs.firmware_versions, dict)
-        assert rs.firmware_features == {}
-        assert isinstance(rs.firmware_features, dict)
-        # Empty-default contract: callers use .get(..., default) without KeyError
-        assert rs.firmware_features.get('motor', frozenset()) == frozenset()
-
-    def test_supports_helper_searches_has_and_camera_supports_fields(self):
-        """Rule 8 corollary helper -- one cross-surface entry point for
-        capability probes. caps.supports('turret') returns has_turret;
-        caps.supports('auto_gain') returns camera_supports_auto_gain.
-        Unknown feature returns False, never raises."""
-        from modules.scope_capabilities import ScopeCapabilities
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-
-        caps = ScopeCapabilities.from_drivers(
-            motion=SimulatedMotorBoard(),
-            led=NullLEDBoard(),
-            camera=None,
-        )
-        # has_X fields
-        assert caps.supports('focus') is caps.has_focus
-        assert caps.supports('xy_stage') is caps.has_xy_stage
-        assert caps.supports('turret') is caps.has_turret
-        # camera_supports_X fields (camera=None -> defaults to False)
-        assert caps.supports('auto_gain') is False
-        assert caps.supports('auto_exposure') is False
-        # Unknown feature returns False, does not raise
-        assert caps.supports('warp_drive') is False
-        assert caps.supports('') is False
 
     def test_null_led_still_reports_six_channels_for_compat(self):
         """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8

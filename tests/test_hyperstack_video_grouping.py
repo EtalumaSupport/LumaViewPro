@@ -23,6 +23,9 @@ from modules import image_utils
 from modules import recording_frames
 from modules.common_utils import PostFunction
 from modules.stack_builder import StackBuilder
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _frame_path(well, color, scan, n):
@@ -181,6 +184,7 @@ class TestVideoWellStackBuild:
                 chunks=None,
                 tick_freq_hz=None,
                 pixel_size_um=None,
+                fact=_FACT,
             )
             image_utils.write_tiff(
                 data=np.full((4, 4), n, dtype=np.uint8),
