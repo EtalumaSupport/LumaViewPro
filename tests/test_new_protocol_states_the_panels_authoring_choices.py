@@ -71,11 +71,14 @@ def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
     assert asked == {'tiling': '1x1', 'use_zstacking': False}
 
 
-def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path):
+def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog):
     """The config carries the active objective, which is unknown on an
     unassigned slot and during every turret move. The panel shows the
-    Session's reason; an exception out of a button handler ends the app."""
-    import ui.notification_popup as notification_popup
+    Session's reason as a refusal -- a warning, not an error dialog or an
+    ERROR line; an exception out of a button handler ends the app."""
+    import logging
+
+    from modules.notification_center import notifications
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
@@ -94,16 +97,18 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path):
         session.scope.motion.move_turret(2)
         shown = []
         monkeypatch.setattr(
-            notification_popup,
-            'show_notification_popup',
-            lambda title, message, **_: shown.append((title, message)),
+            notifications,
+            'warning',
+            lambda category, title, message, **_: shown.append((title, message)),
         )
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=session.scope, session=session))
         monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
 
-        _Panel('1x1', False).new_protocol()
+        with caplog.at_level(logging.WARNING):
+            _Panel('1x1', False).new_protocol()
 
         assert len(shown) == 1, shown
         assert 'slot 2 has no objective assigned' in shown[0][1], shown
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
     finally:
         session.shutdown()

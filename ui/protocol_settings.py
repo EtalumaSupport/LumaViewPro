@@ -50,6 +50,7 @@ from ui.ui_helpers import (
     set_title_event_text,
     set_writing_title,
     reset_with_refusal_boundary,
+    show_objective_unknown_refusal,
     sync_layer_widgets_from_settings,
 )
 from ui.progress_popup import show_popup
@@ -758,6 +759,9 @@ class ProtocolSettings(FloatLayout):
             # the blanket handler below, which renders str(e) -- the joined
             # `reason: message` debugging form, a machine code in a dialog.
             logger.debug(f'[LVP Main  ] Protocol creation refused ({e.reason})')
+            return
+        except exceptions.ObjectiveUnknownError as e:
+            show_objective_unknown_refusal('New Protocol', e)
             return
         except Exception as e:
             logger.error(f'[LVP Main  ] Protocol creation failed: {e}')

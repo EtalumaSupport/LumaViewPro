@@ -16,7 +16,11 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.exceptions import (
+    ObjectiveUnknownError,
+    ProtocolRunRefusedError,
+    RunAlreadyEndedError,
+)
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
@@ -40,11 +44,41 @@ def run_with_refusal_boundary(
     a run of any kind. A starter therefore adds no popup of its own --
     a second one would say what the engine already said, and would say
     it only to whoever is looking at this GUI.
+
+    One answer arrives without the funnel: an unknown objective. The API
+    raises it as its own typed error while it assembles the run, before
+    any run exists to refuse, so nothing has logged or shown it yet, and
+    it is shown here.
     """
     try:
         start_fn()
     except ProtocolRunRefusedError:
         on_refused()
+    except ObjectiveUnknownError as e:
+        show_objective_unknown_refusal('Run', e)
+        on_refused()
+
+
+def show_objective_unknown_refusal(action: str, error: ObjectiveUnknownError) -> None:
+    """Show the API's unknown-objective answer as a refusal of *action*.
+
+    The API decided and wrote the sentence (home the turret, assign the
+    slot); a click that meets it is refused, not failed, so it is a
+    warning, never an ERROR with a traceback. Posted the way the run
+    funnel posts a refusal -- solicited, under the one refusal key -- so
+    it reaches the user during a run and a second press replaces the
+    dialog rather than stacking one.
+    """
+    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
+
+    logger.warning(f'[UI] {action} refused ({error.reason}): {error}')
+    notifications.warning(
+        'Protocol',
+        'Objective Unknown',
+        str(error),
+        solicited=True,
+        operation_key=REFUSAL_OPERATION_KEY,
+    )
 
 
 def reset_with_refusal_boundary(runner, run) -> bool:
