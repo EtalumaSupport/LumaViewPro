@@ -2,9 +2,11 @@
 """The simulated serial backend: the boards a simulated scope has, at the wire.
 
 Handed to a board driver in place of pyserial, it answers discovery with
-the simulated scope's boards and opens each one as an `EmulatedPort`
-running the real firmware. The driver above it is the production driver,
-unchanged; only the port is simulated.
+the simulated scope's boards and opens an `EmulatedPort` to each. The
+boards themselves (`EmulatedBoard`, the real firmware running) belong to
+the backend and outlive every port opened to them, as a powered board
+outlives its USB connection. The driver above it is the production
+driver, unchanged; only the hardware is simulated.
 
 Which axes the scope has is decided by the caller from the scope model and
 passed in. A scope with no motor axes has no motor board at all, so this
@@ -22,7 +24,7 @@ from serial.serialutil import SerialException
 from serial.tools.list_ports_common import ListPortInfo
 
 from drivers.sim_wire.mp.tmc5072 import AXES
-from drivers.sim_wire.port import BoardImage, EmulatedPort
+from drivers.sim_wire.port import BoardImage, EmulatedBoard, EmulatedPort
 
 _PACKAGE = pathlib.Path(__file__).resolve().parent
 _REPO = _PACKAGE.parent.parent
@@ -161,11 +163,13 @@ class SimWireBackend:
     """Discovery and open for a simulated scope's boards."""
 
     def __init__(self, motor: MotorBoardSpec | None):
-        self._motor = motor
-        self.motor_port: EmulatedPort | None = None
+        # The simulated motor board, which a test reaches for faults, the
+        # register-write oracle and the USB link. Its firmware starts with
+        # the first port opened to it.
+        self.motor_board = None if motor is None else EmulatedBoard(motor.image())
 
     def comports(self) -> list[ListPortInfo]:
-        if self._motor is None:
+        if self.motor_board is None or not self.motor_board.plugged:
             return []
         info = ListPortInfo(MOTOR_DEVICE)
         info.vid, info.pid = MOTOR_VID, MOTOR_PID
@@ -174,9 +178,6 @@ class SimWireBackend:
 
     def open(self, **kwargs) -> EmulatedPort:
         port = kwargs.get('port')
-        if self._motor is None or port != MOTOR_DEVICE:
+        if self.motor_board is None or port != MOTOR_DEVICE:
             raise SerialException(f'no simulated board at {port!r}')
-        # Kept so a test can reach the simulated hardware behind the board it
-        # opened (faults, register writes); a reconnect replaces it.
-        self.motor_port = EmulatedPort(self._motor.image(), **kwargs)
-        return self.motor_port
+        return EmulatedPort(self.motor_board, **kwargs)

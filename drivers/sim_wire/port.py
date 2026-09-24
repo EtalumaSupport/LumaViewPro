@@ -1,42 +1,56 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A serial port whose far end is the real board firmware, run in MicroPython.
+"""A simulated board running the real firmware in MicroPython, and the
+serial port a driver opens to it.
 
-`EmulatedPort` is a pyserial `SerialBase`, so the board drivers read and
-write it exactly as they do a USB serial port: pyserial's own `readline`,
-timeouts and exceptions. Behind it is one MicroPython process per open port,
-running the firmware's compiled `.mpy` with its stdin and stdout as the wire.
+`EmulatedBoard` is the board: one MicroPython process running the
+firmware's compiled `.mpy` with its stdin and stdout as the wire, the
+simulated hardware behind it, and the USB link in front of it. It outlives
+any one connection, as the EL-0940's motor controller does: it is an
+internal USB device behind the mainboard's own hub and powered by the
+board, so closing the port or pulling the host cable leaves its firmware
+running with everything it knows, homing included.
 
-What a USB CDC link does that a pipe does not, the port does itself:
+`EmulatedPort` is one connection to a board. It is a pyserial `SerialBase`,
+so the drivers read and write it exactly as they do a USB serial port:
+pyserial's own `readline`, timeouts and exceptions.
+
+What a USB CDC link does that a pipe does not, the board does itself:
 
 - Ctrl-C interrupts the running firmware. Over a pipe the runtime would hand
-  the byte to `readline()` as data, so the port sends the process SIGINT,
+  the byte to `readline()` as data, so the board sends the process SIGINT,
   which raises the firmware's own KeyboardInterrupt and, because the runtime
   runs with -i, leaves the real MicroPython REPL behind it.
-- Ctrl-D at that REPL is a soft reset: the port restarts the process, which
-  runs the firmware from the top as the board does. While the firmware is
-  running, Ctrl-D is ordinary data, as it is on the board.
-- A board that goes away raises SerialException, as a pulled cable does.
+- Ctrl-D at that REPL is a soft reset: the board restarts the process, which
+  runs the firmware from the top as the board does, and the connection
+  stays up. While the firmware is running, Ctrl-D is ordinary data, as it
+  is on the board.
+- A board that goes away raises SerialException on the port, as a pulled
+  cable does.
 
-The port owns the process. Closing the port kills it, and a watcher kills it
-if this interpreter dies without closing: at stdin EOF the firmware's idle
-loop spins a whole core forever, and nothing inside the firmware notices.
+A board ends its process when nothing holds it any more, and a watcher ends
+it if this interpreter dies: at stdin EOF the firmware's idle loop spins a
+whole core forever, and nothing inside the firmware notices.
 
-The reader thread always drains the process into a bounded buffer. A board
-whose output nobody reads blocks on a full pipe and stops answering, which
-would look like a hardware fault; overflowing the buffer is a loud failure
-instead.
+A reader thread always drains the process. A board whose output nobody
+reads blocks on a full pipe and stops answering, which would look like a
+hardware fault; so output with no port attached is dropped, as the host
+side of a USB link drops it, and a port that holds too much unread fails
+loudly.
 
-Tests reach the simulated hardware through the port:
+Tests reach the simulated hardware through the board:
 
 - `inject` / `clear` switch a hardware fault in the chip model on or off.
   They go down a pipe the process inherits, which the model reads at every
   SPI transfer, so a fault set before a command is in effect from that
-  command's first transfer. Faults are hardware and outlive a soft reset:
-  the port hands them to every process it starts.
-- With the board's oracle on, every register write the firmware makes
-  comes back framed on the process's own output, ordered against its
-  replies, and `take_writes` returns them. The frames never reach the
-  driver.
+  command's first transfer. Faults are hardware and outlive a soft reset
+  and a reboot: the board hands them to every process it starts.
+- With the oracle on, every register write the firmware makes comes back
+  framed on the process's own output, ordered against its replies, and
+  `take_writes` returns them. The frames never reach the driver.
+- `unplug` / `replug` pull and restore the host cable; `reboot` restarts
+  the firmware, which drops the connection as USB re-enumerates.
+- `drop_next_reply`, `delay_next_reply` and `garble_next_reply` spoil the
+  first line the board sends after the port's next write.
 """
 
 import os
@@ -46,6 +60,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, to_bytes
@@ -62,7 +77,7 @@ REPL_PROMPT = b'>>> '
 # is reading the port.
 RX_LIMIT_BYTES = 1 << 20
 
-# Register writes held for a test before the port refuses to hold more. A
+# Register writes held for a test before the board refuses to hold more. A
 # homing is a few dozen; this many unread means nothing is taking them.
 WRITES_LIMIT = 100_000
 
@@ -108,51 +123,32 @@ class RegisterWrite:
     value: int
 
 
-class EmulatedPort(SerialBase):
-    def __init__(self, image: BoardImage, **kwargs):
-        self._image = image
-        self._proc: subprocess.Popen | None = None
-        self._workdir: str | None = None
-        self._reader: threading.Thread | None = None
-        self._rx = bytearray()
-        # The last bytes the board sent, read or not: whether it sits at the
-        # REPL is a fact about what it last printed, not about what is unread.
-        self._tail = b''
-        self._cond = threading.Condition()
-        self._failure: str | None = None
-        self._faults: set[tuple[str, str]] = set()
-        self._faults_w: int | None = None
-        # A frame the reader has started and not finished, across chunks.
-        self._frame: bytearray | None = None
-        self._writes: list[RegisterWrite] = []
-        super().__init__(**kwargs)
+def _garble(line: bytes) -> bytes:
+    """A reply spoiled on the wire, still one line: every printable byte is
+    rotated to another printable byte, so the line keeps its length and its
+    line ending and no longer says what the firmware said."""
+    return bytes(33 + (b - 33 + 47) % 94 if 33 <= b <= 126 else b for b in line)
 
-    # -- process lifetime -------------------------------------------------
 
-    def open(self) -> None:
-        if self.is_open:
-            raise SerialException('Port is already open.')
-        if self._port is None:
-            raise SerialException('Port must be configured before it can be used.')
-        self._workdir = tempfile.mkdtemp(prefix='lvp_simwire_')
-        self._spawn()
-        self.is_open = True
+class _Process:
+    """The firmware process and its pipes, with no reference back to the
+    board, so a board nobody holds can be collected and its process ended."""
 
-    def _spawn(self) -> None:
-        for name, data in self._image.files.items():
-            with open(os.path.join(self._workdir, name), 'wb') as f:
+    def __init__(self, image: BoardImage, workdir: str, faults: set[tuple[str, str]]):
+        for name, data in image.files.items():
+            with open(os.path.join(workdir, name), 'wb') as f:
                 f.write(data)
-        shutil.copyfile(self._image.firmware_mpy, os.path.join(self._workdir, 'main.mpy'))
-        env = dict(os.environ, MICROPYPATH=':'.join((*self._image.module_path, '.frozen')))
-        faults_r, self._faults_w = os.pipe()
-        # Written before the process starts, so the firmware's first transfer
-        # at boot already sees them.
-        for axis, name in sorted(self._faults):
-            self._send_fault(True, axis, name)
+        shutil.copyfile(image.firmware_mpy, os.path.join(workdir, 'main.mpy'))
+        env = dict(os.environ, MICROPYPATH=':'.join((*image.module_path, '.frozen')))
+        faults_r, self.faults_w = os.pipe()
         try:
-            self._proc = subprocess.Popen(
-                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), self._image.runtime, str(faults_r)],
-                cwd=self._workdir,
+            # Written before the process starts, so the firmware's first
+            # transfer at boot already sees them.
+            for axis, name in sorted(faults):
+                os.write(self.faults_w, channel.fault_line(True, axis, name))
+            self.proc = subprocess.Popen(
+                ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), image.runtime, str(faults_r)],
+                cwd=workdir,
                 env=env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -161,97 +157,225 @@ class EmulatedPort(SerialBase):
                 pass_fds=(faults_r,),
             )
         except OSError as e:
-            os.close(self._faults_w)
-            self._faults_w = None
-            raise SerialException(f'{self._image.label}: board process did not start: {e}') from e
+            os.close(self.faults_w)
+            raise SerialException(f'{image.label}: board process did not start: {e}') from e
         finally:
             os.close(faults_r)
-        with self._cond:
-            self._failure = None
-            self._frame = None
-        self._reader = threading.Thread(
-            target=self._read_loop,
-            args=(self._proc,),
-            name=f'EmulatedPort.reader[{self._image.label}]',
-            daemon=True,
-        )
-        self._reader.start()
 
-    def _kill(self) -> None:
-        proc, self._proc = self._proc, None
-        if proc is None:
-            return
-        if proc.poll() is None:
-            proc.kill()
-        proc.wait()
-        if self._faults_w is not None:
-            os.close(self._faults_w)
-            self._faults_w = None
-        for stream in (proc.stdin, proc.stdout):
+    def end(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.kill()
+        self.proc.wait()
+        for close in (
+            lambda: os.close(self.faults_w),
+            self.proc.stdin.close,
+            self.proc.stdout.close,
+        ):
             try:
-                stream.close()
+                close()
             except OSError:
                 pass
-        if self._reader is not None:
-            self._reader.join(timeout=2)
-            self._reader = None
 
-    def _restart(self) -> None:
-        """Soft reset: the firmware runs again from the top."""
-        self._kill()
+
+class _Life:
+    """What must end when the board does: its process and its working
+    directory. Held by the board's finalizer, which cannot hold the board."""
+
+    def __init__(self):
+        self.process: _Process | None = None
+        self.workdir: str | None = None
+
+    def end(self) -> None:
+        if self.process is not None:
+            self.process.end()
+            self.process = None
+        if self.workdir is not None:
+            shutil.rmtree(self.workdir, ignore_errors=True)
+            self.workdir = None
+
+
+def _read_loop(board_ref: 'weakref.ref[EmulatedBoard]', process: _Process) -> None:
+    fd = process.proc.stdout.fileno()
+    while True:
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            chunk = b''
+        board = board_ref()
+        if board is None or not board._from_process(process, chunk):
+            return
+        del board
+
+
+class EmulatedBoard:
+    """One simulated board: its firmware process, the simulated hardware
+    behind it, and its USB link. Powered on by the first connection."""
+
+    def __init__(self, image: BoardImage):
+        self._image = image
+        self._cond = threading.Condition()
+        self._life = _Life()
+        weakref.finalize(self, self._life.end)
+        # The last bytes the board sent: whether it sits at the REPL is a fact
+        # about what it last printed.
+        self._tail = b''
+        self._port: EmulatedPort | None = None
+        self._plugged = True
+        self._faults: set[tuple[str, str]] = set()
+        # A frame the reader has started and not finished, across chunks.
+        self._frame: bytearray | None = None
+        self._writes: list[RegisterWrite] = []
+        self._failure: str | None = None
+        # A reply fault: armed by a test, active from the port's next write
+        # until the first line after it is complete.
+        self._reply_fault: tuple[str, float] | None = None
+        self._reply_active = False
+        self._reply = bytearray()
+        # Output held back by a late reply until the delay has passed.
+        self._held = bytearray()
+        self._holding = False
+
+    @property
+    def label(self) -> str:
+        return self._image.label
+
+    @property
+    def plugged(self) -> bool:
         with self._cond:
-            self._rx.clear()
-            self._tail = b''
-        self._spawn()
+            return self._plugged
 
-    def close(self) -> None:
-        if self.is_open:
-            self.is_open = False
-            self._kill()
-            if self._workdir is not None:
-                shutil.rmtree(self._workdir, ignore_errors=True)
-                self._workdir = None
-            with self._cond:
+    # -- process lifetime (every caller holds the board's lock) -------------
+
+    def _start(self) -> None:
+        if self._life.workdir is None:
+            self._life.workdir = tempfile.mkdtemp(prefix='lvp_simwire_')
+        process = _Process(self._image, self._life.workdir, self._faults)
+        self._life.process = process
+        self._tail = b''
+        self._frame = None
+        self._failure = None
+        # Not joined when the process is replaced: a reader whose process is
+        # no longer the board's stops at its next read, and the board's lock
+        # is never let go mid-change for it (a reconnect in that gap would
+        # start a second process).
+        threading.Thread(
+            target=_read_loop,
+            args=(weakref.ref(self), process),
+            name=f'EmulatedBoard.reader[{self._image.label}]',
+            daemon=True,
+        ).start()
+
+    def _stop(self) -> None:
+        process, self._life.process = self._life.process, None
+        if process is not None:
+            process.end()
+
+    def _running(self) -> bool:
+        process = self._life.process
+        return process is not None and process.proc.poll() is None
+
+    def _drop_port(self, reason: str) -> None:
+        port, self._port = self._port, None
+        if port is not None:
+            port._fail(reason)
+
+    # -- the connection ----------------------------------------------------
+
+    def _attach(self, port: 'EmulatedPort') -> None:
+        with self._cond:
+            if not self._plugged:
+                raise SerialException(f'{self.label}: no board: the cable is unplugged')
+            if self._port is not None:
+                raise SerialException(f'{self.label}: the port is already open elsewhere')
+            if not self._running():
+                self._stop()
+                self._start()
+            self._port = port
+
+    def _detach(self, port: 'EmulatedPort') -> None:
+        with self._cond:
+            if self._port is port:
+                self._port = None
+
+    def _write(self, port: 'EmulatedPort', data: bytes) -> None:
+        with self._cond:
+            if self._port is not port:
+                raise SerialException(f'{self.label}: the connection to the board is gone')
+            if self._reply_fault is not None and data:
+                self._reply_active = True
+            start = 0
+            for i, byte in enumerate(data):
+                if byte == CTRL_C:
+                    self._send(data[start:i])
+                    self._interrupt()
+                    start = i + 1
+                elif byte == CTRL_D and self._tail == REPL_PROMPT:
+                    self._send(data[start:i])
+                    self._soft_reset()
+                    start = i + 1
+            self._send(data[start:])
+
+    def _send(self, data: bytes) -> None:
+        if not data:
+            return
+        process = self._life.process
+        if self._failure is not None or process is None:
+            raise SerialException(self._failure or f'{self.label}: board process is not running')
+        try:
+            process.proc.stdin.write(data)
+        except (BrokenPipeError, OSError) as e:
+            raise SerialException(f'{self.label}: write failed: {e}') from e
+
+    def _interrupt(self) -> None:
+        """Ctrl-C. On the board the interrupt lands before the next byte does,
+        so the rest of the write waits for the firmware to reach the REPL: a
+        Ctrl-D sent after it must meet the REPL (a soft reset), not the
+        runtime's stdin (end of input, which ends the process)."""
+        process = self._life.process
+        if process is not None and process.proc.poll() is None:
+            process.proc.send_signal(signal.SIGINT)
+        deadline = time.monotonic() + INTERRUPT_SETTLE_S
+        while self._tail != REPL_PROMPT and self._failure is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._cond.wait(remaining)
+
+    def _soft_reset(self) -> None:
+        """Ctrl-D at the REPL: the firmware runs again from the top. The
+        connection stays up, and what the port already holds stays there, as
+        it does in the host's serial buffer."""
+        self._stop()
+        self._start()
+
+    # -- the board's output --------------------------------------------------
+
+    def _from_process(self, process: _Process, chunk: bytes) -> bool:
+        """One read from the process; False once the reader should stop."""
+        with self._cond:
+            if process is not self._life.process:
+                return False
+            if not chunk:
+                self._failure = f'{self.label}: board process exited (code {process.proc.poll()})'
+                self._drop_port(self._failure)
                 self._cond.notify_all()
-        super().close()
-
-    def _read_loop(self, proc: subprocess.Popen) -> None:
-        fd = proc.stdout.fileno()
-        while True:
-            try:
-                chunk = os.read(fd, 4096)
-            except OSError:
-                chunk = b''
-            with self._cond:
-                if proc is not self._proc:
-                    return
-                if not chunk:
-                    self._failure = (
-                        f'{self._image.label}: board process exited (code {proc.poll()})'
-                    )
-                    self._cond.notify_all()
-                    return
-                chunk = self._demux(chunk)
-                if self._failure is not None:
-                    self._cond.notify_all()
-                    proc.kill()
-                    return
-                if len(self._rx) + len(chunk) > RX_LIMIT_BYTES:
-                    self._failure = (
-                        f'{self._image.label}: {len(self._rx)} bytes unread on the port; '
-                        'nothing is reading it'
-                    )
-                    self._cond.notify_all()
-                    proc.kill()
-                    return
-                self._rx.extend(chunk)
+                return False
+            chunk = self._demux(chunk)
+            if self._failure is not None:
+                self._drop_port(self._failure)
+                self._cond.notify_all()
+                process.proc.kill()
+                return False
+            if chunk:
                 self._tail = (self._tail + chunk)[-len(REPL_PROMPT) :]
-                self._cond.notify_all()
+                self._to_port(chunk)
+            self._cond.notify_all()
+            return True
 
     def _demux(self, chunk: bytes) -> bytes:
         """Take the oracle's frames out of a chunk of the board's output and
         return what is left for the driver. Holds the lock; sets the failure
-        on a frame the port cannot keep."""
+        on a frame the board cannot keep."""
         to_driver = bytearray()
         i = 0
         while i < len(chunk):
@@ -279,54 +403,168 @@ class EmulatedPort(SerialBase):
     def _keep_write(self, frame: bytes) -> None:
         if not self._image.oracle:
             self._failure = (
-                f'{self._image.label}: the board sent a register-write frame with the oracle off'
+                f'{self.label}: the board sent a register-write frame with the oracle off'
             )
             return
         if len(self._writes) >= WRITES_LIMIT:
             self._failure = (
-                f'{self._image.label}: {len(self._writes)} register writes untaken; '
-                'nothing is taking them'
+                f'{self.label}: {len(self._writes)} register writes untaken; nothing is taking them'
             )
             return
         self._writes.append(RegisterWrite(*channel.parse_write(frame)))
 
-    def _at_repl(self) -> bool:
-        with self._cond:
-            return self._tail == REPL_PROMPT
+    def _to_port(self, data: bytes) -> None:
+        """Deliver output to the attached port through any armed reply fault.
+        With no port attached, or the cable pulled, output is dropped."""
+        if self._reply_active:
+            end = data.find(b'\n')
+            if end < 0:
+                self._reply += data
+                return
+            reply, data = bytes(self._reply + data[: end + 1]), data[end + 1 :]
+            self._reply.clear()
+            self._reply_active = False
+            kind, seconds = self._reply_fault
+            self._reply_fault = None
+            if kind == 'garble':
+                data = _garble(reply) + data
+            elif kind == 'delay':
+                data = reply + data
+                self._holding = True
+                threading.Timer(seconds, self._release).start()
+        if self._holding:
+            self._held += data
+            return
+        if data and self._port is not None:
+            self._port._deliver(data)
 
-    # -- the simulated hardware -------------------------------------------
+    def _release(self) -> None:
+        with self._cond:
+            self._holding = False
+            held, self._held = bytes(self._held), bytearray()
+            if held and self._port is not None:
+                self._port._deliver(held)
+
+    # -- the simulated hardware --------------------------------------------
 
     def inject(self, axis: str, fault: str) -> None:
         """Switch a hardware fault on; in effect from the next command's first
-        SPI transfer, and across soft resets until cleared."""
-        self._check_fault(axis, fault)
-        self._faults.add((axis, fault))
-        self._send_fault(True, axis, fault)
+        SPI transfer, and across soft resets and reboots until cleared."""
+        self._set_fault(axis, fault, True)
 
     def clear(self, axis: str, fault: str) -> None:
-        self._check_fault(axis, fault)
-        self._faults.discard((axis, fault))
-        self._send_fault(False, axis, fault)
+        self._set_fault(axis, fault, False)
+
+    def _set_fault(self, axis: str, fault: str, on: bool) -> None:
+        if axis not in AXES:
+            raise ValueError(f'unknown axis {axis!r}; axes are {AXES}')
+        if fault not in FAULTS:
+            raise ValueError(f'unknown fault {fault!r}; faults are {FAULTS}')
+        with self._cond:
+            if on:
+                self._faults.add((axis, fault))
+            else:
+                self._faults.discard((axis, fault))
+            process = self._life.process
+            if process is not None:
+                os.write(process.faults_w, channel.fault_line(on, axis, fault))
 
     def take_writes(self) -> list[RegisterWrite]:
         """The register writes since the last call, oldest first. Every write
         the firmware made before a reply the driver has read is here."""
         if not self._image.oracle:
-            raise SerialException(f'{self._image.label}: the oracle is off for this board')
+            raise SerialException(f'{self.label}: the oracle is off for this board')
         with self._cond:
             writes, self._writes = self._writes, []
         return writes
 
-    def _check_fault(self, axis: str, fault: str) -> None:
-        if axis not in AXES:
-            raise ValueError(f'unknown axis {axis!r}; axes are {AXES}')
-        if fault not in FAULTS:
-            raise ValueError(f'unknown fault {fault!r}; faults are {FAULTS}')
+    # -- the USB link --------------------------------------------------------
 
-    def _send_fault(self, on: bool, axis: str, fault: str) -> None:
-        if self._faults_w is None:
-            raise SerialException(f'{self._image.label}: board process is not running')
-        os.write(self._faults_w, channel.fault_line(on, axis, fault))
+    def unplug(self) -> None:
+        """Pull the host cable: the open port raises from now on and
+        discovery finds no board. The firmware runs on, powered by the board."""
+        with self._cond:
+            self._plugged = False
+            self._drop_port(f'{self.label}: the board was unplugged')
+
+    def replug(self) -> None:
+        with self._cond:
+            self._plugged = True
+
+    def reboot(self) -> None:
+        """The firmware restarts and loses everything it knew. The open port
+        raises, as USB re-enumerates, and the board is found again at once."""
+        with self._cond:
+            self._drop_port(f'{self.label}: the board rebooted; USB re-enumerated')
+            self._stop()
+            self._start()
+
+    def drop_next_reply(self) -> None:
+        self._arm_reply('drop')
+
+    def garble_next_reply(self) -> None:
+        self._arm_reply('garble')
+
+    def delay_next_reply(self, seconds: float) -> None:
+        if seconds <= 0:
+            raise ValueError(f'a reply is delayed by a positive time, not {seconds!r}')
+        self._arm_reply('delay', seconds)
+
+    def _arm_reply(self, kind: str, seconds: float = 0.0) -> None:
+        with self._cond:
+            if self._reply_fault is not None:
+                raise ValueError(
+                    f'{self.label}: a {self._reply_fault[0]} reply fault is already armed'
+                )
+            self._reply_fault = (kind, seconds)
+
+
+class EmulatedPort(SerialBase):
+    """One connection to an `EmulatedBoard`."""
+
+    def __init__(self, board: EmulatedBoard, **kwargs):
+        self._board = board
+        self._rx = bytearray()
+        self._cond = threading.Condition()
+        self._failure: str | None = None
+        super().__init__(**kwargs)
+
+    def open(self) -> None:
+        if self.is_open:
+            raise SerialException('Port is already open.')
+        if self._port is None:
+            raise SerialException('Port must be configured before it can be used.')
+        self._board._attach(self)
+        self.is_open = True
+
+    def close(self) -> None:
+        if self.is_open:
+            self.is_open = False
+            self._board._detach(self)
+            with self._cond:
+                self._cond.notify_all()
+        super().close()
+
+    # -- from the board, which holds its own lock ----------------------------
+
+    def _deliver(self, data: bytes) -> None:
+        with self._cond:
+            if self._failure is not None:
+                return
+            if len(self._rx) + len(data) > RX_LIMIT_BYTES:
+                self._failure = (
+                    f'{self._board.label}: {len(self._rx)} bytes unread on the port; '
+                    'nothing is reading it'
+                )
+            else:
+                self._rx.extend(data)
+            self._cond.notify_all()
+
+    def _fail(self, reason: str) -> None:
+        with self._cond:
+            if self._failure is None:
+                self._failure = reason
+            self._cond.notify_all()
 
     # -- pyserial surface -------------------------------------------------
 
@@ -375,50 +613,12 @@ class EmulatedPort(SerialBase):
         if not self.is_open:
             raise PortNotOpenError()
         data = to_bytes(data)
-        start = 0
-        for i, byte in enumerate(data):
-            if byte == CTRL_C:
-                self._send(data[start:i])
-                self._interrupt()
-                start = i + 1
-            elif byte == CTRL_D and self._at_repl():
-                self._send(data[start:i])
-                self._restart()
-                start = i + 1
-        self._send(data[start:])
-        return len(data)
-
-    def _interrupt(self) -> None:
-        """Ctrl-C. On the board the interrupt lands before the next byte does,
-        so the rest of the write waits for the firmware to reach the REPL: a
-        Ctrl-D sent after it must meet the REPL (a soft reset), not the
-        runtime's stdin (end of input, which ends the process)."""
-        self._signal(signal.SIGINT)
-        deadline = time.monotonic() + INTERRUPT_SETTLE_S
-        with self._cond:
-            while self._tail != REPL_PROMPT and self._failure is None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return
-                self._cond.wait(remaining)
-
-    def _send(self, data: bytes) -> None:
-        if not data:
-            return
         with self._cond:
             failure = self._failure
-        proc = self._proc
-        if failure is not None or proc is None:
-            raise SerialException(failure or f'{self._image.label}: board process is not running')
-        try:
-            proc.stdin.write(data)
-        except (BrokenPipeError, OSError) as e:
-            raise SerialException(f'{self._image.label}: write failed: {e}') from e
-
-    def _signal(self, sig: int) -> None:
-        proc = self._proc
-        if proc is not None and proc.poll() is None:
-            proc.send_signal(sig)
+        if failure is not None:
+            raise SerialException(failure)
+        self._board._write(self, data)
+        return len(data)
 
     def flush(self) -> None:
         pass
