@@ -5,6 +5,8 @@ Both failures this pins are silent: they produce a plausible series rather
 than an error, which is the shape the ratchets themselves exist to catch.
 """
 
+import re
+
 import pytest
 
 from tests.guards import test_architecture_fixes as _guards
@@ -66,3 +68,25 @@ def test_render_prints_na_for_an_unmeasurable_detector(monkeypatch):
     out = rh.render([{'date': '2026-06-22', 'sha': 'abc123', 'boom': None}])
     row = next(line for line in out.splitlines() if 'abc123' in line)
     assert row.split('abc123')[1].strip() == 'n/a'
+
+
+def test_every_guard_detector_has_a_history_column():
+    """A detector the guard file pins is replayed over history, or the series
+    silently lacks the migration it measures.
+
+    The history tool's column list is written by hand. A detector added to
+    the guard file and not to the list produces a series that is complete
+    for every other migration and says nothing about the new one, which
+    reads as "nothing to measure" rather than as an omission.
+    """
+    detector_name = re.compile(r'_(?:ui|gui|modules|lower_layer|twin)_\w+_(?:counts|names)')
+    in_guards = {
+        name
+        for name, obj in vars(_guards).items()
+        if callable(obj) and detector_name.fullmatch(name)
+    }
+    in_history = {detector.__name__ for _label, detector in rh.DETECTORS}
+    assert in_guards == in_history, (
+        f'pinned in the guard file but not replayed: {sorted(in_guards - in_history)}; '
+        f'replayed but not a guard detector: {sorted(in_history - in_guards)}'
+    )
