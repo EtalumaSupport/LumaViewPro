@@ -88,7 +88,7 @@ def _break(runner, scope, seam, monkeypatch):
 def _z_moves(scope):
     return [
         call.args[1]
-        for call in scope.motion._move_absolute_impl.call_args_list
+        for call in scope.motion.move_absolute.call_args_list
         if call.args and call.args[0] == 'Z'
     ]
 
@@ -195,7 +195,7 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
 
     def test_a_failure_at_the_lock_still_restores_the_snapshot(self, monkeypatch):
         runner, scope = af_runner_and_scope()
-        scope.imaging._lock_auto_gain_impl.side_effect = _raise
+        scope.imaging.lock_auto_gain.side_effect = _raise
 
         with pytest.raises(SetupError):
             drive_af(runner)

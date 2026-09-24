@@ -233,12 +233,8 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
     runner._step_executor.scan_iterate()
-    applies = [
-        c.args[0]
-        for c in runner._io_executor.protocol_put.call_args_list
-        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-    ]
-    assert applies, 'the AG step must queue the apply on the io executor'
+    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
     )
@@ -276,12 +272,8 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()
-    applies = [
-        c.args[0]
-        for c in runner._io_executor.protocol_put.call_args_list
-        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-    ]
-    assert applies, 'the AG step must queue the apply on the io executor'
+    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
         "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"
     )
@@ -337,8 +329,8 @@ def _video_session_autogain_call(autogain_settings):
     with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
         outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES
-    assert scope.imaging._auto_gain_once_impl.called, 'the first-frame AG re-arm must fire'
-    return scope.imaging._auto_gain_once_impl.call_args.kwargs
+    assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
+    return scope.imaging.auto_gain_once.call_args.kwargs
 
 
 def test_video_capture_rearm_forwards_cap():

@@ -940,10 +940,11 @@ class ImagingAPI:
         return ok
 
     # --- Public dispatch ---
-    # These three are what an external caller reaches: an SDK script, a REST
-    # handler, the GUI. Every internal caller binds the matching `_impl`
-    # instead, so nothing already running on an executor worker or on the
-    # protocol or autofocus thread ever arrives here.
+    # These three are what every caller reaches: an SDK script, a REST
+    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
+    # which call them under their taking so the lane admits their work while
+    # they hold the scope. From a task already on the lane's worker the lane
+    # runs the body inline.
 
     # How long a dispatched camera write waits on the camera worker before
     # giving up. A gain or exposure write is a short SDK call behind at most
@@ -3621,6 +3622,24 @@ class ImagingAPI:
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
+        """Restore camera gain, exposure and auto-gain arm from a saved state, and wait.
+
+        See ``_restore_camera_state_impl`` for the contract; this adds the
+        dispatch described on ``_dispatch_camera``, so the restore is one
+        task on the camera lane and its writes cannot interleave with
+        another caller's.
+
+        Args:
+            snapshot: Return value from ``save_camera_state``.
+        """
+        return self._dispatch_camera(
+            self._restore_camera_state_impl,
+            'restore_camera_state',
+            args=(snapshot,),
+            timeout_s=3 * self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _restore_camera_state_impl(self, snapshot: dict) -> None:
         """Restore camera gain, exposure and auto-gain arm from a saved state.
 
         Fields absent from the snapshot are skipped and named in the log:

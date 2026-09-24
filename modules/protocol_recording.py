@@ -422,11 +422,8 @@ class ProtocolVideoStep:
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         if step['Auto_Gain']:
-            # Run-internal camera writes bind the impls: the camera lane
-            # is disabled for the whole run, so the public dispatchers
-            # would refuse their own run's work.
-            scope.imaging._set_auto_gain_impl(state=False, settings=self._autogain_settings)
-            scope.imaging._auto_gain_once_impl(
+            scope.imaging.set_auto_gain(False, self._autogain_settings)
+            scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],

@@ -356,32 +356,19 @@ class ProtocolStepRunner:
             p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
                 step['Color']
             )
-            fut = p._io_executor.protocol_put(
-                IOTask(
-                    # Run-internal machinery binds the impl per the
-                    # dispatch contract: the public member is the
-                    # external-caller surface (SDK/REST), and internal
-                    # callers already inside the run's serialization
-                    # use the body directly.
-                    action=p._scope.imaging._apply_layer_camera_settings_impl,
-                    kwargs={
-                        'layer': step['Color'],
-                        'gain_db': step['Gain'],
-                        'exposure_ms': step['Exposure'],
-                        'auto_gain': True,
-                        'auto_gain_settings': p._autogain_settings,
-                        # A step's arm is unattended: the capture that locks
-                        # it records the state and moves on -- no notice, no
-                        # re-arm (the step-end disarm below is the only Off
-                        # this path needs). Left at the live-view default,
-                        # every protocol capture re-armed and popped a notice.
-                        'resume_after_capture': False,
-                    },
-                ),
-                return_future=True,
+            p._scope.imaging.apply_layer_camera_settings(
+                layer=step['Color'],
+                gain_db=step['Gain'],
+                exposure_ms=step['Exposure'],
+                auto_gain=True,
+                auto_gain_settings=p._autogain_settings,
+                # A step's arm is unattended: the capture that locks it
+                # records the state and moves on -- no notice, no re-arm (the
+                # step-end disarm below is the only Off this path needs). Left
+                # at the live-view default, every protocol capture re-armed and
+                # popped a notice.
+                resume_after_capture=False,
             )
-            if fut:
-                fut.result(timeout=30)
             p._auto_gain_armed_step = p._curr_step
             # Return after arming; the next tick falls through to capture, where
             # the auto_gain settle drain runs against the now-lit scene.
@@ -538,28 +525,9 @@ class ProtocolStepRunner:
                 # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        # Disable autogain when moving between steps. Run-internal
-        # machinery binds the impl, as the arm above does: the public
-        # member is a dispatcher that refuses work while a run holds the
-        # camera lane, and a refusal here raised out of the step, was
-        # classified transient, and retried the whole scan.
+        # Disable autogain when moving between steps.
         if step['Auto_Gain']:
-            fut = p._io_executor.protocol_put(
-                IOTask(
-                    action=p._scope.imaging._set_auto_gain_impl,
-                    kwargs={
-                        'state': False,
-                        'settings': p._autogain_settings,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                # 30s window: leaves headroom under Pylon USB3 stress where
-                # a single io_executor task can stretch past 5s without
-                # being a real failure. Cluster with leds_off / led_on
-                # below and restore_camera_state in protocol_cleanup.
-                fut.result(timeout=30)
+            p._scope.imaging.set_auto_gain(False, p._autogain_settings)
 
         logger.debug(
             f'[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
@@ -639,53 +607,21 @@ class ProtocolStepRunner:
                 _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
     def _move_axis_through_io(self, axis: str, position):
-        """Submit a single-axis move to io_executor and wait for completion.
+        """Start a single-axis move on the io lane and wait for the command.
 
-        Used by ``default_move``, which runs on PROTOCOL_WORKER, to keep
-        motor writes off that thread. Falls back to a direct call if the
-        executor isn't available (early init / standalone tests).
-
-        Only a caller OFF the io worker may use this: the io worker cannot
-        reach a task queued behind the one it is running, so enqueue-and-
-        wait from the worker itself can never complete -- code already on
-        the worker (the grease routine) calls the move body directly.
+        The public member, under the run's taking: it goes through the run's
+        door on the lane, and a refusal raises rather than letting the step
+        capture wherever the last move left the stage.
         """
-        p = self._p
-        kwargs = {
-            'axis': axis,
-            'position': position,
-            'wait_until_complete': False,
-        }
-        if p._io_executor is None:
-            p._scope.motion._move_absolute_impl(**kwargs)
-            return
-        self._put_move_and_wait(
-            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs), f'move {axis}'
-        )
+        self._p._scope.motion.move_absolute(axis, position, wait_until_complete=False)
 
     def _move_turret_through_io(self, slot: int) -> None:
-        """Turn the turret to ``slot`` on the io worker and wait for it.
+        """Turn the turret to ``slot`` on the io lane and wait for it.
 
         Z is not restored after the turret's safety park: the step's own Z
         move follows at once and would overwrite it.
         """
-        p = self._p
-        kwargs = {'position': slot, 'restore_z': False}
-        if p._io_executor is None:
-            p._scope.motion._move_turret_impl(**kwargs)
-            return
-        self._put_move_and_wait(
-            IOTask(action=p._scope.motion._move_turret_impl, kwargs=kwargs), 'move T'
-        )
-
-    def _put_move_and_wait(self, task: IOTask, member: str) -> None:
-        # A put the queue refuses (the run is ending, the executor is
-        # disabled) raises: skipped silently, the step would capture at
-        # whatever position the last move left.
-        fut = self._p._io_executor.protocol_put(task, return_future=True)
-        if fut is None:
-            raise HardwareCommandRefusedError('protocol_queue_refused', member)
-        fut.result(timeout=60.0)
+        self._p._scope.motion.move_turret(slot, restore_z=False)
 
     def go_to_step(self, step_idx: int) -> None:
         """Move to the position for a given protocol step."""
@@ -753,20 +689,15 @@ class ProtocolStepRunner:
             # get_current_position is a cache read (a zero-serial-IO accessor);
             # safe to call directly from any thread that needs the live z position.
             z_orig = p._scope.motion.get_current_position(axis=axis)
-            # This routine already RUNS on the io worker, so the moves run
-            # inline: enqueueing them back onto the single worker and waiting
-            # could never complete -- the worker cannot reach a task queued
-            # behind the one it is running, so the wait always expired, the
-            # queued Z->0 then ran out of band on unwind, and the restore to
-            # z_orig never enqueued at all.
-            p._scope.motion._move_absolute_impl(
-                axis, 0, wait_until_complete=True, overshoot_enabled=True
-            )
+            # This routine RUNS on the io worker, so the lane runs these moves
+            # inline there: enqueueing them back onto the single worker and
+            # waiting could never complete.
+            p._scope.motion.move_absolute(axis, 0, wait_until_complete=True, overshoot_enabled=True)
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-            p._scope.motion._move_absolute_impl(
+            p._scope.motion.move_absolute(
                 axis, z_orig, wait_until_complete=True, overshoot_enabled=True
             )
 
@@ -793,23 +724,19 @@ class ProtocolStepRunner:
     # LED control
     # ------------------------------------------------------------------
 
-    def leds_off(self):
-        """Turn all LEDs off via the IO executor.
+    def leds_off(self) -> None:
+        """Turn all LEDs off on the io lane; if the lane refuses, off regardless.
 
-        UI update is handled by the LED observer -- no manual callback needed.
+        A darken never waits for permission: a refused one would leave the
+        sample lit, so it falls to the lease-bypassing safety off. UI update
+        is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
-        fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.illumination._leds_off_impl), return_future=True
-        )
-        if fut:
-            fut.result(timeout=30)
-        else:
-            try:
-                p._scope.illumination._leds_off_impl()
-            except Exception as ex:
-                logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
-        # LED observer handles UI sync -- no manual callback
+        try:
+            p._scope.illumination.leds_off()
+        except HardwareCommandRefusedError as refused:
+            logger.warning(f'[{p.LOGGER_NAME}] leds_off refused ({refused}); forcing all off')
+            p._scope.illumination.force_off()
 
     def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an LED lifecycle transition through the run's LED authority.

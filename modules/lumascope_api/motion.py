@@ -1110,6 +1110,14 @@ class MotionAPI:
             axis: Axis name ("X", "Y", "Z", "T").
             enabled: True for precise positioning, False for speed.
         """
+        return self._dispatch_motion(
+            self._set_precision_mode_impl,
+            'set_precision_mode',
+            args=(axis, enabled),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def _set_precision_mode_impl(self, axis: str, enabled: bool) -> None:
         if not self._scope.motor_connected:
             return
         self._driver.set_precision_mode(axis, enabled)
@@ -2169,10 +2177,11 @@ class MotionAPI:
             self._await_arrival(axis, stop_generation)
 
     # --- Public dispatch ---
-    # These six are what an external caller reaches: an SDK script, a REST
-    # handler, the GUI. Every internal caller binds the matching `_impl`
-    # instead, so nothing already running on an executor worker or on the
-    # protocol or autofocus thread ever arrives here.
+    # These six are what every caller reaches: an SDK script, a REST
+    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
+    # which call them under their taking so the lane admits their work while
+    # they hold the scope. From a task already on the lane's worker the lane
+    # runs the body inline.
 
     # Base liveness margin for a dispatched motion command: queue residence
     # plus the serial round-trips, with headroom. The per-command wait adds

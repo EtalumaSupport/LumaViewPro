@@ -159,7 +159,7 @@ class TestARunThatAlreadyEnded:
 
         assert runner._take_camera() is None
         assert runner._scope.imaging.save_camera_state.call_count == 0
-        assert runner._scope.imaging._update_auto_gain_target_brightness_impl.call_count == 0
+        assert runner._scope.imaging.update_auto_gain_target_brightness.call_count == 0
 
 
 class TestATakeoverWriteThatRaises:

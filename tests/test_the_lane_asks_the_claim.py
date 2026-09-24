@@ -157,7 +157,7 @@ class TestOtherHolds:
         """``protocol_put`` admitted anyone while a run held (route table row 27)."""
         ran = threading.Event()
         held = claim.try_claim('protocol', run_trigger_source='test')
-        lane.protocol_start()
+        lane.protocol_start(held)
         try:
             box = {}
             t = threading.Thread(

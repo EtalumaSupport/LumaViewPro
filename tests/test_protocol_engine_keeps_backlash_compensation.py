@@ -23,12 +23,12 @@ from modules.protocol_step_runner import ProtocolStepRunner
 
 
 def _runner_capturing_moves(captured: list):
-    def _move_absolute_impl(**kwargs):
-        captured.append(kwargs)
+    def move_absolute(axis, position, **kwargs):
+        captured.append({'axis': axis, 'position': position, **kwargs})
 
     parent = SimpleNamespace(
         _io_executor=None,
-        _scope=SimpleNamespace(motion=SimpleNamespace(_move_absolute_impl=_move_absolute_impl)),
+        _scope=SimpleNamespace(motion=SimpleNamespace(move_absolute=move_absolute)),
     )
     return ProtocolStepRunner(parent)
 

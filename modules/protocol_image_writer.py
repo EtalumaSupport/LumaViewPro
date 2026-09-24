@@ -24,7 +24,7 @@ import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
-from modules.exceptions import ObjectiveUnknownError
+from modules.exceptions import CameraSettingRejected, ObjectiveUnknownError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.protocol import Protocol
@@ -689,11 +689,23 @@ class ProtocolImageWriter:
                 # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                # The non-dispatching bodies: this runs on the protocol
-                # thread while the run has the camera executor disabled, so
-                # the public dispatchers would refuse every per-step write.
-                self._scope.imaging._set_gain_db_impl(step['Gain'])
-                self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
+                #
+                # A setting the camera rejects is reported where it is
+                # rejected (logged and notified) and the step captures at the
+                # value the camera holds: one refused gain is not a reason to
+                # end a run.
+                imaging = self._scope.imaging
+                for setter, value in (
+                    (imaging.set_gain_db, step['Gain']),
+                    (imaging.set_exposure_ms, step['Exposure']),
+                ):
+                    try:
+                        setter(value)
+                    except CameraSettingRejected as rejected:
+                        logger.warning(
+                            f'[Protocol] step {step.get("Name", "?")}: {rejected}; '
+                            'capturing at the value the camera holds'
+                        )
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -869,7 +881,7 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    captured_image = self._scope.imaging._capture_and_wait_impl(
+                    captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         timeout_s=1.0,

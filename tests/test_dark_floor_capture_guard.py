@@ -219,7 +219,7 @@ class TestProtocolWriterWiring:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging._capture_and_wait_impl.call_args.kwargs
+        return scope.imaging.capture_and_wait.call_args.kwargs
 
     def test_writer_posts_no_dark_floor_fact(self):
         for illumination_ma in (350.0, 0.0):

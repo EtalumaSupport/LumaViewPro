@@ -1155,19 +1155,19 @@ class SequencedCaptureRunner:
         arm = self._saved_camera_state.get('auto_gain_arm')
         if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
             return
-        self._scope.imaging._set_auto_gain_impl(False, dict(arm.settings))
+        self._scope.imaging.set_auto_gain(False, dict(arm.settings))
 
     def _take_camera(self) -> 'RunEnding | None':
         """Wait for the camera lane to finish what it holds, then make the camera this run's.
 
-        The run drives the camera from its own thread for its whole life,
-        so start() closes the lane to new work; but a command already
-        running or queued there (a still, a gain write, a settings
-        widget's task) keeps running on the lane's worker. Taking the
-        camera before it has finished put two threads in the driver at
-        once and let the run's first LED land under a still's grab. So
-        every read and write of the camera the run makes for itself comes
-        after the lane is idle, snapshots included: a snapshot taken
+        start() puts the lane in protocol mode for the run, and the lane
+        refuses what was queued there before; but a command already
+        running (a still, a gain write, a settings widget's task) finishes
+        on the lane's worker. Taking the camera before it has finished let
+        the run's first LED land under a still's grab and its snapshot
+        read the camera mid-command. So every read and write of the camera
+        the run makes comes after the lane is idle, snapshots included: a
+        snapshot taken
         before the lane's last command records the state that command was
         about to replace, and the restore at the end would hand that stale
         state back.
@@ -1199,9 +1199,7 @@ class SequencedCaptureRunner:
         self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
         self._take_auto_gain_arm_for_run()
-        # The impl, not the dispatcher: the lane is closed to new work, so
-        # the public form would refuse the run's own bring-up write.
-        self._scope.imaging._update_auto_gain_target_brightness_impl(
+        self._scope.imaging.update_auto_gain_target_brightness(
             self._autogain_settings['target_brightness']
         )
         return None
@@ -1397,12 +1395,13 @@ class SequencedCaptureRunner:
                 run_claim=self._held_claim.lend(),
             )
 
-            # Closed to new work from here; what the lane already holds
-            # finishes on its worker, and the run loop's first act waits
-            # for it before the run reads or writes the camera itself.
-            self.camera_executor.disable()
-            self._io_executor.protocol_start()
-            self.file_io_executor.protocol_start()
+            # From here each lane serves only the run's queue, and only work
+            # under the run's taking enters it; what the camera lane already
+            # holds finishes on its worker, and the run loop's first act
+            # waits for it before the run reads the camera.
+            self.camera_executor.protocol_start(self._held_claim)
+            self._io_executor.protocol_start(self._held_claim)
+            self.file_io_executor.protocol_start(self._held_claim)
 
             # Dispatch the main run loop onto protocol_thread. Completion is
             # signalled by the run phase returning to IDLE inside _cleanup.
@@ -1900,10 +1899,10 @@ class SequencedCaptureRunner:
         if not self._is_run_live():
             # The run is already back at IDLE, so run_cleanup (which ends
             # the executors' protocol-mode and drives the RUN_END LED
-            # transition) will not run here. Guarantee the io + file
-            # executors still leave protocol-mode -- an abort that ended
+            # transition) will not run here. Guarantee the
+            # lanes still leave protocol-mode -- an abort that ended
             # the run without ending them would otherwise wedge their
-            # worker on protocol_queue.get and starve normal file ops.
+            # worker on protocol_queue.get and starve normal work.
             # Idempotent: a no-op when not in protocol-mode.
             #
             # Returns ahead of the try below, so this pass settles no
@@ -1911,6 +1910,7 @@ class SequencedCaptureRunner:
             # releases are keyed on runner-lifetime state, so a pass
             # arriving after the owner's release could otherwise hand away
             # a claim a SUCCESSOR run had already taken.
+            self.camera_executor.end_protocol_mode()
             self._io_executor.end_protocol_mode()
             self.file_io_executor.end_protocol_mode()
             return
@@ -1980,7 +1980,7 @@ class SequencedCaptureRunner:
                 # owned the run's LEDs (double cleanup, early return)
                 # must not darken a prior cleanup's restored end-state.
                 try:
-                    self._scope.illumination._leds_off_impl()
+                    self._scope.illumination.force_off()
                     logger.warning(
                         f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
                         'forced all channels dark before lease release'

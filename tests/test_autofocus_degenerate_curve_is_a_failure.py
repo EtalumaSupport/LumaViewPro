@@ -56,10 +56,10 @@ def _flat_curve(monkeypatch):
 
 
 def _z_moves(scope):
-    """Every absolute Z move issued through the non-dispatching body."""
+    """Every absolute Z move autofocus issued."""
     return [
         call.args[1]
-        for call in scope.motion._move_absolute_impl.call_args_list
+        for call in scope.motion.move_absolute.call_args_list
         if call.args and call.args[0] == 'Z'
     ]
 

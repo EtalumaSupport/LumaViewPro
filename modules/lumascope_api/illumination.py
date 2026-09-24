@@ -303,15 +303,20 @@ class LedLease:
         raise ValueError(f'unhandled LED transition: {transition!r}')
 
     def apply(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
-        """Drive the LEDs to the transition's target set.
+        """Drive the LEDs to the transition's target set, on the io lane.
 
         Internal lease mechanics -- not part of the L2 API surface.
 
         Diffs the target against the cached state -- the single source of truth
         for LED state -- and emits only the channels that changed. A channel
         already at its target is left untouched, so re-asserting a correct state
-        produces no off-then-on blink.
+        produces no off-then-on blink. Dispatched like every other LED write,
+        so it runs on the io worker under the caller's taking: inline when the
+        caller is already a task there, through the run's door otherwise.
         """
+        return self._api._dispatch_led(self._apply_impl, 'LedLease.apply', args=(transition, ctx))
+
+    def _apply_impl(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         if not self.held:
             # A released lease must not still drive the LEDs. By the time a
             # queued transition runs the run may be over, or a new run may hold
@@ -748,10 +753,11 @@ class IlluminationAPI:
             self._fire_led_listeners(color, False, 0.0)
 
     # --- Public dispatch ---
-    # These four are what an external caller reaches: an SDK script, a REST
-    # handler, the GUI. Every internal caller and both async tiers bind the
-    # matching `_impl` instead, so nothing already running on an executor
-    # worker or on protocol_thread ever arrives here.
+    # These four are what every caller reaches: an SDK script, a REST
+    # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
+    # which call them under their taking so the lane admits their work while
+    # they hold the scope. From a task already on the lane's worker the lane
+    # runs the body inline.
 
     def _dispatch_led(self, impl, name, args=(), kwargs=None):
         """Run one LED command for an external caller, on the right thread.
@@ -1141,9 +1147,7 @@ class IlluminationAPI:
         """Turn off only the LED channels *lease* lit.
 
         Channels lit by another lease or by an unleased write are left
-        alone. Lease release binds this directly rather than a dispatcher:
-        teardown runs while a protocol fence is up, where the dispatcher
-        rightly refuses external work.
+        alone.
         """
         if not self._driver:
             return
@@ -1295,9 +1299,9 @@ class IlluminationAPI:
                 stranded._released = True
             del self._led_lease_stack[idx:]
         if not leave_on:
-            # The impl, not the dispatcher: release runs in fenced run-teardown
-            # contexts where the dispatcher rightly refuses external work.
-            self._leds_off_lit_by(lease)
+            # On the io lane like every LED write; the releasing activity's
+            # taking carries it through its own door while the lane is fenced.
+            self._dispatch_led(self._leds_off_lit_by, 'LedLease.release', args=(lease,))
         _api_log.info(
             'LED lease released by %r%s', lease.purpose, ' (leave_on)' if leave_on else ''
         )

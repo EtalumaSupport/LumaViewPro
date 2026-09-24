@@ -350,7 +350,6 @@ class _FakeExecutor:
     def __init__(self):
         self.protocol_ended = False
         self.protocol_pending_cleared = False
-        self.enabled = False
         self._protocol_queue_active = False
         self._complete_callback = None
         self._finish_called = False
@@ -367,9 +366,6 @@ class _FakeExecutor:
 
     def clear_protocol_pending(self):
         self.protocol_pending_cleared = True
-
-    def enable(self):
-        self.enabled = True
 
     def is_protocol_queue_active(self):
         return self._protocol_queue_active
@@ -464,53 +460,26 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert state[0] == ProtocolState.COMPLETING
 
-    def test_closed_camera_executor_is_not_submitted_to(self):
-        """Cleanup runs after the run has disabled the camera executor, so a
-        refused submit is the EXPECTED route -- and the executor reports a
-        refusal at WARNING, because it cannot know this caller restores
-        inline instead. Asking first keeps the warning meaning "someone lost
-        work" rather than "a protocol ended normally"."""
+    def test_the_camera_restore_is_the_public_member(self):
+        """Cleanup restores the camera through ``restore_camera_state``, whose
+        own dispatch puts it on the camera lane under the run's taking --
+        cleanup submits nothing to the camera executor itself, so there is
+        no inline branch for a closed lane to route it onto."""
         from modules.protocol_cleanup import run_cleanup
         from unittest.mock import MagicMock
 
-        closed = MagicMock()
-        closed.accepts_work.return_value = False
-        closed.protocol_put.side_effect = AssertionError(
-            'cleanup must not submit to a camera executor it already knows is closed'
-        )
+        camera = MagicMock()
         scope = MagicMock()
         args, _ = self._make_cleanup_args(
-            camera_executor=closed,
+            camera_executor=camera,
             saved_camera_state={'gain': 1.0, 'exposure': 10.0},
             scope=scope,
         )
         run_cleanup(**args)
 
-        closed.accepts_work.assert_called()
         scope.imaging.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
-
-    def test_live_camera_executor_still_gets_the_restore(self):
-        """The pre-check must not turn into "always restore inline" -- a
-        cleanup with no run behind it still has a live executor, and the
-        restore belongs on the camera worker there."""
-        from modules.protocol_cleanup import run_cleanup
-        from unittest.mock import MagicMock
-
-        live = MagicMock()
-        live.accepts_work.return_value = True
-        future = MagicMock()
-        live.protocol_put.return_value = future
-        scope = MagicMock()
-        args, _ = self._make_cleanup_args(
-            camera_executor=live,
-            saved_camera_state={'gain': 1.0, 'exposure': 10.0},
-            scope=scope,
-        )
-        run_cleanup(**args)
-
-        live.protocol_put.assert_called_once()
-        future.result.assert_called_once()
-        scope.imaging.restore_camera_state.assert_not_called()
+        camera.put.assert_not_called()
+        camera.protocol_put.assert_not_called()
 
     def test_dropped_captures_surface_a_run_end_notification(self):
         from modules.protocol_cleanup import run_cleanup
@@ -615,7 +584,8 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert args['io_executor'].protocol_ended
         assert args['autofocus_thread'].abort.called
-        assert args['camera_executor'].enabled
+        assert args['camera_executor'].protocol_ended
+        assert args['camera_executor'].protocol_pending_cleared
 
     def test_cleanup_clears_scan_in_progress(self):
         from modules.protocol_cleanup import run_cleanup

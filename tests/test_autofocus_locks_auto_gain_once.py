@@ -69,7 +69,7 @@ def test_the_lock_is_inside_the_bracket_and_the_camera_snapshot_precedes_it():
     and this now states outright.
     """
     bracket = _the_bracket()
-    lock_at = _index_of(bracket, '_lock_auto_gain_impl')
+    lock_at = _index_of(bracket, 'lock_auto_gain')
     snapshot_at = _index_of(bracket, 'save_camera_state')
     assert isinstance(bracket.body[lock_at], ast.Assign), (
         'the lock must be bound to a name so the finally can resume it'
@@ -99,7 +99,7 @@ def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
         'exposure_ms': 10.0,
         'auto_gain_arm': arm,
     }
-    scope.imaging._lock_auto_gain_impl.return_value = AutoGainLock(state=None)
+    scope.imaging.lock_auto_gain.return_value = AutoGainLock(state=None)
     with contextlib.suppress(AutofocusAborted):
         drive_af(runner)
     restored = scope.imaging.restore_camera_state.call_args.args[0]
@@ -132,10 +132,10 @@ class _RecordingImaging:
     def __init__(self):
         self.writes = []
 
-    def _set_gain_db_impl(self, gain_db):
+    def set_gain_db(self, gain_db):
         self.writes.append(('gain', gain_db))
 
-    def _set_exposure_ms_impl(self, exposure_ms):
+    def set_exposure_ms(self, exposure_ms):
         self.writes.append(('exposure', exposure_ms))
 
 

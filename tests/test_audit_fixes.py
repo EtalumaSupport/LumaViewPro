@@ -1458,7 +1458,7 @@ class TestG3_AutofocusFailureNotification:
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
         runner, scope = af_runner_and_scope()
-        scope.imaging._capture_and_wait_impl.side_effect = RuntimeError('camera fault')
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner)
         assert captured and captured[0][1] == 'Autofocus Failed', (
@@ -1771,7 +1771,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=_raiser('move'),
         )
-        kwargs['camera_executor'].protocol_put.side_effect = RuntimeError('camera boom')
+        kwargs['scope'].imaging.restore_camera_state.side_effect = RuntimeError('camera boom')
         kwargs['file_io_executor'].protocol_put_wait.side_effect = RuntimeError('record boom')
         run_cleanup(**kwargs)
 
@@ -4082,8 +4082,8 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
 
     def test_iterate_calls_capture_and_wait(self, monkeypatch):
         scope, result = self._drive_full_af(monkeypatch)
-        assert scope.imaging._capture_and_wait_impl.called, (
-            'the AF scan loop must grab via the capture-and-wait body '
+        assert scope.imaging.capture_and_wait.called, (
+            'the AF scan loop must grab via capture_and_wait '
             'to drain LED/gain/exposure pending frames before scoring.'
         )
         assert result is not None, 'the drive must complete with a best-focus result'
@@ -4099,7 +4099,7 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
         scope, _ = self._drive_full_af(monkeypatch)
-        grabs = scope.imaging._capture_and_wait_impl.call_args_list
+        grabs = scope.imaging.capture_and_wait.call_args_list
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
             assert grab.kwargs.get('exclude_sources') == ('z_move',), (
@@ -10373,11 +10373,9 @@ class TestAutoGainArmedInScanIterate:
 
     @staticmethod
     def _queued_ag_applies(runner):
-        return [
-            c.args[0]
-            for c in runner._io_executor.protocol_put.call_args_list
-            if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-        ]
+        # The run arms through the public member, under its taking; the
+        # member's own dispatch puts the apply on the lane.
+        return runner._scope.imaging.apply_layer_camera_settings.call_args_list
 
     def test_run_loop_resets_armed_step_per_scan(self):
         """Each scan must re-arm AG: a two-scan run queues the AG apply
@@ -10393,10 +10391,10 @@ class TestAutoGainArmedInScanIterate:
             'at scan start so a re-run does not skip AG arming'
         )
 
-    def test_arm_block_routes_apply_through_io_executor(self, monkeypatch):
-        """An Auto_Gain step's arm tick must route the AG apply through
-        io_executor.protocol_put (serialized with other protocol-thread
-        IO) with the step's gain/exposure and the per-class exposure cap
+    def test_arm_block_routes_apply_through_the_public_member(self, monkeypatch):
+        """An Auto_Gain step's arm tick must make the AG apply through the
+        public member (which serializes it on the lane under the run's
+        taking) with the step's gain/exposure and the per-class exposure cap
         set on the shared settings dict."""
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
@@ -10407,7 +10405,7 @@ class TestAutoGainArmedInScanIterate:
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
         runner._step_executor.scan_iterate()
         applies = self._queued_ag_applies(runner)
-        assert len(applies) == 1, 'the arm tick must queue exactly one AG apply on the io executor'
+        assert len(applies) == 1, 'the arm tick must make exactly one AG apply'
         task = applies[0]
         assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
         assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
@@ -10429,7 +10427,7 @@ class TestAutoGainArmedInScanIterate:
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
-        scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
@@ -10451,15 +10449,15 @@ class TestAutoGainArmedInScanIterate:
             not imaging.apply_layer_camera_settings.called
             and not imaging._apply_layer_camera_settings_impl.called
         ), 'AG-step capture must not re-apply layer camera settings'
-        assert not imaging._set_gain_db_impl.called and not imaging._set_exposure_ms_impl.called, (
+        assert not imaging.set_gain_db.called and not imaging.set_exposure_ms.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
         """Control: a non-AG step DOES drive the step gain/exposure."""
         imaging = self._drive_capture(auto_gain=False)
-        imaging._set_gain_db_impl.assert_called_once_with(2.0)
-        imaging._set_exposure_ms_impl.assert_called_once_with(10.0)
+        imaging.set_gain_db.assert_called_once_with(2.0)
+        imaging.set_exposure_ms.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick
@@ -12829,7 +12827,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         scope.led_connected = False
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
-        scope.imaging._capture_and_wait_impl.return_value = None
+        scope.imaging.capture_and_wait.return_value = None
         monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
@@ -12910,7 +12908,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        runner._scope.motion._move_absolute_impl.side_effect = RuntimeError('Z move timeout')
+        runner._scope.motion.move_absolute.side_effect = RuntimeError('Z move timeout')
 
         # The failure still propagates (the executor runner logs it), but the
         # gate must be released by the finally so the next scan is not blocked.

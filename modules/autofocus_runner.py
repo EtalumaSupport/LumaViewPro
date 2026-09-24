@@ -18,7 +18,7 @@ import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusAborted, CameraSettingRejected
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import (
     LedTransition,
@@ -275,7 +275,7 @@ class AutofocusRunner:
             # capture would lock and re-arm on its own -- paying the
             # auto-gain settle at every position -- and the step's gain
             # and exposure written next would be overridden by the loop.
-            auto_gain_lock = self._scope.imaging._lock_auto_gain_impl()
+            auto_gain_lock = self._scope.imaging.lock_auto_gain()
             self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Saved pre-AF camera state: '
@@ -451,10 +451,7 @@ class AutofocusRunner:
                 if self._best_focus_position is None and self._params:
                     pre_af_z = self._params['center']
                     try:
-                        # The non-dispatching body: AF runs while the executors
-                        # are held by the run, so the public dispatcher would
-                        # refuse this restore.
-                        self._scope.motion._move_absolute_impl('Z', pre_af_z)
+                        self._scope.motion.move_absolute('Z', pre_af_z)
                         _af_log.info(
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
@@ -597,10 +594,20 @@ class AutofocusRunner:
             self._camera_gain = lock.gain_db
             self._camera_exposure = lock.exposure_ms
             return 'lock'
-        if self._camera_gain is not None:
-            self._scope.imaging._set_gain_db_impl(self._camera_gain)
-        if self._camera_exposure is not None:
-            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
+        # A target the camera rejects is reported where it is rejected
+        # (logged and notified) and the sweep scans at the value the camera
+        # holds: one refused gain is not a reason to abandon the focus.
+        imaging = self._scope.imaging
+        for setter, value in (
+            (imaging.set_gain_db, self._camera_gain),
+            (imaging.set_exposure_ms, self._camera_exposure),
+        ):
+            if value is None:
+                continue
+            try:
+                setter(value)
+            except CameraSettingRejected as rejected:
+                _af_log.warning(f'[AF] {rejected}; sweeping at the value the camera holds')
         return 'step'
 
     def _camera_state_to_restore(self) -> dict:
@@ -666,11 +673,7 @@ class AutofocusRunner:
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
             # mean-intensity retry below handles dark frames.
-            # The non-dispatching body, not the public capture_and_wait: AF
-            # runs while the camera executor is disabled by the run, so the
-            # dispatcher would refuse every grab; the body must run on this
-            # thread.
-            image = self._scope.imaging._capture_and_wait_impl(
+            image = self._scope.imaging.capture_and_wait(
                 accept_dark=True, exclude_sources=('z_move',)
             )
             count += 1
@@ -694,10 +697,7 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            # Non-dispatching body for the same reason as the grab loop
-            # above: the camera executor is disabled during the run, so the
-            # public dispatcher would refuse this retry.
-            retry = self._scope.imaging._capture_and_wait_impl(
+            retry = self._scope.imaging.capture_and_wait(
                 accept_dark=True, exclude_sources=('z_move',)
             )
             if isinstance(retry, np.ndarray):
@@ -907,21 +907,14 @@ class AutofocusRunner:
         self._saved_data_path = None
 
     def _move_absolute_position(self, position):
-        # Internal-caller contract of the motion API: the public members are
-        # dispatchers that serialize EXTERNAL callers onto the io worker,
-        # and every internal caller already on a managed thread binds the
-        # body directly -- the same contract the AF camera grabs above and
-        # the protocol writer follow.
-        self._scope.motion._move_absolute_impl('Z', position)
+        self._scope.motion.move_absolute('Z', position)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
             _schedule_ui(lambda dt: cb('Z'))
 
     def _move_relative_position(self, distance):
-        # Internal-caller contract of the motion API -- see
-        # _move_absolute_position above.
-        self._scope.motion._move_relative_impl('Z', distance)
+        self._scope.motion.move_relative('Z', distance)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

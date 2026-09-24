@@ -504,7 +504,7 @@ def test_run_start_owns_a_standing_live_arm():
     order = (
         'save_camera_state',
         '_take_auto_gain_arm_for_run',
-        '_update_auto_gain_target_brightness_impl',
+        'update_auto_gain_target_brightness',
     )
     assert all(name in attrs for name in order), attrs
     assert [attrs.index(name) for name in order] == sorted(attrs.index(name) for name in order)

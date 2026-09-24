@@ -367,61 +367,16 @@ def run_cleanup(
         cleanup_errors.append(f'Sync layer panel: {type(ex).__name__}: {ex}')
 
     # --- Restore camera gain and exposure ---
-    # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
-    # camera_executor (CAMERA_WORKER) instead of running on MainThread.
-    # Pylon's set_gain_db / set_exposure_ms take noticeable time on real
-    # hardware -- running on MainThread blocked the UI for the duration
-    # of protocol stop. Submit-and-wait so cleanup still serializes:
-    # the next steps (return-to-position, executor end) need camera
-    # state restored before they run, otherwise live preview after stop
-    # could briefly use protocol gain/exposure.
-    #
-    # Cleanup runs while ``protocol_running`` is still set, so we use
-    # ``protocol_put`` (which accepts during a running protocol) rather
-    # than ``put`` (which rejects until protocol_end fires).
-    #
-    # That choice is necessary but not sufficient: the camera executor is
-    # also DISABLED for the duration of a run and is not re-enabled until
-    # the end-executors step further down this function, and protocol_put
-    # refuses while disabled. So on a normal run the enqueue below returns
-    # None and the direct-call branch is what actually restores state.
+    # Before the return moves and the executors' end: live preview after the
+    # stop must not briefly run at the run's gain and exposure. The restore
+    # dispatches onto the camera lane; cleanup acts under the run's taking,
+    # so it goes through the run's door while the lane is still in protocol
+    # mode.
     try:
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
-            # Ask before submitting. The disabled executor is the NORMAL
-            # state here -- cleanup runs after the run has closed it -- and a
-            # submit made anyway is refused, which the executor reports at
-            # WARNING because it cannot know this caller has an inline path.
-            # A warning on the expected route is one a reader has to learn to
-            # ignore. The second check below still catches the race, the same
-            # ask-twice shape the motion dispatcher uses.
-            fut = None
-            if camera_executor.accepts_work():
-                fut = camera_executor.protocol_put(
-                    IOTask(
-                        action=scope.imaging.restore_camera_state,
-                        args=(saved_camera_state,),
-                    ),
-                    return_future=True,
-                )
-            if fut is not None:
-                # Reached only when the executor is still live -- a run that
-                # failed before the disable, or a caller driving cleanup
-                # without a run behind it.
-                logger.info(
-                    f'[{logger_name}] Cleanup: restoring camera state tag={tag} (via CAMERA_WORKER)'
-                )
-                fut.result(timeout=30)
-            else:
-                # The normal path: the camera executor is disabled, so restore
-                # inline on the cleanup thread. State still gets restored
-                # either way; the log says which thread did it so a trace of
-                # this run is readable.
-                logger.info(
-                    f'[{logger_name}] Cleanup: restoring camera state '
-                    f'tag={tag} (direct -- camera executor disabled)'
-                )
-                scope.imaging.restore_camera_state(saved_camera_state)
+            logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
+            scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
         cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
@@ -468,10 +423,11 @@ def run_cleanup(
         # Signal any lingering AF run to unwind. abort() is a no-op when
         # the thread is idle, so this is always safe to call.
         autofocus_thread.abort()
-    camera_executor.enable()
+    camera_executor.protocol_end()
     logger.info(f'[{logger_name}] Cleanup: protocol_end called on all executors')
 
     io_executor.clear_protocol_pending()
+    camera_executor.clear_protocol_pending()
     if is_aborted:
         # Drop pending writes only on an ERROR-state abort. Drain (the
         # COMPLETING-path default) writes everything queued to disk before

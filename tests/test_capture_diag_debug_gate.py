@@ -49,7 +49,7 @@ def _drive_capture(monkeypatch, debug_enabled):
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
 
     def quiet(*args, **kwargs):
         return None

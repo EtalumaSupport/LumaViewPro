@@ -328,6 +328,7 @@ class TestACleanupPassThatDoesNotOwnTheRun:
         touched = []
         stub = SimpleNamespace(
             _is_run_live=lambda: False,  # this pass does not own the run
+            camera_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('camera')),
             _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
             file_io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('file')),
             _settle_run_outcome=lambda ending: touched.append('settled'),
@@ -339,7 +340,7 @@ class TestACleanupPassThatDoesNotOwnTheRun:
             stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x')
         )
 
-        assert touched == ['io', 'file'], (
+        assert touched == ['camera', 'io', 'file'], (
             f'a pass that does not own the run touched more than the executors '
             f'it must always end: {touched}'
         )

@@ -112,7 +112,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
@@ -215,7 +215,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()
     protocol.capture_root.return_value = ''

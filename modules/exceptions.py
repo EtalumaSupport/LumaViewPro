@@ -319,8 +319,8 @@ _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording':
 def _command_refused_sentence(reason: str, holder: str | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
-    if reason == 'protocol_queue_refused':
-        return 'The run is ending, so the command was not sent.'
+    if reason == 'activity_ended':
+        return 'The activity that sent this command has ended, so the command was not sent.'
     who = _HOLDER_NOUNS.get(holder, 'Another activity')
     return f'{who} is using the microscope. Try again when it ends.'
 

@@ -5,9 +5,9 @@ A headless or REST run used to move only X, Y and Z: the turret move lived
 in the GUI's step navigation, so a script's run captured every step through
 whatever glass was in the light path and named each file for the objective
 the step asked for. The run engine now issues the turret move before each
-step's X, Y and Z, through the run's protocol queue, and a host's step
-callback only displays. A move the queue refuses raises rather than being
-skipped, so a step never captures at the position the last move left.
+step's X, Y and Z, through the motion API under the run's taking, and a
+host's step callback only displays. A move the lane refuses raises rather
+than being skipped, so a step never captures at the position the last move left.
 """
 
 from types import SimpleNamespace
@@ -55,17 +55,21 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
 
 
 def test_a_refused_move_raises_instead_of_being_skipped():
+    refusal = HardwareCommandRefusedError('exclusive_activity_running', 'move', 'diagnostic')
+
+    def _refuse(*args, **kwargs):
+        raise refusal
+
     parent = SimpleNamespace(
-        _io_executor=SimpleNamespace(protocol_put=lambda task, return_future: None),
-        _scope=SimpleNamespace(
-            motion=SimpleNamespace(_move_absolute_impl=None, _move_turret_impl=None)
-        ),
+        _io_executor=None,
+        _scope=SimpleNamespace(motion=SimpleNamespace(move_absolute=_refuse, move_turret=_refuse)),
     )
     step_runner = ProtocolStepRunner(parent)
 
     with pytest.raises(HardwareCommandRefusedError) as excinfo:
         step_runner._move_axis_through_io('X', 1000.0)
-    assert excinfo.value.reason == 'protocol_queue_refused'
+    assert excinfo.value is refusal
 
-    with pytest.raises(HardwareCommandRefusedError):
+    with pytest.raises(HardwareCommandRefusedError) as excinfo:
         step_runner._move_turret_through_io(2)
+    assert excinfo.value is refusal

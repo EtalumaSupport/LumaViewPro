@@ -239,7 +239,7 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
+        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
         # The capture path derives dark-by-design from commanded state (a
@@ -300,7 +300,7 @@ class TestCaptureAbortWording:
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging._capture_and_wait_impl.return_value = None
+        scope.imaging.capture_and_wait.return_value = None
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

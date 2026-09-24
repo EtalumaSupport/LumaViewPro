@@ -102,12 +102,15 @@ def test_end_protocol_mode_is_noop_when_not_in_protocol_mode():
 
 def test_cleanup_skip_path_ends_executor_protocol_mode():
     """When run-in-progress is already clear, _cleanup_inner takes the skip
-    path and must still end both executors' protocol-mode -- otherwise an abort
-    that cleared the run flag without ending them leaves the workers wedged."""
+    path and must still end every lane's protocol-mode -- otherwise an abort
+    that cleared the run flag without ending them leaves the workers wedged.
+    The camera lane is fenced with the same verb as IO, so it is ended too."""
     io = SequentialIOExecutor(name='IO')
     file_io = SequentialIOExecutor(name='FILE')
+    camera = SequentialIOExecutor(name='CAMERA')
     io.protocol_start()
     file_io.protocol_start()
+    camera.protocol_start()
 
     # Not live -> _cleanup_inner takes the early-return branch.
     # The skip path releases the scan's LED lease before ending protocol-mode;
@@ -116,6 +119,7 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
         _is_run_live=lambda: False,
         _io_executor=io,
         file_io_executor=file_io,
+        camera_executor=camera,
         _release_scan_led_lease=lambda: None,
         _release_activity_claim=lambda: None,
         # Same reason as the two above: the skip path settles the run's
@@ -131,3 +135,4 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
 
     assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
     assert file_io.protocol_finish.is_set(), 'file executor not signalled out of protocol-mode'
+    assert camera.protocol_finish.is_set(), 'camera executor not signalled out of protocol-mode'

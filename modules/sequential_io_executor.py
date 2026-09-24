@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from lvp_logger import logger
 from lib import profile_trace
 from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
-from modules.activity_claim import ActivityClaim, acting, current_taking
+from modules.activity_claim import ActivityClaim, Taking, acting, current_taking
 from modules.exceptions import HardwareCommandRefusedError, Refusal
 import threading
 import time
@@ -600,6 +600,11 @@ class SequentialIOExecutor:
         # ask_claim: a lane nobody wired to a claim runs what it is given.
         self._claim = None
         self._override_key = None
+        # The taking that put this lane in protocol mode. On a lane that asks
+        # the claim, the protocol door admits only work under it: the run's
+        # queue is the run's, and a lender whose borrowed run is live is not
+        # the run.
+        self._protocol_taking = None
 
         # UI dispatcher -- executors don't import GUI frameworks.
         # GUI layer passes Clock.schedule_once; tests/headless use default.
@@ -682,15 +687,39 @@ class SequentialIOExecutor:
         self._override_key = object()
         return self._override_key
 
-    def _claim_refusal(self, task: IOTask) -> HardwareCommandRefusedError | None:
-        """The refusal the claim gives ``task`` right now, or None."""
+    def _claim_refusal(
+        self, task: IOTask, *, door: bool = False
+    ) -> HardwareCommandRefusedError | None:
+        """The refusal the claim gives ``task`` right now, or None.
+
+        With ``door``, the task is entering the protocol queue, which also
+        needs the taking that raised protocol mode.
+        """
         if self._claim is None or task.override:
             return None
+        who = getattr(task.action, '__name__', None) or repr(task.action)
+        # Work made under a taking that has ended is its activity's leftover
+        # -- an autofocus unwind that outlived the run's cleanup -- and is
+        # refused even when nothing holds the scope now: the activity that
+        # would have wanted it is gone.
+        if task.taking is not None and not task.taking.holds:
+            return HardwareCommandRefusedError('activity_ended', who)
         holder = self._claim.refusing_holder(task.taking)
         if holder is None:
-            return None
-        who = getattr(task.action, '__name__', None) or repr(task.action)
-        return HardwareCommandRefusedError('exclusive_activity_running', who, holder.kind)
+            if not door or task.taking is self._protocol_taking:
+                return None
+            holder = self._claim.holder
+        kind = holder.kind if holder is not None else None
+        return HardwareCommandRefusedError('exclusive_activity_running', who, kind)
+
+    def _is_protocol_door_holder(self) -> bool:
+        """Whether this thread acts under the taking that raised protocol mode."""
+        return (
+            self._protocol_taking is not None
+            and self.protocol_running.is_set()
+            and not self.protocol_finish.is_set()
+            and current_taking() is self._protocol_taking
+        )
 
     def _stamp(self, task: IOTask, override: object | None) -> None:
         task.set_name(self.executor_name)
@@ -746,9 +775,15 @@ class SequentialIOExecutor:
                 f'onto {self.executor_name} -- a lane worker never waits on another lane'
             )
         task.silent_on_failure = True
-        # Asked twice: a fence can land between the question and the submit,
-        # and put answers a closed lane with None.
-        fut = self.put(task, return_future=True) if self.accepts_work() else None
+        # The run's own call goes through the door its protocol mode keeps
+        # for it; anyone else's, and the run's once the mode has ended, through
+        # put. Asked twice: a fence or its end can land between the question
+        # and the submit, and both doors answer a closed lane with None.
+        fut = None
+        if self._is_protocol_door_holder():
+            fut = self.protocol_put(task, return_future=True)
+        if fut is None:
+            fut = self.put(task, return_future=True) if self.accepts_work() else None
         if fut is None:
             holder = self._claim.holder if self._claim is not None else None
             raise HardwareCommandRefusedError(
@@ -978,7 +1013,7 @@ class SequentialIOExecutor:
         if not self.protocol_running.is_set():
             return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
 
-        refusal = self._claim_refusal(task)
+        refusal = self._claim_refusal(task, door=True)
         if refusal is not None:
             return self._refused_at_submit(task, refusal, return_future)
 
@@ -1085,7 +1120,7 @@ class SequentialIOExecutor:
         if not self.protocol_running.is_set():
             return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
 
-        refusal = self._claim_refusal(task)
+        refusal = self._claim_refusal(task, door=True)
         if refusal is not None:
             return self._refused_at_submit(task, refusal, return_future)
 
@@ -1153,7 +1188,23 @@ class SequentialIOExecutor:
             parts.append(f'{time.monotonic() - started:.0f}s in flight')
         return ' '.join(parts)
 
-    def protocol_start(self):
+    def protocol_start(self, taking: Taking | None = None) -> None:
+        """Put the lane in protocol mode for the activity acting under ``taking``.
+
+        Args:
+            taking: The taking the run acts under. Required on a lane that
+                asks the claim: its protocol door admits only work under it.
+
+        Raises:
+            ValueError: the lane asks the claim and no taking was given --
+                a door with no owner would admit anyone.
+        """
+        if self._claim is not None and taking is None:
+            raise ValueError(
+                f'{self.executor_name}: protocol_start on a lane that asks the claim needs the '
+                "run's taking"
+            )
+        self._protocol_taking = taking
         # Clear stale finish flag from previous run. If protocol_finish is
         # still set (dispatcher hasn't processed it yet), clear it now so
         # the dispatcher doesn't asynchronously call protocol_end() during
