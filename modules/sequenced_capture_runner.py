@@ -201,7 +201,13 @@ class SequencedCaptureRunner:
         z_ui_update_func: typing.Callable | None = None,
         coordinate_transformer=_BUILD_LOCALLY,
         wellplate_loader=_BUILD_LOCALLY,
+        on_run_idle: typing.Callable[[], None] | None = None,
     ):
+        # Told once a run's cleanup has put the runner back to IDLE. The
+        # claim releases just before IDLE, so a listener woken by the claim
+        # alone can still read the run as live; this is the edge after
+        # which is_live_run says it has ended.
+        self._on_run_idle = on_run_idle
         # The composing session passes its own loaders -- it owns the
         # GUARDED construction, where a corrupt labware/coordinate
         # config disables one feature with a notification instead of
@@ -1614,6 +1620,10 @@ class SequencedCaptureRunner:
                     self._cleanup_inner(ending)
         finally:
             self._cleanup_lock.release()
+            # Outside the cleanup lock, after IDLE: a listener that reads
+            # is_live_run, or starts the next run, sees the run ended.
+            if self._on_run_idle is not None:
+                self._on_run_idle()
 
     def _run_loop_under_claim(self) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.

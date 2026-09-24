@@ -264,3 +264,73 @@ class TestAStopControlCanSayTheRunIsStopping:
         assert done.wait(timeout=COMPLETION_TIMEOUT)
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
         assert executor.is_stopping(run) is False
+
+
+class TestTheRunsEndIsAnnounced:
+    """After a run's cleanup puts the runner back to IDLE, its listener is told.
+
+    The claim releases just before IDLE, so a listener woken by the claim
+    alone can read the run as still live and draw it running with nothing
+    to redraw it after. The runner announces the IDLE edge itself, on every
+    exit, outside its cleanup lock.
+    """
+
+    @staticmethod
+    def _listen(executor):
+        heard = []
+        executor._on_run_idle = lambda: heard.append(executor.run_in_progress())
+        return heard
+
+    @staticmethod
+    def _heard_the_end(heard):
+        deadline = time.monotonic() + COMPLETION_TIMEOUT
+        while not heard and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return bool(heard) and heard[-1] is False
+
+    def test_a_run_that_ends_on_its_own_is_announced_after_it_ends(self, executor, tmp_path):
+        from tests.test_run_refusal_contract import _make_single_step_protocol, _run_to_completion
+
+        heard = self._listen(executor)
+        _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
+        assert self._heard_the_end(heard), f'the end was not announced after IDLE: {heard}'
+
+    def test_a_stopped_run_is_announced_after_it_ends(self, executor, tmp_path):
+        heard = self._listen(executor)
+        done = threading.Event()
+        run = _start_run(executor, tmp_path, done)
+        executor.reset(run)
+        assert done.wait(timeout=COMPLETION_TIMEOUT)
+        assert self._heard_the_end(heard), f'the end was not announced after IDLE: {heard}'
+
+    def test_a_run_that_failed_at_start_is_announced_after_it_ends(
+        self, executor, tmp_path, monkeypatch
+    ):
+        heard = self._listen(executor)
+
+        def _boom():
+            raise OSError('save folder vanished')
+
+        monkeypatch.setattr(executor, '_setup_run_dir', _boom)
+        _start_run_and_let_it_fail(executor, tmp_path)
+        assert self._heard_the_end(heard), f'the failed start was not announced: {heard}'
+
+
+def _start_run_and_let_it_fail(executor, tmp_path):
+    """start() a run whose setup fails: the failed-at-start unwind runs inline."""
+    protocol = _make_multi_step_protocol(_make_tile_grid_steps(rows=1, cols=1))
+    plan = executor.prepare(
+        protocol=protocol,
+        run_trigger_source=OWNER,
+        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+        sequence_name='failed_start',
+        image_capture_config=_make_image_capture_config(),
+        autogain_settings=_make_autogain_settings(),
+        parent_dir=tmp_path / 'output',
+        max_scans=1,
+        callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
+        leds_state_at_end='off',
+        autofocus_snapshot=autofocus_snapshot(),
+    )
+    executor.start(plan)
+    assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)

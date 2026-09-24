@@ -199,8 +199,8 @@ class ScopeSession:
         self._register_scope_services(scope)
 
         # Run-state listeners: zero-argument callables notified on every
-        # run-state transition edge (claim grant/release, file-drain
-        # exit, scope rebind). They fire on the TRANSITIONING thread,
+        # run-state transition edge (claim grant/release, a run's return
+        # to IDLE after its cleanup, file-drain exit, scope rebind). They fire on the TRANSITIONING thread,
         # possibly under engine locks, so a listener must only schedule
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
@@ -267,6 +267,7 @@ class ScopeSession:
             activity_claim=self.activity_claim,
             coordinate_transformer=coordinate_transformer,
             wellplate_loader=wellplate_loader,
+            on_run_idle=self.notify_run_state,
         )
         self._protocol_runner = None
 
