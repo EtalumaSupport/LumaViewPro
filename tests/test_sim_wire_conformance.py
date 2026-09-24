@@ -25,12 +25,8 @@ marker goes with the fix.
 
 import ast
 import functools
-import json
-import pathlib
-import re
 import subprocess
 import sys
-import time
 
 import pytest
 
@@ -38,6 +34,7 @@ import drivers.sim_wire.backend as sim_backend
 
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.sim_wire_bench import BENCH, FRESH, RUNS, groups, marked, replay, reply_group
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -49,21 +46,9 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
 # to one worker (`--dist loadgroup`, in the pytest addopts).
 pytestmark = pytest.mark.xdist_group('sim_wire_conformance')
 
-FIXTURE = pathlib.Path(__file__).parent / 'data' / 'sim_wire_conformance_ls850t_field.json'
-_BENCH = json.loads(FIXTURE.read_text())
-_RUNS = _BENCH['runs']
-_FRESH = next(run for run in _RUNS if run['fresh_board'])['records']
-
-# The characterization tool's own waits: the multi-line drain, the pause
-# between starting a move and stopping it, and the settle after STOP.
-_MULTILINE_TIMEOUT_S = 5
-_MULTILINE_END_MARKERS = ['T:']
-_STOP_AFTER_S = 0.3
-_STOP_SETTLE_TIMEOUT_S = 30.0
-
 
 def _unit_config() -> dict:
-    config = ast.literal_eval(next(r['reply'] for r in _FRESH if r['command'] == 'CONFIG'))
+    config = ast.literal_eval(next(r['reply'] for r in FRESH if r['command'] == 'CONFIG'))
     # The unit's XY register table is not in the simulator's image; the
     # field table stands in until the unit's own is added, and XY timing is
     # held as a known difference until then.
@@ -72,10 +57,6 @@ def _unit_config() -> dict:
 
 
 _UNIT_CONFIG = _unit_config()
-
-
-def _replayed(record) -> bool:
-    return record.get('rep', 0) == 0
 
 
 def _state_keys(records) -> list:
@@ -98,12 +79,12 @@ def _state_keys(records) -> list:
     return keys
 
 
-_KEYS = _state_keys(_FRESH)
+_KEYS = _state_keys(FRESH)
 
 
 def _pools(field) -> dict:
     pools = {}
-    for run in _RUNS:
+    for run in RUNS:
         for key, record in zip(_KEYS, run['records'], strict=True):
             pools.setdefault(key, []).append(record[field])
     return pools
@@ -112,47 +93,10 @@ def _pools(field) -> dict:
 _DURATIONS = _pools('api_ms')
 _POSITIONS = _pools('reply')
 
-_TARGET = re.compile(r'move_absolute\((\w), ([-\d.]+)\)')
-_AXIS_ARG = re.compile(r'\((\w+)\)')
-
-
-def _call(scope, record):
-    """The API call the characterization tool made for this record."""
-    diag, motion = scope.diagnostics, scope.motion
-    kind, command = record['kind'], record['command']
-    if kind in ('query', 'error_probe'):
-        return lambda: diag.send_diagnostic_command('motor', command)
-    if kind == 'query_multiline':
-        return lambda: diag.send_diagnostic_command_multiline(
-            'motor', command, timeout_s=_MULTILINE_TIMEOUT_S, end_markers=_MULTILINE_END_MARKERS
-        )
-    if kind == 'home':
-        return functools.partial(motion.home, _AXIS_ARG.search(command).group(1))
-    if kind in ('position', 'move', 'stop_move_start'):
-        axis, target = _TARGET.fullmatch(command).groups()
-        return functools.partial(
-            motion.move_absolute,
-            axis,
-            float(target),
-            wait_until_complete=kind != 'stop_move_start',
-            overshoot_enabled=False,
-        )
-    if kind == 'turret':
-        return functools.partial(motion.move_turret, record['slot'])
-    if kind == 'stop':
-        return motion.stop_motion
-    if kind == 'stop_settle':
-        return functools.partial(
-            motion.wait_until_finished_moving, timeout_s=_STOP_SETTLE_TIMEOUT_S
-        )
-    if kind == 'stop_position':
-        return functools.partial(motion.get_current_position, record['axis'])
-    raise AssertionError(f'no replay for a {kind!r} record')
-
 
 @pytest.fixture(scope='module')
-def replay():
-    """Replay the bench's calls on the simulated unit; index -> (reply, ms)."""
+def replayed_on_the_firmware():
+    """The bench's calls replayed on the simulated unit; index -> (reply, ms)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend,
@@ -165,33 +109,11 @@ def replay():
             ),
         )
         session = ScopeSession.create(
-            complete_settings(simulator_tier='firmware', microscope=_BENCH['unit']['model']),
+            complete_settings(simulator_tier='firmware', microscope=BENCH['unit']['model']),
             simulate=True,
             warn_pre_release=False,
         )
-    results = {}
-    try:
-        for index, record in enumerate(_FRESH):
-            if not _replayed(record):
-                continue
-            call = _call(session.scope, record)
-            started = time.perf_counter()
-            reply = call()
-            results[index] = (reply, (time.perf_counter() - started) * 1000.0)
-            if record['kind'] == 'stop_move_start':
-                time.sleep(_STOP_AFTER_S)
-    finally:
-        session.shutdown()
-    return results
-
-
-def _reply_group(record) -> str:
-    kind = record['kind']
-    if kind in ('query', 'query_multiline', 'error_probe', 'home'):
-        return f'{kind} {record["command"]}'
-    if kind == 'turret':
-        return 'turret'
-    return f'{kind} {record["axis"]}'
+    return replay(session)
 
 
 def _duration_group(record) -> str | None:
@@ -213,17 +135,8 @@ def _duration_group(record) -> str | None:
     return 'STOP'
 
 
-def _groups(group_of) -> dict:
-    groups = {}
-    for index, record in enumerate(_FRESH):
-        name = group_of(record)
-        if _replayed(record) and name is not None:
-            groups.setdefault(name, []).append(index)
-    return groups
-
-
-_REPLY_GROUPS = _groups(_reply_group)
-_DURATION_GROUPS = _groups(_duration_group)
+_REPLY_GROUPS = groups(reply_group)
+_DURATION_GROUPS = groups(_duration_group)
 
 # What the model does not yet do as the board does. Each is fixed in the
 # model, and its entry removed, on its own.
@@ -257,34 +170,17 @@ _DURATION_GAPS = {
 }
 
 
-def _marked(groups: dict, gaps: dict, flaky: dict | None = None) -> list:
-    flaky = flaky or {}
-    params = []
-    for name in groups:
-        if name in gaps:
-            params.append(
-                pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=gaps[name]))
-            )
-        elif name in flaky:
-            params.append(
-                pytest.param(name, marks=pytest.mark.xfail(strict=False, reason=flaky[name]))
-            )
-        else:
-            params.append(name)
-    return params
-
-
 def _microstep_um(axis: str) -> float:
     return 1000.0 / _UNIT_CONFIG['Axis Microsteps per mm / Objective'][axis]
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('group', _marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS))
-def test_replies_match_the_bench(replay, group):
+@pytest.mark.parametrize('group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS))
+def test_replies_match_the_bench(replayed_on_the_firmware, group):
     wrong = []
     for index in _REPLY_GROUPS[group]:
-        record = _FRESH[index]
-        reply, _ms = replay[index]
+        record = FRESH[index]
+        reply, _ms = replayed_on_the_firmware[index]
         if record['kind'] == 'stop_position':
             slack = _microstep_um(record['axis'])
             bench = _POSITIONS[_KEYS[index]]
@@ -296,14 +192,14 @@ def test_replies_match_the_bench(replay, group):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('group', _marked(_DURATION_GROUPS, _DURATION_GAPS))
-def test_durations_fall_within_the_bench(replay, group):
+@pytest.mark.parametrize('group', marked(_DURATION_GROUPS, _DURATION_GAPS))
+def test_durations_fall_within_the_bench(replayed_on_the_firmware, group):
     outside = []
     for index in _DURATION_GROUPS[group]:
-        _reply, ms = replay[index]
+        _reply, ms = replayed_on_the_firmware[index]
         bench = _DURATIONS[_KEYS[index]]
         if not min(bench) <= ms <= max(bench):
-            outside.append((_FRESH[index]['command'], round(ms), (min(bench), max(bench))))
+            outside.append((FRESH[index]['command'], round(ms), (min(bench), max(bench))))
     assert not outside, '\n'.join(
         f'{c}: simulator {s} ms, bench {lo:.0f}-{hi:.0f} ms' for c, s, (lo, hi) in outside
     )
