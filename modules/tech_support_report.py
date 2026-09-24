@@ -33,6 +33,7 @@ Recent protocols list (reusable from GUI):
     protocols = get_recent_protocols(10)
 """
 
+import contextlib
 import datetime
 import json
 import logging
@@ -52,6 +53,7 @@ import platformdirs
 
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
+from modules.exceptions import DiagnosticRefusedError
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1470,11 +1472,17 @@ class TechSupportReport:
     def __init__(self, scope=None, session=None, led_board=None, motor_board=None, camera=None):
         # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
+        #
+        # A session is what lets the hardware steps hold the scope: the
+        # report takes the session's diagnostic claim around them, so a
+        # run or a recording cannot start underneath a homing or a fan
+        # sweep, and a report started during one skips those steps instead
+        # of driving the hardware out from under it.
+        self._session = session
         if scope is not None:
             self.scope = scope
         elif session is not None:
-            # Legacy ScopeSession wrapper -- build a minimal scope-like object
-            self.scope = session
+            self.scope = session.scope
         else:
             self.scope = None
 
@@ -1535,50 +1543,8 @@ class TechSupportReport:
         with tempfile.TemporaryDirectory(prefix='lvp_report_') as tmp:
             tmp = pathlib.Path(tmp)
 
-            # 1. Firmware info + serial number  (0-5%)
-            cb(1, 'Querying firmware...')
-            sn = self._step_firmware_info(tmp)
-            self._check_cancel()
-
-            # 2. Config files from both boards via raw REPL  (5-10%)
-            cb(6, 'Backing up firmware config files...')
-            self._step_configbackup(tmp)
-            self._check_cancel()
-
-            # 3. LED selftest  (10-15%)
-            cb(11, 'Running LED selftest...')
-            self._step_firmware_tests(tmp)
-            self._check_cancel()
-
-            # 4. LED leakage check  (15-18%)
-            cb(16, 'Checking LED leakage...')
-            self._step_led_checks(tmp)
-            self._check_cancel()
-
-            # 5. TMC5072 register dump  (18-20%)
-            cb(19, 'Reading motor driver registers...')
-            self._step_tmc_registers(tmp)
-            self._check_cancel()
-
-            # 6. Fan tachometer verification  (20-23%)
-            cb(21, 'Testing fan...')
-            self._step_fan_test(tmp)
-            self._check_cancel()
-
-            # 7. Serial latency measurement  (23-27%)
-            cb(24, 'Measuring serial latency...')
-            self._step_serial_latency(tmp)
-            self._check_cancel()
-
-            # 8. Homing test  (27-35%)
-            cb(28, 'Homing all axes...')
-            self._step_homing_test(tmp)
-            self._check_cancel()
-
-            # 9. Camera diagnostics (temp)  (38-41%)
-            cb(39, 'Checking camera...')
-            self._step_camera_diagnostics(tmp)
-            self._check_cancel()
+            # 1-9. Firmware, board, motion and camera steps  (0-41%)
+            sn = self._run_scope_steps(tmp, cb)
 
             # 11. System info  (48-52%)
             cb(49, 'Collecting system information...')
@@ -1734,6 +1700,102 @@ class TechSupportReport:
                                 f.write(f'  -- {w}\n')
                         if not validation['errors'] and not validation['warnings']:
                             f.write('All checks passed.\n')
+
+    def _run_scope_steps(self, tmp, cb):
+        """Steps 1-9: every step that talks to the scope. Returns the serial number.
+
+        The hardware-writing steps among them -- the LED selftest and
+        leakage check (LED engineering mode), the fan sweep and the homing
+        test -- run under the session's diagnostic claim. When another
+        activity holds the scope, the claim is refused: the reads still run,
+        and each writing step records that it was skipped and why, in the
+        file its result would have gone to, so the report says what it did
+        not do rather than leaving a gap.
+        """
+        with contextlib.ExitStack() as held:
+            refusal = None
+            # No session means the command-line report, which opens the
+            # boards in a process of its own; nothing in that process can
+            # contend for the scope, so there is no claim to take.
+            if self._session is not None:
+                try:
+                    held.enter_context(self._session.diagnostic_claim())
+                except DiagnosticRefusedError as e:
+                    refusal = e
+                    logger.info(f'Report: hardware steps skipped -- {e.message}')
+
+            # 1. Firmware info + serial number  (0-5%)
+            cb(1, 'Querying firmware...')
+            sn = self._step_firmware_info(tmp)
+            self._check_cancel()
+
+            # 2. Config files from both boards via raw REPL  (5-10%)
+            cb(6, 'Backing up firmware config files...')
+            self._step_configbackup(tmp)
+            self._check_cancel()
+
+            # 3. LED selftest  (10-15%)
+            cb(11, 'Running LED selftest...')
+            if refusal is None:
+                self._step_firmware_tests(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'firmware_tests', 'led_selftest.txt', 'LED SELFTEST', refusal
+                )
+            self._check_cancel()
+
+            # 4. LED leakage check  (15-18%)
+            cb(16, 'Checking LED leakage...')
+            if refusal is None:
+                self._step_led_checks(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', refusal
+                )
+            self._check_cancel()
+
+            # 5. TMC5072 register dump  (18-20%)
+            cb(19, 'Reading motor driver registers...')
+            self._step_tmc_registers(tmp)
+            self._check_cancel()
+
+            # 6. Fan tachometer verification  (20-23%)
+            cb(21, 'Testing fan...')
+            if refusal is None:
+                self._step_fan_test(tmp)
+            else:
+                self._record_skipped(tmp / 'hardware_checks', 'fan_test.txt', 'Fan Test', refusal)
+            self._check_cancel()
+
+            # 7. Serial latency measurement  (23-27%)
+            cb(24, 'Measuring serial latency...')
+            self._step_serial_latency(tmp)
+            self._check_cancel()
+
+            # 8. Homing test  (27-35%)
+            cb(28, 'Homing all axes...')
+            if refusal is None:
+                self._step_homing_test(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'motion_tests', 'homing_test.txt', 'Homing Test', refusal
+                )
+            self._check_cancel()
+
+            # 9. Camera diagnostics (temp)  (38-41%)
+            cb(39, 'Checking camera...')
+            self._step_camera_diagnostics(tmp)
+            self._check_cancel()
+        return sn
+
+    @staticmethod
+    def _record_skipped(directory, filename, title, refusal):
+        """Write a skipped step's file where its result would have gone."""
+        directory.mkdir(exist_ok=True)
+        with open(directory / filename, 'w') as f:
+            f.write(f'{title}\n' + '=' * 40 + '\n\n')
+            f.write(f'SKIPPED: {refusal.message}\n')
+            f.write('The microscope was in use, so this step did not drive the hardware.\n')
 
     def _step_firmware_tests(self, tmp):
         d = tmp / 'firmware_tests'

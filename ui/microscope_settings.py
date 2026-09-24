@@ -1290,7 +1290,7 @@ class MicroscopeSettings(BoxLayout):
 
         def run():
             try:
-                report = TechSupportReport(scope=_app_ctx.ctx.lumaview.scope)
+                report = TechSupportReport(session=_app_ctx.ctx.session)
 
                 def progress(pct, msg):
                     Clock.schedule_once(lambda dt: self._update_report_progress(pct, msg), 0)
