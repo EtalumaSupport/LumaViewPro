@@ -813,21 +813,23 @@ class SimulatedMotorBoard:
                 f'(timeout or disconnect); the move did not happen'
             )
 
-    def target_pos(self, axis: str) -> float | int:
+    def target_pos(self, axis: str) -> float | int | None:
         """Get the target position of an axis in user units.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int: Microns for X/Y/Z, 1-based position for T, 0
-                on read failure or unknown axis.
+            float | int | None: Microns for X/Y/Z, 1-based position for
+                T, 0 for an unknown axis, or None on read failure -- the
+                real board's answer, so a failed read is not a position
+                the layer above can mistake for the origin.
         """
         try:
             response = self.exchange_command(f'TARGET_R{axis}')
             position = int(response)
         except Exception:
-            position = 0
+            return None
 
         if axis == 'Z':
             return self.z_ustep2um(position)
@@ -910,6 +912,13 @@ class SimulatedMotorBoard:
                 during the underlying absolute move.
         """
         pos = self.target_pos(axis)
+        if pos is None:
+            # As the real board: a relative move is defined against the
+            # current target, and without it there is nothing to add to.
+            raise HardwareError(
+                f'move_rel_pos({axis}): cannot read the current target '
+                f'position; the move did not happen'
+            )
         self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
     # ------------------------------------------------------------------
