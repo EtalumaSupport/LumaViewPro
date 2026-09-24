@@ -13,7 +13,8 @@ instances:
     FILE        -- file IO; protocol_queue bounded at 32 (F-2)
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
     PROTOCOL    -- protocol orchestration (bare Thread, no queue)
-    WORKER_POOL -- priority-aware lane for short-lived work that needs
+    WORKER_POOL -- priority-aware executor (not a device lane: it may wait
+                  on the lanes) for short-lived work that needs
                   to jump ahead of MED (abort cleanup at PRIORITY_HIGH,
                   diagnostics at PRIORITY_LOW). HIGH/MED/LOW ordering;
                   FIFO tie-break within priority. protocol_queue stays
@@ -140,8 +141,11 @@ def create_default(
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
     protocol_thread = ProtocolThread()
+    # Not a lane: no device sits behind it. A Stop's inline cleanup and the
+    # GUI's jobs run here and wait on the device lanes through the blocking
+    # public members, which a lane worker is forbidden to do.
     worker_pool = SequentialIOExecutor(
-        name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True
+        name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True, lane=False
     )
 
     bundle = ExecutorBundle(

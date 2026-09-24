@@ -274,6 +274,33 @@ class TestNoLaneWorkerWaitsOnALane:
             io.shutdown()
             pool.shutdown()
 
+    def test_the_production_worker_pool_waits_on_a_lane(self):
+        """The pool the app is built with, not one built for the test: a
+        Stop's inline cleanup and a GUI job both run there and call the
+        blocking public members, which must wait on the lane, not raise."""
+        from modules.executor_registry import create_default
+
+        bundle = create_default(None)
+        try:
+            fut = bundle.worker_pool.put(
+                IOTask(
+                    action=bundle.io_executor.call,
+                    args=(IOTask(action=lambda: 'ran'), 'move_absolute', 5.0),
+                ),
+                return_future=True,
+            )
+            assert fut.result(timeout=_WAIT_S) == 'ran'
+        finally:
+            bundle.scope_display_thread.stop()
+            bundle.protocol_thread.stop(timeout=2.0)
+            for ex in (
+                bundle.io_executor,
+                bundle.camera_executor,
+                bundle.file_io_executor,
+                bundle.worker_pool,
+            ):
+                ex.shutdown(wait=False)
+
 
 class TestTheSession:
     @pytest.fixture
