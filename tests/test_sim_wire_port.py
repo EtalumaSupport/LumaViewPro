@@ -73,6 +73,8 @@ def test_the_production_driver_connects_through_the_emulator(dialect):
         assert board.firmware_date == date
         assert sorted(board.detect_present_axes()) == sorted(ALL_AXES)
         assert board.motorconfig.model() == 'LS850T'
+        # The unit config main ships; its Z agrees with LumaViewPro's defaults.
+        assert board.motorconfig.usteps_per_mm('Z') == 170666
     finally:
         board.disconnect()
 
@@ -139,6 +141,22 @@ def test_ctrl_d_is_a_soft_reset_at_the_repl_and_data_while_running():
         port.write(b'\x03')
         _wait_for(port._at_repl, what='the REPL after Ctrl-C')
         port.write(b'\x04')
+        assert port._proc.pid != first
+        _wait_for(
+            lambda: b'Firmware:' in _exchange(port, b'INFO'), what='the firmware to boot again'
+        )
+    finally:
+        port.close()
+
+
+def test_ctrl_c_then_ctrl_d_in_one_write_is_a_soft_reset():
+    # On the board the interrupt lands before the Ctrl-D does, so the Ctrl-D
+    # meets the REPL; over a pipe a Ctrl-D ahead of the prompt would be end of
+    # input and end the process.
+    port = _open()
+    try:
+        first = port._proc.pid
+        port.write(b'\x03\x04')
         assert port._proc.pid != first
         _wait_for(
             lambda: b'Firmware:' in _exchange(port, b'INFO'), what='the firmware to boot again'
