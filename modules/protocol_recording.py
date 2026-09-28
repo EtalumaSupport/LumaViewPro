@@ -45,6 +45,7 @@ from modules.common_utils import (
 )
 import modules.image_save as image_save
 import modules.image_utils as image_utils
+from modules.exceptions import CameraSettingRejected
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.recording_frames import (
@@ -422,7 +423,12 @@ class ProtocolVideoStep:
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         if step['Auto_Gain']:
-            scope.imaging.set_auto_gain(False, self._autogain_settings)
+            try:
+                scope.imaging.set_auto_gain(False, self._autogain_settings)
+            except CameraSettingRejected as rejected:
+                # The one-shot below runs either way; the refusal ends its
+                # flight here.
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
             scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],

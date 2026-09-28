@@ -27,6 +27,7 @@ import modules.labware_loader as labware_loader
 from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
+    CameraSettingRejected,
     ProtocolRunRefusedError,
     RunAlreadyEndedError,
     RunCheckFailedError,
@@ -1188,7 +1189,14 @@ class SequencedCaptureRunner:
         arm = self._saved_camera_state.get('auto_gain_arm')
         if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
             return
-        self._scope.imaging.set_auto_gain(False, dict(arm.settings))
+        try:
+            self._scope.imaging.set_auto_gain(False, dict(arm.settings))
+        except CameraSettingRejected as rejected:
+            # The run goes on with the camera as it is; the refusal ends its
+            # flight here.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(rejected, solicited=False, category='Camera')
 
     def _take_camera(self) -> 'RunEnding | None':
         """Wait for the camera lane to finish what it holds, then make the camera this run's.
@@ -1232,9 +1240,16 @@ class SequencedCaptureRunner:
         self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
         self._take_auto_gain_arm_for_run()
-        self._scope.imaging.update_auto_gain_target_brightness(
-            self._autogain_settings['target_brightness']
-        )
+        try:
+            self._scope.imaging.update_auto_gain_target_brightness(
+                self._autogain_settings['target_brightness']
+            )
+        except CameraSettingRejected as rejected:
+            # A step that arms auto-gain converges on the camera's previous
+            # target; the refusal ends its flight here.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(rejected, solicited=False, category='Camera')
         return None
 
     def start(self, plan: RunPlan) -> 'PendingRunOutcome':

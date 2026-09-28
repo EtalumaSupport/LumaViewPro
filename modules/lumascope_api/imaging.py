@@ -187,6 +187,28 @@ def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
     )
 
 
+def _rejected_mode_words(what: str) -> tuple[str, str]:
+    """The title and sentence for an auto-mode change the camera refused."""
+    return (
+        'Camera Setting Not Applied',
+        f'The camera did not take the {what} change. Captures will continue '
+        'with the camera as it was.',
+    )
+
+
+def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
+    """The typed refusal of a gain or exposure, in its one set of words."""
+    words = _rejected_gain_words if setting == 'gain_db' else _rejected_exposure_words
+    title, message = words(requested)
+    return CameraSettingRejected(setting, requested, title=title, message=message)
+
+
+def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
+    """The typed refusal of an auto-mode change, in its one set of words."""
+    title, message = _rejected_mode_words(what)
+    return CameraSettingRejected(setting, requested, title=title, message=message)
+
+
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
     """A camera's range for a person, naming only the ends it declares.
 
@@ -1169,8 +1191,7 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
         if applied is False:
-            title, message = _rejected_gain_words(gain_db)
-            raise CameraSettingRejected('gain_db', gain_db, title=title, message=message)
+            raise _value_rejection('gain_db', gain_db)
         # Passed through, not swallowed: every dispatcher in this class returns
         # what its impl returned, and a test pins that contract across all of
         # them. The raise is added to that, not substituted for it.
@@ -1211,31 +1232,41 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
         if applied is False:
-            title, message = _rejected_exposure_words(exposure_ms)
-            raise CameraSettingRejected('exposure_ms', exposure_ms, title=title, message=message)
+            raise _value_rejection('exposure_ms', exposure_ms)
         # See set_gain_db: the dispatcher's pass-through contract holds.
         return applied
 
     def set_auto_gain(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable automatic gain adjustment, and wait for it.
 
-        See ``_set_auto_gain_impl`` for the value contract; this adds
-        only the dispatch described on ``_dispatch_camera``.
+        See ``_set_auto_gain_impl`` for the value contract; this adds the
+        dispatch described on ``_dispatch_camera`` and the raise below.
+
+        Raises:
+            CameraSettingRejected: The camera refused the change. Nothing
+                was recorded, and nothing is shown here.
         """
-        return self._dispatch_camera(
+        result = self._dispatch_camera(
             self._set_auto_gain_impl,
             'set_auto_gain',
             args=(state, settings),
             kwargs={'resume_after_capture': resume_after_capture},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if result is False:
+            raise _mode_rejection('auto_gain', state, 'auto-gain')
+        return result
 
     def _set_auto_gain_impl(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable automatic gain adjustment.
+
+        Non-raising, as the value impls are; a refusal is answered, not
+        reported, and records no arm: the lock would otherwise write back
+        values from a loop that never ran.
 
         Args:
             state: True to enable auto gain, False to disable.
@@ -1246,13 +1277,17 @@ class ImagingAPI:
             resume_after_capture: with ``state=True``, whether a capture
                 that locks this arm re-arms it afterwards (live view) or
                 leaves the camera at the locked values (a protocol step).
+
+        Returns:
+            bool | None: The driver's answer (see ``Camera.gain`` for the
+                three cases); ``None`` when no camera is active.
         """
 
         if not self._driver or not self._driver.active:
-            return
+            return None
 
         def _write_auto_gain():
-            self._driver.auto_gain(
+            return self._driver.auto_gain(
                 state,
                 target_brightness=settings['target_brightness'],
                 min_gain_db=settings['min_gain_db'],
@@ -1272,11 +1307,13 @@ class ImagingAPI:
         arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
         if arm_settle:
             self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
-        self._camera_write(
+        result = self._camera_write(
             _write_auto_gain,
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
         )
+        if result is False:
+            return False
         with self._state_lock:
             self._auto_gain_arm = (
                 _AutoGainArm(dict(settings), resume_after_capture) if arm_settle else None
@@ -1284,6 +1321,7 @@ class ImagingAPI:
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
+        return result
 
     def lock_auto_gain(self) -> AutoGainLock:
         """Lock a standing continuous auto-gain arm and return the result.
@@ -1322,7 +1360,8 @@ class ImagingAPI:
         settings = arm.settings
         floor = settings.get('min_exposure_ms') or None
         ceiling = settings.get('max_exposure_ms') or None
-        self._set_auto_gain_impl(False, settings)
+        if self._set_auto_gain_impl(False, settings) is False:
+            self._report_refused_write(_mode_rejection('auto_gain', False, 'auto-gain'))
         chunks = self._get_latest_chunks() or {}
         exp_us = chunks.get('ExposureTime')
         gain = chunks.get('Gain')
@@ -1358,9 +1397,9 @@ class ImagingAPI:
         # camera already holds, so a refused write-back leaves the lock's
         # state true; the refusal itself is reported.
         if self._set_exposure_ms_impl(exp_ms) is False:
-            self._report_refused_write('exposure_ms', exp_ms)
+            self._report_refused_write(_value_rejection('exposure_ms', exp_ms))
         if self._set_gain_db_impl(gain) is False:
-            self._report_refused_write('gain_db', gain)
+            self._report_refused_write(_value_rejection('gain_db', gain))
         if ceiling is not None and exp_ms >= ceiling * 0.99:
             state = AutoGainConvergence.MAXED
         elif floor is not None and exp_ms <= floor:
@@ -1452,63 +1491,76 @@ class ImagingAPI:
         )
         if self._set_exposure_ms_impl(float(ceiling_ms)) is False:
             # The arm goes ahead at the exposure the camera holds.
-            self._report_refused_write('exposure_ms', float(ceiling_ms))
+            self._report_refused_write(_value_rejection('exposure_ms', float(ceiling_ms)))
 
-    def _report_refused_write(self, setting: str, requested: float) -> None:
-        """Report a gain or exposure refusal whose flight ends in this class.
+    def _report_refused_write(self, rejection: CameraSettingRejected) -> None:
+        """Report a camera refusal whose flight ends in this class.
 
-        The auto-gain lock's write-back, the exposure-ceiling clamp and the
-        camera restore each carry on at the value the camera holds, so no
-        caller hears the refusal; this is where it is reported, once, through
-        the one reporter. No person asked for these writes.
+        The auto-gain lock's write-back and disarm, the exposure-ceiling clamp,
+        the camera restore and the live-view re-arm each carry on with the
+        camera as it is, so no caller hears the refusal; this is where it is
+        reported, once, through the one reporter. No person asked for these
+        writes.
         """
-        words = _rejected_gain_words if setting == 'gain_db' else _rejected_exposure_words
-        title, message = words(requested)
-        notifications.report_outcome(
-            CameraSettingRejected(setting, requested, title=title, message=message),
-            solicited=False,
-            category='Camera',
-        )
+        notifications.report_outcome(rejection, solicited=False, category='Camera')
 
     def _resume_auto_gain_impl(self, lock: AutoGainLock) -> None:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
-        if lock.state is not None and lock.resume_after_capture and lock.settings is not None:
-            self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
+        if lock.state is None or not lock.resume_after_capture or lock.settings is None:
+            return
+        if self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True) is False:
+            self._report_refused_write(_mode_rejection('auto_gain', True, 'auto-gain'))
 
-    def set_auto_exposure_time(self, state: bool = True) -> None:
+    def set_auto_exposure_time(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment, and wait for it.
 
         See ``_set_auto_exposure_time_impl`` for the value contract; this
-        adds only the dispatch described on ``_dispatch_camera``.
+        adds the dispatch described on ``_dispatch_camera`` and the raise
+        below.
+
+        Raises:
+            CameraSettingRejected: The camera refused the change; nothing is
+                shown here.
         """
-        return self._dispatch_camera(
+        result = self._dispatch_camera(
             self._set_auto_exposure_time_impl,
             'set_auto_exposure_time',
             args=(state,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if result is False:
+            raise _mode_rejection('auto_exposure', state, 'auto-exposure')
+        return result
 
-    def _set_auto_exposure_time_impl(self, state: bool = True) -> None:
+    def _set_auto_exposure_time_impl(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment.
 
         Args:
             state: True to enable auto exposure, False to disable.
+
+        Returns:
+            bool | None: The driver's answer; ``False`` when it refused, and
+                then the cache is not resynced. ``None`` when no camera is
+                active.
         """
 
         if not self._driver or not self._driver.active:
-            return
+            return None
         # Auto-exposure dynamically adjusts the value, so clear the manual
         # exposure target (chunk-match falls back to skip-frames calibration).
         # The mode flip leaves the exposure value node unchanged, so the
         # invalidate + target-clear are forced, not gated on a value delta.
-        self._camera_write(
+        result = self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
         )
+        if result is False:
+            return False
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
+        return result
 
     def _camera_setting_rejection(
         self, setting: str, requested, title: str, body: str
@@ -3931,15 +3983,20 @@ class ImagingAPI:
             f'arm={arm_action}'
         )
         if gain_known and self._set_gain_db_impl(gain_db) is False:
-            self._report_refused_write('gain_db', gain_db)
+            self._report_refused_write(_value_rejection('gain_db', gain_db))
         if exposure_known and self._set_exposure_ms_impl(exposure_ms) is False:
-            self._report_refused_write('exposure_ms', exposure_ms)
+            self._report_refused_write(_value_rejection('exposure_ms', exposure_ms))
+        arm_result = None
         if arm_action == 're-armed':
-            self._set_auto_gain_impl(
+            arm_result = self._set_auto_gain_impl(
                 True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
             )
         elif arm_action == 'disarmed':
-            self._set_auto_gain_impl(False, dict(standing.settings))
+            arm_result = self._set_auto_gain_impl(False, dict(standing.settings))
+        if arm_result is False:
+            self._report_refused_write(
+                _mode_rejection('auto_gain', arm_action == 're-armed', 'auto-gain')
+            )
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(
@@ -4018,10 +4075,11 @@ class ImagingAPI:
                 when no camera is active.
 
         Raises:
-            CameraSettingRejected: The camera refused the gain or the
-                exposure. When it refused both, ``setting`` names both,
-                comma-separated, ``requested`` holds both values in that
-                order, and the message carries both sentences.
+            CameraSettingRejected: The camera refused the gain, the exposure
+                or the auto-gain change. When it refused more than one,
+                ``setting`` names each, comma-separated, ``requested`` holds
+                their values in that order, and the message carries each
+                sentence.
         """
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
@@ -4037,8 +4095,9 @@ class ImagingAPI:
         exposure = self.applied_exposure_ms_for(exposure_ms)
         gain_result = self._set_gain_db_impl(gain.applied)
         exposure_result = self._set_exposure_ms_impl(exposure.applied)
+        auto_gain_result = None
         if auto_gain_settings is not None:
-            self._set_auto_gain_impl(
+            auto_gain_result = self._set_auto_gain_impl(
                 auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
         # Both numbers when the camera held one down, so a bundle shows the
@@ -4053,44 +4112,57 @@ class ImagingAPI:
         )
         refused = []
         if gain_result is False:
-            refused.append(('gain_db', gain.applied, _rejected_gain_words(gain.applied)))
+            refused.append(_value_rejection('gain_db', gain.applied))
         if exposure_result is False:
-            refused.append(
-                ('exposure_ms', exposure.applied, _rejected_exposure_words(exposure.applied))
-            )
+            refused.append(_value_rejection('exposure_ms', exposure.applied))
+        if auto_gain_result is False:
+            refused.append(_mode_rejection('auto_gain', auto_gain, 'auto-gain'))
+        if len(refused) == 1:
+            raise refused[0]
         if refused:
-            title = refused[0][2][0]
-            if len(refused) == 1:
-                setting, requested, (_title, message) = refused[0]
-            else:
-                setting = ','.join(r[0] for r in refused)
-                requested = tuple(r[1] for r in refused)
-                message = ' '.join(r[2][1] for r in refused)
-            raise CameraSettingRejected(setting, requested, title=title, message=message)
+            raise CameraSettingRejected(
+                ','.join(r.setting for r in refused),
+                tuple(r.requested for r in refused),
+                title=refused[0].title,
+                message=' '.join(str(r) for r in refused),
+            )
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
-    def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
+    def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness, and wait for it.
 
         See ``_update_auto_gain_target_brightness_impl`` for the settle
-        contract; this adds only the dispatch described on
-        ``_dispatch_camera``.
+        contract; this adds the dispatch described on ``_dispatch_camera``
+        and the raise below.
+
+        Raises:
+            CameraSettingRejected: The camera refused the change; nothing is
+                shown here.
         """
-        return self._dispatch_camera(
+        result = self._dispatch_camera(
             self._update_auto_gain_target_brightness_impl,
             'update_auto_gain_target_brightness',
             args=(target_brightness,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if result is False:
+            raise _mode_rejection(
+                'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
+            )
+        return result
 
-    def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> None:
+    def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness on the camera.
 
         Args:
             target_brightness: Target brightness value (0.0 to 1.0).
+
+        Returns:
+            bool | None: The driver's answer; ``False`` when it refused.
+                ``None`` when no camera is active.
         """
         if not self._driver or not self._driver.active:
-            return
+            return None
         # Changing the target re-drives the auto-gain loop: gain (and, under
         # auto-exposure, exposure) converge to a new operating point, so a frame
         # grabbed before they resettle is captured at the old brightness. Route
@@ -4100,7 +4172,7 @@ class ImagingAPI:
         # applies only when the camera has hardware auto-gain (others settle via
         # the gain source alone).
         arm_settle = getattr(self._driver.profile, 'has_auto_gain', False)
-        self._camera_write(
+        return self._camera_write(
             lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
         )

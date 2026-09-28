@@ -533,9 +533,13 @@ class ProtocolStepRunner:
                 # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        # Disable autogain when moving between steps.
+        # Disable autogain when moving between steps. A refused disarm is
+        # reported and the run goes on: the next step writes its own values.
         if step['Auto_Gain']:
-            p._scope.imaging.set_auto_gain(False, p._autogain_settings)
+            try:
+                p._scope.imaging.set_auto_gain(False, p._autogain_settings)
+            except CameraSettingRejected as rejected:
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
 
         logger.debug(
             f'[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
