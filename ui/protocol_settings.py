@@ -1586,26 +1586,6 @@ class ProtocolSettings(FloatLayout):
         if background_down is not None:
             self.ids[button_id].background_down = background_down
 
-    def _is_protocol_valid(self) -> bool:
-        from ui.notification_popup import show_notification_popup
-
-        if self._protocol.num_steps() == 0:
-            logger.warning('[LVP Main  ] Protocol has no steps.')
-            show_notification_popup(
-                title='Protocol Invalid',
-                message='Protocol has no steps. Add at least one step before running.',
-            )
-            return False
-
-        # The save-folder check that used to sit here, and the
-        # turret-objective check beside it, now refuse at the preparation
-        # chokepoint, so a script and the SDK get them too. The save-folder
-        # one also stopped WRITING to answer: it probed one hardcoded
-        # ProtocolData path with a real file, which refused the autofocus
-        # scan over a folder that run never writes to and said nothing at
-        # all about the folders the other runs save into.
-        return True
-
     def _autofocus_run_complete_callback(self, **kwargs):
         ctx = _app_ctx.ctx
 
@@ -1766,10 +1746,6 @@ class ProtocolSettings(FloatLayout):
                 sequenced_capture_runner.is_live_run(my_run)
             ):
                 self._cleanup_at_end_of_protocol(autofocus_scan=True, run=my_run)
-                return
-
-            if not self._is_protocol_valid():
-                run_refused_func()
                 return
 
             def commit_ui_state():
@@ -1980,10 +1956,6 @@ class ProtocolSettings(FloatLayout):
             # run-complete callback resets this label when it ends.
             self.ids['run_scan_btn'].text = 'Stopping...'
             self._cleanup_at_end_of_protocol(autofocus_scan=False, run=my_run)
-            return
-
-        if not self._is_protocol_valid():
-            run_refused_func()
             return
 
         callbacks = {
@@ -2204,10 +2176,6 @@ class ProtocolSettings(FloatLayout):
                 # protocol run-complete callback resets this label.
                 self.ids['run_protocol_btn'].text = 'Stopping...'
                 self._cleanup_at_end_of_protocol(autofocus_scan=False, run=my_run)
-                return
-
-            if not self._is_protocol_valid():
-                run_refused_func()
                 return
 
             callbacks = {
