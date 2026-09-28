@@ -222,3 +222,35 @@ class TestConfigureScope:
 class TestBringUp:
     def test_the_camera_is_streaming_after_create(self, sim_session):
         assert sim_session.scope.imaging.is_streaming()
+
+
+class TestTheSupportReportDuringARun:
+    def test_it_sends_no_board_command_and_still_records_identity_and_temperature(
+        self, sim_session, tmp_path
+    ):
+        from modules.tech_support_report import TechSupportReport
+
+        sc = sim_session.scope
+        report = TechSupportReport(session=sim_session)
+        led_cmd, led_sent = _spy(sc, '_led_driver', 'exchange_command')
+        led_multi, led_multi_sent = _spy(sc, '_led_driver', 'exchange_multiline')
+        run = sim_session.activity_claim.try_claim('protocol')
+        try:
+            with led_cmd, led_multi:
+                sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
+        finally:
+            run.release()
+
+        assert led_sent == [] and led_multi_sent == [], 'a board command went out during a run'
+        assert sn == sc.diagnostics.get_motor_info()['serial_number']
+        motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
+        assert sn in motor_info and 'SKIPPED' in motor_info
+        for rel in (
+            'firmware_configs/config_backup.txt',
+            'hardware_checks/tmc5072_registers.txt',
+            'hardware_checks/serial_latency.txt',
+        ):
+            text = (tmp_path / rel).read_text()
+            assert 'SKIPPED' in text and 'protocol' in text, (rel, text)
+        camera = (tmp_path / 'camera_info' / 'camera_info.txt').read_text()
+        assert 'emperature' in camera, camera

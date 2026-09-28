@@ -1613,7 +1613,9 @@ class TechSupportReport:
 
     # -- Steps ---------------------------------------------------------------
 
-    def _step_firmware_info(self, tmp):
+    def _step_firmware_info(self, tmp, refusal=None):
+        if refusal is not None:
+            return self._step_firmware_info_cached(tmp, refusal)
         d = tmp / 'firmware_info'
         d.mkdir()
 
@@ -1647,6 +1649,45 @@ class TechSupportReport:
             f.write(f'Fan: {fan}\n\nI2C Scan: {i2c}\n\n')
             f.write(f'LED Readings (baseline, all off):\n{led_readings}\n')
 
+        self._meta['serial_number'] = sn
+        self._meta['led_info'] = str(led_info)
+        self._meta['motor_info'] = str(motor_info)
+        return sn
+
+    def _step_firmware_info_cached(self, tmp, refusal):
+        """Step 1 while another activity holds the scope.
+
+        The board queries go through the raw command channel, which the
+        lane refuses to anyone but the holder. What the drivers cached at
+        connect -- model, serial number, firmware versions -- still goes in,
+        and so do the typed driver-status and fan reads, which take the
+        board's own lock and are not refused.
+        """
+        d = tmp / 'firmware_info'
+        d.mkdir()
+        led_info = self.scope.diagnostics.get_led_info()
+        motor_info = self.scope.diagnostics.get_motor_info()
+        sn = motor_info.get('serial_number') or 'UNKNOWN'
+        skipped = (
+            f'SKIPPED board queries: {refusal.message}\n'
+            'The microscope was in use; these are the values cached at connect.\n'
+        )
+        with open(d / 'led_info.txt', 'w') as f:
+            f.write(f'LED Board (cached at connect):\n{led_info}\n\n{skipped}')
+        with open(d / 'motor_info.txt', 'w') as f:
+            f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
+            f.write(f'Serial Number: {sn}\n\n{skipped}')
+        drvstat = self.diag.get_driver_status_all()
+        with open(d / 'motor_status.txt', 'w') as f:
+            f.write('Motor Positions: not read.\n')
+            f.write(skipped)
+            f.write('\nTMC5072 Driver Status:\n')
+            for ax, st in drvstat.items():
+                f.write(f'  {ax}: {st}\n')
+        with open(d / 'peripherals.txt', 'w') as f:
+            f.write(f'Fan: {self.diag.get_fan_status()}\n\n')
+            f.write('I2C Scan and LED Readings: not read.\n')
+            f.write(skipped)
         self._meta['serial_number'] = sn
         self._meta['led_info'] = str(led_info)
         self._meta['motor_info'] = str(motor_info)
@@ -1704,13 +1745,14 @@ class TechSupportReport:
     def _run_scope_steps(self, tmp, cb):
         """Steps 1-9: every step that talks to the scope. Returns the serial number.
 
-        The hardware-writing steps among them -- the LED selftest and
-        leakage check (LED engineering mode), the fan sweep and the homing
-        test -- run under the session's diagnostic claim. When another
-        activity holds the scope, the claim is refused: the reads still run,
-        and each writing step records that it was skipped and why, in the
-        file its result would have gone to, so the report says what it did
-        not do rather than leaving a gap.
+        Every step that sends a board command runs under the session's
+        diagnostic claim. When another activity holds the scope the claim is
+        refused, and the lanes would refuse those commands too: each such
+        step records that it was skipped and why, in the file its result
+        would have gone to, so the report says what it did not do rather
+        than leaving a gap. What does not need the lanes still goes in --
+        the identity the drivers cached at connect, the typed driver-status
+        and fan reads, and the camera temperatures.
         """
         with contextlib.ExitStack() as held:
             refusal = None
@@ -1726,12 +1768,17 @@ class TechSupportReport:
 
             # 1. Firmware info + serial number  (0-5%)
             cb(1, 'Querying firmware...')
-            sn = self._step_firmware_info(tmp)
+            sn = self._step_firmware_info(tmp, refusal)
             self._check_cancel()
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
-            self._step_configbackup(tmp)
+            if refusal is None:
+                self._step_configbackup(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'firmware_configs', 'config_backup.txt', 'Config Backup', refusal
+                )
             self._check_cancel()
 
             # 3. LED selftest  (10-15%)
@@ -1756,7 +1803,12 @@ class TechSupportReport:
 
             # 5. TMC5072 register dump  (18-20%)
             cb(19, 'Reading motor driver registers...')
-            self._step_tmc_registers(tmp)
+            if refusal is None:
+                self._step_tmc_registers(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'hardware_checks', 'tmc5072_registers.txt', 'TMC5072 Registers', refusal
+                )
             self._check_cancel()
 
             # 6. Fan tachometer verification  (20-23%)
@@ -1769,7 +1821,12 @@ class TechSupportReport:
 
             # 7. Serial latency measurement  (23-27%)
             cb(24, 'Measuring serial latency...')
-            self._step_serial_latency(tmp)
+            if refusal is None:
+                self._step_serial_latency(tmp)
+            else:
+                self._record_skipped(
+                    tmp / 'hardware_checks', 'serial_latency.txt', 'Serial Latency', refusal
+                )
             self._check_cancel()
 
             # 8. Homing test  (27-35%)
