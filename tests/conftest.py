@@ -286,6 +286,22 @@ def pytest_runtest_makereport(item, call):
     )
 
 
+@pytest.fixture(autouse=True)
+def _fresh_notification_dedup():
+    """Each test starts with the notification centre's show-once memory empty.
+
+    The centre is one process-wide object, and it drops a repeat of the same
+    (category, title) inside its dedup window. Two tests that each end in the
+    same notice then pass alone and fail together: the second test's listener
+    sees nothing because the first test's notice is still remembered. A module
+    nobody has imported yet holds no memory, so it is not imported here.
+    """
+    center = sys.modules.get('modules.notification_center')
+    if center is not None:
+        center.notifications._dedup.clear()
+    yield
+
+
 @pytest.fixture
 def diagnostic_scope():
     """Lumascope.create_diagnostic() with each board connect answered by its

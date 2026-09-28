@@ -26,17 +26,6 @@ from tests.test_composite_run_e2e import headless_settings, open_composite_sessi
 from tests.test_composite_run_failures import _fail_these_channels
 
 
-@pytest.fixture(autouse=True)
-def _fresh_dedup_window():
-    # The center drops a repeat of the same (category, title) inside its
-    # dedup window. Three tests here each end in one 'Composite Failed';
-    # in one process the second and third would be dropped as repeats of
-    # the first, which is the center's policy, not this contract's.
-    notifications._dedup.clear()
-    yield
-    notifications._dedup.clear()
-
-
 @contextlib.contextmanager
 def _bus_at_popup_threshold():
     seen = []

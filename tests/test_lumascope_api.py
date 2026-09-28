@@ -68,17 +68,6 @@ class TestNullMotionBoardCapabilities:
         assert null.has_homed() is True
 
 
-@pytest.fixture(autouse=True)
-def _clear_notification_dedup():
-    """Reset notification dedup state between tests so multiple tests
-    that fire the same (category, title) within 10 s each see their
-    own listener-fire. Without this, NotificationCenter's 10 s dedup
-    window suppresses the second+ test's notification."""
-    notifications._dedup.clear()
-    yield
-    notifications._dedup.clear()
-
-
 class TestLumascopeHome:
     """#616 / #618 follow-up: Lumascope.motion.home() must reach the firmware so
     the firmware can home every axis the board has, and must not emit a
