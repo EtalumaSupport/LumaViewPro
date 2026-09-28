@@ -20,7 +20,6 @@ from ui.ui_helpers import (
     move_relative,
     run_reported,
     submit_reported,
-    unknown_position_refused,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -218,29 +217,25 @@ class VerticalControl(BoxLayout):
 
     def set_bookmark(self):
         gui_logger.button('SET_Z_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
-        ctx.io_executor.put(IOTask(action=self.ex_set_bookmark))
+        run_reported(self.ex_set_bookmark, None, 'SET_Z_BOOKMARK')
 
     def ex_set_bookmark(self):
         ctx = _app_ctx.ctx
-        if unknown_position_refused(('Z',), recording=True, then='save the bookmark'):
-            return
+        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the bookmark')
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             ctx.settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
         gui_logger.button('SET_ALL_BOOKMARKS')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_all_bookmarks()')
-        ctx.io_executor.put(IOTask(action=self.ex_set_all_bookmarks))
+        run_reported(self.ex_set_all_bookmarks, None, 'SET_ALL_BOOKMARKS')
 
     def ex_set_all_bookmarks(self):
         ctx = _app_ctx.ctx
         # This one also writes every layer's focus from the Z.
-        if unknown_position_refused(('Z',), recording=True, then='save the bookmarks'):
-            return
+        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the bookmarks')
         height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
         with ctx.settings_lock:
             settings = ctx.settings

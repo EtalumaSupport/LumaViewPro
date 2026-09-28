@@ -19,8 +19,8 @@ from tests.ast_seams import production_modules, walk_defs
 
 _READERS = frozenset({'get_current_position', 'get_target_position', 'axis_positions'})
 
-# Saves the position into a setting or a step. Must ask
-# ui_helpers.unknown_position_refused(..., recording=True) before reading.
+# Saves the position into a setting or a step. Must ask the motion API's
+# refuse_unknown_positions(..., recording=True) before reading.
 SAVES = 'saves'
 # Shows the position; saves nothing.
 DISPLAYS = 'displays'
@@ -84,7 +84,7 @@ def test_every_position_reader_is_classified():
 
     assert found - set(CLASSIFIED) == set(), (
         'a function reads the live position and nobody has said what for. If it '
-        'saves the position, ask ui_helpers.unknown_position_refused(..., '
+        "saves the position, ask the motion API's refuse_unknown_positions(..., "
         'recording=True) before the read; then classify it in CLASSIFIED.'
     )
     assert set(CLASSIFIED) - found == set(), (
@@ -101,8 +101,8 @@ def test_a_function_that_saves_a_position_asks_first():
             n.lineno
             for n in nodes
             if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == 'unknown_position_refused'
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == 'refuse_unknown_positions'
             and any(
                 kw.arg == 'recording'
                 and isinstance(kw.value, ast.Constant)

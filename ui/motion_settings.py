@@ -17,7 +17,6 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     run_reported,
-    unknown_position_refused,
 )
 
 logger = logging.getLogger('LVP.ui.motion_settings')
@@ -524,15 +523,12 @@ class XYStageControl(BoxLayout):
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
-        ctx.io_executor.put(IOTask(action=self.ex_set_xbookmark))
+        run_reported(self.ex_set_xbookmark, None, 'SET_X_BOOKMARK')
 
     def ex_set_xbookmark(self):
         ctx = _app_ctx.ctx
-
-        if unknown_position_refused(('X',), recording=True, then='save the bookmark'):
-            return
+        ctx.scope.motion.refuse_unknown_positions(('X',), recording=True, then='save the bookmark')
 
         # Get current stage x-position in um
         x_pos = ctx.lumaview.scope.motion.get_current_position('X')
@@ -549,15 +545,12 @@ class XYStageControl(BoxLayout):
 
     def set_ybookmark(self):
         gui_logger.button('SET_Y_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_ybookmark()')
-
-        ctx.io_executor.put(IOTask(action=self.ex_set_ybookmark))
+        run_reported(self.ex_set_ybookmark, None, 'SET_Y_BOOKMARK')
 
     def ex_set_ybookmark(self):
         ctx = _app_ctx.ctx
-        if unknown_position_refused(('Y',), recording=True, then='save the bookmark'):
-            return
+        ctx.scope.motion.refuse_unknown_positions(('Y',), recording=True, then='save the bookmark')
         y_pos = ctx.lumaview.scope.motion.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings

@@ -34,6 +34,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -72,6 +73,17 @@ def _extract_method(method_name: str, extra_globals: dict):
     raise AssertionError(f'LayerControl.{method_name} not found in source')
 
 
+def _refuse_unless(z_known):
+    """The motion API's refusal of an unknown axis: raised, as the API raises it."""
+    from modules.exceptions import AxisStateUnknownError
+
+    def refuse_unknown_positions(axes, *, recording, then):
+        if not z_known:
+            raise AxisStateUnknownError(dict.fromkeys(axes, 'unknown'), then=then)
+
+    return refuse_unknown_positions
+
+
 def _make_env(proto, z_positions, *, z_known=True):
     """Fake ctx + extraction globals wired to a real Protocol.
 
@@ -91,7 +103,10 @@ def _make_env(proto, z_positions, *, z_known=True):
         settings_lock=threading.Lock(),
         protocol=proto,
         scope=SimpleNamespace(
-            motion=SimpleNamespace(get_current_position=MagicMock(side_effect=z_positions))
+            motion=SimpleNamespace(
+                get_current_position=MagicMock(side_effect=z_positions),
+                refuse_unknown_positions=_refuse_unless(z_known),
+            )
         ),
         stage=MagicMock(),
         motion_settings=MagicMock(),
@@ -106,9 +121,6 @@ def _make_env(proto, z_positions, *, z_known=True):
             'logger': log,
             'Clock': clock,
             'ProtocolError': ProtocolError,
-            # The motion API's answer, at the GUI's one boundary for it:
-            # refused means the API has already told the user.
-            'unknown_position_refused': lambda axes, **kwargs: not z_known,
         },
     )
     fake_self = SimpleNamespace(
@@ -284,7 +296,10 @@ class TestNoBaselineEqualityInferenceRemains:
         )
         fn, ctx, fake_self = _make_env(proto, [5000.0], z_known=False)
 
-        fn(fake_self, selected_step=0)
+        from modules.exceptions import AxisStateUnknownError
+
+        with pytest.raises(AxisStateUnknownError):
+            fn(fake_self, selected_step=0)
 
         assert ctx.settings['BF']['focus'] == 7000.0
         assert proto.steps().loc[0, 'Z'] == 7000.0

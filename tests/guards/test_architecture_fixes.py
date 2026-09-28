@@ -625,7 +625,7 @@ _UI_EXCEPT_PIN = {
     ('ui/image_settings.py', 'Exception'): 2,
     ('ui/image_settings.py', 'KeyError'): 1,
     ('ui/layer_control.py', 'AttributeError, ImportError'): 1,
-    ('ui/layer_control.py', 'Exception'): 17,
+    ('ui/layer_control.py', 'Exception'): 13,
     ('ui/layer_control.py', 'KeyError'): 1,
     ('ui/layer_control.py', 'ProtocolError'): 1,
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,
