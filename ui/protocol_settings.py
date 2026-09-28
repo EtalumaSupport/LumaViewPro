@@ -1635,9 +1635,12 @@ class ProtocolSettings(FloatLayout):
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
-        gui_logger.protocol_action('AF_SCAN_START')
+        gui_logger.protocol_action('AF_SCAN')
         self._press_panel_run(
-            'autofocus_scan', None, 'start the autofocus scan', self._autofocus_scan_start
+            'autofocus_scan',
+            lambda: gui_logger.protocol_action('ABORT_AF_SCAN'),
+            'start the autofocus scan',
+            self._autofocus_scan_start,
         )
 
     def _autofocus_scan_start(self) -> typing.Callable[[], None]:

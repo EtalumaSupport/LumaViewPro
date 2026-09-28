@@ -232,7 +232,10 @@ _ROSTER = {
     'ProtocolSettings.prev_step_btn': ('PREV_STEP',),
     'ProtocolSettings.protocol_disable_image_saving_id': ('PROTOCOL_DISABLE_IMAGE_SAVING',),
     'ProtocolSettings.protocol_zstacking_apply_id': ('APPLY_ZSTACKING',),
-    'ProtocolSettings.run_autofocus_btn': ('AF_SCAN_START',),
+    'ProtocolSettings.run_autofocus_btn': (
+        'ABORT_AF_SCAN',
+        'AF_SCAN',
+    ),
     'ProtocolSettings.run_protocol_btn': (
         'ABORT_PROTOCOL',
         'RUN',

@@ -390,3 +390,23 @@ def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, eng
     assert (button.state, button.text) == ('down', 'Abort One Scan'), (
         'between scans the run is still live; the button shows it, not idle'
     )
+
+
+def test_each_panel_press_is_recorded_as_what_it_did(app_ctx, engine, monkeypatch):
+    """A Stop press is recorded as a Stop: the interaction log is what a
+    support bundle reads to learn what the person did."""
+    recorded = []
+    monkeypatch.setattr(
+        ps.gui_logger, 'protocol_action', lambda action, *a: recorded.append(action)
+    )
+    panel = _Panel()
+    handle = PendingRunOutcome()
+    engine.start.return_value = handle
+
+    panel.run_autofocus_scan_from_ui()
+    assert recorded == ['AF_SCAN'], 'a start is not a stop'
+
+    recorded.clear()
+    _live(engine, handle)
+    panel.run_autofocus_scan_from_ui()
+    assert recorded == ['AF_SCAN', 'ABORT_AF_SCAN']
