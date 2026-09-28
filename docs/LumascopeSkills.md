@@ -366,7 +366,8 @@ does **not** override — check `session.settings_are_provisional()` and,
 once the user (or the controlling client) has chosen to start over,
 resolve with `session.retire_rejected_settings()`. The provisional
 refusal protects `current.json` specifically; a save aimed at another
-destination still writes.
+destination still writes. Its `str()` is the sentence written for a
+person, and `title` its heading.
 
 ### Periodic metrics logging (optional)
 
@@ -543,7 +544,7 @@ Unlike `run_autofocus`, the slices are the product: the run saves its images (un
 
 `return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), or a live owner holding the illumination. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
 **How a run ends.** Every run that commits returns a handle; `handle.wait(timeout_s=...)` blocks until the run settles and hands back its outcome. `runner.wait_for_completion(timeout=None)` answers the same thing for the **last run this runner committed**. Both give back `None` when the bound expires, and `wait_for_completion` gives back `None` at once when the last call was refused or no run has ever been committed -- a refused start ran nothing, so there is no outcome to report and an older run's result would be a stale answer.
 
@@ -592,7 +593,7 @@ A manual frames recording with the hyperstack output format on builds one OME-TI
 
 Rate and duration come from the run's settings snapshot at start: `video.max_fps` (0 = uncapped; the effective rate is measured, not assumed) and `video.max_duration_seconds`. Mid-run settings edits do not affect a run in flight.
 
-Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape, with machine-readable `reason` codes `recording_active` (another recording is live) and `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim).
+Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape -- its `str()` is the sentence written for a person -- with machine-readable `reason` codes `recording_active` (another recording is live, or still finishing), `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim), `camera_inactive`, `camera_exposure_unknown`, `insufficient_disk` and `capture_location_unusable`. Nothing is started when it raises.
 
 Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'` or `'diagnostic'` for the exclusive-activity owner, `'autofocus'` for a sweep in flight, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
 
@@ -1687,13 +1688,14 @@ where the Composite button puts it.
 It raises `ProtocolRunRefusedError` when the run is refused before
 anything is committed -- fewer than two channels set to acquire an image,
 a rival run holding the scope, or files still draining -- and
-`CaptureError` when the run happened but produced no composite.
+`CaptureError` when the run happened but produced no composite. The
+refusal's `str()` is the sentence written for a person, as for any run.
 
 **`CaptureError.reason` is a failure code, not a refusal.** It names what
 went wrong after the run committed (`merge_timeout`, `merge_failed`,
-`aborted`, ...) and is not a member of the refusal family described under
-Refusals: a refusal means nothing changed, while a `CaptureError` means the
-run ran and did not produce the artifact.
+`aborted`, ...) and is not a member of the refusal family: a refusal means
+nothing changed, while a `CaptureError` means the run ran and did not
+produce the artifact.
 
 To merge frames you already hold in memory, `build_composite` is the
 underlying helper; it accepts fluorescence keys `'Red'`, `'Green'`,
