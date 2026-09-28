@@ -207,6 +207,18 @@ class TestAcceleration:
         assert lanes == []
 
 
+class TestConfigureScope:
+    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
+    def test_it_is_refused_while_the_scope_is_held(self, sim_session, kind):
+        held = sim_session.activity_claim.try_claim(kind)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                sim_session.configure_scope()
+        finally:
+            held.release()
+        assert refused.value.holder == kind
+
+
 class TestBringUp:
     def test_the_camera_is_streaming_after_create(self, sim_session):
         assert sim_session.scope.imaging.is_streaming()

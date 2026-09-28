@@ -1124,11 +1124,20 @@ class ScopeSession:
                 a data file a helper needs is absent or
                 unreadable (``labware.json``, ``objectives.json``); or the
                 model catalogue has no usable ``Models`` section.
+            HardwareCommandRefusedError: a run, a diagnostic or a recording
+                holds the scope. The configuration rewrites the LEDs, the
+                camera geometry and acceleration under whatever holds it,
+                and its writes run inline, where no lane refuses them.
         """
         import modules.config_helpers as config_helpers
         from modules import layer_record
         from modules.scope_init_config import ScopeInitConfig
 
+        holder = self.activity_claim.holder
+        if holder is not None:
+            raise HardwareCommandRefusedError(
+                'exclusive_activity_running', 'configure_scope', holder.kind
+            )
         # The catalogue first: its refusal must land before anything below
         # mutates the caller's dict.
         scope_models = layer_record.load_scope_models()
