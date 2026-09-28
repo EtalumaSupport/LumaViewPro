@@ -3065,7 +3065,7 @@ class PylonCamera(Camera):
             return False
         return True
 
-    def gain(self, value: float) -> bool | None:
+    def gain(self, value: float) -> float | bool | None:
         """Set Gain in dB. Asserts GainSelector='All' first (Basler gain.html three-step).
 
         Caller is responsible for ``GainAuto=Off``. GainSelector write
@@ -3078,7 +3078,8 @@ class PylonCamera(Camera):
         handler reports the refusal rather than falling through it.
 
         Returns:
-            bool | None: See ``Camera.gain``.
+            float | bool | None: See ``Camera.gain``. The dB written, or the
+                dB already in effect on the short-circuit path.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3095,11 +3096,12 @@ class PylonCamera(Camera):
             # above) so the read matches the requested write. Tolerance 1e-3 dB
             # is below GenICam Gain increment on ace 2 / dart.
             try:
-                if abs(float(self.active.Gain.GetValue()) - float(value)) < 1e-3:
+                current = float(self.active.Gain.GetValue())
+                if abs(current - float(value)) < 1e-3:
                     if _cam_log is not None:
                         _cam_log.info(f'pylon Gain.SetValue({float(value):.3f}) short-circuited')
                     _log_cam('info', f'[CAM Class ] Gain already at {value}')
-                    return True
+                    return current
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Gain short-circuit read failed; '
@@ -3109,7 +3111,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
             _log_cam('debug', f'[CAM Class ] Gain set to {value}')
-            return True
+            return float(value)
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')

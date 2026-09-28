@@ -2142,6 +2142,11 @@ class FX2Camera(Camera):
         (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
         """
+        # Refused while disconnected, as the other drivers do: no register
+        # write is attempted and nothing is recorded. connect() sets the
+        # active flag before init_camera_config() writes the defaults.
+        if not self.is_connected():
+            return False
         target_ms = float(exposure_ms)
         rows = max(
             1,
@@ -2166,16 +2171,20 @@ class FX2Camera(Camera):
 
     # -- Gain --------------------------------------------------------------
 
-    def gain(self, g: float) -> bool | None:
-        """Set gain in dB. Clamped to [0.0, 42.1].
+    def gain(self, g: float) -> float | bool | None:
+        """Set gain in dB. Clamped to [0.0, 42.1], then quantized onto the
+        global gain register.
 
         A failed register write RAISES out of ``sensor_reg_write`` rather than
-        returning, so this never answers refused; it answers APPLIED so the
-        caller is not left reading a bare fall-through as "cannot confirm".
+        returning, so this never answers refused. It answers with the gain the
+        register now encodes, which differs from the request by the
+        quantization step and by the clamp.
 
         Returns:
-            bool | None: See ``Camera.gain``.
+            float | bool | None: See ``Camera.gain``. None while disconnected.
         """
+        if not self.is_connected():
+            return None
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
@@ -2184,7 +2193,7 @@ class FX2Camera(Camera):
                 f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
             )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
-        return True
+        return _register_to_gain_db(reg)[1]
 
     def get_gain(self):
         _, db = _register_to_gain_db(self._gain_reg)

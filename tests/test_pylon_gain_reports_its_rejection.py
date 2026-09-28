@@ -114,7 +114,7 @@ class TestEverySwallowedRejectionIsReported:
 
 class TestTheAppliedPathsSayApplied:
     def test_a_completed_write_answers_applied(self, pylon_cam):
-        assert pylon_cam.gain(30.0) is True
+        assert pylon_cam.gain(30.0) == pytest.approx(30.0)
 
     def test_a_short_circuited_write_answers_applied(self, pylon_cam):
         """The value IS in effect, so it is applied -- the SDK write is just
@@ -122,7 +122,7 @@ class TestTheAppliedPathsSayApplied:
         direction."""
         pylon_cam.active.Gain.GetValue.return_value = 30.0
 
-        assert pylon_cam.gain(30.0) is True
+        assert pylon_cam.gain(30.0) == pytest.approx(30.0)
         pylon_cam.active.Gain.SetValue.assert_not_called()
 
     def test_an_inactive_camera_answers_not_attempted(self, pylon_cam):

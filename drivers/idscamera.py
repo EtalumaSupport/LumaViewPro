@@ -3156,7 +3156,7 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
-    def gain(self, value) -> bool:
+    def gain(self, value: float) -> float | bool:
         """Set gain. `value` is in dB (LVP's gain unit, shared with the Pylon
         driver). The IDS Gain node is a linear multiplier, so convert
         factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
@@ -3169,10 +3169,13 @@ class IDSCamera(Camera):
         rejects its own reported maximum gain (the same self-clamp the FX2
         register conversion does). A genuine SDK failure still returns False.
 
-        Returns True on success, False on a confirmed hardware rejection --
-        per-frame chunk metadata is not yet wired, so a swallowed write failure
-        here would stream frames at the stale gain with no downstream backstop;
-        the caller needs the failure signal."""
+        Returns the gain in dB actually written -- the factor after that
+        reconciliation, converted back -- so a request the node clamps is
+        answered with the clamped gain, not the one asked for. False on a
+        confirmed hardware rejection: per-frame chunk metadata is not yet
+        wired, so a swallowed write failure here would stream frames at the
+        stale gain with no downstream backstop; the caller needs the failure
+        signal."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
@@ -3205,7 +3208,7 @@ class IDSCamera(Camera):
                 )
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
-            return True
+            return 20.0 * math.log10(factor)
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')

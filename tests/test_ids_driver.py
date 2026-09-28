@@ -269,17 +269,17 @@ class TestGainDbConversion:
 
     def test_zero_db_maps_to_unity_factor(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(0.0) is True
+        assert cam.gain(0.0) == pytest.approx(0.0)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(1.0)
 
     def test_twenty_db_maps_to_ten_x(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(20.0) is True
+        assert cam.gain(20.0) == pytest.approx(20.0)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(10.0)
 
     def test_thirty_db_maps_to_full_scale_factor(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(30.0) is True
+        assert cam.gain(30.0) == pytest.approx(30.0, abs=0.01)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(31.62, abs=0.05)
 
     def test_gain_at_cap_clamps_factor_to_node_maximum(self):
@@ -288,7 +288,7 @@ class TestGainDbConversion:
         written factor must be reconciled to the node maximum, never exceed it."""
         cam = self._cam_with_gain_node(maximum=31.622776)
         # 30 dB -> 10**(30/20) = 31.6227766..., just over the 31.622776 cap.
-        assert cam.gain(30.0) is True
+        assert cam.gain(30.0) == pytest.approx(30.0, abs=1e-3)
         written = cam.remote_nodemap.nodes['Gain'].value
         assert written <= 31.622776  # clamped, not the overshoot
         assert written == pytest.approx(31.622776)

@@ -920,6 +920,20 @@ class Camera(ABC):
             return float(self.profile.gain.total_max_db)
         return 48.0  # legacy kv default -- kept for cameras without a profile
 
+    @property
+    def min_gain(self) -> float | None:
+        """Minimum gain in dB, or None if the profile declares none.
+
+        Derived from `profile.gain.total_min_db`, which the drivers fill at
+        connect from the SDK's own range (pylon, IDS) or the sensor datasheet
+        (FX2). Unlike `max_gain` there is no fallback: a missing floor is
+        not a floor of zero, and a caller checking a request against one
+        must be able to tell that it has no floor to check.
+        """
+        if self.profile and self.profile.gain and self.profile.gain.total_min_db is not None:
+            return float(self.profile.gain.total_min_db)
+        return None
+
     def get_max_gain(self) -> float:
         """Return the maximum gain cap in dB.
 
@@ -1162,28 +1176,32 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def gain(self, value: float) -> bool | None:
-        """Set the camera gain, and report whether the camera took it.
+    def gain(self, value: float) -> float | bool | None:
+        """Set the camera gain, and report the gain now in effect.
 
-        The caller records the requested value in its camera cache and as
-        the frame-validity chunk target, and does so whenever the answer is
-        not ``False`` -- a driver that cannot confirm is believed. So a
-        driver that CAN tell a refusal apart from a success must say which:
-        a swallowed rejection reported as applied leaves the cache naming a
-        gain the hardware is not at and a chunk target no frame will ever
-        carry, and on a camera that reports gain in chunk data every
-        subsequent frame then fails the match.
+        The caller records the answer in its camera cache, as the
+        frame-validity chunk target and as the value its listeners hear. A
+        driver may not be able to honour the request exactly -- a node that
+        clamps to its range, a register that quantizes -- so a driver that
+        answered only "applied" would leave all three naming a gain the
+        sensor is not at, and on a camera that reports gain in chunk data
+        every subsequent frame would then fail the match. So a driver that
+        can tell a refusal from a success says which, and when it applied
+        the value it says what it applied.
 
-        This is the canonical statement of the three-case return the
-        bool-reporting setters share; the auto-mode setters point here.
-        ``exposure_t`` extends it with a fourth case, the value in effect.
+        This is also the canonical statement of the three-case return the
+        bool-reporting setters share (the auto-mode setters point here):
+        ``True`` applied, ``False`` refused, ``None`` not attempted. ``gain``
+        and ``exposure_t`` answer with the value in effect in place of
+        ``True``.
 
         Args:
             value: Gain in dB.
 
         Returns:
-            True: Applied -- the hardware holds the value, including when
-                the write was skipped because it already did.
+            float: Applied -- the gain in dB the hardware now holds,
+                including when the write was skipped because it already
+                held it.
             False: Refused -- the hardware did NOT move. The caller must
                 not record the request as truth.
             None: Not attempted, because no camera is active. Not a
