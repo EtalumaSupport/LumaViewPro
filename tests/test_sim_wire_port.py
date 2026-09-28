@@ -151,6 +151,31 @@ def test_ctrl_c_interrupts_the_running_firmware_into_the_repl(dialect):
         port.close()
 
 
+@pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
+def test_ctrl_c_and_ctrl_b_at_the_repl_are_the_repls_and_ctrl_d_still_resets(dialect):
+    # A driver's recovery sends Ctrl-C twice, then Ctrl-B, then Ctrl-D. On the
+    # board only the first Ctrl-C interrupts: the rest meet the REPL, which
+    # answers the second Ctrl-C and the Ctrl-B with a fresh prompt, and the
+    # Ctrl-D soft-resets it.
+    port = _open(dialect)
+    try:
+        first = _firmware_pid(port)
+        port.write(b'\x03')
+        _wait_for(lambda: _at_repl(port), what='the REPL after Ctrl-C', limit=2.0)
+        _drain(port)
+        port.write(b'\x03\x02')
+        _wait_for(lambda: _at_repl(port), what='the REPL after Ctrl-C, Ctrl-B', limit=2.0)
+        assert _firmware_pid(port) == first
+        _drain(port)
+        port.write(b'\x04')
+        assert _firmware_pid(port) != first
+        _wait_for(
+            lambda: b'Firmware:' in _exchange(port, b'INFO'), what='the firmware to boot again'
+        )
+    finally:
+        port.close()
+
+
 def test_ctrl_d_is_a_soft_reset_at_the_repl_and_data_while_running():
     port = _open()
     try:

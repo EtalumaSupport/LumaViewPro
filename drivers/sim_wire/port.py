@@ -19,7 +19,10 @@ What a USB CDC link does that a pipe does not, the board does itself:
 - Ctrl-C interrupts the running firmware. Over a pipe the runtime would hand
   the byte to `readline()` as data, so the board sends the process SIGINT,
   which raises the firmware's own KeyboardInterrupt and, because the runtime
-  runs with -i, leaves the real MicroPython REPL behind it.
+  runs with -i, leaves the real MicroPython REPL behind it. At that REPL a
+  Ctrl-C is the REPL's own, as on the board: it goes as data and the REPL
+  answers with a fresh prompt. The runtime catches no SIGINT at its prompt,
+  so a signal there would end the process.
 - Ctrl-D at that REPL is a soft reset: the board restarts the process, which
   runs the firmware from the top as the board does, and the connection
   stays up. While the firmware is running, Ctrl-D is ordinary data, as it
@@ -314,7 +317,7 @@ class EmulatedBoard:
                 self._reply_active = True
             start = 0
             for i, byte in enumerate(data):
-                if byte == CTRL_C:
+                if byte == CTRL_C and self._tail != REPL_PROMPT:
                     self._send(data[start:i])
                     self._interrupt()
                     start = i + 1
