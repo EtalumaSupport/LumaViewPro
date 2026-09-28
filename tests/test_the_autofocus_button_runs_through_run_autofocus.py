@@ -57,8 +57,8 @@ class _Button(vc.VerticalControl):
         self._af_safety_event = None
         self.armed = []
 
-    def _schedule_af_safety_timer(self):
-        self.armed.append(self._autofocus_run)
+    def _schedule_af_safety_timer(self, run):
+        self.armed.append(run)
 
 
 @pytest.fixture
@@ -263,3 +263,77 @@ def test_the_panels_runs_register_no_autofocus_indicator():
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
     assert not keys & {'autofocus_in_progress', 'autofocus_complete'}
+
+
+class _HeldClock:
+    """Kivy's clock, holding each scheduled callback so a test can fire it."""
+
+    def __init__(self):
+        self.scheduled = []
+
+    def schedule_once(self, fn, timeout=0):
+        self.scheduled.append(fn)
+        return fn
+
+    def unschedule(self, event):
+        if event in self.scheduled:
+            self.scheduled.remove(event)
+
+    def create_trigger(self, fn, timeout=0):
+        return MagicMock()
+
+
+@pytest.fixture
+def real(pressed, monkeypatch):
+    """The real VerticalControl, constructed, with the stuck-AF bound's clock held."""
+    clock = _HeldClock()
+    monkeypatch.setattr(vc, 'Clock', clock)
+    button = vc.VerticalControl()
+    button.ids = {'autofocus_id': SimpleNamespace(state='down', text='Autofocus')}
+    # A Kivy property; the stubbed kivy has no descriptor to give it a default.
+    button.autofocus_pending = False
+    return SimpleNamespace(button=button, clock=clock)
+
+
+def test_a_new_button_holds_no_run_and_no_bound(real):
+    assert real.button._autofocus_run is None
+    assert real.button._af_safety_run is None
+
+
+def test_a_stuck_autofocus_is_stopped_by_its_bound(pressed, real):
+    _live(pressed.engine, pressed.handle)
+    real.button.run_autofocus_from_ui()
+    [bound] = real.clock.scheduled
+
+    bound(0)
+
+    pressed.engine.reset.assert_called_once_with(pressed.handle)
+
+
+def test_a_bound_that_outlived_its_run_leaves_the_next_autofocus_alone(pressed, real):
+    from modules.run_outcome import PendingRunOutcome
+
+    first, second = pressed.handle, PendingRunOutcome()
+    _live(pressed.engine, first)
+    real.button.run_autofocus_from_ui()
+    [stale] = real.clock.scheduled
+
+    _live(pressed.engine)  # the first run ends
+    pressed.member.run_autofocus.return_value = second
+    _live(pressed.engine, second)
+    real.button.run_autofocus_from_ui()
+
+    stale(0)
+
+    assert not pressed.engine.reset.called, (
+        'a timer armed for the first run fired while the second was live, and stopped it'
+    )
+
+
+def test_the_button_is_disabled_while_its_request_is_in_flight_in_the_kv():
+    from tests.ast_seams import REPO_ROOT
+
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    idx = kv.find('id: autofocus_id')
+    assert idx > 0
+    assert 'disabled: app.recording_active or root.autofocus_pending' in kv[idx : idx + 400]

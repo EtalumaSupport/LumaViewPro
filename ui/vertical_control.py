@@ -427,30 +427,31 @@ class VerticalControl(BoxLayout):
         # next autofocus that did.
         if self._af_safety_run is not run:
             self._af_safety_run = run
-            self._schedule_af_safety_timer()
+            self._schedule_af_safety_timer(run)
 
     def _unschedule_af_safety_timer(self):
         if self._af_safety_event is not None:
             Clock.unschedule(self._af_safety_event)
             self._af_safety_event = None
 
-    def _schedule_af_safety_timer(self):
-        """Arm the stuck-AF bound: a standalone AF that stops progressing
-        is force-aborted rather than holding the lockout until the user
-        notices. The run pipeline bounds stalled MOTION, not a stalled
-        AF algorithm, so the bound lives with this starter.
+    def _schedule_af_safety_timer(self, run: PendingRunOutcome) -> None:
+        """Arm the stuck-AF bound for *run*: a standalone AF that stops
+        progressing is force-aborted rather than holding the lockout until
+        the user notices. The run pipeline bounds stalled MOTION, not a
+        stalled AF algorithm, so the bound lives with this starter.
         """
         ctx = _app_ctx.ctx
         self._unschedule_af_safety_timer()
 
         def _af_safety(dt):
-            runner = ctx.sequenced_capture_runner
-            # Key on this button's own run, not on the AF thread being
-            # busy: a rival run's AF step in flight when a stale timer
-            # fires must stay out of reach.
-            if runner.is_live_run(self._autofocus_run):
+            # Keyed on the run this bound was armed for, never on whatever
+            # this button holds when it fires, and never on the AF thread
+            # being busy: a timer that outlived its run must stay out of
+            # reach of the next autofocus, and a rival run's AF step is
+            # never this button's to stop.
+            if ctx.sequenced_capture_runner.is_live_run(run):
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
-                self._stop_autofocus(self._autofocus_run)
+                self._stop_autofocus(run)
 
         self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
