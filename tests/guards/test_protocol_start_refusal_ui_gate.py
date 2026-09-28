@@ -14,15 +14,14 @@ start sequence in two:
 - start(plan) is the commitment point; it can only be reached with a
   plan a successful prepare() produced.
 
-Because a refusal raises before start(), UI callers set their run
-button cosmetics BETWEEN prepare and start -- never before. Run-state
-truth itself is the session claim, committed inside start() and
+Run-state truth is the session claim, committed inside start() and
 mirrored to kv by the session's run-state listener, so no starter may
-write running-state (Event, mirror, motion lock) at all. Every UI
-starter routes its prepare/start sequence through
-ui_helpers.run_with_refusal_boundary, the single catch site for the
-typed refusal, whose on_refused callback undoes only the pre-gate
-button cosmetics.
+write running-state (Event, mirror, motion lock) at all, and a run
+button changes nothing ahead of the engine's answer: its redraw draws
+what the engine then says. A starter hands its press to the boundary,
+ui_helpers.submit_reported -- the one place a refusal or a fault from
+the API is reported -- and a Stop goes at the Stop's priority, ahead of
+queued work.
 
 Test approach
 -------------
@@ -43,12 +42,28 @@ import re
 from tests.ast_seams import REPO_ROOT, parse_module
 
 
-# The four UI starters that kick off a sequenced run.
+# The UI code that kicks off a sequenced run: the protocol panel's one
+# press, the inputs it reads for each of its three runs, and the z-stack.
 UI_STARTERS = (
-    ('ui/protocol_settings.py', 'ProtocolSettings', '_run_scan_from_ui_inner'),
-    ('ui/protocol_settings.py', 'ProtocolSettings', '_run_protocol_from_ui_inner'),
-    ('ui/protocol_settings.py', 'ProtocolSettings', 'run_autofocus_scan_from_ui'),
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_scan_start'),
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_protocol_start'),
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_autofocus_scan_start'),
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_sequenced_capture_start'),
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
+)
+
+# The presses that hand a start and a Stop to the boundary.
+BOUNDARY_PRESSES = (
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
+    ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
+)
+
+# Starters still on run_with_refusal_boundary. Each moves onto
+# submit_reported in its own commit of the same push, and leaves here.
+STARTERS_ON_THE_OLD_BOUNDARY = (
+    ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
+    ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
 )
 
 # Statements that would commit "a run is now underway" state in the
@@ -86,77 +101,114 @@ def _calls_named(node: ast.AST, func_name: str) -> list[ast.Call]:
     ]
 
 
-def test_run_sequenced_capture_orders_prepare_commit_start():
-    """run_sequenced_capture must prepare, then commit UI running-state,
-    then start -- so a refusal (raised by prepare) can never leave the
-    UI committed to a run that does not exist."""
+def test_the_panels_start_prepares_then_starts_then_names_the_folder():
+    """The call the panel hands the pool prepares, then starts, then
+    records the save folder -- so a refusal (raised by prepare) never
+    reaches start, and a refused run never points the save folder at the
+    previous run."""
     method = _method_node(
-        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', 'run_sequenced_capture'
+        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', '_sequenced_capture_start'
     )
-
-    prepare_calls = _calls_named(method, 'prepare')
-    assert prepare_calls, (
-        'run_sequenced_capture must build the run via sequenced_capture_runner.prepare()'
+    assert _calls_named(method, 'prepare'), (
+        '_sequenced_capture_start must build the run via sequenced_capture_runner.prepare()'
     )
-    start_calls = _calls_named(method, 'start')
-    assert start_calls, (
-        'run_sequenced_capture must dispatch the prepared plan via '
-        'sequenced_capture_runner.start(plan)'
+    assert _calls_named(method, 'start'), (
+        '_sequenced_capture_start must dispatch the prepared plan via start(plan)'
     )
 
     src = ast.unparse(method)
     prepare_pos = src.index('.prepare(')
-    # Cosmetics-only commit between prepare and start: a refusal from
-    # prepare never shows a mid-run button, and start() itself owns the
-    # run-state commit (the claim).
-    commit_pos = src.index('commit_ui_state()')
     start_pos = src.index('.start(')
-    assert prepare_pos < commit_pos < start_pos, (
-        'the commit_ui_state() invocation must sit BETWEEN prepare() and '
-        'start(): committing before prepare re-opens the refused-run UI '
-        'wedge; committing after start races the run loop'
+    save_pos = src.index('set_last_save_folder')
+    assert prepare_pos < start_pos < save_pos, (
+        'prepare, then start, then set_last_save_folder: the folder must name '
+        'only a run start() committed'
     )
 
     # The retired bool-returning call must not creep back in.
     assert not _calls_named(method, 'run'), (
-        'run_sequenced_capture must not call the retired sequenced_capture_runner.run() API'
-    )
-
-    # Started-run follow-ups still come after start(), so a refused run
-    # can never point the save folder at the previous run.
-    assert 'set_last_save_folder' in src
-    assert start_pos < src.index('set_last_save_folder'), (
-        'set_last_save_folder must run only after start() commits the run'
+        '_sequenced_capture_start must not call the retired sequenced_capture_runner.run() API'
     )
 
 
-def test_every_ui_starter_routes_through_refusal_boundary():
-    """Each UI starter wraps its prepare/start sequence in
-    run_with_refusal_boundary with an on_refused reset, the single UI
-    catch site for the typed refusal -- no per-starter try/except
-    drift."""
-    for rel_path, class_name, method_name in UI_STARTERS:
+def test_every_press_hands_its_start_and_its_stop_to_the_boundary():
+    """A run button's start and Stop both reach submit_reported, the one
+    place a refusal or a fault from the API is reported -- no per-button
+    try/except drift -- and the old per-starter boundary is gone from it."""
+    for rel_path, class_name, method_name in BOUNDARY_PRESSES:
         method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
-        boundary_calls = [
-            n
+        called = {
+            n.func.id if isinstance(n.func, ast.Name) else n.func.attr
             for n in ast.walk(method)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == 'run_with_refusal_boundary'
-        ]
-        assert boundary_calls, (
-            f'{class_name}.{method_name} must route its start sequence '
-            'through run_with_refusal_boundary'
+            if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
+        }
+        assert called & {'submit_reported', '_submit_panel_request'}, (
+            f'{class_name}.{method_name} must hand its press to submit_reported'
         )
-        for call in boundary_calls:
-            has_on_refused = len(call.args) >= 2 or any(
-                kw.arg == 'on_refused' for kw in call.keywords
-            )
-            assert has_on_refused, (
-                f'{class_name}.{method_name} must pass an on_refused reset '
-                'to run_with_refusal_boundary so a refusal undoes the '
-                'pre-gate button state'
-            )
+        assert not called & {'run_with_refusal_boundary', 'reset_with_refusal_boundary'}, (
+            f'{class_name}.{method_name} still reaches the retired per-starter boundary'
+        )
+        assert not [n for n in ast.walk(method) if isinstance(n, ast.Try)], (
+            f'{class_name}.{method_name} catches for itself; the boundary reports'
+        )
+
+    panel_submit = _method_node(
+        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', '_submit_panel_request'
+    )
+    assert _calls_named(panel_submit, 'submit_reported'), (
+        "the panel's request must go through submit_reported"
+    )
+
+
+def test_every_stop_goes_ahead_of_queued_work():
+    """A Stop is submitted at the Stop's priority.
+
+    The pool runs one worker, so a Stop queued behind ordinary work would
+    not arrive until that work finished -- which is the thing the person
+    is trying to interrupt. Derived: every submitted call that tears a run
+    down must say stop=True.
+    """
+    stops = []
+    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
+        tree = ast.parse(source_file.read_text())
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, (ast.Name, ast.Attribute))
+                and (node.func.id if isinstance(node.func, ast.Name) else node.func.attr)
+                in {'submit_reported', '_submit_panel_request'}
+            ):
+                continue
+            if not any('.reset(' in ast.unparse(arg) for arg in node.args):
+                continue
+            stop = next((kw.value for kw in node.keywords if kw.arg == 'stop'), None)
+            stops.append((source_file.name, ast.unparse(node), stop))
+
+    assert len(stops) >= 2, 'derivation found too few Stops -- the AST shapes drifted'
+    slow = [
+        (where, src)
+        for where, src, stop in stops
+        if not (isinstance(stop, ast.Constant) and stop.value is True)
+    ]
+    assert not slow, f'a Stop submitted without stop=True waits behind queued work: {slow}'
+
+
+def test_the_old_boundary_roster_only_shrinks():
+    """The starters still on run_with_refusal_boundary are the ones named;
+    a new one there is a regression, and a moved one leaves the list."""
+    for rel_path, class_name, method_name in STARTERS_ON_THE_OLD_BOUNDARY:
+        method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
+        assert _calls_named(method, 'run_with_refusal_boundary'), (
+            f'{class_name}.{method_name} left the old boundary: take it off this list'
+        )
+    listed = {name for _, _, name in STARTERS_ON_THE_OLD_BOUNDARY}
+    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
+        tree = ast.parse(source_file.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name not in listed:
+                assert not _calls_named(node, 'run_with_refusal_boundary') or (
+                    source_file.name == 'ui_helpers.py'
+                ), f'{source_file.name}: {node.name} is a new user of the retired boundary'
 
 
 def test_no_starter_writes_running_state():

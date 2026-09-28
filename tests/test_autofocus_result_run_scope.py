@@ -357,8 +357,7 @@ class TestGuiStoresWhatTheAutofocusFound:
 
 
 def _protocol_settings_stub(stored_z, focused_z):
-    """The collaborators _autofocus_run_complete_callback touches on the
-    no-files-pending path."""
+    """The collaborators _autofocus_run_complete_callback touches."""
     import modules.app_context as app_context
 
     protocol = MagicMock()
@@ -366,14 +365,11 @@ def _protocol_settings_stub(stored_z, focused_z):
     focused_protocol = MagicMock()
     focused_protocol.steps.return_value = {'Z': list(focused_z)}
 
-    file_io_executor = MagicMock()
-    file_io_executor.is_protocol_queue_active.return_value = False
-    ctx = SimpleNamespace(file_io_executor=file_io_executor)
+    ctx = SimpleNamespace()
 
     stub = SimpleNamespace(
         _protocol=protocol,
-        _scan_files_completed_event=threading.Event(),
-        _reset_run_autofocus_scan_button=lambda: None,
+        _panel_run_ended=lambda: None,
     )
     return stub, ctx, protocol, focused_protocol, app_context
 
@@ -382,7 +378,6 @@ def _call_scan_complete(monkeypatch, stub, ctx, focused_protocol, app_context, s
     import ui.protocol_settings as ps
 
     monkeypatch.setattr(app_context, 'ctx', ctx)
-    monkeypatch.setattr(ps, 'live_histo_reverse', lambda: None)
     ps.ProtocolSettings._autofocus_run_complete_callback(
         stub, protocol=focused_protocol, status=status
     )

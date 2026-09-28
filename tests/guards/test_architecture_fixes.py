@@ -644,7 +644,7 @@ _UI_EXCEPT_PIN = {
     ('ui/post_processing.py', 'FileNotFoundError, ValueError'): 1,
     ('ui/post_processing.py', 'ValueError'): 1,
     ('ui/protocol_settings.py', 'ConfigError'): 3,
-    ('ui/protocol_settings.py', 'Exception'): 18,
+    ('ui/protocol_settings.py', 'Exception'): 16,
     ('ui/protocol_settings.py', 'OSError'): 1,
     ('ui/protocol_settings.py', 'ObjectiveUnknownError'): 1,
     ('ui/protocol_settings.py', 'ProtocolRunRefusedError'): 5,

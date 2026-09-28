@@ -47,9 +47,8 @@ from tests.ast_seams import parse_module
 # only the four that drive a sequenced run: a refusal can also come from
 # the standalone autofocus button and from composite capture.
 REFUSAL_STARTERS = (
-    ('ui/protocol_settings.py', 'ProtocolSettings', '_run_scan_from_ui_inner'),
-    ('ui/protocol_settings.py', 'ProtocolSettings', '_run_protocol_from_ui_inner'),
-    ('ui/protocol_settings.py', 'ProtocolSettings', 'run_autofocus_scan_from_ui'),
+    # The protocol panel's Scan, Protocol and Autofocus Scan buttons share one press.
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
     ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
     ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
@@ -62,18 +61,19 @@ COSMETICS_RESETS = frozenset(
     {
         'run_refused_func',
         'run_not_started_func',
-        '_reset_run_button_cosmetics',
+        # The panel draws its buttons from the engine; after a refused
+        # press, the redraw is what hands the toggle back.
+        'draw_protocol_buttons',
         '_reset_run_autofocus_button_cosmetics',
     }
 )
 
 # The canonical ways a starter tells the user. Closed by Rule 35: one
-# capability, four spellings, not a growing list of exempt sites.
+# capability, three spellings, not a growing list of exempt sites.
 NOTIFIERS = frozenset(
     {
         'show_notification_popup',
         'require_file_writes_idle',
-        '_is_protocol_valid',
         '_offer_wedged_writer_recovery',
     }
 )

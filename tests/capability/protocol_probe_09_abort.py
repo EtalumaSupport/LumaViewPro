@@ -1,5 +1,5 @@
 """Probe 09 -- stop a running protocol from a script (the Stop half of the
-run buttons: ui/protocol_settings.py _cleanup_at_end_of_protocol ->
+run buttons: ui/protocol_settings.py _press_panel_run ->
 reset(run), ui/zstack.py likewise). A stop names the run by the handle its
 call returned."""
 

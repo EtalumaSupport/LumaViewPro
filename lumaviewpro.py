@@ -501,6 +501,7 @@ class LumaViewProApp(TooltipMixin, App):
         button; what every run shares is drawn once, after them.
         """
         ctx.lumaview.draw_composite_button()
+        ctx.motion_settings.ids['protocol_settings_id'].draw_protocol_buttons()
         draw_shared_run_displays()
 
     def on_start(self) -> None:

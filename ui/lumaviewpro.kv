@@ -1578,7 +1578,7 @@
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: app.recording_active or root.autofocus_scan_pending or root.files_draining
 			on_release: root.run_autofocus_scan_from_ui()
 
 		Label:
@@ -1596,7 +1596,7 @@
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: app.recording_active or root.scan_pending or root.files_draining
 			on_release: root.run_scan_from_ui()
 
 		RoundedToggleButton:
@@ -1607,7 +1607,7 @@
 			height: '60dp'
 			halign: 'center'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: app.recording_active or root.protocol_pending or root.files_draining
 			on_release: root.run_protocol_from_ui()
 			background_down: 'atlas://data/images/defaulttheme/button_pressed'
 

@@ -45,16 +45,7 @@ for _name, _attr in (
         sys.modules[_name] = _mod
 
 import modules.app_context as _app_ctx
-import ui.protocol_settings as ps_module
 from ui.protocol_settings import ProtocolSettings
-
-
-class _Button:
-    def __init__(self):
-        self.state = 'normal'
-        self.text = ''
-        self.disabled = False
-        self.background_down = ''
 
 
 class _Stand:
@@ -62,20 +53,15 @@ class _Stand:
 
     _protocol_run_complete = ProtocolSettings._protocol_run_complete
     _protocol_files_complete = ProtocolSettings._protocol_files_complete
-    _reset_run_protocol_button = ProtocolSettings._reset_run_protocol_button
     _update_protocol_write_status = ProtocolSettings._update_protocol_write_status
 
     def __init__(self):
         self._scan_files_completed_event = threading.Event()
         self._file_write_status_event = None
         self._pending_run_dir = None
-        self._wedge_recovery_offered = False
-        self.ids = {
-            name: _Button() for name in ('run_scan_btn', 'run_protocol_btn', 'run_autofocus_btn')
-        }
         self.dispatched = []
 
-    def reset_autofocus_ui(self):
+    def _panel_run_ended(self):
         pass
 
     def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
@@ -84,24 +70,18 @@ class _Stand:
 
 @pytest.fixture
 def stand(monkeypatch):
-    file_io_executor = MagicMock()
-    file_io_executor.protocol_queue_size.return_value = 3
     monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(file_io_executor=file_io_executor, ui_listener_bridge=MagicMock()),
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(protocol_files_draining=False))
     )
-    for name in ('live_histo_reverse', 'set_title_event_text', 'reset_title'):
-        monkeypatch.setattr(ps_module, name, lambda *a, **k: None)
     return _Stand()
 
 
 def _end_run(stand, files_pending):
     """The engine's order: run_complete, then files_complete."""
-    _app_ctx.ctx.file_io_executor.is_protocol_queue_active.return_value = files_pending
+    _app_ctx.ctx.session.protocol_files_draining = files_pending
     protocol = MagicMock()
     stand._protocol_run_complete(protocol=protocol, status='completed', run_dir='/run/1')
-    _app_ctx.ctx.file_io_executor.is_protocol_queue_active.return_value = False
+    _app_ctx.ctx.session.protocol_files_draining = False
     stand._protocol_files_complete(protocol=protocol, run_dir='/run/1')
 
 
