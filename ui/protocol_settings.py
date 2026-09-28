@@ -2035,9 +2035,9 @@ class ProtocolSettings(FloatLayout):
             self._reset_run_protocol_button()
             live_histo_reverse()
             self.reset_autofocus_ui()
-            # Auto-run opted-in post_processing plugins. Mirrors the
-            # files-pending path's call from _protocol_files_complete.
-            self._dispatch_post_processing_auto_run(ctx, **kwargs)
+            # No auto-run post-processing here: the engine fires
+            # files_complete right after this when nothing is left to
+            # write, and that handler is the one dispatcher.
 
     def _update_protocol_write_status(self, dt):
         """Update UI to show file writing progress for protocol."""
