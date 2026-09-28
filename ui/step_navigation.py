@@ -136,9 +136,9 @@ def go_to_step(
 
     motion = ctx.scope.motion
     illumination = ctx.scope.illumination
+    # A scope with no motor board (a manual model) goes to the step without
+    # moving: the pointer, the settings and the preview still follow.
     has_motor = ctx.scope.motor_connected
-    if not has_motor:
-        logger.warning('[LVP Main  ] Motion controller not available.')
 
     def moves():
         if has_motor:

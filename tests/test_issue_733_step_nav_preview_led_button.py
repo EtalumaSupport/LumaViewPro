@@ -184,3 +184,15 @@ class TestStepNavPreviewRespectsLedEnable:
         _run_manual_nav(stepnav_env)
         assert stepnav_env.layer_obj.apply_settings.call_count == 1
         assert stepnav_env.layer_obj.apply_settings.call_args.kwargs['update_led'] is False
+
+
+def test_a_step_click_on_a_scope_with_no_motor_board_warns_nothing(stepnav_env, caplog):
+    """A manual scope (no motor board) is a shipped model, not a fault: its
+    step click goes to the step without moving, and logs no warning."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger='LVP.ui.step_navigation'):
+        _run_manual_nav(stepnav_env)
+
+    assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 1
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
