@@ -296,35 +296,6 @@ def move_absolute(
     )
 
 
-def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, then: str) -> bool:
-    """The single UI boundary for the motion API's unknown-position refusal.
-
-    A gesture that moves or saves several axes asks the API once, before
-    it does anything, whether the scope knows where those axes are; the
-    API decides, logs and notifies. What remains for the gesture is only
-    to stop, so every gesture asks through here and none carries its own
-    handling of the refusal.
-
-    Args:
-        axes: The axes the gesture needs.
-        recording: True when the gesture saves the position, False when
-            it moves.
-        then: What the user does once the scope knows its position,
-            ending the refusal the API shows.
-
-    Returns:
-        bool: True when the API refused (already logged and shown); the
-            caller stops. False when the gesture may go ahead.
-    """
-    from modules.exceptions import AxisStateUnknownError
-
-    try:
-        _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=recording, then=then)
-    except AxisStateUnknownError:
-        return True
-    return False
-
-
 def move_relative(
     axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):

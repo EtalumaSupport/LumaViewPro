@@ -645,7 +645,6 @@ _UI_EXCEPT_PIN = {
     ('ui/shader.py', 'Exception'): 2,
     ('ui/stage.py', 'Exception'): 4,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
-    ('ui/ui_helpers.py', 'AxisStateUnknownError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,
     ('ui/vertical_control.py', 'Exception'): 5,
     ('ui/zstack.py', 'Exception'): 2,
