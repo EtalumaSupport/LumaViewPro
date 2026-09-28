@@ -123,7 +123,9 @@ class TestNewProtocol:
             ids={
                 'tiling_size_spinner': SimpleNamespace(text='1x1'),
                 'acquire_zstack_id': SimpleNamespace(active=False),
-            }
+            },
+            # The panel's redraw runs whatever the outcome; it draws nothing here.
+            update_step_ui=lambda: None,
         )
         return ps.ProtocolSettings.new_protocol, stand, error
 

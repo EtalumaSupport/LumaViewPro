@@ -28,6 +28,10 @@ class _Panel(ps.ProtocolSettings):
             'acquire_zstack_id': SimpleNamespace(active=use_zstacking),
         }
 
+    def update_step_ui(self):
+        # The redraw runs whatever the outcome; the stand has no stage to draw.
+        pass
+
 
 def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dict:
     """Click New Protocol and return what the panel asked the Session for.

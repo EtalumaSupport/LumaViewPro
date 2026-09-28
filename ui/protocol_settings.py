@@ -29,7 +29,6 @@ from modules.path_utils import get_source_root
 from modules.protocol import Protocol
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
@@ -41,10 +40,10 @@ from ui.ui_helpers import (
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
+    run_reported,
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
-    show_objective_unknown_refusal,
     submit_reported,
     sync_layer_widgets_from_settings,
 )
@@ -795,39 +794,29 @@ class ProtocolSettings(FloatLayout):
         # previous_well_z map (left dormant) so this can return as an opt-in
         # setting without re-plumbing.
 
-        try:
-            # The two authoring choices live only in this panel's widgets, so
-            # the panel states them; the Session assembles everything else.
-            # Left to the member's defaults they read 1x1 and no z-stack, and
-            # the built protocol silently loses the user's choice. The config
-            # carries the active objective, so it raises while that is unknown
-            # (a turret move in flight, an unassigned slot); the handler below
-            # shows the reason, where an escape here would end the app.
-            config = ctx.session.get_sequenced_capture_config(
-                tiling=self.ids['tiling_size_spinner'].text,
-                use_zstacking=self.ids['acquire_zstack_id'].active,
-            )
-            protocol = ctx.scope.protocols.create_protocol(input_config=config)
-        except exceptions.ProtocolRunRefusedError as e:
-            # The builder logged this and posted it solicited, so the user
-            # has already been told; a popup here would be a second telling
-            # of one refusal. The branch exists to keep the refusal out of
-            # the blanket handler below, which renders str(e) -- the joined
-            # `reason: message` debugging form, a machine code in a dialog.
-            logger.debug(f'[LVP Main  ] Protocol creation refused ({e.reason})')
-            return
-        except exceptions.ObjectiveUnknownError as e:
-            show_objective_unknown_refusal('New Protocol', e)
-            return
-        except Exception as e:
-            logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
-            from ui.notification_popup import show_notification_popup
+        # The two authoring choices live only in this panel's widgets, so the
+        # panel states them; the Session assembles everything else. Left to
+        # the member's defaults they read 1x1 and no z-stack, and the built
+        # protocol silently loses the user's choice.
+        tiling = self.ids['tiling_size_spinner'].text
+        use_zstacking = self.ids['acquire_zstack_id'].active
+        built = []
 
-            show_notification_popup(
-                title='Protocol Creation Error',
-                message=str(e),
+        def _build():
+            # The config carries the active objective, so it raises while
+            # that is unknown (a turret move in flight, an unassigned slot);
+            # the boundary shows the API's reason as a refusal.
+            config = ctx.session.get_sequenced_capture_config(
+                tiling=tiling, use_zstacking=use_zstacking
             )
+            built.append(ctx.scope.protocols.create_protocol(input_config=config))
+
+        # Inline, so the lines below see what the build produced; a refused
+        # or failed build has been shown by the boundary and built nothing.
+        run_reported(_build, self.update_step_ui, 'NEW_PROTOCOL')
+        if not built:
             return
+        protocol = built[0]
 
         if protocol.num_steps() == 0:
             # Zero steps has two distinct causes: no channel is enabled for
@@ -864,62 +853,36 @@ class ProtocolSettings(FloatLayout):
         # field report costs an investigation.
         gui_logger.protocol_action('NEW', f'steps={protocol.num_steps()}')
 
-        # new_protocol_ex builds the step table from the labware + scan
-        # parameters; bounded work, fits on worker_pool MED so the UI
-        # remains responsive while it runs.
-        _app_ctx.ctx.worker_pool.put(
-            IOTask(
-                action=self.new_protocol_ex,
-                args=(protocol),
-                callback=self.update_step_ui,
-                priority=PRIORITY_MED,
-            )
-        )
+        def _redraw():
+            # A new protocol has no file. Once the panel holds the one this
+            # press built, its file name and capture root are cleared; a
+            # refused adoption leaves both as they were.
+            if self._protocol is protocol:
+                self.ids['protocol_filename'].text = ''
+                self.ids['capture_root'].text = ''
+            self._draw_protocol_steps()
+
+        run_reported(lambda: self.new_protocol_ex(protocol), _redraw, 'NEW_PROTOCOL')
 
     def new_protocol_ex(self, protocol):
-        settings = _app_ctx.ctx.settings
+        """Adopt *protocol* once the API accepts the objectives it names.
+
+        The API owns the rule and raises its own refusal, so there is nothing
+        to decide or announce here: a protocol built from a selection the
+        scope cannot address is simply not adopted. The move to the first
+        step comes last, reached only once the protocol is the panel's.
+        """
         ctx = _app_ctx.ctx
-
-        if (ctx.lumaview.scope.capabilities.has_turret) and (
-            not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-        ):
-            error_msg = (
-                'Cannot create new protocol. Please set objective for current turret position.'
-            )
-            logger.error(error_msg)
-
-            from ui.notification_popup import show_notification_popup
-
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='Protocol Creation Error', message=error_msg
-                ),
-                0,
-            )
-            return
-
-        # The API owns the rule and delivers its own refusal, so there is
-        # nothing to decide or announce here: a protocol built from a
-        # selection the scope cannot address simply is not adopted.
-        try:
-            ctx.scope.protocols.refuse_unaddressable_objectives(
-                protocol.steps()['Objective'].to_list()
-            )
-        except exceptions.ProtocolRunRefusedError:
-            return
-
+        ctx.scope.protocols.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self._protocol = protocol
-
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
-
-        def temp():
-            self.ids['protocol_filename'].text = ''
-            self.ids['capture_root'].text = ''
-
-        settings['protocol']['filepath'] = ''
-        Clock.schedule_once(lambda dt: temp(), 0)
+        ctx.settings['protocol']['filepath'] = ''
         self.curr_step = 0
         self.go_to_step(step_idx=0, protocol=False)
+
+    def _draw_protocol_steps(self) -> None:
+        """Show the panel's protocol: its steps on the stage and in the step editor."""
+        _app_ctx.ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        self.update_step_ui()
 
     def _validate_labware(self, labware: str):
         ctx = _app_ctx.ctx
@@ -1429,65 +1392,32 @@ class ProtocolSettings(FloatLayout):
             return
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
-        io_executor = _app_ctx.ctx.io_executor
-        io_executor.put(IOTask(action=self.modify_step_ex, callback=self.update_step_ui))
+        ctx = _app_ctx.ctx
+        active_layer, _ = get_active_layer_config(common_utils.get_opened_layer(ctx.image_settings))
+        name_field = self.ids['step_name_input'].text
+        run_reported(
+            lambda: self.modify_step_ex(active_layer, name_field),
+            self._draw_protocol_steps,
+            'MODIFY_STEP',
+        )
 
-    def modify_step_ex(self):
-        try:
-            ctx = _app_ctx.ctx
-            from ui.notification_popup import show_notification_popup
-
-            active_layer, _ = get_active_layer_config(
-                common_utils.get_opened_layer(ctx.image_settings)
-            )
-
-            # A non-blank name field is a user rename; blank keeps the step's
-            # existing label and auto/user flag. The rendered Name re-derives
-            # from the updated columns inside modify_step, so an auto-named
-            # step's channel token tracks a channel change and a user label
-            # rides along untouched -- no name branching needed here.
-            label = common_utils.resolve_step_rename(
-                self.ids['step_name_input'].text, Protocol.sanitize_step_name
-            )
-
-            try:
-                name = ctx.session.update_step(
-                    self._protocol, self.curr_step, layer=active_layer, label=label
-                )
-            except exceptions.ProtocolRunRefusedError:
-                # Already logged and shown to the user by the API's funnel,
-                # in its own words.
-                return
-            logger.info(
-                "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-                self._protocol.step(idx=self.curr_step)['Color'],
-                name,
-            )
-
-            # Validate the modified step and warn the user if there are errors.
-            errors = self._protocol.validate_steps()
-            if errors:
-                msg = '\n'.join(errors)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Validation Warning',
-                        message=f'Step modified with validation issues:\n\n{msg}',
-                    ),
-                    0,
-                )
-
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-        except Exception as e:
-            logger.error(f'[UI] modify_step_ex failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            # Runs on the io_executor worker; marshal the popup to the
-            # main thread. Bind str(e) now -- the exception variable is
-            # unbound by the time the scheduled lambda runs.
-            Clock.schedule_once(
-                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
-                0,
-            )
+    def modify_step_ex(self, active_layer: str, name_field: str) -> None:
+        """Change the current step to the open layer, renamed as the name field says."""
+        # A non-blank name field is a user rename; blank keeps the step's
+        # existing label and auto/user flag. The rendered Name re-derives
+        # from the updated columns inside modify_step, so an auto-named
+        # step's channel token tracks a channel change and a user label
+        # rides along untouched -- no name branching needed here.
+        label = common_utils.resolve_step_rename(name_field, Protocol.sanitize_step_name)
+        name = _app_ctx.ctx.session.update_step(
+            self._protocol, self.curr_step, layer=active_layer, label=label
+        )
+        logger.info(
+            "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
+            self._protocol.step(idx=self.curr_step)['Color'],
+            name,
+        )
+        self._warn_if_steps_invalid('Step modified')
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
@@ -1495,63 +1425,46 @@ class ProtocolSettings(FloatLayout):
             'INSERT_STEP', f'after_current={after_current_step} curr_step={self.curr_step}'
         )
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
-        io_executor = _app_ctx.ctx.io_executor
-        io_executor.put(
-            IOTask(
-                action=self.insert_step_ex, args=(after_current_step), callback=self.update_step_ui
-            )
+        run_reported(
+            lambda: self.insert_step_ex(after_current_step),
+            self._draw_protocol_steps,
+            'INSERT_STEP',
         )
 
-    def insert_step_ex(self, after_current_step: bool = True):
-        try:
-            ctx = _app_ctx.ctx
+    def insert_step_ex(self, after_current_step: bool = True) -> None:
+        """Add a step at the current stage position, beside the current step, and go to it.
+
+        The move to the new step is a navigation that belongs only to a step
+        the API accepted, so it is the last call, never reached on a refusal.
+        """
+        if after_current_step:
+            after_step = self.curr_step
+            before_step = None
+        else:
+            after_step = None
+            before_step = self.curr_step
+
+        names = _app_ctx.ctx.session.add_step(
+            self._protocol, before_step=before_step, after_step=after_step
+        )
+
+        if after_current_step:
+            self.curr_step += len(names)
+        elif self.curr_step < 0:
+            self.curr_step += 1
+
+        self._warn_if_steps_invalid('Step added')
+        self.go_to_step(step_idx=self.curr_step, protocol=False)
+
+    def _warn_if_steps_invalid(self, what: str) -> None:
+        errors = self._protocol.validate_steps()
+        if errors:
             from ui.notification_popup import show_notification_popup
 
-            if after_current_step:
-                after_step = self.curr_step
-                before_step = None
-            else:
-                after_step = None
-                before_step = self.curr_step
-
-            try:
-                names = ctx.session.add_step(
-                    self._protocol, before_step=before_step, after_step=after_step
-                )
-            except exceptions.ProtocolRunRefusedError:
-                # Already logged and shown to the user by the API's funnel,
-                # in its own words.
-                return
-
-            if after_current_step:
-                self.curr_step += len(names)
-            elif self.curr_step < 0:
-                self.curr_step += 1
-
-            # Validate after inserting and warn the user if there are errors
-            errors = self._protocol.validate_steps()
-            if errors:
-                msg = '\n'.join(errors)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Validation Warning',
-                        message=f'Step added with validation issues:\n\n{msg}',
-                    ),
-                    0,
-                )
-
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-        except Exception as e:
-            logger.error(f'[UI] insert_step_ex failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            # Runs on the io_executor worker; marshal the popup to the
-            # main thread. Bind str(e) now -- the exception variable is
-            # unbound by the time the scheduled lambda runs.
-            Clock.schedule_once(
-                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
-                0,
+            msg = '\n'.join(errors)
+            show_notification_popup(
+                title='Protocol Validation Warning',
+                message=f'{what} with validation issues:\n\n{msg}',
             )
 
     def update_acquire_zstack(self):

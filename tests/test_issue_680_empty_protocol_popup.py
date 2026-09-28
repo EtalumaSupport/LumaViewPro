@@ -14,17 +14,16 @@ Fix
 ---
 After ctx.scope.protocols.create_protocol() in ProtocolSettings.new_protocol,
 check protocol.num_steps() == 0 and pop a "No Channels Selected"
-notification before queueing new_protocol_ex on the worker pool.
+notification before new_protocol_ex adopts the protocol.
 
 Test approach
 -------------
 1. Source-level structural lock via AST: extract new_protocol's body
    and assert the num_steps()==0 guard exists, uses
    show_notification_popup with the "No Channels Selected" title,
-   and runs before the worker_pool.put that queues new_protocol_ex.
-   Direct UI exec is impractical here (Kivy ids, _app_ctx, worker
-   pool, IOTask wrapping); the AST lock catches a regression that
-   removes or reorders the guard.
+   and runs before the call that hands new_protocol_ex the protocol.
+   Direct UI exec is impractical here (Kivy ids, _app_ctx); the AST
+   lock catches a regression that removes or reorders the guard.
 
 2. Behavioral check on Protocol.from_config: build a config whose
    every layer has acquire set to None/disabled and verify the
@@ -87,8 +86,8 @@ def test_new_protocol_guards_empty_step_count():
     )
 
 
-def test_empty_step_guard_runs_before_worker_pool_put():
-    """Guard must fire and return before queueing new_protocol_ex."""
+def test_empty_step_guard_runs_before_the_adoption():
+    """Guard must fire and return before new_protocol_ex adopts the protocol."""
     method = _method_node('ProtocolSettings', 'new_protocol')
 
     def has_num_steps_zero_compare(node):
@@ -97,20 +96,19 @@ def test_empty_step_guard_runs_before_worker_pool_put():
         test = ast.unparse(node.test)
         return 'num_steps()' in test and '0' in test
 
-    def has_worker_pool_put(node):
+    def has_the_adoption(node):
         unparsed = ast.unparse(node)
-        return 'worker_pool.put' in unparsed and 'new_protocol_ex' in unparsed
+        return 'run_reported' in unparsed and 'new_protocol_ex' in unparsed
 
     guard_idx = _stmt_index_for(method.body, has_num_steps_zero_compare)
-    put_idx = _stmt_index_for(method.body, has_worker_pool_put)
+    adopt_idx = _stmt_index_for(method.body, has_the_adoption)
 
     assert guard_idx >= 0, 'num_steps()==0 guard not found in ProtocolSettings.new_protocol. (#680)'
-    assert put_idx >= 0, 'worker_pool.put for new_protocol_ex not found in new_protocol. (#680)'
-    assert guard_idx < put_idx, (
+    assert adopt_idx >= 0, 'the new_protocol_ex adoption not found in new_protocol. (#680)'
+    assert guard_idx < adopt_idx, (
         f'Empty-steps guard at statement {guard_idx} must run BEFORE '
-        f'worker_pool.put at statement {put_idx}; otherwise an empty '
-        f'protocol still queues new_protocol_ex and assigns '
-        f'self._protocol. (#680)'
+        f'the adoption at statement {adopt_idx}; otherwise an empty '
+        f'protocol is still adopted as self._protocol. (#680)'
     )
 
 
