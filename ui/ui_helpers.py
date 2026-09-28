@@ -86,25 +86,37 @@ def submit_reported(
             start or Stop). One worker, so actions run in the order they
             were made, and a Stop submitted at high priority goes first.
 
-    An executor that is not taking work (closing down, or held by a run)
-    still gets its redraw; the executor's own narration is the record of
-    the dropped call.
+    The redraw runs exactly once per submit, whatever the outcome: the call
+    returned or raised, the lane refused the task at submit, while it was
+    queued or as it left the queue, or the executor was not taking work. A
+    widget that shows a request as pending is cleared only by its redraw,
+    so a lost redraw leaves it dead. An executor that is not taking work
+    (closing down, or fenced by a run) never runs the task and answers
+    nothing, so that one outcome is redrawn from here; every other outcome
+    reaches the task's callback once. The executor's own narration is the
+    record of a refused or dropped call, under the gesture's label.
 
     ``stop`` is for a Stop: it goes ahead of every queued request, so a
     person stopping a run is never kept waiting behind work they asked for
     before it.
     """
-    from modules.sequential_io_executor import ENQUEUED, PRIORITY_HIGH, PRIORITY_MED, IOTask
+    from modules.sequential_io_executor import PRIORITY_HIGH, PRIORITY_MED, IOTask
+
+    def _redraw():
+        _schedule_ui(lambda dt: _reported(redraw, label))
 
     def _off_the_gui_thread():
         _reported(call, label)
-        _schedule_ui(lambda dt: _reported(redraw, label))
+
+    # The executor names a refused task by its action, so the action carries
+    # the gesture's label rather than this wrapper's name.
+    _off_the_gui_thread.__name__ = _off_the_gui_thread.__qualname__ = f'UI:{label}'
 
     executor = lane if lane is not None else _app_ctx.ctx.worker_pool
     priority = PRIORITY_HIGH if stop else PRIORITY_MED
-    queued = executor.put(IOTask(action=_off_the_gui_thread, priority=priority))
-    if queued is not ENQUEUED:
-        _schedule_ui(lambda dt: _reported(redraw, label))
+    queued = executor.put(IOTask(action=_off_the_gui_thread, callback=_redraw, priority=priority))
+    if queued is None:
+        _redraw()
 
 
 def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:

@@ -12,6 +12,7 @@ before anything waits: on the GUI's thread a wait freezes the window.
 from __future__ import annotations
 
 import threading
+import time
 import types
 
 import pytest
@@ -186,6 +187,111 @@ class TestThePoolForm:
         release.set()
         assert done.wait(_WAIT_S)
         assert order[0] == 'stop', f'a Stop waited behind earlier requests: {order}'
+
+
+class TestTheLaneForm:
+    """A call submitted to its member's lane redraws exactly once, whatever the lane does.
+
+    A widget that shows a request as pending is cleared only by its redraw:
+    a lost redraw leaves it dead, so every outcome is counted, including the
+    lane refusing the task after it was queued.
+    """
+
+    @pytest.fixture
+    def headless(self, monkeypatch, shown):
+        from modules import notification_center, sequential_io_executor
+
+        monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+        # The lane reports its refusals through the name it imported.
+        monkeypatch.setattr(
+            sequential_io_executor, 'notifications', notification_center.notifications
+        )
+
+    @pytest.fixture
+    def claim(self, lane):
+        from modules.activity_claim import ActivityClaim
+
+        c = ActivityClaim()
+        lane.ask_claim(c)
+        return c
+
+    @staticmethod
+    def _settle(lane):
+        # Everything the lane owes this submit has been answered once a task
+        # queued after it has run.
+        assert lane.call(IOTask(action=lambda: None), 'settle', _WAIT_S) is None
+
+    def _submit(self, lane, call, label='T'):
+        redrawn = []
+        submit_reported(call, lambda: redrawn.append(label), label, lane=lane)
+        self._settle(lane)
+        return redrawn
+
+    def test_runs_the_call_on_the_lane_and_redraws_once(self, shown, headless, lane):
+        where = []
+        redrawn = self._submit(lane, lambda: where.append(threading.current_thread().name))
+        assert where == ['TEST_IO_WORKER']
+        assert redrawn == ['T']
+        assert shown == []
+
+    def test_a_call_that_raises_is_one_fault_and_one_redraw(self, shown, headless, lane):
+        redrawn = self._submit(lane, _fail)
+        assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:T')]
+        assert redrawn == ['T']
+
+    def test_a_refusal_at_submit_redraws_once(self, shown, headless, lane, claim):
+        held = claim.try_claim('protocol', run_trigger_source='test')
+        ran = []
+        redrawn = []
+        try:
+            submit_reported(lambda: ran.append(1), lambda: redrawn.append('T'), 'T', lane=lane)
+        finally:
+            held.release()
+        self._settle(lane)
+        assert ran == []
+        assert [n.title for n in shown] == ['Microscope Busy']
+        assert redrawn == ['T']
+
+    def test_a_refusal_while_queued_redraws_once(self, shown, headless, lane, claim):
+        gate = threading.Event()
+        started = threading.Event()
+
+        def _busy():
+            started.set()
+            gate.wait(_WAIT_S)
+
+        lane.put(IOTask(action=_busy))
+        assert started.wait(_WAIT_S), 'the worker is running the task ahead of ours'
+        ran = []
+        redrawn = []
+        submit_reported(lambda: ran.append(1), lambda: redrawn.append('T'), 'T', lane=lane)
+        held = claim.try_claim('protocol', run_trigger_source='test')
+        try:
+            gate.set()
+            deadline = time.monotonic() + _WAIT_S
+            while not redrawn and time.monotonic() < deadline:
+                time.sleep(0.01)
+        finally:
+            held.release()
+        self._settle(lane)
+        assert ran == []
+        assert [n.title for n in shown] == ['Microscope Busy']
+        assert redrawn == ['T']
+
+    def test_a_lane_that_takes_no_work_redraws_once(self, shown, headless, lane):
+        lane.disable()
+        redrawn = []
+        submit_reported(lambda: None, lambda: redrawn.append('T'), 'T', lane=lane)
+        assert redrawn == ['T']
+
+    def test_a_refusal_names_the_gesture_not_the_wrapper(self, shown, headless, lane, claim):
+        held = claim.try_claim('protocol', run_trigger_source='test')
+        try:
+            submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
+        finally:
+            held.release()
+        self._settle(lane)
+        assert [n.category for n in shown] == ['Task:UI:LED_Blue']
 
 
 def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):
