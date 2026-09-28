@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The fast simulated motor board answers as a real one does.
+"""The fast simulated motor and LED boards answer as real ones do.
 
-Most tests run on `SimulatedMotorBoard`, the fast tier: a board written by
-hand rather than the real firmware. Its replies are held to the bench
+Most tests run on `SimulatedMotorBoard` and `SimulatedLEDBoard`, the fast
+tier: boards written by hand rather than the real firmware. Its replies are held to the bench
 record the firmware tier is held to (`tests/sim_wire_bench.py`), content
 only and not timing: the fresh run's calls are replayed through the API
 and each reply must equal the board's. A reply the board never gave fails
@@ -40,6 +40,7 @@ _STATUS = (
     "the status before the first home lacks the board's bits 10 and 13 (and the turret's "
     'two switch bits); the driver reads bits 0 and 9, which agree'
 )
+_LED_ECHO = "the fast tier answers any LED command with 'RE: <command>', not the board's reply"
 _GAPS = {
     'query INFO': _IDENTITY,
     'query FULLINFO': _IDENTITY,
@@ -57,6 +58,10 @@ _GAPS = {
     'query STATUS_RY': _STATUS,
     'query STATUS_RZ': _STATUS,
     'query STATUS_RT': _STATUS,
+    'LED query INFO': _LED_ECHO,
+    **{f'LED query LEDREAD{channel}': _LED_ECHO for channel in range(6)},
+    'LED error_probe NOSUCHCMD': _LED_ECHO,
+    'LED error_probe LED9_10': _LED_ECHO,
 }
 
 

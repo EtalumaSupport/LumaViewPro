@@ -37,6 +37,7 @@ from drivers.sim_wire.backend import (
 )
 from drivers.sim_wire.port import RegisterWrite
 from drivers.sim_wire.mp import tmc5072
+from tests.sim_wire_bench import FRESH, led_on_args
 
 sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
 import dac80508
@@ -315,6 +316,26 @@ class TestWhatTheDacDrives:
             True,
         ]
 
+    def test_every_led_call_the_bench_made_drives_what_it_asked(self, lit):
+        board, sim = lit
+        for record in FRESH:
+            kind = record['kind']
+            if kind == 'led_on':
+                channel, ma = led_on_args(record)
+                board.led_on(channel, ma)
+                expected = [self.OFF] * 6
+                # The firmware's mA_to_dac.
+                expected[channel] = (True, True, int(60.936 * ma + 890))
+            elif kind == 'led_off':
+                board.led_off(record['channel'])
+                expected = [self.OFF] * 6
+            elif kind == 'leds_off':
+                board.leds_off()
+                expected = [self.OFF] * 6
+            else:
+                continue
+            assert list(sim.state('DAC')[:6]) == expected, record['command']
+
     def test_the_state_needs_the_oracle(self):
         backend = SimWireBackend(None, led=LED)
         with pytest.raises(serial.SerialException, match='oracle is off'):
@@ -382,6 +403,52 @@ class TestTheConsole:
             assert recovery == []
         finally:
             board.disconnect()
+
+    def test_the_factory_exchange_answers_as_sn_12075_did(self, monkeypatch):
+        # The support report's entry and exit on SN 12075 once Y was sent
+        # with a return (its serial.log, 2026-09-28 16:09): each reply the
+        # driver took, in order.
+        bench = [
+            (
+                'FACTORY',
+                '------------------------\n'
+                'ETALUMA FACTORY MODE\n'
+                '------------------------\n'
+                'Changing these values is not recommended and may void product warranty.\n'
+                'Do you accept these terms?  Y/N',
+            ),
+            (
+                'Y',
+                '-' * 90 + '\n'
+                'Engineering Mode: Press q or Q to exit\n' + '-' * 90 + '\n'
+                "board info: 'INFO' case insensitive\n"
+                "LED enable:   'LED' channel '_ENT' where channel is 0 through 5, "
+                'or S (plural/all)\n'
+                "LED disable:  'LED' channel '_ENF' where channel is 0 through 5, "
+                'or S (plural/all)\n'
+                "LED on:       'LED' channel '_MA' where channel is 0 through 5, "
+                'or S (plural/all)',
+            ),
+            ('Q', '------------------------'),
+            ('INFO', 'Version:      EL-0925 Gen3 LED Controller'),
+        ]
+        board = LEDBoard(backend=SimWireBackend(None, led=LED))
+        replies = []
+        for name in ('exchange_command', 'exchange_multiline'):
+            exchange = getattr(board, name)
+
+            def _recorded(command, *args, _exchange=exchange, **kwargs):
+                reply = _exchange(command, *args, **kwargs)
+                replies.append((command, reply))
+                return reply
+
+            monkeypatch.setattr(board, name, _recorded)
+        try:
+            assert board.enter_engineering_mode(timeout=5)
+            board.exit_engineering_mode()
+        finally:
+            board.disconnect()
+        assert replies == bench
 
     def test_a_y_the_board_does_not_take_is_refused_at_entry(self, monkeypatch):
         # Answered with the main loop's newline, the prompt never returns and

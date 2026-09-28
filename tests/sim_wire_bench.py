@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The bench record of an LS850T motor board, and its replay through the API.
+"""The bench record of an LS850T's motor and LED boards, and its replay
+through the API.
 
 The record is the board characterization tool's: four runs of the same API
 calls on a bench unit on field firmware, with each reply and how long each
@@ -27,9 +28,15 @@ _MULTILINE_TIMEOUT_S = 5
 _MULTILINE_END_MARKERS = ['T:']
 _STOP_AFTER_S = 0.3
 _STOP_SETTLE_TIMEOUT_S = 30.0
+# Its LED queries read a fixed number of lines, each waiting up to the
+# timeout: the INFO banner's, and LEDREAD's, which field firmware lacks.
+_LED_QUERY_TIMEOUT_S = 2.0
+_LED_QUERY_LINES = {'INFO': 6}
+_LED_READ_LINES = 3
 
 _TARGET = re.compile(r'move_absolute\((\w), ([-\d.]+)\)')
 _AXIS_ARG = re.compile(r'\((\w+)\)')
+_LED_ON = re.compile(r'led_on\((\d+), ([\d.]+)\)')
 
 
 def replayed(record) -> bool:
@@ -39,6 +46,8 @@ def replayed(record) -> bool:
 
 def _call(scope, record):
     """The API call the characterization tool made for this record."""
+    if record['board'] == 'led':
+        return _led_call(scope, record)
     diag, motion = scope.diagnostics, scope.motion
     kind, command = record['kind'], record['command']
     if kind in ('query', 'error_probe'):
@@ -71,6 +80,36 @@ def _call(scope, record):
     raise AssertionError(f'no replay for a {kind!r} record')
 
 
+def led_on_args(record) -> tuple[int, float]:
+    """The channel and current an `led_on` record lit."""
+    channel, ma = _LED_ON.fullmatch(record['command']).groups()
+    return int(channel), float(ma)
+
+
+def _led_call(scope, record):
+    diag, illumination = scope.diagnostics, scope.illumination
+    kind, command = record['kind'], record['command']
+    if kind == 'query':
+        return functools.partial(
+            diag.send_diagnostic_command,
+            'led',
+            command,
+            response_numlines=_LED_QUERY_LINES.get(command, _LED_READ_LINES),
+            timeout_s=_LED_QUERY_TIMEOUT_S,
+        )
+    if kind == 'error_probe':
+        return functools.partial(
+            diag.send_diagnostic_command, 'led', command, timeout_s=_LED_QUERY_TIMEOUT_S
+        )
+    if kind == 'led_on':
+        return functools.partial(illumination.led_on, *led_on_args(record))
+    if kind == 'led_off':
+        return functools.partial(illumination.led_off, record['channel'])
+    if kind == 'leds_off':
+        return illumination.leds_off
+    raise AssertionError(f'no replay for an LED {kind!r} record')
+
+
 def replay(session) -> dict:
     """Replay the fresh run's calls on the session's scope, then shut the
     session down; index -> (reply, ms)."""
@@ -92,6 +131,10 @@ def replay(session) -> dict:
 
 def reply_group(record) -> str:
     kind = record['kind']
+    if record['board'] == 'led':
+        if kind in ('query', 'error_probe'):
+            return f'LED {kind} {record["command"]}'
+        return f'LED {kind}'
     if kind in ('query', 'query_multiline', 'error_probe', 'home'):
         return f'{kind} {record["command"]}'
     if kind == 'turret':

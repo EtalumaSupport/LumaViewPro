@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The simulated motor board against a real one, through the API.
+"""The simulated motor and LED boards against real ones, through the API.
 
 The fixture is the board characterization tool's record of an LS850T bench
 unit on field firmware: four runs of the same API calls, with each reply and
-how long each call took. The simulated board is booted as that unit (its own
-config, read from its CONFIG reply), the calls are replayed through the API
-in realistic timing, and each result is held to the bench:
+how long each call took. The simulated motor board is booted as that unit
+(its own config, read from its CONFIG reply), the calls are replayed through
+the API in realistic timing, and each result is held to the bench:
 
 - a reply must equal the reply of the one run that began at power-up, as
   the simulated board does; the other runs began where an earlier session
@@ -61,14 +61,17 @@ _UNIT_CONFIG = _unit_config()
 
 def _state_keys(records) -> list:
     """For each record, the key of the calls that are the same call from the
-    same state. A query or a move of a given size is; a turret move is the
-    same from the same slot; anything else is only itself."""
+    same state. A query to one board, a move of a given size, or an LED
+    switched on or off is; a turret move is the same from the same slot;
+    anything else is only itself."""
     keys = []
     slot = 1  # every turret move follows a turret home
     for index, r in enumerate(records):
         kind = r['kind']
         if kind in ('query', 'query_multiline', 'error_probe'):
-            keys.append((kind, r['command']))
+            keys.append((r['board'], kind, r['command']))
+        elif kind in ('led_on', 'led_off'):
+            keys.append((kind, r['channel']))
         elif kind == 'move':
             keys.append((kind, r['axis'], round(r['distance_um'], 3), r['direction']))
         elif kind == 'turret':
@@ -100,6 +103,11 @@ def replayed_on_the_firmware():
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend,
+            'LedBoardSpec',
+            functools.partial(sim_backend.LedBoardSpec, timing='realistic'),
+        )
+        mp.setattr(
+            sim_backend,
             'MotorBoardSpec',
             functools.partial(
                 sim_backend.MotorBoardSpec,
@@ -120,6 +128,8 @@ def _duration_group(record) -> str | None:
     """Durations are grouped by what sets them. A position read is answered
     from the API's cache and never reaches the board, so it has none."""
     kind = record['kind']
+    if record['board'] == 'led':
+        return 'LED exchanges'
     if kind in ('query', 'error_probe'):
         return 'one-line exchanges'
     if kind == 'query_multiline':
@@ -167,6 +177,8 @@ _DURATION_GAPS = {
     'moves Z': 'moves finish 1-5% sooner than on the board',
     'turret': 'a slot change finishes about 5% sooner than on the board',
     'STOP': 'the settle after STOP on X ends about 110 ms sooner than on the board',
+    'LED exchanges': 'the LED board takes about 10 ms longer to answer each exchange than the '
+    'simulator',
 }
 
 
