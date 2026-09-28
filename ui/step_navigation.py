@@ -133,9 +133,11 @@ def go_to_step(
         color = step['Color']
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
-        # #610 diagnostic: trace what go_to_step does with camera settings
-        _curr_gain = ctx.scope.imaging.get_gain_db() if ctx.scope.imaging.active_cached else '?'
-        _curr_exp = ctx.scope.imaging.get_exposure_ms() if ctx.scope.imaging.active_cached else '?'
+        # Trace what go_to_step does with camera settings. The camera values
+        # are the cached ones: a debug line never reads the camera on the
+        # GUI thread.
+        _curr_gain = ctx.scope.imaging.gain_db_cached if ctx.scope.imaging.active_cached else '?'
+        _curr_exp = ctx.scope.imaging.exposure_ms_cached if ctx.scope.imaging.active_cached else '?'
         logger.debug(
             f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
             f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
