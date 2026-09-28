@@ -615,7 +615,7 @@ class ScopeSession:
             # camera start gate -- happens below, once the session exists,
             # for a scope THIS factory built. A scope passed in by a caller
             # is that caller's bring-up responsibility: they call
-            # configure_scope() and start_streaming() themselves.
+            # configure_scope() themselves, which releases the start gate.
             built_scope = True
 
         executor_bundle = None
@@ -822,15 +822,13 @@ class ScopeSession:
 
     @classmethod
     def _bring_up(cls, session: 'ScopeSession') -> None:
-        """Configure the scope a factory built, then release the camera start
-        gate -- in that order, because ``initialize`` applies the capture
-        pixel format synchronously and wants the gate still closed. A raise
+        """Configure the scope a factory built; ``initialize`` releases the
+        camera start gate last, after the capture pixel format. A raise
         anywhere in here leaves the caller with no session object to tear
         down, so this tears down what the factory started before it lets
         the raise out; a caller's own executor lanes are never touched."""
         try:
             session.configure_scope()
-            session.scope.imaging.start_streaming()
         except BaseException:
             session._abandon()
             session.scope.disconnect()

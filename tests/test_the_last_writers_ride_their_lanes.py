@@ -17,6 +17,8 @@ from unittest.mock import patch
 import pytest
 
 from modules import sequential_io_executor
+from modules.activity_claim import acting
+from modules.exceptions import HardwareCommandRefusedError
 
 
 @pytest.fixture
@@ -38,6 +40,83 @@ def _lane_now():
     return getattr(sequential_io_executor._lane_worker, 'executor', None)
 
 
+# (the member, the call, the driver slot, the driver method it transmits through, its lane)
+_GATED = [
+    (
+        'set_acceleration_limit',
+        lambda sc: sc.motion.set_acceleration_limit(val_pct=50),
+        '_motion_driver',
+        'set_acceleration_limits',
+        'io',
+    ),
+    (
+        'restore_led_state',
+        lambda sc: sc.illumination.restore_led_state(
+            {'tag': 't', 'states': {'Blue': {'enabled': True, 'illumination_ma': 10}}}
+        ),
+        '_led_driver',
+        'led_on',
+        'io',
+    ),
+    (
+        'send_diagnostic_command',
+        lambda sc: sc.diagnostics.send_diagnostic_command('led', 'INFO'),
+        '_led_driver',
+        'exchange_command',
+        'io',
+    ),
+    (
+        'send_diagnostic_command_multiline',
+        lambda sc: sc.diagnostics.send_diagnostic_command_multiline('led', 'INFO', timeout_s=1),
+        '_led_driver',
+        'exchange_multiline',
+        'io',
+    ),
+    (
+        'set_motor_fan_duty',
+        lambda sc: sc.diagnostics.set_motor_fan_duty(0),
+        '_motion_driver',
+        'set_fan_duty',
+        'io',
+    ),
+    (
+        'enter_led_engineering_mode',
+        lambda sc: sc.diagnostics.enter_led_engineering_mode(timeout_s=1),
+        '_led_driver',
+        'enter_engineering_mode',
+        'io',
+    ),
+    (
+        'exit_led_engineering_mode',
+        lambda sc: sc.diagnostics.exit_led_engineering_mode(),
+        '_led_driver',
+        'exit_engineering_mode',
+        'io',
+    ),
+    (
+        'stop_streaming',
+        lambda sc: sc.imaging.stop_streaming(),
+        '_camera_driver',
+        'stop_grabbing',
+        'camera',
+    ),
+    (
+        'start_streaming',
+        lambda sc: sc.imaging.start_streaming(),
+        '_camera_driver',
+        'open_and_start',
+        'camera',
+    ),
+    (
+        'run_grab_lifecycle_benchmark',
+        lambda sc: sc.diagnostics.run_grab_lifecycle_benchmark(num_cycles=1),
+        '_camera_driver',
+        'stop_grabbing',
+        'camera',
+    ),
+]
+
+
 def _spy(sc, slot, method):
     """Wrap one driver method so each call records the lane it ran on."""
     driver = getattr(sc, slot)
@@ -49,6 +128,48 @@ def _spy(sc, slot, method):
         return real(*a, **k)
 
     return patch.object(driver, method, side_effect=_record), lanes
+
+
+@pytest.mark.parametrize(
+    ('member', 'call', 'slot', 'method', 'lane'), _GATED, ids=[g[0] for g in _GATED]
+)
+class TestAGatedMember:
+    def test_a_non_holder_is_refused_and_nothing_is_sent(
+        self, sim_session, member, call, slot, method, lane
+    ):
+        sc = sim_session.scope
+        spy, lanes = _spy(sc, slot, method)
+        held = sim_session.activity_claim.try_claim('diagnostic')
+        try:
+            with spy, pytest.raises(HardwareCommandRefusedError) as refused:
+                call(sc)
+        finally:
+            held.release()
+        assert refused.value.holder == 'diagnostic'
+        assert lanes == [], f'{member} reached the driver while a diagnostic held the scope'
+
+    def test_the_holder_runs_it_on_the_lane_worker(
+        self, sim_session, member, call, slot, method, lane
+    ):
+        sc = sim_session.scope
+        spy, lanes = _spy(sc, slot, method)
+        expected = sim_session.io_executor if lane == 'io' else sim_session.camera_executor
+        with sim_session.diagnostic_claim() as held, acting(held), spy:
+            call(sc)
+        assert lanes, f'{member} under the holder never reached the driver'
+        assert all(ln is expected for ln in lanes), (
+            f'{member} ran on {lanes!r}, not on its lane worker'
+        )
+
+
+class TestThePylonProbe:
+    def test_a_non_holder_is_refused(self, sim_session):
+        held = sim_session.activity_claim.try_claim('diagnostic')
+        try:
+            with pytest.raises(HardwareCommandRefusedError):
+                sim_session.scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.1)
+        finally:
+            held.release()
 
 
 class TestTheTemperatureRead:
@@ -74,3 +195,18 @@ class TestTheTemperatureRead:
         finally:
             sim_session.camera_executor.protocol_end()
             held.release()
+
+
+class TestAcceleration:
+    def test_a_scope_with_no_motor_board_sends_nothing(self, sim_session, monkeypatch):
+        sc = sim_session.scope
+        monkeypatch.setattr(type(sc), 'motor_connected', property(lambda self: False))
+        spy, lanes = _spy(sc, '_motion_driver', 'set_acceleration_limits')
+        with spy:
+            sc.motion.set_acceleration_limit(val_pct=50)
+        assert lanes == []
+
+
+class TestBringUp:
+    def test_the_camera_is_streaming_after_create(self, sim_session):
+        assert sim_session.scope.imaging.is_streaming()

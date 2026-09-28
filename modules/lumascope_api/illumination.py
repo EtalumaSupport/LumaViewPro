@@ -977,7 +977,7 @@ class IlluminationAPI:
         return snapshot
 
     def restore_led_state(self, snapshot: dict) -> None:
-        """Restore LEDs to a previously saved state.
+        """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
 
         Turns off lit channels the snapshot does not have on, then
         re-enables the channels that were on in it. Refused channel by
@@ -986,6 +986,11 @@ class IlluminationAPI:
         Args:
             snapshot: Return value from ``save_led_state``.
         """
+        return self._dispatch_led(
+            self._restore_led_state_impl, 'restore_led_state', args=(snapshot,)
+        )
+
+    def _restore_led_state_impl(self, snapshot: dict) -> None:
         if not snapshot:
             return
         tag = snapshot.get('tag', '?')

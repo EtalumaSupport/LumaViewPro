@@ -326,10 +326,10 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
             lambda w, h: applied_frames.append((w, h)) or real_set_frame(w, h),
         )
         reached_end = []
-        real_accel = scope.motion.set_acceleration_limit
+        real_accel = scope.motion._set_acceleration_limit_impl
         monkeypatch.setattr(
             scope.motion,
-            'set_acceleration_limit',
+            '_set_acceleration_limit_impl',
             lambda val_pct: reached_end.append(val_pct) or real_accel(val_pct=val_pct),
         )
         errors = []

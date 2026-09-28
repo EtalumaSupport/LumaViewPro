@@ -765,6 +765,9 @@ class Lumascope:
         exposure, auto-gain) -- those are the caller's responsibility
         for the active layer.
 
+        Ends by releasing the camera start gate, so the live feed starts
+        once the capture pixel format is on the camera.
+
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
         """
@@ -876,7 +879,7 @@ class Lumascope:
                 # Bring-up continues at the value the camera holds.
                 notifications.report_outcome(ex, solicited=False, category='Camera')
         # Apply the capture pixel format HERE, synchronously, while the start
-        # gate is still closed (this runs before the bring-up start_streaming).
+        # gate is still closed (this runs before the start gate is released, below).
         # Resolving + setting it now -- instead of via the async camera-executor
         # push that the image-mode spinner enqueues -- removes the race where
         # the format lands after streaming begins and forces a redundant
@@ -899,7 +902,10 @@ class Lumascope:
             self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
         self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
-        self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
+        self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
+        # Last: the one-time release of the camera start gate, once the
+        # capture pixel format above has been applied with the gate closed.
+        self.imaging._start_streaming_impl()
         logger.info('[SCOPE API ] Scope initialized')
 
     def _notify_partial_hardware(self, config) -> None:

@@ -132,6 +132,10 @@ def executors(sim_scope):
         ex.start()
     sim_scope.register_executors(camera_executor=camera, io_executor=io, file_io_executor=file_io)
     yield {'io': io, 'camera': camera, 'file_io': file_io}
+    # Unregistered before they stop: the scope fixture's own teardown stops
+    # the stream, which dispatches onto whatever lane is registered, and a
+    # stopped lane would hold it for the whole wait.
+    sim_scope.register_executors(replace=True)
     for ex in (io, camera, file_io):
         ex.shutdown()
 

@@ -5068,9 +5068,16 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api import Lumascope
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
+        from modules.lumascope_api.imaging import ImagingAPI
+
         scope = Lumascope.__new__(Lumascope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        # No camera lane: the probe's dispatch runs its body inline, as it
+        # does on a bare scope.
+        scope._camera_executor = None
+        scope.imaging = ImagingAPI.__new__(ImagingAPI)
+        scope.imaging._scope = scope
         scope.diagnostics = DiagnosticsAPI(scope)
         return scope
 
@@ -5083,13 +5090,7 @@ class TestPylonDiagnosticProbe:
 
     def test_no_camera_returns_disconnected(self):
         """Returns {'connected': False, 'errors': [...]} when no camera."""
-        from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        scope = Lumascope.__new__(Lumascope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = None
-        scope.diagnostics = DiagnosticsAPI(scope)
+        scope = self._make_scope_with_fake_camera(None)
         result = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
         assert result['connected'] is False
         assert isinstance(result.get('errors'), list)

@@ -11,6 +11,7 @@ import datetime
 import pathlib
 import re
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -50,7 +51,23 @@ def _refuse_motor_verb(command: str) -> None:
 
 
 class DiagnosticsAPI:
-    """Diagnostics sub-API. Forwards to Lumascope composition root."""
+    """Diagnostics sub-API. Forwards to Lumascope composition root.
+
+    Every member that transmits runs on its device's lane, so while a run or
+    a diagnostic holds the scope it is refused to anyone not acting under
+    the holder's taking. The one exception is the camera temperature read,
+    which the lane admits whatever holds: it changes nothing a holder
+    depends on, and the temperature log keeps running through a run. The
+    board commands go on the IO lane through the motion API's dispatcher,
+    the lane's one blocking dispatch with a wait bound.
+    """
+
+    # Wait bounds past the command's own serial timeout: queue time behind
+    # the IO lane's other work, which is a liveness margin, not a budget.
+    _BOARD_QUEUE_MARGIN_S = 30.0
+    # A grab stop or start has been measured near 11 s on a Pylon body; a
+    # cycle is one of each, so this bounds one cycle with room to spare.
+    _GRAB_CYCLE_BOUND_S = 30.0
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
@@ -255,6 +272,31 @@ class DiagnosticsAPI:
         vary_settings: bool = False,
         *,
         slow_threshold_s: float = 3.0,
+        progress_cb: Callable[[int, str], None] | None = None,
+    ) -> dict:
+        """Characterize stop_grabbing/start_grabbing latency, on the camera lane, and wait.
+
+        See ``_run_grab_lifecycle_benchmark_impl`` for the measurement and
+        the result; this adds the dispatch described on
+        ``ImagingAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
+        is called on the camera lane's worker.
+        """
+        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + max(0.0, inter_cycle_delay_ms) / 1000.0)
+        return self._scope.imaging._dispatch_camera(
+            self._run_grab_lifecycle_benchmark_impl,
+            'run_grab_lifecycle_benchmark',
+            args=(num_cycles, inter_cycle_delay_ms, vary_settings),
+            kwargs={'slow_threshold_s': slow_threshold_s, 'progress_cb': progress_cb},
+            timeout_s=max(bound_s, self._GRAB_CYCLE_BOUND_S),
+        )
+
+    def _run_grab_lifecycle_benchmark_impl(
+        self,
+        num_cycles: int = 100,
+        inter_cycle_delay_ms: float = 0.0,
+        vary_settings: bool = False,
+        *,
+        slow_threshold_s: float = 3.0,
         progress_cb=None,
     ) -> dict:
         """Characterize stop_grabbing/start_grabbing latency under back-to-back cycling.
@@ -448,6 +490,32 @@ class DiagnosticsAPI:
         return results
 
     def run_pylon_diagnostic_probe(
+        self,
+        duration_s: float = 3.0,
+        *,
+        drain_camera_side_errors: bool = True,
+        progress_cb: Callable[[int, str], None] | None = None,
+    ) -> dict:
+        """One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
+
+        See ``_run_pylon_diagnostic_probe_impl`` for the probe and its JSON;
+        this adds the dispatch described on ``ImagingAPI._dispatch_camera``.
+        The probe pops the camera's error queue, so it is a write to the
+        camera and refused while another activity holds the scope.
+        ``progress_cb`` is called on the camera lane's worker.
+        """
+        return self._scope.imaging._dispatch_camera(
+            self._run_pylon_diagnostic_probe_impl,
+            'run_pylon_diagnostic_probe',
+            args=(duration_s,),
+            kwargs={
+                'drain_camera_side_errors': drain_camera_side_errors,
+                'progress_cb': progress_cb,
+            },
+            timeout_s=duration_s + self._GRAB_CYCLE_BOUND_S,
+        )
+
+    def _run_pylon_diagnostic_probe_impl(
         self,
         duration_s: float = 3.0,
         *,
@@ -648,13 +716,24 @@ class DiagnosticsAPI:
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
             f'response_numlines={response_numlines}, timeout_s={timeout_s})'
         )
+        kwargs = {}
+        if response_numlines is not None:
+            kwargs['response_numlines'] = response_numlines
+        if timeout_s is not None:
+            # driver exchange_command keeps bare `timeout` (pyserial-shaped)
+            kwargs['timeout'] = timeout_s
+        return self._scope.motion._dispatch_motion(
+            self._exchange_command_impl,
+            'send_diagnostic_command',
+            args=(board, target, command),
+            kwargs=kwargs,
+            timeout_s=(timeout_s or 0.0) + self._BOARD_QUEUE_MARGIN_S,
+            slow_task_threshold_sec=timeout_s,
+        )
+
+    @staticmethod
+    def _exchange_command_impl(board, target: str, command: str, **kwargs) -> str:
         try:
-            kwargs = {}
-            if response_numlines is not None:
-                kwargs['response_numlines'] = response_numlines
-            if timeout_s is not None:
-                # driver exchange_command keeps bare `timeout` (pyserial-shaped)
-                kwargs['timeout'] = timeout_s
             resp = board.exchange_command(command, **kwargs)
             return resp if resp is not None else 'None'
         except Exception as e:
@@ -709,6 +788,16 @@ class DiagnosticsAPI:
             f'[SCOPE API ] send_diagnostic_command_multiline(target={target}, '
             f'command={command!r}, timeout_s={timeout_s}, end_markers={end_markers})'
         )
+        return self._scope.motion._dispatch_motion(
+            self._exchange_multiline_impl,
+            'send_diagnostic_command_multiline',
+            args=(board, target, command, timeout_s, end_markers),
+            timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
+            slow_task_threshold_sec=timeout_s,
+        )
+
+    @staticmethod
+    def _exchange_multiline_impl(board, target, command, timeout_s, end_markers):
         try:
             # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
             result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
@@ -758,6 +847,15 @@ class DiagnosticsAPI:
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'set_fan_duty'):
             return False
+        return self._scope.motion._dispatch_motion(
+            self._set_motor_fan_duty_impl,
+            'set_motor_fan_duty',
+            args=(drv, duty_pct),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _set_motor_fan_duty_impl(drv, duty_pct: int) -> bool:
         return drv.set_fan_duty(duty_pct)
 
     # --- LED engineering mode (LEDREADS / SELFTEST handshake) ---
@@ -783,6 +881,15 @@ class DiagnosticsAPI:
         drv = getattr(self._scope, '_led_driver', None)
         if drv is None or not hasattr(drv, 'enter_engineering_mode'):
             return False
+        return self._scope.motion._dispatch_motion(
+            self._enter_led_engineering_mode_impl,
+            'enter_led_engineering_mode',
+            args=(drv, timeout_s),
+            timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> bool:
         try:
             return drv.enter_engineering_mode(timeout=timeout_s)
         except Exception:
@@ -801,6 +908,15 @@ class DiagnosticsAPI:
         drv = getattr(self._scope, '_led_driver', None)
         if drv is None or not hasattr(drv, 'exit_engineering_mode'):
             return False
+        return self._scope.motion._dispatch_motion(
+            self._exit_led_engineering_mode_impl,
+            'exit_led_engineering_mode',
+            args=(drv,),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _exit_led_engineering_mode_impl(drv) -> bool:
         try:
             return bool(drv.exit_engineering_mode())
         except Exception:

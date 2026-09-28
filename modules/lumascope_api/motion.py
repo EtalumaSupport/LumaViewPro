@@ -1147,6 +1147,16 @@ class MotionAPI:
                 it gets here; an L2 caller passing its own number is not,
                 and gets told.
         """
+        return self._dispatch_motion(
+            self._set_acceleration_limit_impl,
+            'set_acceleration_limit',
+            kwargs={'val_pct': val_pct},
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def _set_acceleration_limit_impl(self, val_pct: int) -> None:
+        if not self._scope.motor_connected:
+            return
         self._driver.set_acceleration_limits(val_pct=val_pct)
 
     # ------------------------------------------------------------------
