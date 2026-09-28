@@ -99,6 +99,23 @@ class TestDerivations:
         session = _make_session(file_io_executor=None)
         assert session.protocol_files_draining is False
 
+    def test_the_pending_count_is_the_file_writers_own(self):
+        executor = _file_executor(active=True)
+        executor.protocol_queue_size.return_value = 7
+        assert _make_session(executor).protocol_files_pending == 7
+        assert _make_session(file_io_executor=None).protocol_files_pending == 0
+
+    def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
+        # One threshold for "stuck": the display of a stalled writer and
+        # the refusal of a new run over it must not disagree.
+        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
+        executor = _file_executor(active=True)
+        executor.protocol_drain_stalled.return_value = True
+        assert _make_session(executor).protocol_files_stalled is True
+        executor.protocol_drain_stalled.assert_called_once_with(WRITE_STALL_FATAL_S)
+        assert _make_session(file_io_executor=None).protocol_files_stalled is False
+
     def test_close_drain_pending_covers_both_video_drain_sources(self):
         """What a close would interrupt on the video side, in one read.
 

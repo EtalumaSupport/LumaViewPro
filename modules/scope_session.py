@@ -455,6 +455,27 @@ class ScopeSession:
         return bool(file_io_executor is not None and file_io_executor.is_protocol_queue_active())
 
     @property
+    def protocol_files_pending(self) -> int:
+        """How many of a run's file writes are still to finish, the one in
+        flight included; 0 when nothing is draining."""
+        file_io_executor = self.file_io_executor
+        return 0 if file_io_executor is None else file_io_executor.protocol_queue_size()
+
+    @property
+    def protocol_files_stalled(self) -> bool:
+        """True while a run's files are draining and the write in flight has
+        stopped making progress -- by the same stall threshold the run
+        refusal uses, so what a display says of a stuck writer and what a
+        new run is refused for cannot disagree."""
+        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
+        file_io_executor = self.file_io_executor
+        return bool(
+            file_io_executor is not None
+            and file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S)
+        )
+
+    @property
     def run_lockout(self) -> bool:
         """True while a run, a diagnostic, or a run's post-run file drain
         owns the scope.

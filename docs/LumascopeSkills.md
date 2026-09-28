@@ -611,6 +611,10 @@ the same derivations LVP's own GUI mirrors into kv properties
 session.run_lockout              # True during a run, a diagnostic, OR a run's post-run file drain
 session.is_protocol_running      # True while a protocol-class run holds the claim
 session.protocol_files_draining  # run files still writing after a run finished
+session.protocol_files_pending   # how many of those writes are left (0 when not draining); poll it --
+                                 # the count changes between transitions, the listener fires only on them
+session.protocol_files_stalled   # the drain's write in flight has stopped progressing, judged by the
+                                 # same threshold that refuses a new run (files_writing_stalled)
 session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
