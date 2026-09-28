@@ -237,6 +237,18 @@ def lit():
 
 
 @firmware_only
+def test_the_first_command_after_connect_gets_its_own_reply():
+    # Connect turns the LEDs off. A reply to that left unread is taken by
+    # the next command as its own: INFO would read 'LED 0 has been turned off'.
+    board = LEDBoard(backend=SimWireBackend(None, led=LED))
+    try:
+        assert board.last_safety_off_error is None
+        assert 'Version' in board.exchange_command('INFO', timeout=2)
+    finally:
+        board.disconnect()
+
+
+@firmware_only
 class TestWhatTheDacDrives:
     OFF = (True, True, 0)
 

@@ -42,8 +42,9 @@ class LEDBoard(SerialBoard):
             'Green': -1,
         }
 
-        # Set by _safety_leds_off() at connect time. None when LEDS_OFF
-        # send succeeded; "ExceptionType: message" when it failed. API
+        # Set by _safety_leds_off() at connect time. None when the board
+        # confirmed LEDS_OFF; the reason when it did not answer, or
+        # "ExceptionType: message" when the exchange raised. API
         # layer reads this on construction to fire a notification.
         self.last_safety_off_error: str | None = None
 
@@ -78,15 +79,19 @@ class LEDBoard(SerialBoard):
         Guards against pre-v3.0.4 LED firmware that could leave channels
         stuck on at full current after a crash / interrupted session,
         risking thermal damage (62 degC measured at 3 A continuous) and
-        sample photobleaching. Uses fire-and-forget write to minimize
-        delay. If the board doesn't respond, this is a best-effort
-        attempt; the failure is recorded in self.last_safety_off_error
-        so the API layer can fire a user-visible notification.
+        sample photobleaching. The reply is read like any other command's:
+        a reply left unread is taken by the next command as its own. If
+        the board doesn't answer, the failure is recorded in
+        self.last_safety_off_error so the API layer can fire a
+        user-visible notification.
         """
         try:
-            self._write_command_fast('LEDS_OFF')
-            logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
-            self.last_safety_off_error = None
+            self.leds_off()
+            if self.last_command_error is not None:
+                self.last_safety_off_error = self.last_command_error['reason']
+            else:
+                logger.info('[LED Class ] Safety LEDS_OFF confirmed on connect')
+                self.last_safety_off_error = None
         except Exception as e:
             logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
             self.last_safety_off_error = f'{type(e).__name__}: {e}'
