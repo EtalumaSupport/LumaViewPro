@@ -451,6 +451,10 @@ class ImagingAPI:
             'min_frame_size': {'width': 0, 'height': 0},
             'max_exposure_ms': 0.0,
             'max_gain_db': 0.0,
+            # The floors are None until a camera declares one, and stay None
+            # when it declares none: a missing floor is not a floor of zero.
+            'min_exposure_ms': None,
+            'min_gain_db': None,
             'pixel_format': None,
             'binning': 1,
         }
@@ -570,6 +574,21 @@ class ImagingAPI:
                 lambda driver: driver.get_max_gain(),
                 lambda v: isinstance(v, (int, float)) and v > 0,
                 float,
+            )
+            # Committed as read, None included, rather than through the
+            # validated read: an undeclared floor is an answer, not a failed
+            # read, and it must replace a previous camera's floor.
+            min_gain = self._driver.min_gain
+            min_exposure = self._driver.get_min_exposure()
+            self._commit_camera_writes(
+                {
+                    'min_gain_db': float(min_gain) if min_gain is not None else None,
+                    'min_exposure_ms': (
+                        float(min_exposure)
+                        if common_utils.is_valid_exposure_ms(min_exposure)
+                        else None
+                    ),
+                }
             )
             with self._camera_cache_lock:
                 self._camera_cache['active'] = True
@@ -3660,6 +3679,26 @@ class ImagingAPI:
         if value is None or value <= 0:
             return None
         return float(value)
+
+    @property
+    def min_gain_db_cached(self) -> float | None:
+        """Minimum camera gain in dB, or None when the camera declares none.
+
+        Unlike the maximum there is no stand-in: None is the answer for a
+        camera whose profile has no floor, and a caller checking a request
+        against the range does not check that end.
+        """
+        with self._camera_cache_lock:
+            value = self._camera_cache.get('min_gain_db')
+        return None if value is None else float(value)
+
+    @property
+    def min_exposure_ms_cached(self) -> float | None:
+        """Minimum camera exposure in ms, or None when the camera declares
+        none. See ``min_gain_db_cached``."""
+        with self._camera_cache_lock:
+            value = self._camera_cache.get('min_exposure_ms')
+        return None if value is None else float(value)
 
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
         """What a stored gain becomes on the attached camera.

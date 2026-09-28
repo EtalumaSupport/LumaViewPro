@@ -1063,6 +1063,7 @@ class SequencedCaptureRunner:
         # After the connection gate, so a motorized scope whose board fell
         # off is told it is disconnected rather than that it cannot move.
         self._scope.protocols.refuse_unreachable_positions(protocol.steps())
+        self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
         # Every run mode moves every axis this scope has, and each move on
         # an axis whose position is not known is refused -- so a run

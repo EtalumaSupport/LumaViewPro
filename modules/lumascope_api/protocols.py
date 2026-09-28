@@ -28,6 +28,7 @@ ask four different ones.
 from __future__ import annotations
 
 import logging
+import math
 import pathlib
 import typing
 from collections.abc import Iterable
@@ -42,6 +43,15 @@ if TYPE_CHECKING:
     from modules.protocol import Protocol
 
 _api_log = logging.getLogger('LVP.api')
+
+
+def _camera_range(low: float | None, high: float | None, unit: str) -> str:
+    """A camera's range for a person: both ends when both are declared."""
+    if low is None:
+        return f'at most {high:g} {unit}'
+    if high is None:
+        return f'at least {low:g} {unit}'
+    return f'{low:g} to {high:g} {unit}'
 
 
 class ProtocolsAPI:
@@ -528,6 +538,65 @@ class ProtocolsAPI:
                     f'This protocol needs the scope to move, and this scope has no motor for '
                     f'{missing}: {"; ".join(needed)}.\n\nUse a protocol whose steps are all at '
                     'one position on those axes, without autofocus if there is no Z motor.'
+                ),
+            )
+
+    def refuse_camera_values_out_of_range(self, steps: pd.DataFrame) -> None:
+        """Refuse a protocol whose steps ask the camera for a value it cannot take.
+
+        A step stores a gain and an exposure, and the run hands them to the
+        camera at every capture. A stored value outside this camera's range --
+        one saved on a camera that could reach it, or the old 48 dB Lumi
+        default a ``current.json`` still carries -- is refused by the camera
+        setter at every step, and the run would abandon scan after scan. So
+        the run is refused before it starts, naming each step, and the stored
+        values are left alone: the same value may be right on the next,
+        larger camera.
+
+        A limit the camera does not declare is not checked (the API caches it
+        as None): a missing floor is not a floor of zero.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this rule by starting a run, which asks it here.
+
+        Args:
+            steps: The protocol's steps table (``Protocol.steps()``).
+
+        Raises:
+            ProtocolRunRefusedError: A step's gain or exposure is outside the
+                camera's range. It has been logged and shown before it is
+                raised.
+        """
+        imaging = self._scope.imaging
+        checks = (
+            ('Gain', 'gain', 'dB', imaging.min_gain_db_cached, imaging.max_gain_db_cached),
+            (
+                'Exposure',
+                'exposure',
+                'ms',
+                imaging.min_exposure_ms_cached,
+                imaging.max_exposure_ms_cached,
+            ),
+        )
+        problems = []
+        for _, step in steps.iterrows():
+            for column, word, unit, low, high in checks:
+                value = float(step[column])
+                # A blank cell reads as NaN; it asks the camera for nothing.
+                if math.isnan(value):
+                    continue
+                if (low is not None and value < low) or (high is not None and value > high):
+                    problems.append(
+                        f'Step "{step["Name"]}" ({step["Color"]}): {word} {value:g} {unit} is '
+                        f"outside this camera's range, {_camera_range(low, high, unit)}."
+                    )
+        if problems:
+            self._refuse(
+                reason='camera_setting_out_of_range',
+                title='Camera Setting Out of Range',
+                message=(
+                    '\n'.join(problems)
+                    + '\n\nEdit these steps to values this camera can take, then run again.'
                 ),
             )
 
