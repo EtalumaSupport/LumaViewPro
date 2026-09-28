@@ -27,6 +27,7 @@ import modules.image_mode as image_mode
 from modules.exceptions import (
     AutofocusAborted,
     AxisStateUnknownError,
+    CameraSettingRejected,
     HardwareCommandRefusedError,
 )
 from modules.lumascope_api.illumination import (
@@ -36,6 +37,7 @@ from modules.lumascope_api.illumination import (
     LedTransitionCtx,
     resolve_end_state,
 )
+from modules.notification_center import notifications
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
@@ -356,19 +358,25 @@ class ProtocolStepRunner:
             p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
                 step['Color']
             )
-            p._scope.imaging.apply_layer_camera_settings(
-                layer=step['Color'],
-                gain_db=step['Gain'],
-                exposure_ms=step['Exposure'],
-                auto_gain=True,
-                auto_gain_settings=p._autogain_settings,
-                # A step's arm is unattended: the capture that locks it
-                # records the state and moves on -- no notice, no re-arm (the
-                # step-end disarm below is the only Off this path needs). Left
-                # at the live-view default, every protocol capture re-armed and
-                # popped a notice.
-                resume_after_capture=False,
-            )
+            try:
+                p._scope.imaging.apply_layer_camera_settings(
+                    layer=step['Color'],
+                    gain_db=step['Gain'],
+                    exposure_ms=step['Exposure'],
+                    auto_gain=True,
+                    auto_gain_settings=p._autogain_settings,
+                    # A step's arm is unattended: the capture that locks it
+                    # records the state and moves on -- no notice, no re-arm
+                    # (the step-end disarm below is the only Off this path
+                    # needs). Left at the live-view default, every protocol
+                    # capture re-armed and popped a notice.
+                    resume_after_capture=False,
+                )
+            except CameraSettingRejected as rejected:
+                # The apply ran every write before raising, so auto-gain is
+                # armed and the step goes on at the value the camera holds;
+                # the refusal ends its flight here.
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
             p._auto_gain_armed_step = p._curr_step
             # Return after arming; the next tick falls through to capture, where
             # the auto_gain settle drain runs against the now-lit scene.

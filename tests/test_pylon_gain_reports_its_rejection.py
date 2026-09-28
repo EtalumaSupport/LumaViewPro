@@ -162,11 +162,12 @@ class TestARefusalIsNotRecordedAsTruth:
             'a chunk target no frame can carry rejects every frame the camera produces'
         )
 
-    def test_the_user_is_told_as_well(self, pylon_imaging):
+    def test_the_api_shows_nothing_itself(self, pylon_imaging):
         imaging, cam, captured = pylon_imaging
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
 
-        with pytest.raises(CameraSettingRejected):
+        with pytest.raises(CameraSettingRejected) as excinfo:
             imaging.set_gain_db(30.0)
 
-        assert captured, 'the refusal reaches the user, not only the caller'
+        assert not captured, 'the refusal is shown by its reporter, not by the API'
+        assert excinfo.value.title, 'and it carries the words the reporter shows'

@@ -27,6 +27,7 @@ from modules.activity_claim import BorrowedClaim
 from modules.exceptions import CameraSettingRejected, ObjectiveUnknownError
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
+from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
 from modules.run_outcome import EndingLatch, RunEnding
@@ -690,10 +691,9 @@ class ProtocolImageWriter:
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
                 #
-                # A setting the camera rejects is reported where it is
-                # rejected (logged and notified) and the step captures at the
-                # value the camera holds: one refused gain is not a reason to
-                # end a run.
+                # A setting the camera rejects ends its flight here: it is
+                # reported once and the step captures at the value the camera
+                # holds -- one refused gain is not a reason to end a run.
                 imaging = self._scope.imaging
                 for setter, value in (
                     (imaging.set_gain_db, step['Gain']),
@@ -702,10 +702,7 @@ class ProtocolImageWriter:
                     try:
                         setter(value)
                     except CameraSettingRejected as rejected:
-                        logger.warning(
-                            f'[Protocol] step {step.get("Name", "?")}: {rejected}; '
-                            'capturing at the value the camera holds'
-                        )
+                        notifications.report_outcome(rejected, solicited=False, category='Camera')
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid

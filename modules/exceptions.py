@@ -638,11 +638,8 @@ class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it 
 
     A fault, not a refusal: the camera did not take a value it should
     have, and the words say so. They are written for the person, so the
-    one reporter shows them where the flight stops; the frame-size,
-    binning and pixel-format setters neither log nor notify. The gain and
-    exposure setters still notify in their impls, whose in-run callers
-    consume a status rather than this raise; until those callers report
-    instead, a caller that reports one of those two shows it twice.
+    one reporter shows them where the flight stops; no setter logs or
+    notifies it.
 
     Attributes:
         setting: Machine-readable setting name (e.g. 'frame_size').

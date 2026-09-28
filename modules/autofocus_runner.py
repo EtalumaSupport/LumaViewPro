@@ -594,9 +594,9 @@ class AutofocusRunner:
             self._camera_gain = lock.gain_db
             self._camera_exposure = lock.exposure_ms
             return 'lock'
-        # A target the camera rejects is reported where it is rejected
-        # (logged and notified) and the sweep scans at the value the camera
-        # holds: one refused gain is not a reason to abandon the focus.
+        # A target the camera rejects ends its flight here: it is reported
+        # once and the sweep scans at the value the camera holds -- one
+        # refused gain is not a reason to abandon the focus.
         imaging = self._scope.imaging
         for setter, value in (
             (imaging.set_gain_db, self._camera_gain),
@@ -607,7 +607,7 @@ class AutofocusRunner:
             try:
                 setter(value)
             except CameraSettingRejected as rejected:
-                _af_log.warning(f'[AF] {rejected}; sweeping at the value the camera holds')
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
         return 'step'
 
     def _camera_state_to_restore(self) -> dict:

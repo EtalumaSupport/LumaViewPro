@@ -293,15 +293,16 @@ class TestSaturationGuard:
         assert np.array_equal(out, blown)
 
 
-class TestRejectedSettingNotifiesAndKeepsCache:
+class TestRejectedSettingRaisesAndKeepsCache:
     """A driver that CONFIRMS a settings-write rejection (returns False;
-    drivers with no confirmation signal return None) must produce a user
-    notification, and the requested value must NOT be recorded in the
-    camera cache as if it took. IDS has no chunk data, so without this
+    drivers with no confirmation signal return None) must reach the caller
+    as a raise -- which carries the words its reporter shows, so the API
+    posts nothing itself -- and the requested value must NOT be recorded in
+    the camera cache as if it took. IDS has no chunk data, so without this
     the camera streams at the old setting while the cache claims the
     new one -- the silent stale-settings shape."""
 
-    def test_rejected_gain_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
+    def test_rejected_gain_raises_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
         captured = []
         monkeypatch.setattr(
@@ -311,18 +312,18 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
-        # The public setter also raises the rejection to its caller; what this
-        # test pins is what happens on the way out -- the user is told, and the
+        # The public setter raises the rejection to its caller; what this test
+        # pins is what happens on the way out -- the API posts nothing, and the
         # cache keeps the value the camera actually holds.
         with pytest.raises(CameraSettingRejected):
             imaging.set_gain_db(7.0)
 
-        assert captured, 'A confirmed gain rejection must notify the user'
+        assert not captured, 'A confirmed gain rejection is shown by its reporter, not the API'
         assert imaging.gain_db_cached == 2.0, (
             'A rejected gain write must not be recorded in the cache'
         )
 
-    def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
+    def test_rejected_exposure_raises_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
         captured = []
         monkeypatch.setattr(
@@ -333,11 +334,11 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
         # See the gain case above: the raise is the public setter's contract,
-        # the notification and the held cache are what this test pins.
+        # the silent API and the held cache are what this test pins.
         with pytest.raises(CameraSettingRejected):
             imaging.set_exposure_ms(50.0)
 
-        assert captured, 'A confirmed exposure rejection must notify the user'
+        assert not captured, 'A confirmed exposure rejection is shown by its reporter, not the API'
         assert imaging.exposure_ms_cached == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
         )

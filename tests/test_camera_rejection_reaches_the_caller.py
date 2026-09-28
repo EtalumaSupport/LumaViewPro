@@ -78,15 +78,16 @@ class TestAConfirmedRejectionReachesTheCaller:
         assert excinfo.value.setting == 'exposure_ms'
         assert excinfo.value.requested == 25.0
 
-    def test_the_user_is_still_told(self, sim_imaging, notified, monkeypatch):
-        """The raise is added to the notification, it does not replace it."""
+    def test_the_api_shows_nothing_itself(self, sim_imaging, notified, monkeypatch):
+        """The raise carries the words; whoever ends its flight shows them, so
+        the API posting too would show the one refusal twice."""
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         with pytest.raises(CameraSettingRejected):
             imaging.set_gain_db(7.0)
 
-        assert notified, 'a rejection must still reach the user at the GUI'
+        assert not notified, 'the refusal is shown by its reporter, not by the API'
 
 
 class TestOnlyAConfirmedRejectionRaises:
@@ -242,14 +243,14 @@ class TestTheImplsStayNonRaising:
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         assert imaging._set_gain_db_impl(7.0) is False
-        assert notified, 'the impl still surfaces the refusal'
+        assert not notified, 'the impl answers the refusal; its caller reports it'
 
     def test_the_exposure_impl_reports_without_raising(self, sim_imaging, notified, monkeypatch):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
         assert imaging._set_exposure_ms_impl(25.0) is False
-        assert notified, 'the impl still surfaces the refusal'
+        assert not notified, 'the impl answers the refusal; its caller reports it'
 
     def test_an_auto_gain_lock_survives_a_refused_write(self, sim_imaging, notified, monkeypatch):
         """The lock consumes the arm; a raise would strand it, disarmed."""
