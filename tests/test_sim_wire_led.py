@@ -10,14 +10,18 @@ it, the firmware reaching its DAC through the chip select the board wires
 to it.
 """
 
+import os
 import pathlib
+import subprocess
 import sys
+import time
 
 import pytest
 import serial
 
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
+from drivers.sim_wire import backend as sim_backend
 from drivers.sim_wire.backend import (
     LED_DEVICE,
     LED_ENABLE_PINS,
@@ -279,3 +283,117 @@ class TestWhatTheDacDrives:
         backend = SimWireBackend(None, led=LED)
         with pytest.raises(serial.SerialException, match='oracle is off'):
             backend.led_board.state('DAC')
+
+
+def _read_for(port, seconds):
+    """Every byte the board sends within `seconds`."""
+    deadline = time.monotonic() + seconds
+    out = b''
+    while time.monotonic() < deadline:
+        out += port.read(4096)
+    return out
+
+
+def _booted_led_port():
+    backend = SimWireBackend(None, led=LED)
+    port = backend.open(port=LED_DEVICE, baudrate=115200, timeout=0.1, write_timeout=1)
+    deadline = time.monotonic() + 5
+    while b'Calibration' not in _read_for(port, 0.2):
+        if time.monotonic() > deadline:
+            raise AssertionError('the LED board never printed its INFO banner at boot')
+    return backend, port
+
+
+@firmware_only
+class TestTheConsole:
+    """The field LED firmware's factory() asks with input(), which on the
+    board's MicroPython 1.19 is readline.c: a line ends on a carriage return
+    only; a newline is not a line end and is dropped; a printable byte is
+    echoed as it is typed."""
+
+    def test_a_newline_does_not_answer_the_factory_prompt_and_a_return_does(self):
+        _backend, port = _booted_led_port()
+        try:
+            port.write(b'FACTORY\n')
+            assert b'Y/N' in _read_for(port, 1.0)
+            port.write(b'Y\n')
+            # The Y is echoed; the newline ends nothing, so factory() still waits.
+            assert _read_for(port, 1.0) == b'Y'
+            port.write(b'\r')
+            answer = _read_for(port, 1.0)
+            assert answer.startswith(b'\r\n')
+            assert b'Engineering Mode' in answer
+        finally:
+            port.close()
+
+    def test_the_driver_wedges_the_board_in_factory_and_recovers_it(self, monkeypatch):
+        # SN 12075's tech support run: FACTORY, then the driver's Y and every
+        # command after it met a factory() that never saw a line end, until
+        # exit_engineering_mode found INFO unanswered and soft-reset the board.
+        board = LEDBoard(backend=SimWireBackend(None, led=LED))
+        recovery = []
+        safe_write = board._safe_write
+
+        def _recorded(data, context):
+            recovery.append(data)
+            return safe_write(data, context=context)
+
+        monkeypatch.setattr(board, '_safe_write', _recorded)
+        try:
+            assert board.enter_engineering_mode(timeout=1.0)
+            assert 'Version' not in (board.exchange_command('INFO', timeout=1) or '')
+            board.exit_engineering_mode()
+            assert recovery == [b'\x03', b'\x03', b'\x02', b'\x04']
+            assert 'Version' in board.exchange_command('INFO', timeout=2)
+        finally:
+            board.disconnect()
+
+
+def _console(dialect, typed):
+    """What `input('P> ')` prints and answers on a dialect's runtime with the
+    board's console in place, given the bytes typed at it."""
+    mp = pathlib.Path('drivers/sim_wire/mp').resolve()
+    result = subprocess.run(
+        [
+            str(sim_backend.runtime_path(dialect)),
+            '-c',
+            "import console\ntry:\n    print(repr(input('P> ')))\n"
+            'except BaseException as e:\n    print(type(e).__name__)',
+        ],
+        input=typed,
+        capture_output=True,
+        timeout=10,
+        env=dict(os.environ, MICROPYPATH=str(mp)),
+    )
+    return result.stdout
+
+
+@firmware_only
+class TestTheConsoleByteByByte:
+    """readline.c 1.19's answer to each byte the model takes, run on the
+    board's runtime with nothing between the bytes and input()."""
+
+    def test_a_return_ends_the_line_and_a_newline_does_not(self):
+        assert _console('field', b'Y\nES\r') == b"P> YES\r\n'YES'\n"
+
+    def test_ctrl_c_is_a_keyboard_interrupt(self):
+        assert _console('field', b'Y\x03') == b'P> YKeyboardInterrupt\n'
+
+    def test_ctrl_d_on_an_empty_line_is_end_of_file(self):
+        assert _console('field', b'\x04') == b'P> EOFError\n'
+
+    def test_ctrl_b_on_an_empty_line_is_an_empty_answer(self):
+        assert _console('field', b'\x02') == b"P> ''\n"
+
+    def test_ctrl_d_and_ctrl_e_in_a_line_leave_it_as_typed(self):
+        assert _console('field', b'Y\x04\x05\r') == b"P> Y\r\n'Y'\n"
+
+    def test_a_byte_that_would_reach_line_editing_is_refused(self):
+        assert _console('field', b'Y\x1b') == b'P> YValueError\n'
+
+    def test_the_host_closing_the_input_is_end_of_file(self):
+        assert _console('field', b'Y') == b'P> YEOFError\n'
+
+    def test_a_later_runtime_keeps_its_own_input(self):
+        # 1.28's readline ends a line on a newline too; the model is 1.19's.
+        assert b"'Y'" in _console('3.0', b'Y\n')

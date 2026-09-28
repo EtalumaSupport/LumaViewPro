@@ -92,11 +92,12 @@ INTERRUPT_SETTLE_S = 1.0
 
 # Runs the firmware with a watcher beside it. The watcher polls this
 # interpreter's pid and kills the firmware (whose pid is the shell's, via
-# exec) when this interpreter is gone, or exits when the firmware is.
+# exec) when this interpreter is gone, or exits when the firmware is. The
+# board's console (`mp/console.py`) is in place before the firmware starts.
 _LAUNCH = (
     '(while kill -0 "$1" 2>/dev/null && kill -0 $$ 2>/dev/null; do sleep 1; done; '
     'kill -9 $$ 2>/dev/null) </dev/null >/dev/null 2>&1 & '
-    'exec "$2" -i -c "import main"'
+    'exec "$2" -i -c "import console; import main"'
 )
 
 
