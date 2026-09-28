@@ -643,7 +643,7 @@ _UI_EXCEPT_PIN = {
     ('ui/protocol_settings.py', 'ValueError'): 2,
     ('ui/scope_display.py', 'Exception'): 3,
     ('ui/shader.py', 'Exception'): 2,
-    ('ui/stage.py', 'Exception'): 5,
+    ('ui/stage.py', 'Exception'): 4,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
     ('ui/ui_helpers.py', 'AxisStateUnknownError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,

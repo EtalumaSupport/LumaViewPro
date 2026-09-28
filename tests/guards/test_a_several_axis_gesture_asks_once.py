@@ -1,20 +1,30 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A GUI gesture that moves several axes asks, once, before it moves any.
+"""A GUI gesture that moves several axes is one task on the IO lane.
 
-Each ``move_absolute`` / ``move_relative`` is its own fire-and-forget task,
-refused on the motion lane when its axis does not know its position. A
+Each ``move_absolute`` / ``move_relative`` submitted on its own is its own
+lane task, refused on the lane when its axis does not know its position. A
 gesture issuing two or three of them on an un-homed scope was refused once
-per axis, after it had already moved on, and the notification centre's dedup
-showed one popup naming X. The motion API answers the whole gesture at once
-(``refuse_unknown_positions``, through ``ui_helpers.unknown_position_refused``);
-this keeps every several-axis gesture asking it, including the next one.
+per axis, after it had already moved on; and a check asked on the GUI thread
+first could be overtaken by a home or a stop before the moves ran.
+``ui_helpers.submit_gesture`` asks the motion API once and moves, in one
+task; this keeps every several-axis gesture going through it, including the
+next one.
 """
 
 import ast
 
-from tests.ast_seams import iter_package_modules, walk_defs
+from tests.ast_seams import iter_package_modules
 
 _MOVES = frozenset({'move_absolute', 'move_relative'})
+
+
+def _called_name(call):
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
 
 def _own_calls(fn):
@@ -24,7 +34,7 @@ def _own_calls(fn):
         node = stack.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
             continue
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        if isinstance(node, ast.Call):
             yield node
         stack.extend(ast.iter_child_nodes(node))
 
@@ -38,20 +48,55 @@ def _axis_of(call):
     return None
 
 
-def _several_axis_gestures():
-    """``{'path::qualname': (first move line, [ask lines])}`` for every such gesture."""
+def _defs_with_parents(tree):
+    """``(qualname, def, enclosing def or None)`` for every def, however nested."""
+    found = []
+
+    def visit(node, prefix, enclosing):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, f'{prefix}{child.name}.', enclosing)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = f'{prefix}{child.name}'
+                found.append((qualname, child, enclosing))
+                visit(child, f'{qualname}.', child)
+            else:
+                visit(child, prefix, enclosing)
+
+    visit(tree, '', None)
+    return found
+
+
+def _submits_as_gesture(enclosing, fn):
+    """True when *enclosing* hands *fn* to ``submit_gesture`` as its moves."""
+    if enclosing is None:
+        return False
+    return any(
+        _called_name(call) == 'submit_gesture'
+        and any(
+            kw.arg == 'moves' and isinstance(kw.value, ast.Name) and kw.value.id == fn.name
+            for kw in call.keywords
+        )
+        for call in _own_calls(enclosing)
+    )
+
+
+def _several_axis_movers():
+    """``{'path::qualname': (enclosing def's qualname, submitted as a gesture)}``."""
     found = {}
     for rel, tree in iter_package_modules(['ui']):
         if rel == 'ui/ui_helpers.py':
             continue  # the move helpers themselves
-        for qualname, fn in walk_defs(tree.body):
-            calls = list(_own_calls(fn))
-            moves = [c for c in calls if c.func.id in _MOVES]
-            axes = {_axis_of(c) for c in moves} - {None}
-            if len(axes) < 2:
+        defs = _defs_with_parents(tree)
+        names = {id(node): qualname for qualname, node, _ in defs}
+        for qualname, fn, enclosing in defs:
+            moves = [c for c in _own_calls(fn) if _called_name(c) in _MOVES]
+            if len({_axis_of(c) for c in moves} - {None}) < 2:
                 continue
-            asks = [c.lineno for c in calls if c.func.id == 'unknown_position_refused']
-            found[f'{rel}::{qualname}'] = (min(c.lineno for c in moves), asks)
+            found[f'{rel}::{qualname}'] = (
+                names.get(id(enclosing)),
+                _submits_as_gesture(enclosing, fn),
+            )
     return found
 
 
@@ -59,21 +104,21 @@ def test_the_gestures_are_the_ones_known():
     """A new several-axis gesture is caught by the rule below; this pins that the
     scan still sees the ones it was written against, so a refactor that hides a
     gesture from it (a variable axis, a new helper) is noticed."""
-    assert set(_several_axis_gestures()) >= {
+    gestures = {
+        f'{key.split("::")[0]}::{enclosing}'
+        for key, (enclosing, _) in _several_axis_movers().items()
+    }
+    assert gestures >= {
         'ui/scope_display.py::ScopeDisplay.touch',
         'ui/stage.py::Stage.on_touch_down',
         'ui/step_navigation.py::go_to_step',
     }
 
 
-def test_every_several_axis_gesture_asks_before_it_moves():
-    offenders = [
-        key
-        for key, (first_move, asks) in _several_axis_gestures().items()
-        if not asks or min(asks) > first_move
-    ]
+def test_every_several_axis_gesture_is_one_lane_task():
+    offenders = [key for key, (_, submitted) in _several_axis_movers().items() if not submitted]
 
     assert offenders == [], (
-        'these move several axes without first asking the motion API whether the '
-        f'scope knows where they are (ui_helpers.unknown_position_refused): {offenders}'
+        'these move several axes outside ui_helpers.submit_gesture, so each axis is '
+        f'asked and refused on its own: {offenders}'
     )

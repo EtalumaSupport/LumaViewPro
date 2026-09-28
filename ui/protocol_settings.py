@@ -664,7 +664,7 @@ class ProtocolSettings(FloatLayout):
             self._protocol.optimize_step_ordering()
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
             self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
+            self.go_to_step(step_idx=self.curr_step)
         except Exception as e:
             logger.error(f'[UI] apply_tiling failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -738,7 +738,7 @@ class ProtocolSettings(FloatLayout):
             self._protocol.optimize_step_ordering()
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
             self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
+            self.go_to_step(step_idx=self.curr_step)
         except Exception as e:
             logger.error(f'[UI] apply_zstacking failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -881,7 +881,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol = protocol
         ctx.settings['protocol']['filepath'] = ''
         self.curr_step = 0
-        self.go_to_step(step_idx=0, protocol=False)
+        self.go_to_step(step_idx=0)
 
     def _draw_protocol_steps(self) -> None:
         """Show the panel's protocol: its steps on the stage and in the step editor."""
@@ -1104,7 +1104,7 @@ class ProtocolSettings(FloatLayout):
         # inside the constructor; once it moved behind the objective
         # question it was answering a question it could no longer see.
         if navigate:
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
+            self.go_to_step(step_idx=self.curr_step)
 
         return True
 
@@ -1314,9 +1314,9 @@ class ProtocolSettings(FloatLayout):
         if obj.text != typed:
             gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
 
-        self.go_to_step(step_idx=val - 1, protocol=False)
+        self.go_to_step(step_idx=val - 1)
 
-    def go_to_step(self, step_idx: int, protocol=True):
+    def go_to_step(self, step_idx: int):
         # step_idx is required so every caller states its target instead of
         # pre-writing curr_step: the navigation module detects a real step
         # change by comparing the target against curr_step, and a caller
@@ -1330,7 +1330,6 @@ class ProtocolSettings(FloatLayout):
             step_idx=step_idx,
             ignore_auto_gain=False,
             include_move=True,
-            called_from_protocol=protocol,
         )
 
     # Goto to Previous Step
@@ -1346,7 +1345,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=max(self.curr_step - 1, 0), protocol=False)
+        self.go_to_step(step_idx=max(self.curr_step - 1, 0))
 
     # Go to Next Step
     def next_step(self) -> None:
@@ -1359,7 +1358,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1), protocol=False)
+        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1))
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -1382,7 +1381,7 @@ class ProtocolSettings(FloatLayout):
                 self.curr_step = max(self.curr_step - 1, 0)
 
             self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
+            self.go_to_step(step_idx=self.curr_step)
         except Exception as e:
             logger.error(f'[UI] delete_step failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -1458,7 +1457,7 @@ class ProtocolSettings(FloatLayout):
             self.curr_step += 1
 
         self._warn_if_steps_invalid('Step added')
-        self.go_to_step(step_idx=self.curr_step, protocol=False)
+        self.go_to_step(step_idx=self.curr_step)
 
     def _warn_if_steps_invalid(self, what: str) -> None:
         errors = self._protocol.validate_steps()

@@ -344,6 +344,75 @@ def move_relative(
     )
 
 
+def submit_gesture(
+    label: str,
+    *,
+    axes: typing.Iterable[str],
+    then: str,
+    moves: typing.Callable[[], None],
+    on_moved: typing.Callable[[], None] | None = None,
+) -> None:
+    """Run a person's several-axis gesture as one task on the IO lane.
+
+    The lane asks the motion API once whether every axis the gesture needs
+    knows where it is, then runs *moves*, whose members run inline there. A
+    home or a stop can no longer land between the question and the moves,
+    and a refusal is shown once by the reporter instead of once per axis.
+    A move refused part way leaves the axes that already moved where they
+    went.
+
+    Submits and returns; nothing here waits on the lane, so a caller that
+    is itself running inline on a lane may start a gesture.
+
+    Args:
+        label: The gesture, as the reporter and the executor name it.
+        axes: The axes the gesture moves. They are asked about, and redrawn
+            once the task has ended whatever its outcome. Empty when the
+            gesture moves nothing (the scope has no motor board).
+        then: What the user does once the scope knows its position, ending
+            the refusal the API shows.
+        moves: The API calls, all on the IO lane.
+        on_moved: GUI work that belongs to a gesture that happened, run on
+            the GUI thread after the redraw and only when *moves* returned.
+    """
+    ctx = _app_ctx.ctx
+    axes = tuple(axes)
+    if _user_motion_locked(label):
+        return
+    motion = ctx.scope.motion
+    # Written on the lane, read by the redraw, which submit_reported runs
+    # once after the task has ended: the one thing the redraw needs to know
+    # about the outcome the reporter has already shown.
+    moved = False
+
+    def call() -> None:
+        nonlocal moved
+        if axes:
+            motion.refuse_unknown_positions(axes, recording=False, then=then)
+        moves()
+        moved = True
+
+    def redraw() -> None:
+        _redraw_gesture_axes(axes)
+        if moved and on_moved is not None:
+            on_moved()
+
+    submit_reported(call, redraw, label, lane=ctx.io_executor)
+
+
+def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:
+    ctx = _app_ctx.ctx
+    vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+    if 'X' in axes or 'Y' in axes:
+        ctx.motion_settings.update_xy_stage_control_gui()
+    if 'Z' in axes:
+        vertical_control.update_gui()
+    if 'T' in axes:
+        # A person's turret move: after a failed one the objective question
+        # is asked again.
+        vertical_control.show_turret_state()
+
+
 def move_home(axis: str, wait: bool = False):
     """Home an axis. Returns whether it succeeded when ``wait`` is set.
 

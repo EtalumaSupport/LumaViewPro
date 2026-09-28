@@ -15,9 +15,10 @@ first slider touch, and the panel won.
 
 Contract under test:
 
-- ``go_to_step`` writes the layer's settings ONLY for manual navigation
-  (``called_from_protocol=False``); a protocol-cycle invocation displays the
-  step and leaves the settings alone.
+- ``go_to_step`` writes the layer's settings ONLY for a person's navigation
+  (``include_move=True``); the run's display of its step
+  (``include_move=False``) moves the step pointer and leaves the settings
+  alone.
 - ``LayerControl.set_step_state`` is a pure widget setter: it touches no
   settings.
 - At run end the cleanup schedules ``sync_layer_widgets`` exactly once,
@@ -88,7 +89,7 @@ STEP_TO_SETTINGS = {
 }
 
 
-def _go_to_step(step, *, called_from_protocol, include_move=True):
+def _go_to_step(step, *, include_move=True):
     import ui.step_navigation as step_navigation
 
     protocol = SimpleNamespace(
@@ -99,30 +100,10 @@ def _go_to_step(step, *, called_from_protocol, include_move=True):
         protocol,
         step_idx=0,
         include_move=include_move,
-        called_from_protocol=called_from_protocol,
     )
 
 
 class TestRunNavigationLeavesLayerSettingsAlone:
-    def test_run_navigation_leaves_layer_settings_alone(self, stepnav_env):
-        """A protocol-cycle invocation leaves the layer's settings exactly
-        as they were. The display still follows: the widget setter is
-        called once with the step -- the green half of this test, so a
-        future change cannot silence the display to satisfy the red half."""
-        env = stepnav_env
-        env.ctx.session.run_lockout = True
-        before = copy.deepcopy(env.ctx.settings['Green'])
-        step = _make_step()
-
-        _go_to_step(step, called_from_protocol=True)
-
-        assert env.ctx.settings['Green'] == before, (
-            "a protocol run must not write the step into the user's layer settings; "
-            f'changed: {sorted(k for k in before if env.ctx.settings["Green"].get(k) != before[k])}'
-        )
-        assert env.layer_obj.set_step_state.call_count == 1
-        assert env.layer_obj.set_step_state.call_args.args[0] is step
-
     def test_run_navigation_without_move_neither_writes_nor_displays(self, stepnav_env):
         """include_move=False skips the whole step block, the display update
         included. Recorded so a future caller cannot lose the display
@@ -131,27 +112,27 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         env.ctx.session.run_lockout = True
         before = copy.deepcopy(env.ctx.settings['Green'])
 
-        _go_to_step(_make_step(), called_from_protocol=True, include_move=False)
+        _go_to_step(_make_step(), include_move=False)
 
         assert env.ctx.settings['Green'] == before
         assert env.layer_obj.set_step_state.call_count == 0
 
 
 class TestManualNavigationLoadsTheStepIntoTheLayer:
-    def test_manual_navigation_loads_the_step_into_the_layer(self, stepnav_env, monkeypatch):
+    def test_manual_navigation_loads_the_step_into_the_layer(self, stepnav_env):
         """Manual navigation writes all eleven keys, the two config dicts as
-        deep copies, and the write lands BEFORE the manual-nav outcome is
-        applied (its apply_settings reads the settings)."""
+        deep copies, and the write lands BEFORE the layer's settings are
+        applied (apply_settings reads the settings)."""
         env = stepnav_env
         seen_at_outcome = {}
 
         def _record_outcome(**kwargs):
-            seen_at_outcome.update(copy.deepcopy(kwargs['settings']['Green']))
+            seen_at_outcome.update(copy.deepcopy(env.ctx.settings['Green']))
 
-        monkeypatch.setattr('ui.step_navigation._apply_manual_nav_outcome', _record_outcome)
+        env.layer_obj.apply_settings.side_effect = _record_outcome
         step = _make_step()
 
-        _go_to_step(step, called_from_protocol=False)
+        _go_to_step(step)
 
         green = env.ctx.settings['Green']
         for column, key in STEP_TO_SETTINGS.items():

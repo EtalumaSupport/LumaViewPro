@@ -12,7 +12,7 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, move_absolute, unknown_position_refused
+from ui.ui_helpers import find_nearest_step, submit_gesture
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -181,41 +181,38 @@ class Stage(Widget):
                 # The click is already a plate coordinate; the API converts
                 # it. Recording the stage equivalent here would mean keeping
                 # a frame conversion in the widget to feed the log line.
-                # One click, one question for both axes, asked before either
-                # move is submitted.
-                if unknown_position_refused(('X', 'Y'), recording=False, then='move the stage'):
-                    return
-                move_absolute('X', plate_x, frame='plate')
-                move_absolute('Y', plate_y, frame='plate')
+                # One click, one lane task: both axes asked about once, then
+                # both moves.
+                motion = ctx.scope.motion
+
+                def moves():
+                    motion.move_absolute('X', plate_x, frame='plate')
+                    motion.move_absolute('Y', plate_y, frame='plate')
+
+                submit_gesture('STAGE_CLICK', axes=('X', 'Y'), then='move the stage', moves=moves)
 
             elif touch.button == 'right':
-                try:
-                    logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')
-                    step_idx = find_nearest_step(
-                        x=plate_x,
-                        y=plate_y,
-                        protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
-                    )
-                    if step_idx == -1:
-                        gui_logger.button(
-                            'STAGE_CLICK',
-                            f'right plate=({plate_x:.2f},{plate_y:.2f}) step=none',
-                        )
-                        return
-
+                logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')
+                step_idx = find_nearest_step(
+                    x=plate_x,
+                    y=plate_y,
+                    protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
+                )
+                if step_idx == -1:
                     gui_logger.button(
                         'STAGE_CLICK',
-                        f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_idx}',
+                        f'right plate=({plate_x:.2f},{plate_y:.2f}) step=none',
                     )
-                    go_to_step(
-                        protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
-                        step_idx=step_idx,
-                        called_from_protocol=False,
-                        include_move=True,
-                    )
-                    logger.info(f'[Stage   ] Successfully moved to step {step_idx}')
-                except Exception as e:
-                    logger.error(f'[Stage   ] Error finding nearest step: {e}')
+                    return
+
+                gui_logger.button(
+                    'STAGE_CLICK',
+                    f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_idx}',
+                )
+                go_to_step(
+                    protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
+                    step_idx=step_idx,
+                )
             # move_absolute('X', stage_x)
             # move_absolute('Y', stage_y)
 

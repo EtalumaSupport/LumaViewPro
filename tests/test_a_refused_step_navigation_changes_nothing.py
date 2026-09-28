@@ -27,8 +27,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
 from modules.lumascope_api.protocols import ProtocolsAPI
+from tests.gesture_fakes import inline_submit_gesture
 
 
 ON_TURRET = '10x Oly'
@@ -87,7 +88,13 @@ def nav_env(monkeypatch):
     scope = SimpleNamespace(
         capabilities=SimpleNamespace(has_turret=True, axes=('X', 'Y', 'Z', 'T')),
         runtime_state=SimpleNamespace(get_turret_config=lambda: carried),
-        motion=SimpleNamespace(),
+        motion=SimpleNamespace(
+            move_absolute=MagicMock(),
+            move_turret=MagicMock(),
+            # Every axis knows its position unless a test says otherwise:
+            # these tests are about the objective rule.
+            refuse_unknown_positions=MagicMock(),
+        ),
         motor_connected=True,
         imaging=SimpleNamespace(active_cached=False),
         illumination=SimpleNamespace(
@@ -136,11 +143,8 @@ def nav_env(monkeypatch):
     monkeypatch.setattr('modules.app_context.ctx', ctx)
 
     ui_helpers = MagicMock()
-    # Every axis knows its position unless a test says otherwise: these
-    # tests are about the objective rule.
-    ui_helpers.unknown_position_refused.return_value = False
-    # A submitted LED command runs at once, so what it would drive is seen.
-    ui_helpers.submit_reported.side_effect = lambda call, redraw, label, lane=None: call()
+    # The gesture runs at once, so what it would drive is seen.
+    ui_helpers.submit_gesture.side_effect = inline_submit_gesture(scope)
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
@@ -153,12 +157,13 @@ def nav_env(monkeypatch):
         carried=carried,
         scope=scope,
         protocol_settings=protocol_settings,
-        move_absolute=ui_helpers.move_absolute,
-        unknown_position_refused=ui_helpers.unknown_position_refused,
+        move_absolute=scope.motion.move_absolute,
+        move_turret=scope.motion.move_turret,
+        refuse_unknown_positions=scope.motion.refuse_unknown_positions,
     )
 
 
-def _navigate(objective: str, *, step_idx: int = 0, called_from_protocol: bool = False):
+def _navigate(objective: str, *, step_idx: int = 0, include_move: bool = True):
     import ui.step_navigation as step_navigation
 
     protocol = SimpleNamespace(
@@ -168,8 +173,7 @@ def _navigate(objective: str, *, step_idx: int = 0, called_from_protocol: bool =
     step_navigation.go_to_step(
         protocol,
         step_idx=step_idx,
-        include_move=True,
-        called_from_protocol=called_from_protocol,
+        include_move=include_move,
     )
 
 
@@ -212,7 +216,7 @@ class TestARefusedNavigationIsANoOp:
         would end a run over a refusal the engine already answered at
         prepare().
         """
-        _navigate(NOT_ON_TURRET, called_from_protocol=True)
+        _navigate(NOT_ON_TURRET, include_move=False)
 
 
 class TestAnAdmissibleNavigationStillWorks:
@@ -224,22 +228,14 @@ class TestAnAdmissibleNavigationStillWorks:
     def test_the_stage_moves(self, nav_env):
         _navigate(ON_TURRET, step_idx=1)
 
-        axes = [
-            c.kwargs.get('axis', c.args[0] if c.args else None)
-            for c in nav_env.move_absolute.call_args_list
-        ]
-        assert 'X' in axes and 'Y' in axes and 'Z' in axes, f'axes moved: {axes}'
+        axes = [c.args[0] for c in nav_env.move_absolute.call_args_list]
+        assert axes == ['X', 'Y', 'Z'], f'axes moved: {axes}'
 
     def test_the_turret_moves_to_the_slot_that_carries_the_glass(self, nav_env):
         _navigate(ON_TURRET, step_idx=1)
 
-        t_moves = [
-            c
-            for c in nav_env.move_absolute.call_args_list
-            if c.kwargs.get('axis') == 'T' or (c.args and c.args[0] == 'T')
-        ]
-        assert len(t_moves) == 1, f'expected one T move, got {t_moves}'
-        assert t_moves[0].kwargs['position'] == 1
+        # The step's own Z move follows, so the turret does not put Z back.
+        nav_env.move_turret.assert_called_once_with(1, restore_z=False)
 
 
 class TestTheSlotLookupCannotDisagreeWithTheRule:
@@ -270,15 +266,18 @@ class TestAnUnhomedNavigationIsANoOp:
     before the pointer moves -- the same no-op as an unaddressable objective."""
 
     def test_the_positions_are_asked_once_for_every_axis_before_anything_moves(self, nav_env):
-        nav_env.unknown_position_refused.return_value = True
+        nav_env.refuse_unknown_positions.side_effect = AxisStateUnknownError(
+            {'X': 'unknown'}, then='go to the step'
+        )
 
         _navigate(ON_TURRET)
 
-        nav_env.unknown_position_refused.assert_called_once_with(
+        nav_env.refuse_unknown_positions.assert_called_once_with(
             ('X', 'Y', 'Z', 'T'), recording=False, then='go to the step'
         )
         assert nav_env.protocol_settings.curr_step == 3
         assert nav_env.move_absolute.call_count == 0
+        assert nav_env.move_turret.call_count == 0
 
     def test_a_run_navigation_does_not_ask(self, nav_env):
         """The run navigates with include_move=False; prepare() settled positions."""
@@ -288,8 +287,6 @@ class TestAnUnhomedNavigationIsANoOp:
             num_steps=MagicMock(return_value=2),
             step=MagicMock(return_value=_make_step(ON_TURRET)),
         )
-        step_navigation.go_to_step(
-            protocol, step_idx=0, include_move=False, called_from_protocol=True
-        )
+        step_navigation.go_to_step(protocol, step_idx=0, include_move=False)
 
-        nav_env.unknown_position_refused.assert_not_called()
+        nav_env.refuse_unknown_positions.assert_not_called()

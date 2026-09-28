@@ -3816,26 +3816,17 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
             'toward the last protocol step across repeated stop/starts'
         )
 
-    def test_schedule_closure_passes_called_from_protocol(self):
-        """The _schedule_ui closure for go_to_step_update_ui must
-        forward called_from_protocol from the outer go_to_step scope.
-        Without it, the UI callback always sees the default (False)
-        and opens the accordion -- the bug recurs."""
+    def test_only_a_persons_navigation_redraws_the_step_panel(self):
+        """The run's display of its step (include_move=False) returns before
+        the step panel redraw, so the accordion never follows a run; a
+        person's navigation redraws it as a manual one (the default,
+        called_from_protocol=False), once the gesture has moved."""
         src = self._src()
-        # Find the _schedule_ui call that wraps go_to_step_update_ui.
-        idx = src.find('go_to_step_update_ui(')
-        assert idx != -1
-        # The schedule-time call is the FIRST occurrence (the def is
-        # later). Capture the window around it.
-        # Find the lambda that takes dt and calls go_to_step_update_ui.
-        schedule_idx = src.find('lambda dt: go_to_step_update_ui(')
-        assert schedule_idx != -1, 'Schedule call for go_to_step_update_ui must exist'
-        # The schedule should pass called_from_protocol=called_from_protocol.
-        # Window: 200 chars after the lambda start.
-        window = src[schedule_idx : schedule_idx + 200]
-        assert 'called_from_protocol=called_from_protocol' in window, (
-            'Schedule closure must forward called_from_protocol from '
-            'go_to_step scope into go_to_step_update_ui'
+        assert 'go_to_step_update_ui(step)' in src, (
+            "a person's navigation must redraw the step panel as a manual one"
+        )
+        assert 'called_from_protocol=True' not in src, (
+            'no navigation path may redraw the step panel as a protocol-cycle one'
         )
 
 

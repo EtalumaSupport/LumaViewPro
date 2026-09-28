@@ -27,12 +27,20 @@ def go_to_step(
     step_idx: int,
     ignore_auto_gain: bool = False,
     include_move: bool = True,
-    called_from_protocol: bool = True,
 ):
-    # Deferred import: ui/ui_helpers.move_absolute wraps the
-    # API call with UI update callbacks. step_navigation still reaches
-    # upward here, which the display-only direction has yet to undo.
-    from ui.ui_helpers import move_absolute, unknown_position_refused
+    """Show a protocol step, and for a person's navigation go to it.
+
+    ``include_move=False`` is the run's display of the step it is executing:
+    the run moves the scope itself, so this only moves the step pointer.
+    ``include_move=True`` is a person going to a step: one gesture on the IO
+    lane asks whether the scope knows where its axes are, moves them and
+    lights the step's preview; the pointer, the step panel and the layer
+    settings follow only once that task has run without a refusal.
+    """
+    # Deferred import: ui_helpers imports the display modules, and
+    # step_navigation still reaches upward here, which the display-only
+    # direction has yet to undo.
+    from ui.ui_helpers import submit_gesture
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -68,216 +76,177 @@ def go_to_step(
     except ProtocolRunRefusedError:
         return
 
-    # The same reasoning for an axis that does not know where it is: the
-    # moves below would each be refused on the motion lane, after the
-    # pointer had moved, one popup per axis. Asked once, for every axis the
-    # navigation drives, turret included -- a failed turret home leaves T
-    # unknown while the stage axes are fine. Only when this call moves:
-    # a run navigates with include_move=False and settled positions at
-    # prepare().
-    if include_move and unknown_position_refused(
-        ctx.scope.capabilities.axes, recording=False, then='go to the step'
-    ):
+    if not include_move:
+        protocol_settings.curr_step = step_idx
+        _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
+        _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
         return
 
     # A same-step re-selection (re-clicking / re-typing the current number)
     # must leave a user-lit channel alone; only a REAL step change drives
     # the LED preview transition below.
     step_changed = protocol_settings.curr_step != step_idx
-    protocol_settings.curr_step = step_idx
 
-    _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
-    _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
+    # A step stores plate mm; the API converts and bounds it.
+    plate_x = step['X']
+    plate_y = step['Y']
 
-    if include_move:
-        # A step stores plate mm; the API converts and bounds it. Both
-        # lanes below pass the stored number through unchanged.
-        plate_x = step['X']
-        plate_y = step['Y']
+    turret_pos = None
+    if ctx.scope.capabilities.has_turret:
+        step_objective_id = step['Objective']
+        # The same lookup the run makes, so navigating to a step and
+        # running it choose the same slot.
+        turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
+            objective_id=step_objective_id
+        )
 
-        turret_pos = None
-        if ctx.scope.capabilities.has_turret:
-            step_objective_id = step['Objective']
-            # The same lookup the run makes, so navigating to a step and
-            # running it choose the same slot.
-            turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
-                objective_id=step_objective_id
+        if turret_pos is None:
+            # Unreachable: the rule above admitted this objective by
+            # reading the same turret configuration this lookup reads,
+            # so a slot carrying it exists. If the two ever disagree,
+            # stop -- what this replaces logged, raised a dialog, and
+            # then moved X, Y and Z anyway, capturing through whatever
+            # glass was in the path and naming the file for the glass
+            # the step asked for.
+            raise RuntimeError(
+                f'No turret slot carries {step_objective_id!r} for step {step_idx}, '
+                'yet the admissibility rule accepted it from the same turret '
+                'configuration. The rule and the slot lookup have disagreed.'
             )
 
-            if turret_pos is None:
-                # Unreachable: the rule above admitted this objective by
-                # reading the same turret configuration this lookup reads,
-                # so a slot carrying it exists. If the two ever disagree,
-                # stop -- what this replaces logged, raised a dialog, and
-                # then moved X, Y and Z anyway, capturing through whatever
-                # glass was in the path and naming the file for the glass
-                # the step asked for.
-                raise RuntimeError(
-                    f'No turret slot carries {step_objective_id!r} for step {step_idx}, '
-                    'yet the admissibility rule accepted it from the same turret '
-                    'configuration. The rule and the slot lookup have disagreed.'
-                )
+    color = step['Color']
+    layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
-        # Move into position. A run moves the scope itself and calls this
-        # with include_move=False, so only a person's navigation gets here.
-        if ctx.scope.motor_connected:
+    # Trace what go_to_step does with camera settings. The camera values
+    # are the cached ones: a debug line never reads the camera on the
+    # GUI thread.
+    _curr_gain = ctx.scope.imaging.gain_db_cached if ctx.scope.imaging.active_cached else '?'
+    _curr_exp = ctx.scope.imaging.exposure_ms_cached if ctx.scope.imaging.active_cached else '?'
+    logger.debug(
+        f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
+        f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
+        f'step_auto_gain={step["Auto_Gain"]!r} '
+        f'camera_gain={_curr_gain} camera_exp={_curr_exp} '
+        f'protocol_running={ctx.session.is_protocol_running}'
+    )
+
+    led_ctx = (
+        _step_led_ctx(ctx=ctx, settings=settings, step=step, color=color) if step_changed else None
+    )
+
+    motion = ctx.scope.motion
+    illumination = ctx.scope.illumination
+    has_motor = ctx.scope.motor_connected
+    if not has_motor:
+        logger.warning('[LVP Main  ] Motion controller not available.')
+
+    def moves():
+        if has_motor:
             if turret_pos is not None:
-                # turret_select shows the outcome once the move has landed.
-                move_absolute(axis='T', position=turret_pos)
-            move_absolute(axis='X', position=plate_x, frame='plate')
-            move_absolute(axis='Y', position=plate_y, frame='plate')
-            move_absolute(axis='Z', position=step['Z'])
-        else:
-            logger.warning('[LVP Main  ] Motion controller not available.')
+                # The step's own Z move follows, so the turret need not put
+                # Z back first.
+                motion.move_turret(turret_pos, restore_z=False)
+            motion.move_absolute('X', plate_x, frame='plate')
+            motion.move_absolute('Y', plate_y, frame='plate')
+            motion.move_absolute('Z', step['Z'])
+        if led_ctx is not None:
+            # After the step's moves, in the same task: a toggle the person
+            # makes while the stage travels lands after the step's preview.
+            illumination.apply_transition(LedTransition.MANUAL_STEP, led_ctx)
 
-        color = step['Color']
-        layer_obj = ctx.image_settings.layer_lookup(layer=color)
-
-        # Trace what go_to_step does with camera settings. The camera values
-        # are the cached ones: a debug line never reads the camera on the
-        # GUI thread.
-        _curr_gain = ctx.scope.imaging.gain_db_cached if ctx.scope.imaging.active_cached else '?'
-        _curr_exp = ctx.scope.imaging.exposure_ms_cached if ctx.scope.imaging.active_cached else '?'
-        logger.debug(
-            f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
-            f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
-            f'step_auto_gain={step["Auto_Gain"]!r} '
-            f'camera_gain={_curr_gain} camera_exp={_curr_exp} '
-            f'called_from_protocol={called_from_protocol} '
-            f'protocol_running={ctx.session.is_protocol_running}'
+    def on_moved():
+        protocol_settings.curr_step = step_idx
+        protocol_settings.generate_step_name_input()
+        protocol_settings.update_step_ui()
+        _load_step_into_layer(
+            ctx=ctx,
+            settings=settings,
+            layer_obj=layer_obj,
+            step=step,
+            color=color,
+            ignore_auto_gain=ignore_auto_gain,
         )
+        go_to_step_update_ui(step)
 
-        if not called_from_protocol:
-            # Manual navigation loads the step into the layer's live
-            # settings: the panel, the settings and the camera then agree
-            # on the step the user clicked, and the apply below reads the
-            # settings. A protocol run never writes here -- the run reads
-            # its steps from the protocol, and the user's live-view
-            # configuration is theirs to keep across it (the panel
-            # displays each step and re-syncs from settings at run end).
-            # The step's config dicts are copied: the protocol owns them.
-            layer_values = {
-                'autofocus': step['Auto_Focus'],
-                'false_color': step['False_Color'],
-                'illumination_ma': step['Illumination'],
-                'gain_db': step['Gain'],
-                'auto_gain': step['Auto_Gain'],
-                'exposure_ms': step['Exposure'],
-                'sum': step['Sum'],
-                'acquire': step['Acquire'],
-                # Manual navigation follows the step's Z, so the layer's
-                # Goto Focus lands where the step was set up.
-                'focus': step['Z'],
-            }
-            video_config = step.get('Video Config')
-            if isinstance(video_config, dict):
-                layer_values['video_config'] = copy.deepcopy(video_config)
-            stim_configs = step.get('Stim_Config')
-            with ctx.settings_lock:
-                settings[color].update(layer_values)
-                # A step's stim config spans every layer it names, so each
-                # named layer's settings take theirs.
-                if isinstance(stim_configs, dict):
-                    for stim_layer, stim_config in stim_configs.items():
-                        settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
-            _apply_manual_nav_outcome(
-                ctx=ctx,
-                settings=settings,
-                layer_obj=layer_obj,
-                step=step,
-                color=color,
-                ignore_auto_gain=ignore_auto_gain,
-                step_changed=step_changed,
-            )
-        else:
-            # Protocol-cycle invocation runs on the executor thread and must
-            # not submit MANUAL_STEP transitions or widget-writing applies --
-            # the run's own LED authority calls own the hardware.
-            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+    # Every axis the navigation drives is asked about, the turret included:
+    # a failed turret home leaves T unknown while the stage axes still know theirs.
+    submit_gesture(
+        'GO_TO_STEP',
+        axes=ctx.scope.capabilities.axes if has_motor else (),
+        then='go to the step',
+        moves=moves,
+        on_moved=on_moved,
+    )
 
-        # Force stage crosshair + position text update after step navigation.
-        # The move_position callback in _default_move normally handles this,
-        # but when go_to_step is used (all UI-triggered protocols), _default_move
-        # is bypassed. Schedule on main thread since go_to_step may be called
-        # from the protocol executor thread.
-        _schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
-        # Also force a stage widget redraw so the crosshair/well indicator moves
-        _schedule_ui(lambda dt: ctx.stage.draw_labware(), 0)
 
-        # Capture called_from_protocol in the closure so the UI-thread
-        # callback knows whether this is a protocol-cycle invocation
-        # (skip accordion-open) or a manual-navigation one (do it).
-        # Reading the run-lockout state inside the UI callback races
-        # at protocol-end: the last step's scheduled callback can fire
-        # AFTER cleanup releases the lockout, see it clear, and open
-        # the last-step's accordion (Red on a 4-channel protocol).
-        # Closure-capture is race-free.
-        _schedule_ui(
-            lambda dt: go_to_step_update_ui(step, called_from_protocol=called_from_protocol),
-            0,
+def _step_led_ctx(*, ctx, settings, step, color) -> LedTransitionCtx:
+    """The step's LED preview: its channel when the preview is on, all dark when off.
+
+    The authority's MANUAL_STEP transition diffs this against cached state,
+    so it clears a previously-lit different-colour channel without blinking
+    a same-colour one. Outside a run nothing holds the LED lease -- live-UI
+    control is unleased -- so the transition goes through the lease-free
+    apply_transition.
+    """
+    channel = ctx.scope.illumination.color2ch(color)
+    if channel is None and ctx.scope.led_connected and color in common_utils.get_layers_with_led():
+        # A preview click on a layer this unit's identity lacks would
+        # otherwise just not light, with nothing anywhere naming why.
+        logger.warning(
+            f"[Step Nav  ] This scope has no '{color}' LED channel; preview will not light."
         )
+    return LedTransitionCtx(
+        channel=channel,
+        illumination_ma=step['Illumination'],
+        preview_on=settings['protocol_led_on'],
+    )
 
 
-def _apply_manual_nav_outcome(
-    *, ctx, settings, layer_obj, step, color, ignore_auto_gain, step_changed
-):
-    """Manual navigation owns its entire outcome: one LED authority
-    transition plus one direct settings apply -- the accordion reconcile is
-    not load-bearing for navigation in either preview state.
+def _load_step_into_layer(*, ctx, settings, layer_obj, step, color, ignore_auto_gain):
+    """Load the step into the layer's live settings, then apply them.
 
-    LED: the authority's MANUAL_STEP target is the step's channel when the
-    preview is on and all-dark when it is off, and its diff against cached
-    state clears a previously-lit different-colour channel without blinking
-    a same-colour one. Fires only on a REAL step change: a same-step
-    re-selection leaves a user-lit (or user-darkened) channel exactly as it
-    is. Outside a run nothing holds the LED lease -- live-UI control is
-    unleased -- so this routes through the lease-free apply_transition.
+    Manual navigation loads the step into the layer's live settings: the
+    panel, the settings and the camera then agree on the step the user
+    clicked, and the apply reads the settings. A protocol run never writes
+    here -- the run reads its steps from the protocol, and the user's
+    live-view configuration is theirs to keep across it. The step's config
+    dicts are copied: the protocol owns them.
 
     Camera + histogram: applied directly in BOTH preview states
-    (protocol=False runs the camera block and the histogram-layer sync;
-    with the preview off there is no early-return leaving them to the
-    reconcile). update_led=False: the transition above is the one LED
-    command -- apply_settings must not re-derive LED intent from the
-    enable button, which REFLECTS driver state via the listener bridge;
-    reading it as a command channel re-lights a channel the user toggled
-    off. protocol=False also keeps the autofocus-owns-the-camera
-    suppression: manual nav does not coordinate with a live AF the way the
-    protocol runner does, so pushing camera settings mid-AF would corrupt
-    the sweep.
+    (protocol=False runs the camera block and the histogram-layer sync).
+    update_led=False: the step's LED transition is the one LED command --
+    apply_settings must not re-derive LED intent from the enable button,
+    which REFLECTS driver state via the listener bridge; reading it as a
+    command channel re-lights a channel the user toggled off. protocol=False
+    also keeps the autofocus-owns-the-camera suppression: manual nav does
+    not coordinate with a live AF the way the protocol runner does, so
+    pushing camera settings mid-AF would corrupt the sweep.
     """
-    if step_changed:
-        channel = ctx.scope.illumination.color2ch(color)
-        if (
-            channel is None
-            and ctx.scope.led_connected
-            and color in common_utils.get_layers_with_led()
-        ):
-            # A preview click on a layer this unit's identity lacks would
-            # otherwise just not light, with nothing anywhere naming why.
-            logger.warning(
-                f"[Step Nav  ] This scope has no '{color}' LED channel; preview will not light."
-            )
-        led_ctx = LedTransitionCtx(
-            channel=channel,
-            illumination_ma=step['Illumination'],
-            preview_on=settings['protocol_led_on'],
-        )
-        from ui.ui_helpers import submit_reported
-
-        # On the IO lane, after the step's moves: one ordered command stream.
-        illumination = ctx.scope.illumination
-        submit_reported(
-            lambda: illumination.apply_transition(LedTransition.MANUAL_STEP, led_ctx),
-            None,
-            'STEP_LED',
-            lane=ctx.io_executor,
-        )
-    _schedule_ui(
-        lambda dt: layer_obj.apply_settings(
-            ignore_auto_gain=ignore_auto_gain, protocol=False, update_led=False
-        ),
-        0,
-    )
+    layer_values = {
+        'autofocus': step['Auto_Focus'],
+        'false_color': step['False_Color'],
+        'illumination_ma': step['Illumination'],
+        'gain_db': step['Gain'],
+        'auto_gain': step['Auto_Gain'],
+        'exposure_ms': step['Exposure'],
+        'sum': step['Sum'],
+        'acquire': step['Acquire'],
+        # Manual navigation follows the step's Z, so the layer's
+        # Goto Focus lands where the step was set up.
+        'focus': step['Z'],
+    }
+    video_config = step.get('Video Config')
+    if isinstance(video_config, dict):
+        layer_values['video_config'] = copy.deepcopy(video_config)
+    stim_configs = step.get('Stim_Config')
+    with ctx.settings_lock:
+        settings[color].update(layer_values)
+        # A step's stim config spans every layer it names, so each
+        # named layer's settings take theirs.
+        if isinstance(stim_configs, dict):
+            for stim_layer, stim_config in stim_configs.items():
+                settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
+    layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=False, update_led=False)
 
 
 def go_to_step_update_ui(step, called_from_protocol: bool = False):

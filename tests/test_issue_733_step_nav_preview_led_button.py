@@ -28,6 +28,7 @@ import pytest
 from modules.lumascope_api.protocols import ProtocolsAPI
 
 from modules.lumascope_api.illumination import LedTransition
+from tests.gesture_fakes import inline_submit_gesture
 
 
 GREEN_LAYER_SETTINGS = {
@@ -125,12 +126,10 @@ def stepnav_env(monkeypatch):
     monkeypatch.setattr('modules.app_context.ctx', ctx)
     # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
     # kivy mock cannot provide; go_to_step defers both imports, so
-    # module-boundary stubs suffice. The one answer this path reads from
-    # ui_helpers is whether the positions refuse the move: they do not.
+    # module-boundary stubs suffice. The gesture runs at once, so the LED
+    # command it carries is seen.
     ui_helpers = MagicMock()
-    ui_helpers.unknown_position_refused.return_value = False
-    # A submitted LED command runs at once, so what it would drive is seen.
-    ui_helpers.submit_reported.side_effect = lambda call, redraw, label, lane=None: call()
+    ui_helpers.submit_gesture.side_effect = inline_submit_gesture(scope)
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     # Run scheduled UI callbacks inline so the closures under test execute.
@@ -153,7 +152,6 @@ def _run_manual_nav(env):
         protocol,
         step_idx=0,
         include_move=True,
-        called_from_protocol=False,
     )
 
 
@@ -171,8 +169,11 @@ class TestStepNavPreviewRespectsLedEnable:
         _run_manual_nav(stepnav_env)
         apply_transition = stepnav_env.ctx.scope.illumination.apply_transition
         assert apply_transition.call_count == 1
-        submitted = sys.modules['ui.ui_helpers'].submit_reported
-        assert submitted.call_args.kwargs['lane'] is stepnav_env.ctx.io_executor
+        # The one LED command rides the step's gesture on the IO lane; with
+        # no motor board the gesture moves no axis.
+        gesture = sys.modules['ui.ui_helpers'].submit_gesture
+        assert gesture.call_count == 1
+        assert gesture.call_args.kwargs['axes'] == ()
         transition, led_ctx = apply_transition.call_args.args
         assert transition is LedTransition.MANUAL_STEP
         assert led_ctx.preview_on is True
