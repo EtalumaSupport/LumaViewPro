@@ -63,10 +63,17 @@ class TestCreateHeadlessComposesARealSession:
 
     def test_scope_is_a_real_lumascope_on_simulated_drivers(self, headless_session):
         from modules.lumascope_api import Lumascope
+        from drivers.ledboard import LEDBoard
+        from drivers.sim_wire.backend import SimWireBackend
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
         assert isinstance(headless_session.scope, Lumascope)
-        assert isinstance(headless_session.scope._led_driver, SimulatedLEDBoard)
+        # Simulated on either tier: the Python stand-in, or the production
+        # driver against the firmware emulator; never a real port.
+        led = headless_session.scope._led_driver
+        assert isinstance(led, SimulatedLEDBoard) or (
+            isinstance(led, LEDBoard) and isinstance(led._backend, SimWireBackend)
+        )
 
     def test_streaming_is_released(self, headless_session):
         """connect() leaves the sim camera configured but not grabbing.

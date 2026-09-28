@@ -359,6 +359,33 @@ class Lumascope:
         )
         return board
 
+    @staticmethod
+    def _build_simulated_led_board(model: str, sim_tier: str) -> LEDBoardProtocol:
+        """The simulated scope's LED board, on the tier asked for.
+
+        The catalogue names no LED board, so the model's axes stand in for
+        one: a model with motor axes is an EL-0940 scope, whose LEDs are on
+        their own board; a model with none is an FX2 scope, whose LEDs the
+        FX2 drives, and the simulator does not run the FX2, so that scope
+        keeps the Python stand-in on both tiers. The firmware tier builds
+        the production driver by name against the emulator, so an emulator
+        that does not come up raises instead of becoming a stand-in. The
+        tier is the one the motor board was just built on, which refused
+        any tier that is not one of the two.
+        """
+        from modules.layer_record import load_scope_models, model_axes
+
+        if sim_tier == 'fast' or not model_axes(load_scope_models(), model):
+            board = led_registry.create('auto', simulate=True)
+            logger.info(f'[SCOPE API ] Using SIMULATED LED Board (model={model})')
+            return board
+        from drivers.sim_wire.backend import LedBoardSpec, SimWireBackend
+
+        backend = SimWireBackend(None, led=LedBoardSpec(model))
+        board = led_registry.create('rp2040', backend=backend)
+        logger.info(f'[SCOPE API ] Using the LED FIRMWARE in simulation (model={model})')
+        return board
+
     def __init__(
         self,
         simulate: bool = False,
@@ -481,10 +508,11 @@ class Lumascope:
         self.motion._start_monitor()
 
         # ----- LED Control Board -----
-        # Same registry-based selection as motion.
-        self._led_driver: LEDBoardProtocol = led_registry.create('auto', simulate=simulate)
+        # Same selection as motion: the simulated board on the session's tier.
         if simulate:
-            logger.info('[SCOPE API ] Using SIMULATED LED Board')
+            self._led_driver: LEDBoardProtocol = self._build_simulated_led_board(model, sim_tier)
+        else:
+            self._led_driver = led_registry.create('auto')
 
         # ----- Camera -----
         # Driver selection via camera_registry. `camera_type` accepts:

@@ -142,3 +142,28 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
         assert asked == [('auto', {})]
     finally:
         scope.disconnect()
+
+
+def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
+    asked = []
+
+    def create(name='auto', **kwargs):
+        asked.append((name, kwargs))
+        return NullLEDBoard()
+
+    monkeypatch.setattr(lumascope_module.led_registry, 'create', create)
+    # No real port is opened in the suite: the motor board is answered null.
+    monkeypatch.setattr(
+        lumascope_module.motor_registry, 'create', lambda name='auto', **kwargs: NullMotionBoard()
+    )
+    scope = Lumascope(
+        simulate=False,
+        camera_type='sim',
+        warn_pre_release=False,
+        register_metrics=False,
+        register_atexit=False,
+    )
+    try:
+        assert asked == [('auto', {})]
+    finally:
+        scope.disconnect()

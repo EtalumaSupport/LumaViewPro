@@ -14,10 +14,12 @@ import sys
 import pytest
 import serial
 
+from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverNotLiveError
-from drivers.sim_wire.backend import SimWireBackend
+from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
+from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import ConfigError
 from modules.layer_record import load_scope_models, model_axes
@@ -91,6 +93,45 @@ def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch)
         _scope(sim_tier='firmware', sim_model='LS850T')
 
 
+# The LED board follows the same tier. A model the catalogue gives motor axes
+# is an EL-0940 scope, whose LEDs are on their own board; one with none is an
+# FX2 scope, whose LEDs are the FX2's, which the simulator does not yet run.
+
+
+@pytest.mark.parametrize('model', sorted(MODELS))
+def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
+    scope = _scope(sim_tier='firmware', sim_model=model)
+    try:
+        if _catalogue_axes(model):
+            assert isinstance(scope._led_driver, LEDBoard)
+            assert scope._led_driver.firmware_date == '2024-06-05'
+        else:
+            assert isinstance(scope._led_driver, SimulatedLEDBoard)
+    finally:
+        scope.disconnect()
+
+
+def test_the_fast_tier_keeps_the_python_led_stand_in():
+    scope = _scope(sim_model='LS850T')
+    try:
+        assert isinstance(scope._led_driver, SimulatedLEDBoard)
+    finally:
+        scope.disconnect()
+
+
+def test_an_led_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch):
+    open_board = SimWireBackend.open
+
+    def refused_led_open(self, **kwargs):
+        if kwargs.get('port') == LED_DEVICE:
+            raise serial.SerialException('the emulator did not start')
+        return open_board(self, **kwargs)
+
+    monkeypatch.setattr(SimWireBackend, 'open', refused_led_open)
+    with pytest.raises(DriverNotLiveError, match=r"LEDBoard \('rp2040'\)"):
+        _scope(sim_tier='firmware', sim_model='LS850T')
+
+
 class TestTheSessionReadsTheTier:
     def test_the_template_ships_the_firmware_tier(self):
         import json
@@ -146,3 +187,17 @@ class TestTheSessionReadsTheTier:
         assert (
             ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware')) == 'firmware'
         )
+
+    def test_the_firmware_tier_lights_an_led_through_the_api(self):
+        session = ScopeSession.create(
+            complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
+        )
+        try:
+            led = session.scope._led_driver
+            assert isinstance(led, LEDBoard)
+            session.scope.illumination.led_on(3, 100)
+            # The driver records a current only once the firmware answered.
+            assert led.led_ma[led.ch2color(3)] == 100
+            assert led.last_command_error is None
+        finally:
+            session.shutdown()
