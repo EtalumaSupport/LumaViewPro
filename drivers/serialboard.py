@@ -978,7 +978,13 @@ class SerialBoard:
 
             return None
 
-    def exchange_multiline(self, command, timeout=60, end_markers=None):
+    def exchange_multiline(
+        self,
+        command: str,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+        line_end: bytes = b'\n',
+    ) -> str | None:
         """Send command and read variable-length multi-line response.
 
         Reads lines until an end marker is found, no more data arrives,
@@ -991,6 +997,10 @@ class SerialBoard:
             end_markers: List of strings to check for in each line
                 (case-insensitive). When found, reads a few more drain
                 lines then stops.  Defaults to common completion markers.
+            line_end: Bytes that end the command. A firmware main loop
+                reads with readline() and takes a newline; an input()
+                prompt on MicroPython 1.19 ends a line on a carriage
+                return only.
 
         Returns:
             Joined multi-line string, or None on error.
@@ -1023,7 +1033,7 @@ class SerialBoard:
                     self.driver.read(stale)
                     _serial_log.info(f'{self._label} FLUSH {stale}B')
 
-                self.driver.write(command.encode('utf-8') + b'\n')
+                self.driver.write(command.encode('utf-8') + line_end)
                 lines = []
                 start = time.monotonic()
                 while time.monotonic() - start < timeout:

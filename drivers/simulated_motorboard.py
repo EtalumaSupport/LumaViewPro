@@ -337,13 +337,20 @@ class SimulatedMotorBoard:
                 return response
             return [response]
 
-    def exchange_multiline(self, command, timeout=60, end_markers=None):
+    def exchange_multiline(
+        self,
+        command: str,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+        line_end: bytes = b'\n',
+    ) -> str | None:
         """Simulated multi-line response.
 
         Args:
             command: Command string to dispatch.
             timeout: Accepted for API parity; ignored by the simulator.
             end_markers: Accepted for API parity; ignored by the simulator.
+            line_end: Accepted for API parity; ignored by the simulator.
 
         Returns:
             Response string from ``exchange_command()``.

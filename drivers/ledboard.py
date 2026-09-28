@@ -502,8 +502,9 @@ class LEDBoard(SerialBoard):
 
         Raises:
             HardwareError: No response from the LED board (timeout or
-                disconnect), or the firmware did not present a Y/N
-                prompt (likely too old to support engineering mode).
+                disconnect), the firmware did not present a Y/N
+                prompt (likely too old to support engineering mode),
+                or it did not print its engineering-mode banner after Y.
         """
         resp = self.exchange_multiline(
             'FACTORY', timeout=timeout, end_markers=['Y/N', 'y/n', 'FACTORY']
@@ -518,10 +519,26 @@ class LEDBoard(SerialBoard):
                 f'firmware may be too old to support engineering mode. '
                 f'Response: {resp!r}'
             )
-        # Confirm with Y
-        self.exchange_multiline(
-            'Y', timeout=timeout, end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC']
+        # The firmware asks with input(), which on MicroPython 1.19 ends a
+        # line on a carriage return only: a Y ended by a newline leaves
+        # factory() waiting, and every command after it goes unanswered.
+        # A bare CR, not CRLF: once input() returns, a trailing newline
+        # would reach the main loop as an empty command.
+        confirm = self.exchange_multiline(
+            'Y',
+            timeout=timeout,
+            end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'],
+            line_end=b'\r',
         )
+        if confirm is None or 'ENGINEERING MODE' not in confirm.upper():
+            # A caller told entry failed has no reason to call exit, so the
+            # board is brought back here: out of factory() if it is still
+            # waiting there, back to safe mode if it declined.
+            self.exit_engineering_mode()
+            raise HardwareError(
+                f'enter_engineering_mode(): the LED board did not enter engineering '
+                f'mode after Y. Response: {confirm!r}'
+            )
         # Drain any remaining help text
         time.sleep(0.5)
         with self._lock:

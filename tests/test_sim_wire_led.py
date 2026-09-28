@@ -19,6 +19,7 @@ import time
 import pytest
 import serial
 
+from drivers.exceptions import HardwareError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
@@ -326,10 +327,10 @@ class TestTheConsole:
         finally:
             port.close()
 
-    def test_the_driver_wedges_the_board_in_factory_and_recovers_it(self, monkeypatch):
-        # SN 12075's tech support run: FACTORY, then the driver's Y and every
-        # command after it met a factory() that never saw a line end, until
-        # exit_engineering_mode found INFO unanswered and soft-reset the board.
+    def test_the_driver_enters_and_leaves_factory_without_a_recovery(self, monkeypatch):
+        # SN 12075's tech support run sent Y ended by a newline: factory()
+        # never saw a line end, every command after it went unanswered, and
+        # exit_engineering_mode had to soft-reset the board.
         board = LEDBoard(backend=SimWireBackend(None, led=LED))
         recovery = []
         safe_write = board._safe_write
@@ -341,9 +342,27 @@ class TestTheConsole:
         monkeypatch.setattr(board, '_safe_write', _recorded)
         try:
             assert board.enter_engineering_mode(timeout=1.0)
-            assert 'Version' not in (board.exchange_command('INFO', timeout=1) or '')
+            assert 'Version' in board.exchange_command('INFO', timeout=1)
             board.exit_engineering_mode()
-            assert recovery == [b'\x03', b'\x03', b'\x02', b'\x04']
+            assert recovery == []
+        finally:
+            board.disconnect()
+
+    def test_a_y_the_board_does_not_take_is_refused_at_entry(self, monkeypatch):
+        # Answered with the main loop's newline, the prompt never returns and
+        # no banner comes: entry fails there, not later at exit, and leaves
+        # the board answering, because its caller will not call exit.
+        board = LEDBoard(backend=SimWireBackend(None, led=LED))
+        exchange = board.exchange_multiline
+
+        def _newline_framed(command, **kwargs):
+            kwargs['line_end'] = b'\n'
+            return exchange(command, **kwargs)
+
+        monkeypatch.setattr(board, 'exchange_multiline', _newline_framed)
+        try:
+            with pytest.raises(HardwareError, match='did not enter engineering mode'):
+                board.enter_engineering_mode(timeout=1.0)
             assert 'Version' in board.exchange_command('INFO', timeout=2)
         finally:
             board.disconnect()

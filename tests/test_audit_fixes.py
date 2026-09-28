@@ -2412,17 +2412,22 @@ class TestEnterEngineeringModeRaises:
             board.enter_engineering_mode(timeout=0.1)
 
     def test_enter_engineering_mode_confirms_and_returns_true(self, monkeypatch):
-        """With a Y/N prompt presented, the method confirms with Y and
-        returns True."""
+        """With a Y/N prompt presented, the method confirms with Y ended by
+        a carriage return (the firmware's input() ends a line on CR only),
+        sees the engineering-mode banner, and returns True."""
         import time as time_mod
 
-        board = self._make_ledboard('FACTORY mode? Y/N')
+        board = self._make_ledboard(None)
+        board.exchange_multiline.side_effect = [
+            'FACTORY mode? Y/N',
+            'Engineering Mode: Press q or Q to exit',
+        ]
         monkeypatch.setattr(time_mod, 'sleep', lambda s: None)
         assert board.enter_engineering_mode(timeout=0.1) is True
-        sent = [c.args[0] for c in board.exchange_multiline.call_args_list]
-        assert sent[0] == 'FACTORY' and 'Y' in sent[1:], (
-            f'must send FACTORY then confirm with Y; sent {sent}'
-        )
+        calls = board.exchange_multiline.call_args_list
+        sent = [c.args[0] for c in calls]
+        assert sent == ['FACTORY', 'Y'], f'must send FACTORY then confirm with Y; sent {sent}'
+        assert calls[1].kwargs['line_end'] == b'\r'
 
     def test_enter_engineering_mode_docstring_documents_raises(self):
         from drivers.ledboard import LEDBoard
