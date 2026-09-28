@@ -18,6 +18,7 @@ import modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.notification_center import Severity
+from tests.pool_fakes import run_task_now
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def stop(monkeypatch):
     pool = MagicMock()
 
     def _run_now(task):
-        task.action(*task.args, **task.kwargs)
+        run_task_now(task)
         return ENQUEUED
 
     pool.put.side_effect = _run_now

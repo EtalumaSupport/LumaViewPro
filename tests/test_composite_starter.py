@@ -37,6 +37,7 @@ from modules.exceptions import ProtocolRunRefusedError
 from tests.scope_fakes import spec_scope
 import ui.composite_capture as cc
 import ui.ui_helpers as ui_helpers
+from tests.pool_fakes import run_task_now
 
 
 class _Starter(cc.CompositeCapture):
@@ -81,7 +82,7 @@ def app_ctx(runner, engine, tmp_path, monkeypatch):
     def _run_now(task):
         # One worker, run as it is handed over: the order a person's
         # presses reach the engine is the order they were made.
-        task.action(*task.args, **task.kwargs)
+        run_task_now(task)
         return ENQUEUED
 
     pool.put.side_effect = _run_now
@@ -247,5 +248,5 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, runn
     _click(starter)
 
     assert starter.composite_pending is True, 'a second press must not race the first to the pool'
-    held[0].action()
+    run_task_now(held[0])
     assert starter.composite_pending is False, "the request's own redraw brings the button back"

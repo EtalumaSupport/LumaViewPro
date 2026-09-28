@@ -43,6 +43,7 @@ import modules.app_context as _app_ctx
 import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from tests.pool_fakes import run_task_now
 
 
 class _Starter(zs.ZStack):
@@ -66,7 +67,7 @@ def clicked(monkeypatch):
     pool = MagicMock()
 
     def _run_now(task):
-        task.action(*task.args, **task.kwargs)
+        run_task_now(task)
         return ENQUEUED
 
     pool.put.side_effect = _run_now
@@ -216,7 +217,7 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
     assert clicked.starter.zstack_pending is True, (
         'a second press must not race the first to the pool'
     )
-    held[0].action()
+    run_task_now(held[0])
     assert clicked.starter.zstack_pending is False, "the request's own redraw brings it back"
 
 

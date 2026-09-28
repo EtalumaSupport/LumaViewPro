@@ -41,6 +41,7 @@ import modules.app_context as _app_ctx
 import ui.main_display as main_display
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import RecordingRefusedError
+from tests.pool_fakes import run_task_now
 
 
 class _FakeToggle:
@@ -108,7 +109,7 @@ def _make_display(monkeypatch, controller):
     ctx.session.manual_recording = controller
 
     def _run_now(task):
-        task.action(*task.args, **task.kwargs)
+        run_task_now(task)
         return ENQUEUED
 
     ctx.worker_pool.put.side_effect = _run_now

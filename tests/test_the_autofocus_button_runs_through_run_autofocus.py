@@ -42,6 +42,7 @@ import ui.ui_helpers as ui_helpers
 import ui.vertical_control as vc
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.run_outcome import PendingRunOutcome
+from tests.pool_fakes import run_task_now
 
 
 class _Button(vc.VerticalControl):
@@ -80,7 +81,7 @@ def pressed(monkeypatch, held):
         if held == ['hold']:
             held.append(task)
         else:
-            task.action(*task.args, **task.kwargs)
+            run_task_now(task)
         return ENQUEUED
 
     pool.put.side_effect = _put
@@ -230,7 +231,7 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(pressed, held
         'a second press must not race the first to the pool'
     )
     task = held[1]
-    task.action(*task.args, **task.kwargs)
+    run_task_now(task)
     assert pressed.button.autofocus_pending is False, (
         "the request's own redraw brings the button back"
     )

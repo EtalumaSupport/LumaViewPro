@@ -52,6 +52,7 @@ import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.run_outcome import PendingRunOutcome
+from tests.pool_fakes import run_task_now
 
 
 class _Button:
@@ -117,7 +118,7 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
         if held is not None and held == ['hold']:
             held.append(task)
         else:
-            task.action(*task.args, **task.kwargs)
+            run_task_now(task)
         return ENQUEUED
 
     pool.put.side_effect = _put
@@ -302,7 +303,7 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, held
 
     assert panel.scan_pending is True, 'a second press must not race the first to the pool'
     task = held[1]
-    task.action(*task.args, **task.kwargs)
+    run_task_now(task)
     assert panel.scan_pending is False, "the request's own redraw brings the button back"
 
 
