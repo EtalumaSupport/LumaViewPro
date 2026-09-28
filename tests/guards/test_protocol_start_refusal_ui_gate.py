@@ -72,10 +72,6 @@ SUBMIT_HELPERS = (
 )
 _SUBMITTERS = {'submit_reported'} | {name for _, _, name in SUBMIT_HELPERS}
 
-# Starters still on run_with_refusal_boundary: none. A new one is a
-# regression.
-STARTERS_ON_THE_OLD_BOUNDARY = ()
-
 # Statements that would commit "a run is now underway" state in the
 # UI -- all retired: the claim inside start() is the one commit, and
 # the kv mirrors follow the session listener. Any reappearance is a
@@ -144,7 +140,7 @@ def test_the_panels_start_prepares_then_starts_then_names_the_folder():
 def test_every_press_hands_its_start_and_its_stop_to_the_boundary():
     """A run button's start and Stop both reach submit_reported, the one
     place a refusal or a fault from the API is reported -- no per-button
-    try/except drift -- and the old per-starter boundary is gone from it."""
+    try/except drift."""
     for rel_path, class_name, method_name in BOUNDARY_PRESSES:
         method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
         called = {
@@ -154,9 +150,6 @@ def test_every_press_hands_its_start_and_its_stop_to_the_boundary():
         }
         assert called & _SUBMITTERS, (
             f'{class_name}.{method_name} must hand its press to submit_reported'
-        )
-        assert not called & {'run_with_refusal_boundary', 'reset_with_refusal_boundary'}, (
-            f'{class_name}.{method_name} still reaches the retired per-starter boundary'
         )
         assert not [n for n in ast.walk(method) if isinstance(n, ast.Try)], (
             f'{class_name}.{method_name} catches for itself; the boundary reports'
@@ -200,24 +193,6 @@ def test_every_stop_goes_ahead_of_queued_work():
         if not (isinstance(stop, ast.Constant) and stop.value is True)
     ]
     assert not slow, f'a Stop submitted without stop=True waits behind queued work: {slow}'
-
-
-def test_the_old_boundary_roster_only_shrinks():
-    """The starters still on run_with_refusal_boundary are the ones named;
-    a new one there is a regression, and a moved one leaves the list."""
-    for rel_path, class_name, method_name in STARTERS_ON_THE_OLD_BOUNDARY:
-        method = _method_node(REPO_ROOT / rel_path, class_name, method_name)
-        assert _calls_named(method, 'run_with_refusal_boundary'), (
-            f'{class_name}.{method_name} left the old boundary: take it off this list'
-        )
-    listed = {name for _, _, name in STARTERS_ON_THE_OLD_BOUNDARY}
-    for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
-        tree = ast.parse(source_file.read_text())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name not in listed:
-                assert not _calls_named(node, 'run_with_refusal_boundary') or (
-                    source_file.name == 'ui_helpers.py'
-                ), f'{source_file.name}: {node.name} is a new user of the retired boundary'
 
 
 def test_no_starter_writes_running_state():
@@ -283,9 +258,8 @@ def test_no_retired_runner_run_call_sites_remain():
 def _runner_reset_calls():
     """Every UI run teardown under ui/, derived, with the run it names.
 
-    A teardown is a `<something>runner.reset(...)` call, or a call to the
-    ui_helpers boundary that wraps one, direct or bound by a
-    functools.partial. Derived rather than listed: the starter tuple above
+    A teardown is a `<something>runner.reset(...)` call, direct or bound by
+    a functools.partial. Derived rather than listed: the starter tuple above
     is hand-maintained and had already drifted -- it names four starters
     while the autofocus and composite buttons tear runs down too. A list
     that has to be updated by hand is the thing this test exists to
@@ -323,8 +297,6 @@ def _runner_reset_calls():
                 and 'runner' in ast.unparse(callee.value).lower()
             ):
                 run = _run_argument(0, args, keywords)
-            elif isinstance(callee, ast.Name) and callee.id == 'reset_with_refusal_boundary':
-                run = _run_argument(1, args, keywords)
             else:
                 continue
             yield source_file.name, ast.unparse(node), run, keywords

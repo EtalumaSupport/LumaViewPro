@@ -16,11 +16,6 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.exceptions import (
-    ObjectiveUnknownError,
-    ProtocolRunRefusedError,
-    RunAlreadyEndedError,
-)
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
@@ -110,87 +105,6 @@ def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
         fn()
     except Exception as e:
         notifications.report_outcome(e, solicited=True, category=f'UI:{label}')
-
-
-def run_with_refusal_boundary(
-    start_fn: typing.Callable[[], None],
-    on_refused: typing.Callable[[], None],
-) -> None:
-    """The single UI boundary for the runner's typed run refusal.
-
-    A refused run is a designed outcome, not a failure to propagate: the
-    runner's refusal funnel has already logged it, and no running-state
-    was committed (commit_ui_state runs only after a successful
-    prepare). What remains is per-starter: undo the pre-gate button
-    cosmetics via on_refused. Every UI starter (scan, protocol,
-    autofocus scan, z-stack) routes its prepare/start sequence through
-    this one handler so refusal handling cannot drift between them.
-
-    The funnel also DELIVERS the user notification: a refusal answers a
-    button press, so it is posted solicited and reaches the user during
-    a run of any kind. A starter therefore adds no popup of its own --
-    a second one would say what the engine already said, and would say
-    it only to whoever is looking at this GUI.
-
-    One answer arrives without the funnel: an unknown objective. The API
-    raises it as its own typed error while it assembles the run, before
-    any run exists to refuse, so nothing has logged or shown it yet, and
-    it is shown here.
-    """
-    try:
-        start_fn()
-    except ProtocolRunRefusedError:
-        on_refused()
-    except ObjectiveUnknownError as e:
-        show_objective_unknown_refusal('Run', e)
-        on_refused()
-
-
-def show_objective_unknown_refusal(action: str, error: ObjectiveUnknownError) -> None:
-    """Show the API's unknown-objective answer as a refusal of *action*.
-
-    The API decided and wrote the sentence (home the turret, assign the
-    slot); a click that meets it is refused, not failed, so it is a
-    warning, never an ERROR with a traceback. Posted the way the run
-    funnel posts a refusal -- solicited, under the one refusal key -- so
-    it reaches the user during a run and a second press replaces the
-    dialog rather than stacking one.
-    """
-    from modules.notification_center import REFUSAL_OPERATION_KEY, notifications
-
-    logger.warning(f'[UI] {action} refused ({error.reason}): {error}')
-    notifications.warning(
-        'Protocol',
-        'Objective Unknown',
-        str(error),
-        solicited=True,
-        operation_key=REFUSAL_OPERATION_KEY,
-    )
-
-
-def reset_with_refusal_boundary(runner, run) -> bool:
-    """Stop *run*, the handle this control's start returned, and say whether anything is left.
-
-    The teardown half of the boundary above. Whether *run* may be stopped
-    is the engine's decision: it stops the live run by its handle and
-    refuses a handle naming any other, having already logged (and, when
-    another run is live, notified) once. What the widget needs back is not
-    the exception but the outcome -- a refused stop while another run is
-    live left that run running, so the caller must not go on to restyle
-    its button as though a stop were under way.
-
-    Returns True when the run was torn down or no run is live, False when
-    another run is live. Without this the refusal reached a starter's
-    blanket handler, which renders str(e) -- the joined `reason: message`
-    debugging form, in a dialog, at a user.
-    """
-    try:
-        runner.reset(run)
-    except RunAlreadyEndedError:
-        return True
-    except ProtocolRunRefusedError:
-        return False
-    return True
 
 
 # ============================================================================
@@ -378,8 +292,7 @@ def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, the
     it does anything, whether the scope knows where those axes are; the
     API decides, logs and notifies. What remains for the gesture is only
     to stop, so every gesture asks through here and none carries its own
-    handling of the refusal, the way every run starter routes its refusal
-    through ``run_with_refusal_boundary``.
+    handling of the refusal.
 
     Args:
         axes: The axes the gesture needs.

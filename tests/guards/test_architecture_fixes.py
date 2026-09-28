@@ -653,9 +653,6 @@ _UI_EXCEPT_PIN = {
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
     ('ui/ui_helpers.py', 'AxisStateUnknownError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,
-    ('ui/ui_helpers.py', 'ObjectiveUnknownError'): 1,
-    ('ui/ui_helpers.py', 'ProtocolRunRefusedError'): 2,
-    ('ui/ui_helpers.py', 'RunAlreadyEndedError'): 1,
     ('ui/vertical_control.py', 'Exception'): 6,
     ('ui/zstack.py', 'Exception'): 2,
 }

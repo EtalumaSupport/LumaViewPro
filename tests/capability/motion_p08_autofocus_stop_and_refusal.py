@@ -1,9 +1,9 @@
 """P08 -- the STOP half of the autofocus toggle, and the stale-stop refusal.
 
-GUI entry: ui/vertical_control.py run_autofocus_from_ui (second click /
-'normal' state) -> _cleanup_at_end_of_autofocus -> ui_helpers
-reset_with_refusal_boundary -> SequencedCaptureRunner.reset(run), where run
-is the handle the button's own start returned.
+GUI entry: ui/vertical_control.py run_autofocus_from_ui (a press while the
+engine says the button's own run is live) -> _stop_autofocus -> ui_helpers
+submit_reported -> SequencedCaptureRunner.reset(run), where run is the
+handle the button's own start returned.
 """
 
 from harness import check, run
