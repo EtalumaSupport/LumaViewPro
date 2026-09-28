@@ -92,7 +92,7 @@ def nav_env(monkeypatch):
         imaging=SimpleNamespace(active_cached=False),
         illumination=SimpleNamespace(
             color2ch=MagicMock(return_value=3),
-            apply_transition_async=MagicMock(),
+            apply_transition=MagicMock(),
         ),
     )
     scope.protocols = ProtocolsAPI(scope)
@@ -131,6 +131,7 @@ def nav_env(monkeypatch):
         session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
         stage=SimpleNamespace(draw_labware=MagicMock()),
+        io_executor=object(),
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
 
@@ -138,6 +139,8 @@ def nav_env(monkeypatch):
     # Every axis knows its position unless a test says otherwise: these
     # tests are about the objective rule.
     ui_helpers.unknown_position_refused.return_value = False
+    # A submitted LED command runs at once, so what it would drive is seen.
+    ui_helpers.submit_reported.side_effect = lambda call, redraw, label, lane=None: call()
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))

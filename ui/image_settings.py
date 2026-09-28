@@ -737,17 +737,18 @@ class ImageSettings(BoxLayout):
         # already off, and offing the collapsed layers here still clears a
         # previously-lit channel when the drawer switches to a layer whose LED
         # is off (which the open layer's apply_settings alone would not do).
+        from ui.ui_helpers import submit_reported
+
+        illumination = ctx.scope.illumination
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
             if layer_accordion.collapse:
-                try:
-                    state = ctx.scope.illumination.get_led_state(channel=layer)
-                    if state.get('enabled', False):
-                        ctx.scope.illumination.led_off_async(layer)
-                except Exception as e:
-                    logger.warning(
-                        f'[LVP Main  ] get_led_state({layer}) failed during '
-                        f'accordion-collapse LED cleanup: {e}'
+                if illumination.get_led_state(channel=layer)['enabled']:
+                    submit_reported(
+                        lambda lit=layer: illumination.led_off(lit),
+                        None,
+                        f'LED_{layer}_OFF',
+                        lane=ctx.io_executor,
                     )
             else:
                 self.layer_lookup(layer=layer).apply_settings()

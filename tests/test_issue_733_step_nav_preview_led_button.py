@@ -91,7 +91,7 @@ def stepnav_env(monkeypatch):
         imaging=SimpleNamespace(active_cached=False),
         illumination=SimpleNamespace(
             color2ch=MagicMock(return_value=3),
-            apply_transition_async=MagicMock(),
+            apply_transition=MagicMock(),
         ),
     )
     scope.protocols = ProtocolsAPI(scope)
@@ -120,6 +120,7 @@ def stepnav_env(monkeypatch):
         session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
         stage=SimpleNamespace(draw_labware=MagicMock()),
+        io_executor=object(),
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
     # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
@@ -128,6 +129,8 @@ def stepnav_env(monkeypatch):
     # ui_helpers is whether the positions refuse the move: they do not.
     ui_helpers = MagicMock()
     ui_helpers.unknown_position_refused.return_value = False
+    # A submitted LED command runs at once, so what it would drive is seen.
+    ui_helpers.submit_reported.side_effect = lambda call, redraw, label, lane=None: call()
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     # Run scheduled UI callbacks inline so the closures under test execute.
@@ -166,9 +169,11 @@ class TestStepNavPreviewRespectsLedEnable:
         """Removing the widget write must NOT remove the preview: the
         MANUAL_STEP transition is the one LED command."""
         _run_manual_nav(stepnav_env)
-        apply_async = stepnav_env.ctx.scope.illumination.apply_transition_async
-        assert apply_async.call_count == 1
-        transition, led_ctx = apply_async.call_args.args
+        apply_transition = stepnav_env.ctx.scope.illumination.apply_transition
+        assert apply_transition.call_count == 1
+        submitted = sys.modules['ui.ui_helpers'].submit_reported
+        assert submitted.call_args.kwargs['lane'] is stepnav_env.ctx.io_executor
+        transition, led_ctx = apply_transition.call_args.args
         assert transition is LedTransition.MANUAL_STEP
         assert led_ctx.preview_on is True
 

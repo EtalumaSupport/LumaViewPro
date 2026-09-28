@@ -260,7 +260,16 @@ def _apply_manual_nav_outcome(
             illumination_ma=step['Illumination'],
             preview_on=settings['protocol_led_on'],
         )
-        ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)
+        from ui.ui_helpers import submit_reported
+
+        # On the IO lane, after the step's moves: one ordered command stream.
+        illumination = ctx.scope.illumination
+        submit_reported(
+            lambda: illumination.apply_transition(LedTransition.MANUAL_STEP, led_ctx),
+            None,
+            'STEP_LED',
+            lane=ctx.io_executor,
+        )
     _schedule_ui(
         lambda dt: layer_obj.apply_settings(
             ignore_auto_gain=ignore_auto_gain, protocol=False, update_led=False

@@ -30,41 +30,42 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
-        try:
-            logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
+        logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if not self.scope.imaging.active_cached:
+            gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
+            return
+        gui_logger.toggle('CAM_PLAY', not scope_display.play)
+        run_reported(lambda: self._toggle_play(scope_display), None, 'CAM_PLAY')
 
-            scope_display = self.ids['viewer_id'].ids['scope_display_id']
-            if not self.scope.imaging.active_cached:
-                gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
-                return
+    def _toggle_play(self, scope_display):
+        io_executor = _app_ctx.ctx.io_executor
+        illumination = self.scope.illumination
+        if scope_display.play:
+            scope_display.play = False
+            # pause() instead of stop()+start() so the
+            # display thread stays alive across pause-resume; no
+            # Thread spawn/join overhead; generation does NOT bump
+            # so the texture stays on the last rendered frame.
+            scope_display.pause()
+            if self.scope.led_connected:
+                self._pause_led_snapshot = illumination.save_led_state('camera_pause')
+                # LED observer handles UI button sync
+                submit_reported(illumination.leds_off, None, 'CAM_PAUSE_LEDS', lane=io_executor)
+        else:
+            if self._pause_led_snapshot:
+                snapshot = self._pause_led_snapshot
+                self._pause_led_snapshot = None
+                # LED observer handles UI button sync
+                submit_reported(
+                    lambda: illumination.restore_led_state(snapshot),
+                    None,
+                    'CAM_RESUME_LEDS',
+                    lane=io_executor,
+                )
 
-            gui_logger.toggle('CAM_PLAY', not scope_display.play)
-            if scope_display.play:
-                scope_display.play = False
-                # Stage B1: pause() instead of stop()+start() so the
-                # display thread stays alive across pause-resume; no
-                # Thread spawn/join overhead; generation does NOT bump
-                # so the texture stays on the last rendered frame.
-                scope_display.pause()
-                if self.scope.led_connected:
-                    self._pause_led_snapshot = self.scope.illumination.save_led_state(
-                        'camera_pause'
-                    )
-                    self.scope.illumination.leds_off_async()
-                    # LED observer handles UI button sync
-            else:
-                if self._pause_led_snapshot:
-                    self.scope.illumination.restore_led_state(self._pause_led_snapshot)
-                    self._pause_led_snapshot = None
-                    # LED observer handles UI button sync
-
-                scope_display.play = True
-                scope_display.resume()
-        except Exception as e:
-            logger.error(f'[UI] cam_toggle failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+            scope_display.play = True
+            scope_display.resume()
 
     def record_button(self):
         """Start a manual recording, or stop the one that is recording.

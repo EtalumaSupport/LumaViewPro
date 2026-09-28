@@ -1,5 +1,6 @@
 # Copyright Etaluma, Inc.
 import copy
+import functools
 import logging
 import os
 
@@ -915,47 +916,11 @@ class LayerControl(BoxLayout):
             self._schedule_step_views_refresh(ctx, protocol, context='apply_focus_to_channel_steps')
 
     def goto_focus(self):
-        gui_logger.button(f'GOTO_FOCUS_{self.layer}')
-        io_executor = _app_ctx.ctx.io_executor
-        logger.info('[LVP Main  ] LayerControl.goto_focus()')
-        io_executor.put(
-            IOTask(
-                action=self.execute_goto_focus,
-            )
-        )
-
-    def execute_goto_focus(self):
-        # See execute_save_focus comment for the pattern rationale.
         from ui.ui_helpers import move_absolute
 
-        settings = _app_ctx.ctx.settings
-        try:
-            pos = settings[self.layer]['focus']
-            move_absolute('Z', pos)  # set current z height in usteps
-        except KeyError:
-            logger.warning(f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}')
-            try:
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Motion',
-                    'No saved focus',
-                    f"Layer '{self.layer}' has no saved focus position. Use SAVE first.",
-                )
-            except Exception:
-                pass
-        except Exception as e:
-            logger.exception(f'[LVP Main  ] goto_focus failed for layer {self.layer}: {e}')
-            try:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Motion',
-                    'Focus move failed',
-                    "Couldn't move Z to the saved focus. Check the USB cable and power, then try again.",
-                )
-            except Exception:
-                pass
+        gui_logger.button(f'GOTO_FOCUS_{self.layer}')
+        logger.info('[LVP Main  ] LayerControl.goto_focus()')
+        move_absolute('Z', _app_ctx.ctx.settings[self.layer]['focus'])
 
     _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
 
@@ -971,7 +936,6 @@ class LayerControl(BoxLayout):
         if LayerControl._suppressing_led_log or self._initializing:
             return
         settings = ctx.settings
-        camera_executor = ctx.camera_executor
         enabled = self.ids['enable_led_btn'].state == 'down'
         gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['illumination_ma']
@@ -979,45 +943,25 @@ class LayerControl(BoxLayout):
         if apply_settings:
             self.apply_settings(update_led=False)
 
-        camera_executor.put(
-            IOTask(
-                action=self.set_led_state, kwargs={'enabled': enabled, 'illumination': illumination}
-            )
+        # The colour string goes to the seam unmapped: the illumination API
+        # owns colour-to-channel resolution, so turning OFF a colour this scope
+        # cannot drive is a no-op there, and turning one ON fails with the
+        # colour named instead of a sentinel channel.
+        illumination_api = ctx.scope.illumination
+        layer = self.layer
+        if enabled:
+            logger.info(f'[LVP Main  ] update_led_state: led_on({layer}, {illumination})')
+            call = functools.partial(illumination_api.led_on, layer, illumination)
+        else:
+            call = functools.partial(illumination_api.led_off, layer)
+        # The toggle shows what the API reports lit once the command has
+        # landed, so a refused one goes back.
+        submit_reported(
+            call,
+            ctx.ui_listener_bridge.reconcile_led_buttons,
+            f'LED_{layer}',
+            lane=ctx.io_executor,
         )
-        # self.set_led_state(enabled=enabled, illumination=illumination)
-
-        # self.apply_settings()
-
-    def set_led_state(self, enabled: bool, illumination: float):
-        # Hardware-touching action. See execute_save_focus for the
-        # try/except + log + notify pattern rationale.
-        ctx = _app_ctx.ctx
-        try:
-            # The colour string goes to the seam unmapped: the illumination
-            # API owns colour-to-channel resolution, so turning OFF a colour
-            # this scope cannot drive is a no-op there, and turning one ON
-            # fails with the colour named instead of a sentinel channel.
-            if not enabled:
-                ctx.scope.illumination.led_off_async(self.layer)
-            else:
-                logger.info(f'[LVP Main  ] set_led_state: led_on({self.layer}, {illumination})')
-                ctx.scope.illumination.led_on_async(self.layer, illumination)
-        except Exception as e:
-            logger.exception(
-                f'[LVP Main  ] set_led_state failed for layer '
-                f'{self.layer} (enabled={enabled}, illumination={illumination}): {e}'
-            )
-            try:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'LED',
-                    f'{self.layer} LED command failed',
-                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel. "
-                    f'Check the USB cable and power, then try again.',
-                )
-            except Exception:
-                pass
 
     # update_led_toggle_ui() removed -- LED observer handles UI sync.
     # See Phase 1 commit 96defe3.
@@ -1310,23 +1254,16 @@ class LayerControl(BoxLayout):
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
                 if not ctx.session.run_lockout:
+                    illumination_api = ctx.scope.illumination
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
-                        try:
-                            state = ctx.scope.illumination.get_led_state(channel=layer)
-                            if state.get('enabled', False):
-                                ctx.scope.illumination.led_off_async(layer)
-                        except Exception as e:
-                            # Defensive: if get_led_state fails for any
-                            # layer (e.g. null driver, hardware fault),
-                            # don't block the rest of apply_settings.
-                            # Log so the failure is visible in the
-                            # production log per the "all info in the
-                            # log" rule (was previously silent pass).
-                            logger.warning(
-                                f'[LVP Main  ] get_led_state({layer}) '
-                                f'failed during disable_leds_for_other_layers: {e}'
+                        if illumination_api.get_led_state(channel=layer)['enabled']:
+                            submit_reported(
+                                lambda lit=layer: illumination_api.led_off(lit),
+                                None,
+                                f'LED_{layer}_OFF',
+                                lane=ctx.io_executor,
                             )
                 # Update button states (visual only -- hardware already handled)
                 LayerControl._suppressing_led_log = True

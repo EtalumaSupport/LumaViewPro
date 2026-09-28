@@ -24,9 +24,12 @@ stubbed globals -- the real bodies run, not copies.
 
 import ast
 import pathlib
+import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
+
+import pytest
 
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
@@ -35,6 +38,24 @@ _NAV_SRC = (_UI_DIR / 'step_navigation.py').read_text()
 _NAV_TREE = ast.parse(_NAV_SRC)
 _IMG_SRC = (_UI_DIR / 'image_settings.py').read_text()
 _IMG_TREE = ast.parse(_IMG_SRC)
+
+
+# The lanes each submitted LED command was queued on, in order.
+_submitted_lanes = []
+
+
+@pytest.fixture(autouse=True)
+def _submits_run_at_once(monkeypatch):
+    """The bodies submit their LED commands to the IO lane; run each at once."""
+
+    def _submit_reported(call, redraw, label, *, lane=None):
+        _submitted_lanes.append(lane)
+        call()
+
+    _submitted_lanes.clear()
+    monkeypatch.setitem(
+        sys.modules, 'ui.ui_helpers', SimpleNamespace(submit_reported=_submit_reported)
+    )
 
 
 def _find_function(tree, name):
@@ -61,7 +82,7 @@ def _load_nav_outcome():
 
 
 def _nav_doubles(preview_on):
-    ctx = SimpleNamespace(scope=SimpleNamespace(illumination=MagicMock()))
+    ctx = SimpleNamespace(scope=SimpleNamespace(illumination=MagicMock()), io_executor=object())
     ctx.scope.illumination.color2ch.return_value = 7
     settings = {'protocol_led_on': preview_on}
     layer_obj = MagicMock()
@@ -81,18 +102,19 @@ def _run_nav(preview_on, step_changed=True):
         ignore_auto_gain=False,
         step_changed=step_changed,
     )
+    assert _submitted_lanes == [ctx.io_executor] * len(_submitted_lanes)
     return ctx.scope.illumination, layer_obj
 
 
 def test_preview_on_nav_fires_one_authority_transition_and_no_button_read():
     ill, layer_obj = _run_nav(preview_on=True)
-    assert ill.apply_transition_async.call_count == 1
-    transition, led_ctx = ill.apply_transition_async.call_args.args
+    assert ill.apply_transition.call_count == 1
+    transition, led_ctx = ill.apply_transition.call_args.args
     assert transition is LedTransition.MANUAL_STEP
     assert led_ctx.preview_on is True
     assert led_ctx.channel == 7
     assert led_ctx.illumination_ma == 250.0
-    assert ill.led_off_async.call_count == 0, 'nav must not queue its own led_off'
+    assert ill.led_off.call_count == 0, 'nav must not queue its own led_off'
     # The one settings apply carries the no-button-LED contract; nothing
     # else on the layer object is touched (no enable_led_btn read).
     assert layer_obj.method_calls == [
@@ -102,8 +124,8 @@ def test_preview_on_nav_fires_one_authority_transition_and_no_button_read():
 
 def test_preview_off_nav_goes_dark_via_authority_and_still_applies_camera():
     ill, layer_obj = _run_nav(preview_on=False)
-    assert ill.apply_transition_async.call_count == 1
-    transition, led_ctx = ill.apply_transition_async.call_args.args
+    assert ill.apply_transition.call_count == 1
+    transition, led_ctx = ill.apply_transition.call_args.args
     assert transition is LedTransition.MANUAL_STEP
     assert led_ctx.preview_on is False, 'preview OFF must reach the authority as all-dark'
     # Camera + histogram no longer depend on the accordion reconcile:
@@ -116,7 +138,7 @@ def test_preview_off_nav_goes_dark_via_authority_and_still_applies_camera():
 
 def test_same_step_reselection_leaves_the_led_alone():
     ill, layer_obj = _run_nav(preview_on=True, step_changed=False)
-    assert ill.apply_transition_async.call_count == 0, (
+    assert ill.apply_transition.call_count == 0, (
         're-selecting the current step must not re-drive the LED '
         '(a user-darkened channel stays dark)'
     )
@@ -182,6 +204,7 @@ def _reconcile_harness(guard_set):
         protocol_running=threading.Event(),
         session=SimpleNamespace(run_lockout=False),
         scope=SimpleNamespace(illumination=MagicMock()),
+        io_executor=object(),
     )
     # 'Green' collapsed with its LED enabled (the channel the reconcile
     # would kill); 'Red' open (the layer it would apply).
@@ -206,7 +229,7 @@ def _reconcile_harness(guard_set):
 def test_guard_set_at_fire_time_suppresses_the_reconcile():
     do_collapse, fake_self, ctx, layers = _reconcile_harness(guard_set=True)
     do_collapse(fake_self)
-    assert ctx.scope.illumination.led_off_async.call_count == 0, (
+    assert ctx.scope.illumination.led_off.call_count == 0, (
         'a trigger primed by programmatic expansion must not kill the nav preview'
     )
     assert layers['Red'][1].apply_settings.call_count == 0, (
@@ -217,7 +240,8 @@ def test_guard_set_at_fire_time_suppresses_the_reconcile():
 def test_guard_clear_runs_the_user_click_reconcile_as_today():
     do_collapse, fake_self, ctx, layers = _reconcile_harness(guard_set=False)
     do_collapse(fake_self)
-    ctx.scope.illumination.led_off_async.assert_called_once_with('Green')
+    ctx.scope.illumination.led_off.assert_called_once_with('Green')
+    assert _submitted_lanes == [ctx.io_executor]
     layers['Red'][1].apply_settings.assert_called_once_with()
 
 
@@ -232,10 +256,10 @@ def test_prime_then_clear_frame_order_suppresses_once_then_rearms():
     ]
     for event in frame_queue:
         event()
-    assert ctx.scope.illumination.led_off_async.call_count == 0
+    assert ctx.scope.illumination.led_off.call_count == 0
     # Next frame: a genuine user click fires the trigger again.
     do_collapse(fake_self)
-    ctx.scope.illumination.led_off_async.assert_called_once_with('Green')
+    ctx.scope.illumination.led_off.assert_called_once_with('Green')
 
 
 def test_set_expanded_layer_pins_the_guard_ordering():

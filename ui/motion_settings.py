@@ -359,39 +359,21 @@ class MotionSettings(BoxLayout):
 
 class XYStageControl(BoxLayout):
     def update_gui(self, dt=0, full_redraw: bool = False):
-        ctx = _app_ctx.ctx
-        if ctx.sequenced_capture_runner.run_in_progress():
-            # During protocol: update crosshair directly from position cache
-            # (zero serial I/O). Don't go through IO executor -- its callback
-            # runs on a worker thread which can't touch Kivy widgets.
-            result = self.get_xy_targets()
-            self.get_targets_ui_callback(result=result)
-            return
-        # Normal (non-protocol): query via IO executor as before
-        ctx.io_executor.put(
-            IOTask(
-                action=self.get_xy_targets, callback=self.get_targets_ui_callback, pass_result=True
-            )
-        )
+        # The targets are a cache and config read with no serial I/O, so they
+        # are read here, on the GUI thread, whether or not a run is going.
+        self.get_targets_ui_callback(result=self.get_xy_targets())
 
     def get_xy_targets(self):
         ctx = _app_ctx.ctx
         scope = ctx.lumaview.scope
-        # Cold-start without motor has no X/Y travel;
-        # gate on has_xy_stage so the KeyError doesn't get swallowed by
-        # the broad except below into a misleading "Error talking to
-        # Motor board" log line.
+        # A cold start without a motor has no X/Y travel, and no limits to
+        # read.
         if not scope.capabilities.has_xy_stage:
             return None
-        try:
-            x_target = scope.motion.get_target_position('X')
-            x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
-            y_target = scope.motion.get_target_position('Y')
-            y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
-        except Exception:
-            logger.exception('[LVP Main  ] Error talking to Motor board.')
-            return None
-
+        x_target = scope.motion.get_target_position('X')
+        x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
+        y_target = scope.motion.get_target_position('Y')
+        y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
         return (x_target, y_target)
 
     def get_targets_ui_callback(self, result=None, exception=None):
@@ -603,22 +585,16 @@ class XYStageControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
-        try:
-            gui_logger.button('HOME_XY')
-            ctx = _app_ctx.ctx
-            if ctx.session.controls_locked:
-                return
-            logger.info('[LVP Main  ] XYStageControl.home()')
+        gui_logger.button('HOME_XY')
+        ctx = _app_ctx.ctx
+        if ctx.session.controls_locked:
+            return
+        logger.info('[LVP Main  ] XYStageControl.home()')
 
-            if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
-                # The home's display shows every axis, the turret included:
-                # the firmware's home returns the turret to position 1.
-                move_home(axis='ALL')
+        if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
+            # The home's display shows every axis, the turret included:
+            # the firmware's home returns the turret to position 1.
+            run_reported(lambda: move_home(axis='ALL'), None, 'HOME_XY')
 
-            else:
-                logger.warning('[LVP Main  ] Motion controller not available.')
-        except Exception as e:
-            logger.error(f'[UI] home failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        else:
+            logger.warning('[LVP Main  ] Motion controller not available.')

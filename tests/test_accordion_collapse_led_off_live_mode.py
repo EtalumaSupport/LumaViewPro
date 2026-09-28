@@ -102,9 +102,9 @@ class TestAccordionCollapseLedOffInLiveMode:
         # collapsed (non-open) layers' channels are switched off so a
         # previously-lit channel is cleared on a Live-mode drawer switch
         # (#659).
-        assert 'led_off_async(' in body, (
+        assert '.led_off(' in body, (
             '_do_accordion_collapse must clear the collapsed layers LEDs '
-            "(led_off_async) so the previous channel's LED is turned off "
+            "(led_off) so the previous channel's LED is turned off "
             "before applying the new layer's settings (#659)."
         )
 

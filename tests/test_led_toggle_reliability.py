@@ -89,19 +89,19 @@ class TestFixA_DisableLedsForOtherLayersGuard:
 
     def test_disable_leds_offs_other_layers_individually(self):
         """Other layers are switched off one channel at a time
-        (led_off_async), preserving the #614 one-LED-at-a-time guarantee."""
+        (led_off), preserving the #614 one-LED-at-a-time guarantee."""
         body = self._body()
-        assert 'led_off_async(' in body, (
+        assert '.led_off(' in body, (
             'disable_leds_for_other_layers must turn off other layers '
-            'individually with led_off_async (#614 one LED at a time)'
+            'individually with led_off (#614 one LED at a time)'
         )
 
     def test_disable_leds_does_not_nuke_all_leds(self):
         """The cache-clearing nuclear leds_off must NOT be used here -- it was
         the off->on blink source on every slider move (#617)."""
         body = self._body()
-        assert 'leds_off_async()' not in body, (
-            'nuclear leds_off_async() clears the LED-state cache and blinks '
+        assert '.leds_off(' not in body, (
+            'nuclear leds_off() clears the LED-state cache and blinks '
             'an already-correct channel off->on; off the other layers '
             'individually instead (#617)'
         )
@@ -111,7 +111,7 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         must NOT re-light it. Re-lighting was only needed to undo the nuclear
         leds_off, which also turned this layer off."""
         body = self._body()
-        assert 'led_on_async(' not in body, (
+        assert '.led_on(' not in body, (
             'disable_leds_for_other_layers must not re-light this layer '
             '(update_led_state owns this layer current); re-lighting here '
             'was only there to undo the nuclear leds_off (#617)'

@@ -270,9 +270,8 @@ def move_absolute(
 
     ``frame='plate'`` hands the API the number a user typed, in plate mm,
     instead of converting first. The conversion and its bound then happen
-    inside the submitted task, which is what keeps a refusal on the worker
-    thread: raised in a Kivy handler's own frame it would reach the crash
-    guard rather than a notification.
+    inside the submitted call, on the IO lane, where the reporter shows a
+    refusal; the axis boxes redraw once the command has landed.
     """
     ctx = _app_ctx.ctx
 
@@ -283,16 +282,18 @@ def move_absolute(
         ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
         return
 
-    ctx.scope.motion.move_absolute_async(
-        axis,
-        position,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled,
-        callback=_handle_ui_update_for_axis,
-        cb_kwargs={'axis': axis},
-        frame=frame,
+    submit_reported(
+        lambda: ctx.scope.motion.move_absolute(
+            axis,
+            position,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
+            frame=frame,
+        ),
+        lambda: _handle_ui_update_for_axis(axis=axis),
+        f'MOVE_{axis}',
+        lane=ctx.io_executor,
     )
-    _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
 def unknown_position_refused(axes: typing.Iterable[str], *, recording: bool, then: str) -> bool:
@@ -330,13 +331,16 @@ def move_relative(
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
-    ctx.scope.motion.move_relative_async(
-        axis,
-        distance,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled,
-        callback=_handle_ui_update_for_axis,
-        cb_kwargs={'axis': axis},
+    submit_reported(
+        lambda: ctx.scope.motion.move_relative(
+            axis,
+            distance,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled,
+        ),
+        lambda: _handle_ui_update_for_axis(axis=axis),
+        f'JOG_{axis}',
+        lane=ctx.io_executor,
     )
 
 
@@ -354,7 +358,12 @@ def move_home(axis: str, wait: bool = False):
     axis = axis.upper()
     set_title_event_text('Homing, please wait...')
     if not wait:
-        ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+        submit_reported(
+            lambda: ctx.scope.motion.home(axis),
+            lambda: move_home_cb(axis),
+            f'HOME_{axis}',
+            lane=ctx.io_executor,
+        )
         return None
     try:
         return ctx.scope.motion.move_home_and_wait(axis)

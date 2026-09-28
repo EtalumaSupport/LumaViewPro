@@ -241,18 +241,12 @@ class VerticalControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
-        try:
-            gui_logger.button('HOME_Z')
-            ctx = _app_ctx.ctx
-            if ctx.session.controls_locked:
-                return
-            logger.info('[LVP Main  ] VerticalControl.home()')
-            move_home(axis='Z')
-        except Exception as e:
-            logger.error(f'[UI] home failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        gui_logger.button('HOME_Z')
+        ctx = _app_ctx.ctx
+        if ctx.session.controls_locked:
+            return
+        logger.info('[LVP Main  ] VerticalControl.home()')
+        run_reported(lambda: move_home(axis='Z'), None, 'HOME_Z')
 
     def load_objectives(self):
         ctx = _app_ctx.ctx
