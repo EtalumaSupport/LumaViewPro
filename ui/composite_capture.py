@@ -18,9 +18,6 @@ from modules.exceptions import CaptureError, HardwareCommandRefusedError, Object
 from modules.run_outcome import PendingRunOutcome
 from ui.ui_helpers import (
     live_display_callbacks,
-    live_histo_off,
-    live_histo_reverse,
-    reset_title,
     set_last_save_folder,
     set_title_event_text,
     submit_reported,
@@ -134,21 +131,15 @@ class CompositeCapture(FloatLayout):
         The only code that styles the button: after each of its own
         requests, and on every run-state edge -- including the run's return
         to idle -- so a run that ends on its own and a start that was
-        refused land on the same drawing.
+        refused land on the same drawing. It draws this button and its own
+        run's title only: the same edge fires when another run takes the
+        scope, and what every run shares is draw_shared_run_displays'.
         """
         ctx = _app_ctx.ctx
         live = ctx.sequenced_capture_runner.is_live_run(self._composite_run)
         self.ids['composite_btn'].state = 'down' if live else 'normal'
         if live:
-            live_histo_off()
             set_title_event_text('Compositing...')
-            return
-        reset_title()
-        live_histo_reverse()
-        # The run's LED restore has settled once it is idle, so reconcile
-        # every enable toggle to what the driver actually reports: a
-        # restore that emits no LED events leaves the buttons stale.
-        ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
 def _show_capture_outcome(future) -> None:

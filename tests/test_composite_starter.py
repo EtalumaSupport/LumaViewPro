@@ -104,10 +104,7 @@ def app_ctx(runner, engine, tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _quiet_ui(monkeypatch):
     """Neutralise the cosmetics so a test reads the toggle, not the theme."""
-    monkeypatch.setattr(cc, 'live_histo_off', MagicMock())
-    monkeypatch.setattr(cc, 'live_histo_reverse', MagicMock())
     monkeypatch.setattr(cc, 'set_title_event_text', MagicMock())
-    monkeypatch.setattr(cc, 'reset_title', MagicMock())
     monkeypatch.setattr(cc, 'set_last_save_folder', MagicMock())
 
 
@@ -178,16 +175,21 @@ def test_a_started_run_keeps_its_handle_and_draws_running(app_ctx, runner, engin
     assert starter.button.state == 'down', 'the button draws its own live run'
 
 
-def test_an_idle_redraw_hands_the_led_buttons_back_to_the_hardware(app_ctx):
-    # The run's LED restore can end without emitting the events the enable
-    # toggles listen for, so the idle drawing reconciles them against the
-    # driver rather than trusting the events to have arrived.
+def test_a_redraw_draws_its_button_and_nothing_every_run_shares(app_ctx, monkeypatch):
+    # The redraw fires on every run-state edge, including the one where
+    # another run takes the scope: were it to hand equalization, the title
+    # or the LED toggles back as it drew itself idle, it would undo that
+    # run's display. Those are draw_shared_run_displays', drawn once.
+    shared = MagicMock()
+    monkeypatch.setattr(ui_helpers, 'live_histo_reverse', shared.live_histo_reverse)
+    monkeypatch.setattr(ui_helpers, 'reset_title', shared.reset_title)
     starter = _Starter()
 
     cc.CompositeCapture.draw_composite_button(starter)
 
-    app_ctx.ui_listener_bridge.reconcile_led_buttons.assert_called_once()
     assert starter.button.state == 'normal'
+    assert shared.mock_calls == []
+    app_ctx.ui_listener_bridge.reconcile_led_buttons.assert_not_called()
 
 
 def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(

@@ -415,6 +415,7 @@ from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
     _handle_autofocus_ui,
     _handle_ui_update_for_axis,
+    draw_shared_run_displays,
 )
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
@@ -496,9 +497,11 @@ class LumaViewProApp(TooltipMixin, App):
         A run control's button shows what the engine says of the run it
         started, and this edge is the one that fires after a run is back
         to idle -- so a run that ends on its own is drawn ended here, and
-        nowhere else has to guess when.
+        nowhere else has to guess when. A control styles only its own
+        button; what every run shares is drawn once, after them.
         """
         ctx.lumaview.draw_composite_button()
+        draw_shared_run_displays()
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""

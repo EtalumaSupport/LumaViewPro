@@ -513,6 +513,38 @@ def live_histo_reverse():
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
 
+_DRAIN_TITLE = 'Writing protocol scan files to disk...'
+
+
+def draw_shared_run_displays() -> None:
+    """Draw the displays every run shares -- equalization, title, LED toggles.
+
+    Their only writer. Each run control redraws on every run-state edge,
+    including the edge where ANOTHER run takes the scope, so a control
+    that wrote these while drawing its own idle state would undo the live
+    run's display. These are drawn from what the session says holds the
+    scope, never from any one control's run.
+
+    While anything holds the scope its own writers title the window, so
+    the title is left to them; the LED toggles are reconciled only once
+    nothing holds the scope, after the run's hardware restore has settled
+    and with no diagnostic lighting the LEDs underneath them.
+    """
+    ctx = _app_ctx.ctx
+    session = ctx.session
+    if session.run_lockout:
+        live_histo_off()
+    else:
+        live_histo_reverse()
+    if session.exclusive_activity is not None:
+        return
+    if session.protocol_files_draining:
+        set_title_event_text(_DRAIN_TITLE)
+    else:
+        reset_title()
+    ctx.ui_listener_bridge.reconcile_led_buttons()
+
+
 # ============================================================================
 # UI State Helpers
 # ============================================================================
