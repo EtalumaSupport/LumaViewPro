@@ -9436,7 +9436,7 @@ class TestSessionLedOnArgNameIsMa:
         # with TypeError the same way a signature check would -- while also
         # proving the value reaches the LED state.
         color = sim_scope.illumination.ch2color(0)
-        for method_name in ('led_on', 'led_on_async'):
+        for method_name in ('led_on',):
             getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
             assert sim_scope.illumination.get_led_state(color)['illumination_ma'] == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'

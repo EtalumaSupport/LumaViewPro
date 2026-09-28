@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import ConfigError
-from modules.sequential_io_executor import ENQUEUED, IOTask
+from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
     from modules.activity_claim import Taking
@@ -911,136 +911,6 @@ class IlluminationAPI:
                 e,
             )
 
-    # --- Async control ---
-    def _submit_io(
-        self,
-        action,
-        name,
-        *,
-        args=None,
-        kwargs=None,
-        callback=None,
-        cb_kwargs=None,
-    ):
-        """Guard LED connectivity, then queue an IOTask on the io_executor.
-
-        The shared connectivity-guard + executor-resolve + enqueue path behind
-        the async LED wrappers, so a disconnected board no-ops identically
-        everywhere instead of each wrapper re-deriving the guard.
-
-        Returns True when the task was enqueued (or ran inline, when there is
-        no executor), False when it did not: the controller is absent, or the
-        executor refused the task. Every False is logged, so a caller that
-        cannot act on the result still leaves a trace.
-
-        Args:
-            action: The bound method the IOTask runs.
-            name: Caller name for the executor-required diagnostic.
-            args: Positional args for ``action``.
-            kwargs: Keyword args for ``action``.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return False
-        task = IOTask(
-            action=action,
-            args=args,
-            kwargs=kwargs,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-        ex = self._scope._io_executor
-        if ex is None:
-            # Nothing to defer to, so the work happens on this thread -- the
-            # same rule the public dispatcher follows, so the surface has one
-            # answer for "no executor" rather than one per tier. Running the
-            # task rather than the bare action keeps the callback and the
-            # error reporting on the production path; IOTask already falls
-            # back to a direct dispatch when there is no UI dispatcher.
-            # run() renames the current thread to the task's name (normally
-            # the worker's); an unnamed task would blank the CALLING thread's
-            # name here, so hand it the name it already has.
-            task.set_name(threading.current_thread().name)
-            result, exception = task.run()
-            task.on_complete(result, exception)
-            if exception is not None:
-                raise exception
-            return True
-        # Success is the ENQUEUED identity rather than "not None": put() has
-        # more than one way to decline a task, and the other one
-        # (LIVE_FRAME_DROPPED) is truthy, so a negative test would eventually
-        # read a refusal as a success.
-        if ex.put(task) is not ENQUEUED:
-            # Fire-and-forget callers cannot be handed an exception -- every
-            # UI callsite would need a handler for a state it cannot prevent --
-            # so the refusal is recorded instead of vanishing.
-            logger.warning(
-                f'[SCOPE API ] {name} dropped: the io executor is not accepting '
-                f'work (disabled, or fenced by a running protocol)'
-            )
-            return False
-        return True
-
-    def leds_off_async(self, *, callback=None) -> None:
-        """Submit ``leds_off`` to the io_executor.
-
-        No-op if LED disconnected.
-
-        Args:
-            callback: Optional completion callback.
-        """
-        if self._submit_io(self._leds_off_impl, 'leds_off_async', callback=callback):
-            logger.info('[SCOPE API ] leds_off_async()')
-
-    def led_on_async(
-        self,
-        channel: int | str,
-        illumination_ma: float,
-        *,
-        callback: typing.Callable | None = None,
-        cb_kwargs: dict | None = None,
-    ) -> None:
-        """Submit ``led_on(channel, illumination_ma)`` to the io_executor.
-
-        Args:
-            channel: Channel number or color name.
-            illumination_ma: LED current in milliamps.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        self._submit_io(
-            self._led_on_impl,
-            'led_on_async',
-            args=(channel, illumination_ma),
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def led_off_async(
-        self,
-        channel: int | str,
-        *,
-        callback: typing.Callable | None = None,
-        cb_kwargs: dict | None = None,
-    ) -> None:
-        """Submit ``led_off(channel)`` to the io_executor.
-
-        Args:
-            channel: Channel number or color name.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        kwargs = {'channel': channel}
-        self._submit_io(
-            self._led_off_impl,
-            'led_off_async',
-            kwargs=kwargs,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
     # --- State ---
     def get_led_state(self, channel: str) -> dict:
         """Get the on/off state and illumination for an LED channel.
@@ -1417,31 +1287,6 @@ class IlluminationAPI:
             LedLease.target_leds(transition, ctx),
             lease=None,
             block=transition in _CONFIRM_ON_TRANSITIONS,
-        )
-
-    def apply_transition_async(
-        self,
-        transition: LedTransition,
-        ctx: LedTransitionCtx,
-        *,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        """Submit ``apply_transition`` to the io_executor.
-
-        Internal -- the GUI's non-blocking submission of
-        ``apply_transition``; not part of the L2 API surface.
-
-        Manual step navigation runs the LED transition here so it serializes on
-        the same io_executor as the stage moves (no move racing the LEDs) and
-        does not block the UI thread.
-        """
-        self._submit_io(
-            self._apply_transition_impl,
-            'apply_transition_async',
-            args=(transition, ctx),
-            callback=callback,
-            cb_kwargs=cb_kwargs,
         )
 
     def force_off(self) -> None:

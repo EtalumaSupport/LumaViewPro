@@ -1,8 +1,8 @@
 """Regression test: do not wrap self-dispatching motion wrappers in IOTask.
 
 The UI helpers ``ui_helpers.move_absolute``, ``move_relative``,
-and ``move_home`` already submit their hardware call to the io_executor via the
-``*_async`` API (``move_absolute_async`` -> ``ex.put(IOTask(...))``). Wrapping
+and ``move_home`` already submit their hardware call to the io_executor
+through ``submit_reported(..., lane=io_executor)``. Wrapping
 them in an outer ``IOTask(action=move_absolute, ...)`` causes TWO
 trips through the executor for one hardware move -- redundant queue puts,
 context switches, and callback dispatches.

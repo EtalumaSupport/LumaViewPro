@@ -153,22 +153,6 @@ def test_a_waited_refusal_reaches_its_caller_and_is_logged_once_without_a_traceb
 
 
 @pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
-def test_a_refusal_with_no_executor_still_leaves_one_line(
-    scope, caplog, monkeypatch, make_error, title
-):
-    # A script on a bare scope runs the task on its own thread and nothing
-    # posts a notification: the raise it receives is the record.
-    monkeypatch.setattr(scope, '_io_executor', None)
-    error = make_error()
-
-    with caplog.at_level(logging.DEBUG), pytest.raises(type(error)) as raised:
-        scope.motion._submit_motion(_move_absolute_impl, 'move_absolute', kwargs={'error': error})
-
-    assert raised.value is error
-    assert _task_records(caplog) == []
-
-
-@pytest.mark.parametrize(('make_error', 'title'), REFUSALS)
 def test_every_refused_press_is_shown_however_soon_it_repeats(make_error, title):
     """Eric, 2026-09-23: *"i do not want a 10 second filter on user buttons.
     Every time you try to go out of range, you should get the dialog."*
@@ -214,14 +198,22 @@ def test_a_failure_is_still_a_failure(caplog):
 
 
 def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(scope, monkeypatch):
-    """The sim finding, end to end: a fire-and-forget move on an axis that
-    has not homed reaches the user as the same refusal every gesture gives."""
-    centre = NotificationCenter(dedup_window_s=10.0)
-    shown = []
-    centre.add_listener(shown.append, min_severity=Severity.INFO)
-    monkeypatch.setattr(sio, 'notifications', centre)
+    """The sim finding, end to end: a person's move on an axis that has not
+    homed reaches them as the same refusal every gesture gives."""
+    from modules import notification_center
+    from tests.shown_outcomes import capture_shown
+    from ui import ui_helpers
 
-    scope.motion.move_absolute_async('Y', 1000.0)
+    shown = capture_shown(monkeypatch)
+    monkeypatch.setattr(sio, 'notifications', notification_center.notifications)
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+
+    ui_helpers.submit_reported(
+        lambda: scope.motion.move_absolute('Y', 1000.0),
+        None,
+        'MOVE_Y',
+        lane=scope._io_executor,
+    )
     scope._io_executor.put(IOTask(action=lambda: None), return_future=True).result(timeout=5.0)
 
     assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Scope Not Homed')]

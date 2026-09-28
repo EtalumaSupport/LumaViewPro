@@ -201,7 +201,7 @@ class TestLumascopeHome:
 
     def test_home_axis_vocabulary_selects_the_right_body(self):
         """'Z' | 'T' | 'ALL' route to the Z / turret / full-home bodies
-        (the same selector vocabulary as move_home_async)."""
+        (the same selector vocabulary as move_home_and_wait, less 'XY')."""
         scope = Lumascope(simulate=True)
         ran = []
         scope.motion._zhome_impl = lambda: ran.append('Z') or True

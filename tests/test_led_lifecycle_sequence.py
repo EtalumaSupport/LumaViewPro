@@ -583,7 +583,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
 # ---------------------------------------------------------------------------
 # Manual-nav preview (transitions 13/14). Driven via the production authority
-# call apply_transition_async(MANUAL_STEP, ctx) -- the exact call
+# call apply_transition(MANUAL_STEP, ctx) -- the exact call
 # ui/step_navigation.py makes when settings['protocol_led_on'] is True. The full
 # go_to_step UI drive (the settings->preview gate) is UI-thread-bound and stays
 # covered by the issue locks; here the LED-substream invariant is what matters.
@@ -599,12 +599,6 @@ def scope_io(scope):
     ex.shutdown(wait=True)
 
 
-def _run_async(fn, *args, timeout=5, **kwargs):
-    done = threading.Event()
-    fn(*args, callback=lambda *a, **k: done.set(), **kwargs)
-    assert done.wait(timeout), 'async LED task did not complete in time'
-
-
 def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
     """Manual-nav preview ON lights the step channel exclusively; re-navigating
     to the SAME color holds it with zero commands (no off->on blink -- the #697
@@ -615,8 +609,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
     ill.add_led_listener(sub)
 
     def _preview(color, illumination_ma):
-        return _run_async(
-            ill.apply_transition_async,
+        return ill.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
                 channel=ill.color2ch(color), illumination_ma=illumination_ma, preview_on=True

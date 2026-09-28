@@ -13,8 +13,6 @@ no-op does not fire), so counting listener events is a direct measure of "did
 the LED blink".
 """
 
-import threading
-
 import pytest
 
 from modules.lumascope_api import Lumascope
@@ -62,9 +60,9 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
 
 @pytest.fixture
 def scope_io(scope):
-    """Simulated scope with a started io_executor registered, so the
-    X_async LED methods (which dispatch IOTasks) run end to end. Manual
-    step navigation reaches the LED through apply_transition_async."""
+    """Simulated scope with a started io_executor registered, so the LED
+    members dispatch to it and run end to end. Manual step navigation
+    reaches the LED through apply_transition."""
     from modules.sequential_io_executor import SequentialIOExecutor
 
     ex = SequentialIOExecutor(name='TEST_LED_IO')
@@ -74,23 +72,15 @@ def scope_io(scope):
     ex.shutdown(wait=True)
 
 
-def _run_async(fn, *args, timeout=5, **kwargs):
-    """Submit an X_async LED call and block until the io_executor runs it."""
-    done = threading.Event()
-    fn(*args, callback=lambda *a, **k: done.set(), **kwargs)
-    assert done.wait(timeout), 'async LED task did not complete in time'
-
-
 def _preview(scope_io, ch, illumination_ma):
-    """Drive the production manual-nav preview path (apply_transition_async)."""
-    _run_async(
-        scope_io.illumination.apply_transition_async,
+    """Drive the production manual-nav preview path; returns once the io lane ran it."""
+    scope_io.illumination.apply_transition(
         LedTransition.MANUAL_STEP,
         LedTransitionCtx(channel=ch, illumination_ma=illumination_ma, preview_on=True),
     )
 
 
-def test_manual_preview_async_skips_already_lit_channel(scope_io):
+def test_manual_preview_skips_already_lit_channel(scope_io):
     """Manual-nav preview on a channel already at the target current emits
     no driver command -- the manual same-color step no longer blinks."""
     scope_io.illumination.led_on(channel=3, illumination_ma=200)
@@ -103,7 +93,7 @@ def test_manual_preview_async_skips_already_lit_channel(scope_io):
     assert scope_io.illumination.get_led_state(_color(scope_io, 3))['enabled']
 
 
-def test_manual_preview_async_turns_off_other_channels(scope_io):
+def test_manual_preview_turns_off_other_channels(scope_io):
     """Manual-nav preview offs other lit channels and lights the target --
     the manual switch-to-a-new-color step."""
     scope_io.illumination.led_on(channel=0, illumination_ma=100)

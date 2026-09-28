@@ -31,7 +31,6 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 from collections.abc import Iterable, Iterator, Mapping
 
@@ -473,53 +472,22 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
-    def _submit_motion(
-        self,
-        action,
-        name,
-        *,
-        kwargs=None,
-        callback=None,
-        cb_args=None,
-        cb_kwargs=None,
-        slow_task_threshold_sec=None,
-        wait_timeout=None,
-    ):
-        """Submit one motion body to the io executor.
+    def _submit_motion(self, action, name, *, wait_timeout):
+        """Run one motion body on the io executor and wait up to ``wait_timeout`` seconds.
 
         With no executor registered the task runs on the calling thread --
         a bare `Lumascope()` in a script has none and still has to drive
-        hardware; one rule for the whole surface. Running the TASK rather
-        than the bare action keeps the callback and error reporting on the
-        production path. A submit the executor drops is recorded rather
-        than vanishing: fire-and-forget callers cannot be handed an
-        exception -- every UI callsite would need a handler for a state it
-        cannot prevent.
-
-        Args:
-            wait_timeout: None (the default) submits fire-and-forget and
-                returns None. A number blocks for up to that many seconds
-                and returns what the body returned, so a caller that must
-                branch on the outcome -- startup deciding whether the
-                reference frame is good enough to keep going -- can. The
-                waiter is the one this already claims; only discarding it
-                was the difference. Never pass this from the io worker
-                itself: it would wait on the thread that has to run the
-                work.
+        hardware; one rule for the whole surface. Never called from the io
+        worker itself: it would wait on the thread that has to run the
+        work.
 
         Returns:
-            The body's return value when ``wait_timeout`` is set,
-            otherwise None. Also None when the executor declined the
-            task, which a waiting caller must read as "did not run".
+            What the body returned, so a caller that must branch on the
+            outcome -- startup deciding whether the reference frame is good
+            enough to keep going -- can. None when the executor declined the
+            task, which the caller reads as "did not run".
         """
-        task = IOTask(
-            action=action,
-            kwargs=kwargs,
-            callback=callback,
-            cb_args=cb_args,
-            cb_kwargs=cb_kwargs,
-            slow_task_threshold_sec=slow_task_threshold_sec,
-        )
+        task = IOTask(action=action)
         ex = self._scope._io_executor
         if ex is None:
             # run() renames the current thread to the task's name (normally
@@ -527,12 +495,10 @@ class MotionAPI:
             # thread's name here, so hand it the name it already has.
             task.set_name(threading.current_thread().name)
             result, exception = task.run()
-            task.on_complete(result, exception)
             if exception is not None:
                 raise exception
             return result
-        if wait_timeout is not None:
-            refuse_blocking_inline(name)
+        refuse_blocking_inline(name)
         waiter = ex.put(task, return_future=True)
         if waiter is None:
             logger.warning(
@@ -540,49 +506,7 @@ class MotionAPI:
                 f'work (disabled, or fenced by a running protocol)'
             )
             return None
-        if wait_timeout is None:
-            return None
         return waiter.result(timeout=wait_timeout)
-
-    def move_absolute_async(
-        self,
-        axis: str,
-        position: float,
-        *,
-        wait_until_complete: bool = False,
-        overshoot_enabled: bool = True,
-        callback: Callable | None = None,
-        cb_kwargs: dict | None = None,
-        frame: str = 'stage',
-    ) -> None:
-        """Submit the absolute move to the io_executor; return immediately.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
-                ``move_turret``; "T" is refused here.
-            position: Target position, in um.
-            wait_until_complete: If True, the WORKER blocks until the move
-                finishes; this call still returns immediately.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-            frame: ``'stage'`` (um, the default) or ``'plate'`` (mm as the
-                user types them). See ``_move_absolute_impl``.
-        """
-        self._refuse_turret_on_generic_door(axis, 'move_absolute_async')
-        self._submit_motion(
-            self._move_absolute_impl,
-            'move_absolute_async',
-            kwargs={
-                'axis': axis,
-                'position': position,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-                'frame': frame,
-            },
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
 
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves (LVP-A-1).
@@ -1269,46 +1193,11 @@ class MotionAPI:
         else:
             self._turreting_event.clear()
 
-    def move_relative_async(
-        self,
-        axis: str,
-        distance: float,
-        *,
-        wait_until_complete: bool = False,
-        overshoot_enabled: bool = True,
-        callback: Callable | None = None,
-        cb_kwargs: dict | None = None,
-    ) -> None:
-        """Submit ``move_relative`` to the io_executor.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z"). The turret moves by slot:
-                ``move_turret``; "T" is refused here.
-            distance: Distance to move, in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        self._refuse_turret_on_generic_door(axis, 'move_relative_async')
-        self._submit_motion(
-            self._move_relative_impl,
-            'move_relative_async',
-            kwargs={
-                'axis': axis,
-                'distance': distance,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
     def _home_action_for(self, axis):
         """Resolve the home body an axis selector names, or None.
 
-        Shared by the async and waiting entry points so the selector
-        vocabulary ('Z', 'T', 'ALL', legacy 'XY') has one definition.
+        The selector vocabulary ('Z', 'T', 'ALL', legacy 'XY') of
+        ``move_home_and_wait``, in one place.
         """
         a = axis.upper()
         if a == 'Z':
@@ -1320,20 +1209,20 @@ class MotionAPI:
         logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
         return None
 
-    def move_home_and_wait(self, axis, *, timeout=None) -> bool:
+    def move_home_and_wait(self, axis: str, *, timeout: float | None = None) -> bool:
         """Home an axis (or the whole scope) and report whether it worked.
 
-        The async form has no return channel, so a caller that must know
-        -- startup deciding whether to keep driving the stage -- had no
-        way to ask. Without this the failure is discarded and the next
-        commanded move runs against a reference frame the home just
-        failed to establish.
+        For a caller that must know -- startup deciding whether to keep
+        driving the stage. Without the answer the failure is discarded and
+        the next commanded move runs against a reference frame the home
+        just failed to establish.
 
         Must not be called from the io worker: it waits on the thread
         that would run the work.
 
         Args:
-            axis: Same vocabulary as ``move_home_async``.
+            axis: 'Z' or 'T' homes that single axis; 'ALL' (or legacy 'XY')
+                homes everything the board has.
             timeout: Seconds to wait. Defaults to the published motion
                 settle bound.
 
@@ -1354,26 +1243,6 @@ class MotionAPI:
                 wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
             )
             is True
-        )
-
-    def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
-        """Home an axis (or the whole scope) via the io_executor.
-
-        Args:
-            axis: 'Z' or 'T' homes that single axis. 'ALL' (or legacy 'XY')
-                homes everything the board has via self.home() -- firmware
-                homes Z and T first as part of the same routine.
-            callback: Optional completion callback.
-            cb_args: Optional positional args passed to the callback.
-        """
-        action = self._home_action_for(axis)
-        if action is None:
-            return
-        self._submit_motion(
-            action,
-            'move_home_async',
-            callback=callback,
-            cb_args=cb_args,
         )
 
     def get_axis_state(self, axis: str) -> str:
@@ -2293,8 +2162,8 @@ class MotionAPI:
                 physically-waited motions, so its wait bound is three
                 settle windows). ``'ALL'`` (default) homes every axis the
                 board has; the firmware routine homes Z, then T, then X/Y.
-                Same vocabulary as ``move_home_async``, minus its legacy
-                ``'XY'`` alias.
+                Same vocabulary as ``move_home_and_wait``, minus its
+                legacy ``'XY'`` alias.
 
         See the ``_home_impl`` / ``_zhome_impl`` / ``_home_turret_impl``
         docstrings for the per-axis notify-on-failure contracts.
@@ -2308,8 +2177,7 @@ class MotionAPI:
         Raises:
             ValueError: on an unknown axis. A blocking member returning
                 bool must not turn a typo'd axis into a falsy return
-                indistinguishable from a real homing failure (the async
-                twin, fire-and-forget, warns instead).
+                indistinguishable from a real homing failure.
         """
         a = axis.upper()
         if a == 'Z':

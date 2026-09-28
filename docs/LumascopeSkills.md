@@ -91,7 +91,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
 - **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_frame_size`, `set_binning_size`, `set_pixel_format`) are the raise contract, not the True/False one. A confirmed driver rejection raises `CameraSettingRejected` (`modules.exceptions`), carrying `setting` and `requested`, already logged and notified when it reaches you. Success is observed by the call returning -- for the geometry setters, by the DELIVERED value, which may differ from the request. Two cases are deliberately **not** rejections and do not raise: no camera is active (a quiet no-op per the missing-hardware contract), and a driver with no confirmation signal (it answers `None`, meaning "cannot confirm", not "refused"). Gain and exposure rejections are both confirmable on Basler and IDS bodies. On the Classic (FX2) body the sensor register write raises out of the driver rather than reporting a refusal, so a failed apply there reaches you as that exception instead of as `CameraSettingRejected`.
-- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the blocking form raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member; the `*_async` forms drop the command with a logged warning instead of raising. With no executors registered at all (a bare `Lumascope()` in a script), every command -- blocking and `*_async` alike -- runs directly on the calling thread.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. With no executors registered at all (a bare `Lumascope()` in a script), every command runs directly on the calling thread. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 
@@ -411,24 +411,23 @@ thread only).
 
 The Session carries no hardware-command forwarders: every command has
 exactly one public spelling, on the sub-APIs of the composition root the
-Session exposes as `session.scope`. The dispatch contract (blocking form
+Session exposes as `session.scope`. The dispatch contract (each command
 submits and blocks; refusal raises `HardwareCommandRefusedError` while a
-protocol run owns the executors; `*_async` drops with a logged warning)
-is documented once in the contract section above.
+protocol run owns the executors) is documented once in the contract
+section above.
 
 ```python
 # LED
 session.scope.illumination.led_on('Blue', 200)      # blocks until the write has landed
-session.scope.illumination.led_on_async('Blue', 200)  # fire-and-forget
-session.scope.illumination.led_off_async('Blue')
-session.scope.illumination.leds_off_async()
+session.scope.illumination.led_off('Blue')
+session.scope.illumination.leds_off()
 
 # Motion
-session.scope.motion.move_home_async('ALL')
-session.scope.motion.move_absolute_async('Z', 5000, wait_until_complete=True)
-session.scope.motion.move_relative_async('X', 500)
+session.scope.motion.home('ALL')
+session.scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
+session.scope.motion.move_relative('X', 500)
 
-# Imaging (blocking-only -- no imaging *_async forms)
+# Imaging
 session.scope.imaging.set_gain_db(8.0)                 # dB; blocks until applied
 session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks until applied
 image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
@@ -745,8 +744,8 @@ Axes available depend on the scope — always check `scope.capabilities.axes`.
 scope.motion.home()                              # home everything the board has (axis='ALL' default)
 scope.motion.home(axis='Z')                      # Z only
 scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
-# Unknown axis raises ValueError; the async twin move_home_async(axis)
-# and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
+# Unknown axis raises ValueError; move_home_and_wait(axis) shares the same
+# 'Z' | 'T' | 'ALL' vocabulary.
 scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
@@ -818,7 +817,7 @@ scope.motion.get_turret_slot()                   # slot in the light path, or No
 # left it in, recorded only when that command returned without error and no
 # stop_motion landed on it. None before the first, while one runs, after one
 # fails (MoveNotCompletedError), and after the turret's position is lost.
-# move_absolute / move_relative (and their _async forms) refuse 'T' with
+# move_absolute / move_relative refuse 'T' with
 # ValueError -- the turret moves only by slot, through move_turret.
 scope.motion.get_preferred_turret_slot()         # the slot the last move_turret landed on, or None
 # Never written by a home, and saved as turret_position, so it survives a
@@ -887,13 +886,6 @@ scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
 scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
-
-# Fire-and-forget: returns immediately, the write lands on the io worker.
-# Dropped with a logged warning (never an exception) while a protocol run
-# owns the executors -- see "Hardware-command dispatch" above.
-scope.illumination.led_on_async('Red', 100)
-scope.illumination.led_off_async('Red')
-scope.illumination.leds_off_async()
 
 # Channel mapping. Numbers are a DRIVER detail -- these exist to read the
 # board's own wire vocabulary, not to address channels from L2.

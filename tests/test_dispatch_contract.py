@@ -23,9 +23,9 @@ camera write submit, receive None, and silently reach no hardware -- so
 both states are driven here and both must refuse identically.
 
 Parametrized across all three families because they do not share a dispatch
-shape: illumination submits through ``_submit_io``, imaging and motion
-construct their IOTask directly, callback plumbing differs, and
-``wait_until_complete`` exists only on motion. A contract pinned on one
+shape: each has its own dispatcher (``_dispatch_led``, ``_dispatch_camera``,
+``_dispatch_motion``) with its own wait bound, and ``wait_until_complete``
+exists only on motion. A contract pinned on one
 family would not catch the other two diverging from it.
 
 The probe replaces ``_impl`` with a recorder rather than asserting hardware
@@ -50,21 +50,16 @@ from modules.sequential_io_executor import SequentialIOExecutor
 # submits without waiting returns None here and fails.
 IMPL_RESULT = object()
 
-# (family, member, async member, kwargs, which executor carries it)
+# (family, member, kwargs, which executor carries it)
 #
-# The async member's name does not always track the base name
-# (move_absolute dispatches through move_absolute_async), so it is
-# carried explicitly rather than derived by suffix. The camera family
-# carries None: its fire-and-forget tier was measured consumerless and
-# deleted rather than collapsed, so the camera capability ends with the
-# dispatcher as its only public form and has no async member to pin.
+# Every family's dispatcher is its only public form: the fire-and-forget
+# tiers were deleted, so there is no second spelling of a command to pin.
 FAMILIES = [
-    ('illumination', 'led_on', 'led_on_async', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
-    ('imaging', 'set_gain_db', None, {'gain_db': 1.0}, 'camera'),
+    ('illumination', 'led_on', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
+    ('imaging', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
         'move_absolute',
-        'move_absolute_async',
         {'axis': 'Z', 'position': 100.0},
         'io',
     ),
@@ -77,30 +72,27 @@ FAMILIES = [
     (
         'imaging',
         'set_auto_gain',
-        None,
         {
             'state': True,
             'settings': {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0},
         },
         'camera',
     ),
-    ('imaging', 'set_auto_exposure_time', None, {'state': True}, 'camera'),
-    ('imaging', 'set_frame_size', None, {'w': 640, 'h': 480}, 'camera'),
-    ('imaging', 'set_binning_size', None, {'size': 1}, 'camera'),
-    ('imaging', 'set_pixel_format', None, {'pixel_format': 'Mono8'}, 'camera'),
-    ('imaging', 'set_conversion_gain_mode', None, {'mode': 'High'}, 'camera'),
-    ('imaging', 'set_line_noise_reduction', None, {'enabled': True}, 'camera'),
+    ('imaging', 'set_auto_exposure_time', {'state': True}, 'camera'),
+    ('imaging', 'set_frame_size', {'w': 640, 'h': 480}, 'camera'),
+    ('imaging', 'set_binning_size', {'size': 1}, 'camera'),
+    ('imaging', 'set_pixel_format', {'pixel_format': 'Mono8'}, 'camera'),
+    ('imaging', 'set_conversion_gain_mode', {'mode': 'High'}, 'camera'),
+    ('imaging', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
     (
         'imaging',
         'update_auto_gain_target_brightness',
-        None,
         {'target_brightness': 0.5},
         'camera',
     ),
     (
         'imaging',
         'auto_gain_once',
-        None,
         {
             'state': True,
             'target_brightness': 0.3,
@@ -112,7 +104,6 @@ FAMILIES = [
     (
         'imaging',
         'apply_layer_camera_settings',
-        None,
         {'gain_db': 1.0, 'exposure_ms': 10.0, 'layer': 'BF'},
         'camera',
     ),
@@ -123,10 +114,7 @@ FAMILIES = [
     # rightly refuses external work.
 ]
 
-FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in FAMILIES]
-
-ASYNC_FAMILIES = [f for f in FAMILIES if f[2] is not None]
-ASYNC_FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in ASYNC_FAMILIES]
+FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 
 
 @pytest.fixture
@@ -165,12 +153,8 @@ def _install_probe(scope, family, member):
     return sub, threads
 
 
-@pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS
-)
-def test_absent_executor_runs_impl_on_the_calling_thread(
-    sim_scope, family, member, async_member, kwargs, slot
-):
+@pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
+def test_absent_executor_runs_impl_on_the_calling_thread(sim_scope, family, member, kwargs, slot):
     # sim_scope registers no executors, which is the shape of a bare
     # Lumascope() in a script. This branch PRESERVES what the base member
     # does today -- it never touches an executor -- through the dispatcher
@@ -191,12 +175,8 @@ def test_absent_executor_runs_impl_on_the_calling_thread(
     assert result is IMPL_RESULT
 
 
-@pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS
-)
-def test_disabled_executor_refuses(
-    sim_scope, executors, family, member, async_member, kwargs, slot
-):
+@pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
+def test_disabled_executor_refuses(sim_scope, executors, family, member, kwargs, slot):
     executors[slot].disable()
     sub, threads = _install_probe(sim_scope, family, member)
 
@@ -211,12 +191,8 @@ def test_disabled_executor_refuses(
     )
 
 
-@pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS
-)
-def test_protocol_fenced_executor_refuses(
-    sim_scope, executors, family, member, async_member, kwargs, slot
-):
+@pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
+def test_protocol_fenced_executor_refuses(sim_scope, executors, family, member, kwargs, slot):
     # The other half of the middle branch. A fenced executor is NOT a
     # disabled one -- a run fences io and file while disabling camera -- and
     # a dispatcher that only knows about disable() lets this one through to
@@ -232,12 +208,8 @@ def test_protocol_fenced_executor_refuses(
     assert threads == [], f'{family}.{member} ran its body against a protocol-fenced executor'
 
 
-@pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS
-)
-def test_live_executor_submits_and_blocks(
-    sim_scope, executors, family, member, async_member, kwargs, slot
-):
+@pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
+def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, kwargs, slot):
     sub, threads = _install_probe(sim_scope, family, member)
     worker = executors[slot].executor_name
     caller = threading.current_thread().name
@@ -292,33 +264,6 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     assert recorded['timeout'] == pytest.approx(expected), (
         f'the executor wait must be base + content budget + summed-frame '
         f'time + pending settle work; got {recorded["timeout"]}, expected {expected}'
-    )
-
-
-@pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'),
-    ASYNC_FAMILIES,
-    ids=ASYNC_FAMILY_IDS,
-)
-def test_async_warns_when_the_executor_drops_it(
-    sim_scope, executors, family, member, async_member, kwargs, slot
-):
-    # The async tiers stay fire-and-forget -- they must NOT raise, or every
-    # UI callsite would need a handler for a state it cannot prevent. But a
-    # dropped submit has to leave a trace: today put() returns None and the
-    # submit helper reports success anyway, so the command vanishes with no
-    # record that it was ever issued.
-    executors[slot].disable()
-    sub, _threads = _install_probe(sim_scope, family, member)
-    module = type(sub).__module__
-
-    with patch(f'{module}.logger') as mock_logger:
-        getattr(sub, async_member)(**kwargs)
-
-    warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
-    assert async_member in warned, (
-        f'{family}.{async_member} was dropped by the executor without a '
-        f'warning naming it; warnings seen: {warned!r}'
     )
 
 

@@ -106,7 +106,7 @@ class TestDispatchInvariant:
         session.set_scope(new_scope)
 
         baseline = len(io_ex.submitted)
-        new_scope.motion.move_home_async('Z')
+        new_scope.motion.home('Z')
         assert len(io_ex.submitted) > baseline, (
             'a motion dispatch on the post-set_scope scope must land on the '
             "session's io executor; an empty submit list means it ran INLINE "
@@ -125,7 +125,7 @@ class TestDispatchInvariant:
             camera_executor=cam_ex,
         )
 
-        scope.motion.move_home_async('Z')
+        scope.motion.home('Z')
         assert io_ex.submitted, (
             'a session-composed scope must dispatch through the session '
             'executors from construction on; inline execution here means '

@@ -152,11 +152,9 @@ class TestNothingElseMovesTheTurret:
         'call',
         [
             lambda m: m.move_absolute('T', 2),
-            lambda m: m.move_absolute_async('T', 2),
             lambda m: m.move_relative('T', 1),
-            lambda m: m.move_relative_async('T', 1),
         ],
-        ids=['move_absolute', 'move_absolute_async', 'move_relative', 'move_relative_async'],
+        ids=['move_absolute', 'move_relative'],
     )
     def test_the_generic_doors_refuse_the_turret(self, session, call):
         motion = session.scope.motion
