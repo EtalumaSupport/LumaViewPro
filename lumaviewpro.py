@@ -501,6 +501,7 @@ class LumaViewProApp(TooltipMixin, App):
         button; what every run shares is drawn once, after them.
         """
         ctx.lumaview.draw_composite_button()
+        ctx.lumaview.draw_record_button()
         ctx.motion_settings.ids['protocol_settings_id'].draw_protocol_buttons()
         ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].draw_zstack_button()
         ctx.motion_settings.ids['verticalcontrol_id'].draw_autofocus_button()

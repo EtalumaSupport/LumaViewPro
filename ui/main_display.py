@@ -11,9 +11,7 @@ from kivy.clock import Clock
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.exceptions import RecordingRefusedError
-from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import set_last_save_folder
+from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')
@@ -69,24 +67,25 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             show_notification_popup(title='Error', message=str(e))
 
     def record_button(self):
+        """Start a manual recording, or stop the one that is recording.
+
+        Whether the press means Stop is the API's answer -- is a recording
+        open -- never the toggle's, which Kivy has already flipped. Start and
+        Stop go through the boundary, which shows a refusal once; the button
+        changes nothing ahead of the answer, and draw_record_button shows it.
+        """
         gui_logger.button('RECORD')
         ctx = _app_ctx.ctx
         controller = ctx.session.manual_recording
 
-        # Record and Stop are the same ToggleButton: a press that leaves
-        # the button 'normal' is the user stopping a live recording.
-        if self.ids['record_btn'].state == 'normal':
-            controller.stop()
-            return
-
         if controller.is_recording:
+            run_reported(controller.stop, self.draw_record_button, 'RECORD')
             return
 
-        # H-3 fix: snapshot widget values on main thread before submitting
-        # to camera executor, since .ids access is not thread-safe.
         # The open layer names the channel; its toggle governs display
         # only. Reading one without the other is what left a brightfield
-        # recording with no channel name at all.
+        # recording with no channel name at all. Both are read here, on the
+        # GUI thread, since .ids access is not thread-safe.
         layer = common_utils.get_opened_layer(ctx.image_settings)
         false_color_on = (
             ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
@@ -94,54 +93,43 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             else False
         )
 
-        # Start on the camera executor: the controller's start opens the
-        # encoder and probes disk, which must not stall the GUI thread.
-        ctx.camera_executor.put(
-            IOTask(
-                self._start_recording_task,
-                kwargs={'layer': layer, 'false_color_on': false_color_on},
-            )
-        )
-
-    def _start_recording_task(self, layer=None, false_color_on=False, dt=None):
-        """Camera-executor task: start the controller, surface refusals."""
-        controller = _app_ctx.ctx.session.manual_recording
-        try:
+        def _start():
             controller.start(
                 layer=layer,
                 false_color_on=false_color_on,
                 on_complete=self._on_recording_complete,
             )
-        except RecordingRefusedError as e:
-            logger.warning(f'[LVP Main  ] Recording refused ({e.reason}): {e.message}')
-            from modules.notification_center import notifications
 
-            notifications.error('Recording', e.title, e.message)
-            Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
-            return
-        except Exception:
-            # Only refusals were handled, so every other failure left the
-            # toggle 'down' with nothing recording -- and a 'down' toggle
-            # sends the next press to the stop branch, which returns
-            # silently when no recording exists. The user pressed Record
-            # and nothing happened, twice. The executor still reports the
-            # failure itself, so this re-raises rather than swallowing.
-            Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
-            raise
-        Clock.schedule_once(lambda dt: self._begin_recording_ui(), 0)
+        # On the worker pool: the controller's start opens the encoder and
+        # probes disk, which must not stall the GUI thread.
+        submit_reported(_start, self._recording_request_done, 'RECORD')
 
-    def _begin_recording_ui(self):
-        """Main thread: recording is live -- start the status poll."""
-        controller = _app_ctx.ctx.session.manual_recording
-        # The claim grant already notified the run-state listener, but
-        # the engine may not have been live yet at that instant; this
-        # level republish lands the recording mirror now that it is.
+    def _recording_request_done(self):
+        # The claim grant already notified the run-state listeners, but the
+        # engine may not have been live yet at that instant; this level
+        # republish lands the recording mirror now that it is.
         _app_ctx.ctx.session.notify_run_state()
-        # Set immediately so "Open Last Save Folder" works during the
-        # recording, not only after cleanup lands (issue #603's shape).
-        if controller.save_folder is not None:
-            set_last_save_folder(controller.save_folder)
+        self.draw_record_button()
+
+    def draw_record_button(self):
+        """Show the manual recording as the API reports it.
+
+        The only code that styles the Record toggle: after each of its own
+        requests, from the status poll, at the recording's finish and on
+        every run-state edge. The first time it sees a recording open it
+        starts the status poll, which owns the titles from there.
+        """
+        controller = _app_ctx.ctx.session.manual_recording
+        button = self.ids['record_btn']
+        if not controller.is_recording:
+            button.state = 'normal'
+            return
+        button.state = 'down'
         if self._recording_poll is None:
+            # Set immediately so "Open Last Save Folder" works during the
+            # recording, not only after cleanup lands.
+            if controller.save_folder is not None:
+                set_last_save_folder(controller.save_folder)
             self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
 
     def _poll_recording_state(self, dt=None):
@@ -165,7 +153,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # protocol start attempted during the drain still gets its loud
         # refusal.
         _app_ctx.ctx.session.notify_run_state()
-        self._reset_record_button()
+        self.draw_record_button()
         if controller.is_draining:
             set_title_event_text(
                 f'Writing Manual Video: {controller.pending_writes} frames remaining'
@@ -187,15 +175,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)
         set_title_event_text(None)
-        self._reset_record_button()
+        self.draw_record_button()
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')
-
-    def _reset_record_button(self):
-        try:
-            if self.ids['record_btn'].state != 'normal':
-                self.ids['record_btn'].state = 'normal'
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
 
     def open_save_folder_button(self):
         gui_logger.button('OPEN_SAVE_FOLDER')
