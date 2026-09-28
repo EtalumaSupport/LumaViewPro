@@ -747,6 +747,14 @@ class ProtocolRunner:
         """
         return self._executor.is_stopping(run)
 
+    def run_step_number(self) -> int | None:
+        """Which step of the live run is executing, counted from 1; None when no run is live."""
+        return self._executor.run_step_number()
+
+    def run_num_steps(self) -> int | None:
+        """How many steps the live run has; None when no run is live."""
+        return self._executor.run_num_steps()
+
     def remaining_scans(self) -> int:
         return self._executor.remaining_scans()
 

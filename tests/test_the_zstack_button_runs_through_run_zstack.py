@@ -176,6 +176,25 @@ class TestTheEnginesStepCount:
 
         assert runner.run_num_steps() == 5
 
+    def test_no_run_has_no_step_in_flight(self):
+        from tests.protocol_drives import bare_capture_runner
+
+        runner = bare_capture_runner()
+        runner._curr_step = 4
+
+        assert runner.run_step_number() is None, "a finished run's last index is not a live step"
+
+    def test_a_live_run_answers_the_step_it_is_on_counted_from_one(self):
+        from modules.sequenced_capture_runner import ProtocolState
+        from tests.protocol_drives import bare_capture_runner
+
+        runner = bare_capture_runner()
+        runner._protocol = SimpleNamespace(num_steps=lambda: 5)
+        runner._set_state(ProtocolState.RUNNING)
+        runner._curr_step = 2
+
+        assert runner.run_step_number() == 3
+
 
 def test_a_missing_layer_is_named_in_words():
     """A GUI with no drawer open has no layer to name; the member's answer

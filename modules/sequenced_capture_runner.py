@@ -664,6 +664,21 @@ class SequencedCaptureRunner:
                 return None
             return self._protocol.num_steps()
 
+    def run_step_number(self) -> int | None:
+        """Which step of the live run is executing, counted from 1; None when no run is live.
+
+        The other half of the progress readout beside run_num_steps, read
+        from the step index the run itself advances, so the readout and the
+        run cannot disagree about which step is live. None once the run is
+        over rather than its last step: a finished run has no step in flight.
+        """
+        with self._run_lock:
+            if not self._is_run_live():
+                return None
+            # One int, written only by the step runner as it advances; the
+            # step's colour is read from the same index.
+            return self._curr_step + 1
+
     @staticmethod
     def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
         """Name the run that holds the scope, for a refusal to put in a sentence.
