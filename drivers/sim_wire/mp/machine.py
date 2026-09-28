@@ -23,8 +23,9 @@
 #   readable at once, so a fault written before a command is in effect from
 #   its first transfer.
 # - With the oracle on, every register write the model names goes out on
-#   stdout as a frame, in order with the firmware's own output; the port
-#   takes the frames out before the driver reads.
+#   stdout as a frame, in order with the firmware's own output, and so does
+#   the model's state after every transfer and every change on a pin the
+#   state reads; the port takes the frames out before the driver reads.
 # The messages themselves are `channel.py`'s.
 
 import json
@@ -59,22 +60,26 @@ class Pin:
     def init(self, *a: object, **k: object) -> None:
         pass
 
+    def _set(self, v: int) -> None:
+        self._v = v
+        _pin_changed(self.id)
+
     def value(self, v: int | None = None) -> int | None:
         if v is None:
             return self._v
-        self._v = 1 if v else 0
+        self._set(1 if v else 0)
 
     def on(self) -> None:
-        self._v = 1
+        self._set(1)
 
     def off(self) -> None:
-        self._v = 0
+        self._set(0)
 
     high = on
     low = off
 
     def toggle(self) -> None:
-        self._v ^= 1
+        self._set(self._v ^ 1)
 
     def irq(self, *a: object, **k: object) -> None:
         pass
@@ -138,6 +143,23 @@ def _read_faults(board) -> None:
         board.set_fault(axis, name, on)
 
 
+def _pin_value(pin_id: int) -> int:
+    pin = _PINS.get(pin_id)
+    return 0 if pin is None else pin._v
+
+
+def _report_state() -> None:
+    for chip, state in _board.state(_pin_value).items():
+        sys.stdout.write(channel.state_frame(chip, state))
+
+
+def _pin_changed(pin_id: int) -> None:
+    # Before the first transfer there is no model; a pin set then is read
+    # by the first report after it.
+    if _board is not None and _oracle and pin_id in _board.state_pins:
+        _report_state()
+
+
 def _selected_chip():
     for pin_id, name in _chip_select:
         pin = _PINS.get(pin_id)
@@ -181,6 +203,7 @@ class SPI:
             written = board.written(chip, bytes(buf))
             if written is not None:
                 sys.stdout.write(channel.write_frame(chip, *written))
+            _report_state()
         return out
 
     def write(self, buf: bytes) -> None:

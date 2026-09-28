@@ -490,6 +490,9 @@ class Board:
     """The XY and ZT chips of an EL-0940, built from the unit config the
     firmware itself reads plus the simulator's own settings."""
 
+    # The motor board's oracle is its register writes; it reports no state.
+    state_pins = ()
+
     def __init__(
         self,
         motorconfig: dict,
@@ -538,6 +541,9 @@ class Board:
             return None
         axis, reg = self.register_name(chip_name, buf[0] & 0x7F)
         return axis, reg, (buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]
+
+    def state(self, pin_value: 'Callable[[int], int]') -> dict:
+        return {}
 
     def register_name(self, chip_name: str, addr: int) -> tuple:
         """(axis, register offset) of an address on a chip, or (None, the

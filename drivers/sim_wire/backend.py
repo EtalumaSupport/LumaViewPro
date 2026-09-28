@@ -56,6 +56,10 @@ START_USTEPS = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}
 MOTOR_CHIP_SELECT = ((1, 'XY'), (5, 'ZT'))
 LED_CHIP_SELECT = ((1, 'DAC'),)
 
+# The LED board's enable switch in front of each DAC channel, in channel
+# order: the LED firmware's enable_pins, of which it drives the first six.
+LED_ENABLE_PINS = (14, 15, 18, 19, 20, 21, 23, 24)
+
 # A complete unit config from the board bring-up template, built by the
 # Firmware repo's tools/build_sim_firmware.py. The firmware reads all of it
 # at boot; the simulator sets the model and the axes.
@@ -222,6 +226,10 @@ class LedBoardSpec:
 
     model: str
     timing: str = 'instant'
+    # Whether the board reports what its DAC drives and every write to it
+    # (`EmulatedBoard.state`, `take_writes`). Off unless a test reads them,
+    # as the motor board's is.
+    oracle: bool = False
 
     def __post_init__(self):
         if self.timing not in TIMINGS:
@@ -233,7 +241,12 @@ class LedBoardSpec:
             firmware_mpy=str(_PACKAGE / 'firmware' / f'led-{LED_DIALECT}.mpy'),
             files={
                 'sim_board.json': json.dumps(
-                    {'model': 'dac80508', 'chip_select': LED_CHIP_SELECT, 'oracle': False}
+                    {
+                        'model': 'dac80508',
+                        'chip_select': LED_CHIP_SELECT,
+                        'enable_pins': LED_ENABLE_PINS,
+                        'oracle': self.oracle,
+                    }
                 ).encode()
             },
             module_path=_module_path(self.timing),
@@ -242,6 +255,7 @@ class LedBoardSpec:
             fault_targets=(),
             fault_names=(),
             label=f'[sim led {self.model} fw {LED_DIALECT} {self.timing}]',
+            oracle=self.oracle,
         )
 
 

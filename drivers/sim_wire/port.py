@@ -47,7 +47,8 @@ Tests reach the simulated hardware through the board:
   and a reboot: the board hands them to every process it starts.
 - With the oracle on, every register write the firmware makes comes back
   framed on the process's own output, ordered against its replies, and
-  `take_writes` returns them. The frames never reach the driver.
+  `take_writes` returns them; so does each chip's state after every change
+  to it, and `state` returns the latest. The frames never reach the driver.
 - `unplug` / `replug` pull and restore the host cable; `reboot` restarts
   the firmware, which drops the connection as USB re-enumerates.
 - `drop_next_reply`, `delay_next_reply` and `garble_next_reply` spoil the
@@ -231,6 +232,8 @@ class EmulatedBoard:
         # A frame the reader has started and not finished, across chunks.
         self._frame: bytearray | None = None
         self._writes: list[RegisterWrite] = []
+        # Each reporting chip's latest state, by chip name.
+        self._states: dict[str, tuple] = {}
         self._failure: str | None = None
         # A reply fault: armed by a test, active from the port's next write
         # until the first line after it is complete.
@@ -400,17 +403,19 @@ class EmulatedBoard:
                     break
                 self._frame += chunk[i:end]
                 i = end + 1
-                self._keep_write(bytes(self._frame))
+                self._keep_frame(bytes(self._frame))
                 self._frame = None
                 if self._failure is not None:
                     break
         return bytes(to_driver)
 
-    def _keep_write(self, frame: bytes) -> None:
+    def _keep_frame(self, frame: bytes) -> None:
         if not self._image.oracle:
-            self._failure = (
-                f'{self.label}: the board sent a register-write frame with the oracle off'
-            )
+            self._failure = f'{self.label}: the board sent an oracle frame with the oracle off'
+            return
+        if channel.frame_kind(frame) == channel.STATE:
+            chip, state = channel.parse_state(frame)
+            self._states[chip] = tuple(tuple(row) for row in state)
             return
         if len(self._writes) >= WRITES_LIMIT:
             self._failure = (
@@ -477,6 +482,16 @@ class EmulatedBoard:
             process = self._life.process
             if process is not None:
                 os.write(process.faults_w, channel.fault_line(on, target, fault))
+
+    def state(self, chip: str) -> tuple:
+        """The chip's state as it last reported it, one row per channel. Every
+        change the firmware made before a reply the driver has read is in it."""
+        if not self._image.oracle:
+            raise SerialException(f'{self.label}: the oracle is off for this board')
+        with self._cond:
+            if chip not in self._states:
+                raise SerialException(f'{self.label}: {chip!r} has reported no state')
+            return self._states[chip]
 
     def take_writes(self) -> list[RegisterWrite]:
         """The register writes since the last call, oldest first. Every write

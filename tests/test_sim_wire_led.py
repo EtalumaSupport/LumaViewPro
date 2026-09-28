@@ -20,6 +20,7 @@ from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import (
     LED_DEVICE,
+    LED_ENABLE_PINS,
     LED_PID,
     LED_VID,
     MOTOR_DEVICE,
@@ -29,6 +30,7 @@ from drivers.sim_wire.backend import (
     MotorBoardSpec,
     SimWireBackend,
 )
+from drivers.sim_wire.port import RegisterWrite
 from drivers.sim_wire.mp import tmc5072
 
 sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
@@ -123,14 +125,68 @@ class TestSpec:
         assert image.runtime == MOTOR.image().runtime
 
 
+# The field firmware's DAC frames (K78): soft reset, CONFIG with DAC6 and
+# DAC7 powered down, gain 1x, and channel n's code at address n + 8.
+SOFT_RESET = bytes((0x05, 0x00, 0x0A))
+CONFIG_6_7_DOWN = bytes((0x03, 0x04, 0xC0))
+GAIN_1X = bytes((0x04, 0x00, 0x00))
+
+
+def _code(channel, code):
+    return bytes((channel + 8, code >> 8, code & 0xFF))
+
+
+def _dac_booted():
+    dac = dac80508.Board(LED_ENABLE_PINS)
+    for frame in (SOFT_RESET, CONFIG_6_7_DOWN, GAIN_1X):
+        dac.datagram('DAC', frame)
+    return dac
+
+
+def _pins(high=()):
+    return lambda pin: int(pin in high)
+
+
 class TestTheDac:
+    def test_after_the_boot_frames_channels_0_to_5_are_powered_and_6_and_7_are_not(self):
+        channels = _dac_booted().state(_pins())['DAC']
+        assert [powered for _enabled, powered, _code in channels] == [True] * 6 + [False] * 2
+
+    def test_a_channel_frame_sets_that_channels_code(self):
+        dac = _dac_booted()
+        dac.datagram('DAC', _code(3, 6983))
+        assert [code for *_, code in dac.state(_pins())['DAC']] == [0, 0, 0, 6983, 0, 0, 0, 0]
+
+    def test_a_soft_reset_clears_the_channel_codes(self):
+        dac = _dac_booted()
+        dac.datagram('DAC', _code(3, 6983))
+        dac.datagram('DAC', SOFT_RESET)
+        assert all(code == 0 for *_, code in dac.state(_pins())['DAC'])
+
+    def test_a_channel_is_enabled_by_its_own_enable_pin(self):
+        state = _dac_booted().state(_pins(high={LED_ENABLE_PINS[2]}))['DAC']
+        assert [enabled for enabled, *_ in state] == [False, False, True] + [False] * 5
+
+    def test_the_state_changes_with_the_enable_pins_it_watches(self):
+        assert _dac_booted().state_pins == LED_ENABLE_PINS
+
+    def test_a_frame_is_reported_as_the_register_write_it_makes(self):
+        assert _dac_booted().written('DAC', _code(3, 6983)) == (None, 0x0B, 6983)
+
+    def test_a_read_frame_is_refused(self):
+        # The firmware never reads the DAC, so the model answers no read.
+        with pytest.raises(ValueError, match='read'):
+            _dac_booted().datagram('DAC', bytes((0x88, 0x00, 0x00)))
+
     def test_a_frame_is_three_bytes_and_miso_answers_zeros(self):
         # The firmware only writes; nothing drives MISO back.
-        assert dac80508.Board().datagram('DAC', bytes((0x05, 0x00, 0x0A))) == bytes(3)
+        assert dac80508.Board(LED_ENABLE_PINS).datagram('DAC', bytes((0x05, 0x00, 0x0A))) == bytes(
+            3
+        )
 
     def test_a_transfer_that_is_not_a_dac_frame_is_refused(self):
         with pytest.raises(ValueError, match='3-byte'):
-            dac80508.Board().datagram('DAC', bytes(5))
+            dac80508.Board(LED_ENABLE_PINS).datagram('DAC', bytes(5))
 
 
 @firmware_only
@@ -162,3 +218,64 @@ class TestTheFirmwareBoots:
         finally:
             led.disconnect()
             motor.disconnect()
+
+
+@pytest.fixture
+def lit():
+    """(LEDBoard, the simulated LED board behind it), the oracle on."""
+    backend = SimWireBackend(None, led=LedBoardSpec('LS850T', oracle=True))
+    board = LEDBoard(backend=backend)
+    try:
+        yield board, backend.led_board
+    finally:
+        board.disconnect()
+
+
+@firmware_only
+class TestWhatTheDacDrives:
+    OFF = (True, True, 0)
+
+    def test_after_connect_every_channel_is_enabled_powered_and_dark(self, lit):
+        _, sim = lit
+        assert sim.state('DAC') == (self.OFF,) * 6 + ((False, False, 0),) * 2
+
+    def test_led_on_drives_the_channels_code_for_its_current(self, lit):
+        board, sim = lit
+        board.led_on(3, 100)
+        # The firmware's mA_to_dac: int(60.936 * 100 + 890).
+        assert sim.state('DAC')[3] == (True, True, 6983)
+        board.led_off(3)
+        assert sim.state('DAC')[3] == self.OFF
+
+    def test_the_write_behind_led_on_is_in_the_register_writes(self, lit):
+        board, sim = lit
+        sim.take_writes()
+        board.led_on(3, 100)
+        assert sim.take_writes() == [RegisterWrite('DAC', None, 0x0B, 6983)]
+
+    def test_disabling_the_leds_opens_every_enable_switch_and_leaves_the_codes(self, lit):
+        board, sim = lit
+        board.led_on(1, 50)
+        board.leds_disable()
+        state = sim.state('DAC')
+        assert [enabled for enabled, *_ in state[:6]] == [False] * 6
+        assert state[1][2] == 3936  # int(60.936 * 50 + 890)
+        board.leds_enable()
+        assert [enabled for enabled, *_ in sim.state('DAC')[:6]] == [True] * 6
+
+    def test_one_channels_enable_command_opens_that_channels_switch_alone(self, lit):
+        board, sim = lit
+        board.exchange_command('LED1_ENF')
+        assert [enabled for enabled, *_ in sim.state('DAC')[:6]] == [
+            True,
+            False,
+            True,
+            True,
+            True,
+            True,
+        ]
+
+    def test_the_state_needs_the_oracle(self):
+        backend = SimWireBackend(None, led=LED)
+        with pytest.raises(serial.SerialException, match='oracle is off'):
+            backend.led_board.state('DAC')
