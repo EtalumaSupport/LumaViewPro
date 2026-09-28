@@ -441,18 +441,6 @@ class TestTheShutdownOverride:
         )
 
 
-class TestTheCaptureButtonShowsTheRefusalsOwnWords:
-    def test_title_and_body_are_the_refusals(self):
-        from tests.test_capture_button_display import _shown
-
-        refused = HardwareCommandRefusedError(
-            'exclusive_activity_running', 'manual_capture.capture', 'diagnostic'
-        )
-        _category, title, body = _shown(refused)
-        assert title == refused.title
-        assert body == str(refused)
-
-
 class TestRunCleanupIsTheRunsOwnWork:
     def test_cleanup_on_a_foreign_thread_acts_under_the_runs_taking(self, monkeypatch):
         """A stop pressed in the GUI or a script's reset ends the run on its own

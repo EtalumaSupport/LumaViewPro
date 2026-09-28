@@ -91,6 +91,17 @@ def test_a_refusal_reads_as_a_sentence(button_ctx, shown, reason):
     assert body.endswith('.')
 
 
+def test_a_diagnostics_refusal_shows_its_own_title_and_words(button_ctx, shown):
+    refused = HardwareCommandRefusedError(
+        'exclusive_activity_running', 'manual_capture.capture', 'diagnostic'
+    )
+    _press(button_ctx, raises=refused)
+
+    notice = _one_notice(shown)
+    assert notice.title == refused.title
+    assert notice.message == str(refused)
+
+
 def test_a_capture_failure_shows_the_engines_cause(button_ctx, shown):
     _press(
         button_ctx,
