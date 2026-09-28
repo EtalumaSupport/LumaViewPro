@@ -269,6 +269,20 @@ class TestADisconnectedCameraRefusesTheComposite:
 class TestFewerThanTwoChannels:
     """One channel and none: the same refusal, before the run exists."""
 
+    @pytest.mark.parametrize(
+        ('acquiring', 'counted'),
+        [(('BF',), 'but only 1 is set'), ((), 'but no channel is set')],
+    )
+    def test_the_sentence_counts_the_channels_in_words(self, tmp_path, acquiring, counted):
+        settings = headless_settings(tmp_path, acquiring=acquiring)
+        with (
+            open_composite_session(settings) as (_session, runner),
+            pytest.raises(ProtocolRunRefusedError) as refusal,
+        ):
+            runner.start_composite(sequence_name='too_few', parent_dir=str(tmp_path))
+
+        assert counted in str(refusal.value), str(refusal.value)
+
     @pytest.mark.parametrize('acquiring', [('BF',), ()])
     def test_fewer_than_two_channels_is_refused_before_any_hardware_is_touched(
         self, tmp_path, monkeypatch, acquiring

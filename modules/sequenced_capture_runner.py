@@ -939,12 +939,17 @@ class SequencedCaptureRunner:
         if run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE:
             channels = protocol.steps()['Color'].nunique() if protocol.num_steps() else 0
             if channels < COMPOSITE_MIN_CHANNELS:
+                set_to_capture = (
+                    'no channel is'
+                    if channels == 0
+                    else f'only {channels} {"is" if channels == 1 else "are"}'
+                )
                 self._refuse(
                     reason='composite_needs_two_channels',
                     title='Not Enough Channels',
                     message=(
                         f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, '
-                        f'but {channels} is set to capture an image. Turn on another '
+                        f'but {set_to_capture} set to capture an image. Turn on another '
                         'channel and try again.'
                     ),
                 )
