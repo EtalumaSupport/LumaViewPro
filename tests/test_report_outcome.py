@@ -17,6 +17,7 @@ import pytest
 
 from modules.exceptions import (
     CaptureError,
+    ConfigError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     RunAlreadyEndedError,
@@ -76,7 +77,7 @@ class TestARefusal:
 
 class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
-        fault = _raised(CaptureError('the camera stopped delivering frames', 'no_frame'))
+        fault = _raised(ConfigError('the camera stopped delivering frames'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
                 fault, solicited=False, category='Task:grab', fault_title='Grab failed'
@@ -88,6 +89,16 @@ class TestAFault:
         assert _records(caplog) == [
             (OUTCOMES, logging.ERROR, True),
             (NOTIFICATIONS, logging.ERROR, False),
+        ]
+
+    def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
+        fault = _raised(CaptureError('camera inactive or not grabbing', 'no_frame_returned'))
+        centre.report_outcome(
+            fault, solicited=True, category='UI:LIVE_CAPTURE', fault_title='Grab failed'
+        )
+
+        assert [(n.severity, n.title, n.message) for n in centre.shown] == [
+            (Severity.ERROR, 'Capture Failed', 'camera inactive or not grabbing')
         ]
 
     def test_untyped_is_shown_in_the_generic_sentence(self, centre):

@@ -158,7 +158,13 @@ class CaptureError(Exception):
     ``reason`` is required rather than defaulted. A default would let a
     new raise site stay untyped while every caller still had to guess
     which raises carry a usable code and which carry a placeholder.
+
+    ``title`` is the heading the reporter shows above the message, which is
+    written for the person. It is the type's, so every raise site reads the
+    same; a subclass with its own heading sets its own.
     """
+
+    title = 'Capture Failed'
 
     def __init__(self, message: str, reason: str):
         super().__init__(message)

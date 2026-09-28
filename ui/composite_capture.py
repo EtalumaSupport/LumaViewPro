@@ -14,10 +14,10 @@ from kivy.uix.floatlayout import FloatLayout
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
 from modules.run_outcome import PendingRunOutcome
 from ui.ui_helpers import (
     live_display_callbacks,
+    run_reported,
     set_last_save_folder,
     set_title_event_text,
     submit_reported,
@@ -45,7 +45,8 @@ class CompositeCapture(FloatLayout):
         ``manual_capture``; the button supplies only what the user is
         looking at, read here on the main thread. A second press while a
         still is in flight, and a press while a run holds the camera, are
-        the member's refusals, shown below like any other.
+        the member's refusals; the reporter shows them, and whatever the
+        still's Future settles with, like any other outcome.
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
@@ -55,19 +56,19 @@ class CompositeCapture(FloatLayout):
             if layer is not None
             else False
         )
-        try:
-            future = ctx.session.manual_capture.capture(
+        bullseye = ctx.scope_display.use_bullseye
+        crosshairs = ctx.scope_display.use_crosshairs
+        engineering_mode = ctx.engineering_mode
+        run_reported(
+            lambda: ctx.session.manual_capture.capture(
                 layer=layer,
                 false_color_on=false_color_on,
-                bullseye=ctx.scope_display.use_bullseye,
-                crosshairs=ctx.scope_display.use_crosshairs,
-                engineering_mode=ctx.engineering_mode,
-            )
-        except HardwareCommandRefusedError as refused:
-            _show_capture_failure(refused)
-            return
-        future.add_done_callback(
-            lambda done: Clock.schedule_once(lambda _dt: _show_capture_outcome(done))
+                bullseye=bullseye,
+                crosshairs=crosshairs,
+                engineering_mode=engineering_mode,
+            ).add_done_callback(lambda done: Clock.schedule_once(lambda _dt: _still_settled(done))),
+            None,
+            'LIVE_CAPTURE',
         )
 
     # capture and save a composite image using the current settings
@@ -142,25 +143,10 @@ class CompositeCapture(FloatLayout):
             set_title_event_text('Compositing...')
 
 
-def _show_capture_outcome(future) -> None:
-    exc = future.exception()
-    if exc is None:
-        set_last_save_folder(dir=future.result()[0].parent)
-        return
-    _show_capture_failure(exc)
-
-
-def _show_capture_failure(exc: BaseException) -> None:
-    from modules.notification_center import notifications
-
-    logger.error(f'[LVP Main  ] manual capture saved nothing: {exc!r}')
-    if isinstance(exc, HardwareCommandRefusedError):
-        notifications.warning('Capture', exc.title, str(exc))
-    elif isinstance(exc, (CaptureError, ObjectiveUnknownError)):
-        # Both are written for the user: the capture engine's cause, or what
-        # to do about the objective in the light path.
-        notifications.error('Capture', 'No image was saved', str(exc))
-    else:
-        notifications.error(
-            'Capture', 'Capture failed', 'No image was saved. Check the main log for details.'
-        )
+def _still_settled(done) -> None:
+    """Read the settled still on the Kivy thread: its folder, or its failure to the reporter."""
+    run_reported(
+        lambda: set_last_save_folder(dir=done.result()[0].parent),
+        None,
+        'LIVE_CAPTURE',
+    )
