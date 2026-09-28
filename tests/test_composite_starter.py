@@ -223,3 +223,29 @@ def test_a_press_during_someone_elses_run_is_not_a_stop(app_ctx, runner, engine)
     engine.is_live_run.assert_any_call(None)
     assert not engine.reset.called, 'a rival run must not be stopped from here'
     runner.start_composite.assert_called_once()
+
+
+def test_a_press_is_a_start_whatever_the_toggle_reads(app_ctx, runner, engine):
+    # Kivy flips the toggle at touch-down, and a redraw can have left it
+    # either way; whether a press means Stop is only the engine's answer.
+    starter = _Starter()
+    starter.button.state = 'normal'
+
+    _click(starter)
+
+    assert not engine.reset.called, "a toggle reading 'normal' is not a Stop"
+    runner.start_composite.assert_called_once()
+
+
+def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, runner):
+    from modules.sequential_io_executor import ENQUEUED
+
+    held = []
+    app_ctx.worker_pool.put.side_effect = lambda task: held.append(task) or ENQUEUED
+    starter = _Starter()
+
+    _click(starter)
+
+    assert starter.composite_pending is True, 'a second press must not race the first to the pool'
+    held[0].action()
+    assert starter.composite_pending is False, "the request's own redraw brings the button back"

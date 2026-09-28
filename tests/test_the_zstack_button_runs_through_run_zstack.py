@@ -194,6 +194,32 @@ def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
     assert clicked.starter.button.text == 'Stopping...'
 
 
+def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
+    # Kivy flips the toggle at touch-down, and a redraw can have left it
+    # either way; whether a press means Stop is only the engine's answer.
+    clicked.starter.button.state = 'normal'
+
+    clicked.starter.run_zstack_acquire_from_ui()
+
+    assert not clicked.engine.reset.called, "a toggle reading 'normal' is not a Stop"
+    clicked.runner.run_zstack.assert_called_once()
+
+
+def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
+    from modules.sequential_io_executor import ENQUEUED
+
+    held = []
+    _app_ctx.ctx.worker_pool.put.side_effect = lambda task: held.append(task) or ENQUEUED
+
+    clicked.starter.run_zstack_acquire_from_ui()
+
+    assert clicked.starter.zstack_pending is True, (
+        'a second press must not race the first to the pool'
+    )
+    held[0].action()
+    assert clicked.starter.zstack_pending is False, "the request's own redraw brings it back"
+
+
 class TestTheEnginesStepCount:
     def test_no_run_has_no_count(self):
         from tests.protocol_drives import bare_capture_runner

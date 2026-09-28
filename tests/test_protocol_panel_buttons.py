@@ -358,3 +358,35 @@ def test_a_stalled_drain_offers_recovery_once(app_ctx, session, monkeypatch):
     panel._drain_tick(0)
 
     assert offers == [1]
+
+
+def test_the_runs_timing_goes_on_its_copy_not_the_panels_protocol(app_ctx, engine):
+    from datetime import timedelta
+
+    panel = _Panel()
+    copy = panel._protocol.copy_for_execution.return_value
+
+    panel.run_protocol_from_ui()
+
+    copy.modify_time_params.assert_called_once_with(
+        period=timedelta(minutes=5), duration=timedelta(hours=1)
+    )
+    assert not panel._protocol.modify_time_params.called, (
+        "the panel's protocol is the person's, not the run's to change"
+    )
+
+
+def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, engine):
+    panel = _Panel()
+    handle = PendingRunOutcome()
+    engine.start.return_value = handle
+    _live(engine, handle)
+    panel.run_scan_from_ui()
+    iterate = engine.prepare.call_args.kwargs['callbacks']['scan_iterate_post']
+
+    iterate()
+
+    button = panel.ids['run_scan_btn']
+    assert (button.state, button.text) == ('down', 'Abort One Scan'), (
+        'between scans the run is still live; the button shows it, not idle'
+    )
