@@ -1050,14 +1050,19 @@ class SerialBoard:
                         lines.append(line)
                     if any(m in line.upper() for m in [em.upper() for em in end_markers]):
                         # Take the few lines the board prints right after the
-                        # marker, and stop at the first quiet read: waiting the
-                        # call's long per-line window on each of them costs
-                        # five full windows when the reply is already over.
+                        # marker, and stop once it goes quiet for the port's own
+                        # read timeout: waiting the call's long per-line window
+                        # on each of them costs five full windows when the
+                        # reply is already over. Quiet is watched on in_waiting,
+                        # never by changing the port timeout: on Windows every
+                        # timeout change reconfigures the port, and doing that
+                        # while the board is still sending dropped bytes.
                         for _ in range(5):
-                            remaining = timeout - (time.monotonic() - start)
-                            if remaining <= 0:
+                            quiet_until = min(time.monotonic() + saved_timeout, start + timeout)
+                            while self.driver.in_waiting == 0 and time.monotonic() < quiet_until:
+                                time.sleep(0.005)
+                            if self.driver.in_waiting == 0:
                                 break
-                            self.driver.timeout = min(saved_timeout, remaining)
                             extra = self.driver.readline()
                             if not extra:
                                 break

@@ -49,3 +49,53 @@ def test_success_log_includes_response_content(caplog):
         'exchange_multiline must log the joined response content so a '
         f'multi-line reply is recoverable from serial.log; got: {message}'
     )
+
+
+class _RecordingPort:
+    """A port that plays back reply lines and records every timeout change
+    against what had been written so far. On Windows a timeout change
+    reconfigures the port, which drops bytes the board is still sending."""
+
+    def __init__(self, reply_lines):
+        self._timeout = 0.1
+        self.written = []
+        self.timeout_sets = []
+        self._pending = [line.encode('utf-8') + b'\r\n' for line in reply_lines]
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        self.timeout_sets.append((value, len(self.written)))
+        self._timeout = value
+
+    @property
+    def in_waiting(self):
+        return sum(len(p) for p in self._pending) if self.written else 0
+
+    def write(self, data):
+        self.written.append(data)
+
+    def readline(self):
+        return self._pending.pop(0) if self._pending else b''
+
+    def read(self, n):
+        return b''
+
+
+def test_the_port_timeout_is_not_changed_while_the_reply_arrives():
+    board = LEDBoard.__new__(LEDBoard)
+    board._lock = threading.RLock()
+    board._label = '[LED Class ]'
+    port = _RecordingPort(['Engineering Mode: Press q', 'board info', 'LED enable', 'LED on'])
+    board.driver = port
+
+    result = board.exchange_multiline('Y', timeout=5, end_markers=['Engineering'])
+
+    assert 'LED on' in result
+    during_reply = [value for value, writes in port.timeout_sets[1:-1]]
+    assert port.timeout_sets[0][1] == 0, 'the call sets its window before it writes'
+    assert during_reply == [], f'timeout changed mid-reply: {port.timeout_sets}'
+    assert port.timeout == 0.1, 'the port timeout is restored'
