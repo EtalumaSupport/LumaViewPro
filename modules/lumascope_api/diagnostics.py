@@ -700,6 +700,10 @@ class DiagnosticsAPI:
         Raises:
             ValueError: A motor command that moves, stops or repositions a
                 motor; the motion API carries those.
+            HardwareCommandRefusedError: a run or a diagnostic holds the
+                scope and this call is not made under its taking; the
+                command is not sent. An exchange that fails once sent is
+                still answered with ``'Error: <msg>'``.
         """
         if isinstance(target, str) and target.lower() in ('motor', 'motion'):
             _refuse_motor_verb(command)
@@ -769,6 +773,10 @@ class DiagnosticsAPI:
         Raises:
             ValueError: A motor command that moves, stops or repositions a
                 motor; the motion API carries those.
+            HardwareCommandRefusedError: a run or a diagnostic holds the
+                scope and this call is not made under its taking; the
+                command is not sent. An exchange that fails once sent is
+                still answered with ``'Error: <msg>'``.
         """
         if isinstance(target, str) and target.lower() in ('motor', 'motion'):
             _refuse_motor_verb(command)
