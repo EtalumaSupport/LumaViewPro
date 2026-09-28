@@ -39,10 +39,11 @@ loudly.
 
 Tests reach the simulated hardware through the board:
 
-- `inject` / `clear` switch a hardware fault in the chip model on or off.
-  They go down a pipe the process inherits, which the model reads at every
-  SPI transfer, so a fault set before a command is in effect from that
-  command's first transfer. Faults are hardware and outlive a soft reset
+- `inject` / `clear` switch a hardware fault in the chip model on or off,
+  among the faults the board's image names (a board whose firmware detects
+  no fault offers none). They go down a pipe the process inherits, which
+  the model reads at every SPI transfer, so a fault set before a command is
+  in effect from that command's first transfer. Faults are hardware and outlive a soft reset
   and a reboot: the board hands them to every process it starts.
 - With the oracle on, every register write the firmware makes comes back
   framed on the process's own output, ordered against its replies, and
@@ -66,7 +67,6 @@ from dataclasses import dataclass
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, to_bytes
 
 from drivers.sim_wire.mp import channel
-from drivers.sim_wire.mp.tmc5072 import AXES, FAULTS
 
 CTRL_C = 0x03
 CTRL_D = 0x04
@@ -100,12 +100,15 @@ _LAUNCH = (
 class BoardImage:
     """Everything one board process needs: the runtime, the firmware, the
     files the firmware reads at boot, and the module path that shadows the
-    runtime's hardware modules."""
+    runtime's hardware modules; and the hardware faults a test can switch on,
+    as the parts that can fail and the faults each can have."""
 
     runtime: str
     firmware_mpy: str
     files: dict[str, bytes]
     module_path: tuple[str, ...]
+    fault_targets: tuple[str, ...]
+    fault_names: tuple[str, ...]
     label: str
     oracle: bool = False
 
@@ -147,8 +150,8 @@ class _Process:
         try:
             # Written before the process starts, so the firmware's first
             # transfer at boot already sees them.
-            for axis, name in sorted(faults):
-                os.write(self.faults_w, channel.fault_line(True, axis, name))
+            for target, name in sorted(faults):
+                os.write(self.faults_w, channel.fault_line(True, target, name))
             self.proc = subprocess.Popen(
                 ['sh', '-c', _LAUNCH, 'sh', str(os.getpid()), image.runtime],
                 cwd=workdir,
@@ -450,27 +453,30 @@ class EmulatedBoard:
 
     # -- the simulated hardware --------------------------------------------
 
-    def inject(self, axis: str, fault: str) -> None:
+    def inject(self, target: str, fault: str) -> None:
         """Switch a hardware fault on; in effect from the next command's first
         SPI transfer, and across soft resets and reboots until cleared."""
-        self._set_fault(axis, fault, True)
+        self._set_fault(target, fault, True)
 
-    def clear(self, axis: str, fault: str) -> None:
-        self._set_fault(axis, fault, False)
+    def clear(self, target: str, fault: str) -> None:
+        self._set_fault(target, fault, False)
 
-    def _set_fault(self, axis: str, fault: str, on: bool) -> None:
-        if axis not in AXES:
-            raise ValueError(f'unknown axis {axis!r}; axes are {AXES}')
-        if fault not in FAULTS:
-            raise ValueError(f'unknown fault {fault!r}; faults are {FAULTS}')
+    def _set_fault(self, target: str, fault: str, on: bool) -> None:
+        targets, names = self._image.fault_targets, self._image.fault_names
+        if target not in targets:
+            raise ValueError(
+                f'{self.label}: unknown fault target {target!r}; targets are {targets}'
+            )
+        if fault not in names:
+            raise ValueError(f'{self.label}: unknown fault {fault!r}; faults are {names}')
         with self._cond:
             if on:
-                self._faults.add((axis, fault))
+                self._faults.add((target, fault))
             else:
-                self._faults.discard((axis, fault))
+                self._faults.discard((target, fault))
             process = self._life.process
             if process is not None:
-                os.write(process.faults_w, channel.fault_line(on, axis, fault))
+                os.write(process.faults_w, channel.fault_line(on, target, fault))
 
     def take_writes(self) -> list[RegisterWrite]:
         """The register writes since the last call, oldest first. Every write

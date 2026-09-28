@@ -133,7 +133,14 @@ class TestTheChannel:
 
 def _unpowered_board(oracle: bool) -> EmulatedBoard:
     image = BoardImage(
-        runtime='-', firmware_mpy='-', files={}, module_path=(), label='[test]', oracle=oracle
+        runtime='-',
+        firmware_mpy='-',
+        files={},
+        module_path=(),
+        fault_targets=tmc5072.AXES,
+        fault_names=tmc5072.FAULTS,
+        label='[test]',
+        oracle=oracle,
     )
     return EmulatedBoard(image)
 
@@ -161,7 +168,7 @@ class TestTheDemux:
 
     def test_a_fault_needs_a_known_axis_and_name(self):
         board = _unpowered_board(oracle=False)
-        with pytest.raises(ValueError, match='unknown axis'):
+        with pytest.raises(ValueError, match='unknown fault target'):
             board.inject('Q', tmc5072.STALL)
         with pytest.raises(ValueError, match='unknown fault'):
             board.inject('Z', 'melted')

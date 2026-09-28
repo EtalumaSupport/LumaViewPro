@@ -8,10 +8,11 @@ the backend and outlive every port opened to them, as a powered board
 outlives its USB connection. The driver above it is the production
 driver, unchanged; only the hardware is simulated.
 
-Which axes the scope has is decided by the caller from the scope model and
-passed in. A scope with no motor axes has no motor board at all, so this
-backend offers none and a driver looking for one finds nothing, as on a
-manual scope.
+Which boards the scope has, and which axes, is decided by the caller from
+the scope model and passed in. A scope with no motor axes has no motor
+board at all, so this backend offers none and a driver looking for one
+finds nothing, as on a manual scope; a scope whose LEDs are not on an LED
+board of their own has no LED board here either.
 """
 
 import json
@@ -23,7 +24,7 @@ from dataclasses import dataclass
 from serial.serialutil import SerialException
 from serial.tools.list_ports_common import ListPortInfo
 
-from drivers.sim_wire.mp.tmc5072 import AXES
+from drivers.sim_wire.mp.tmc5072 import AXES, FAULTS
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, EmulatedPort
 
 _PACKAGE = pathlib.Path(__file__).resolve().parent
@@ -31,6 +32,8 @@ _REPO = _PACKAGE.parent.parent
 
 MOTOR_VID, MOTOR_PID = 0x2E8A, 0x0005
 MOTOR_DEVICE = 'simwire:motor'
+LED_VID, LED_PID = 0x0424, 0x704C
+LED_DEVICE = 'simwire:led'
 
 TIMINGS = ('instant', 'realistic')
 
@@ -109,6 +112,16 @@ def runtime_missing(dialect: str) -> str | None:
     return None
 
 
+def _module_path(timing: str) -> tuple[str, ...]:
+    """Where a board's firmware finds the simulated hardware modules, which
+    shadow the runtime's own; in instant timing, a clock that never waits
+    shadows `time` ahead of them."""
+    module_path = (str(_PACKAGE / 'mp'),)
+    if timing == 'instant':
+        module_path = (str(_PACKAGE / 'mp' / 'instant'), *module_path)
+    return module_path
+
+
 @dataclass(frozen=True)
 class MotorBoardSpec:
     """The simulated motor board: which scope, which axes, which firmware,
@@ -179,38 +192,79 @@ class MotorBoardSpec:
                 'oracle': self.oracle,
             }
         ).encode()
-        module_path = [str(_PACKAGE / 'mp')]
-        if self.timing == 'instant':
-            module_path.insert(0, str(_PACKAGE / 'mp' / 'instant'))
         return BoardImage(
             runtime=str(runtime_path(self.dialect)),
             firmware_mpy=str(_PACKAGE / 'firmware' / f'motor-{self.dialect}.mpy'),
             files=files,
-            module_path=tuple(module_path),
+            module_path=_module_path(self.timing),
+            fault_targets=AXES,
+            fault_names=FAULTS,
             label=f'[sim motor {self.model} fw {self.dialect} {self.timing}]',
             oracle=self.oracle,
+        )
+
+
+# The firmware the LED boards run: only the field one exists in any unit.
+LED_DIALECT = 'field'
+
+
+@dataclass(frozen=True)
+class LedBoardSpec:
+    """The simulated LED board: which scope, which clock."""
+
+    model: str
+    timing: str = 'instant'
+
+    def __post_init__(self):
+        if self.timing not in TIMINGS:
+            raise ValueError(f'timing mode {self.timing!r} is not one of {TIMINGS}')
+
+    def image(self) -> BoardImage:
+        return BoardImage(
+            runtime=str(runtime_path(LED_DIALECT)),
+            firmware_mpy=str(_PACKAGE / 'firmware' / f'led-{LED_DIALECT}.mpy'),
+            files={},
+            module_path=_module_path(self.timing),
+            # The firmware detects no fault in its DAC, so there is none to
+            # inject: a fault no firmware reaction shows tests nothing.
+            fault_targets=(),
+            fault_names=(),
+            label=f'[sim led {self.model} fw {LED_DIALECT} {self.timing}]',
         )
 
 
 class SimWireBackend:
     """Discovery and open for a simulated scope's boards."""
 
-    def __init__(self, motor: MotorBoardSpec | None):
-        # The simulated motor board, which a test reaches for faults, the
-        # register-write oracle and the USB link. Its firmware starts with
-        # the first port opened to it.
+    def __init__(self, motor: MotorBoardSpec | None, led: LedBoardSpec | None = None):
+        # The simulated boards, which a test reaches for faults, the oracle
+        # and the USB link. Each is its own firmware process behind its own
+        # port, as each is its own USB device on the scope; its firmware
+        # starts with the first port opened to it.
         self.motor_board = None if motor is None else EmulatedBoard(motor.image())
+        self.led_board = None if led is None else EmulatedBoard(led.image())
+
+    def _boards(self) -> tuple[tuple[str, int, int, str, EmulatedBoard | None], ...]:
+        """(device, VID, PID, description, board) for each board a scope can have."""
+        return (
+            (MOTOR_DEVICE, MOTOR_VID, MOTOR_PID, 'Simulated EL-0940 motor board', self.motor_board),
+            (LED_DEVICE, LED_VID, LED_PID, 'Simulated EL-0940 LED board', self.led_board),
+        )
 
     def comports(self) -> list[ListPortInfo]:
-        if self.motor_board is None or not self.motor_board.plugged:
-            return []
-        info = ListPortInfo(MOTOR_DEVICE)
-        info.vid, info.pid = MOTOR_VID, MOTOR_PID
-        info.description = 'Simulated EL-0940 motor board'
-        return [info]
+        ports = []
+        for device, vid, pid, description, board in self._boards():
+            if board is None or not board.plugged:
+                continue
+            info = ListPortInfo(device)
+            info.vid, info.pid = vid, pid
+            info.description = description
+            ports.append(info)
+        return ports
 
     def open(self, **kwargs) -> EmulatedPort:
         port = kwargs.get('port')
-        if self.motor_board is None or port != MOTOR_DEVICE:
-            raise SerialException(f'no simulated board at {port!r}')
-        return EmulatedPort(self.motor_board, **kwargs)
+        for device, _vid, _pid, _description, board in self._boards():
+            if board is not None and port == device:
+                return EmulatedPort(board, **kwargs)
+        raise SerialException(f'no simulated board at {port!r}')
