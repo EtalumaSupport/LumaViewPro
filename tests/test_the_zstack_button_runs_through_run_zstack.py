@@ -52,11 +52,25 @@ class _Starter(zs.ZStack):
     def __init__(self):
         self.button = SimpleNamespace(state='down', text='Acquire')
         self.ids = {'zstack_aqr_btn': self.button}
+        self.zstack_pending = False
 
 
 @pytest.fixture
 def clicked(monkeypatch):
     """Click Acquire with nothing running; return what the member was asked."""
+    from modules.sequential_io_executor import ENQUEUED
+    from tests.shown_outcomes import capture_shown
+    import ui.ui_helpers as ui_helpers
+
+    shown = capture_shown(monkeypatch)
+    pool = MagicMock()
+
+    def _run_now(task):
+        task.action(*task.args, **task.kwargs)
+        return ENQUEUED
+
+    pool.put.side_effect = _run_now
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     member_runner = MagicMock()
     handle = PendingRunOutcome()
     member_runner.run_zstack.return_value = handle
@@ -75,17 +89,21 @@ def clicked(monkeypatch):
             engineering_mode=True,
             scope_display=SimpleNamespace(start=lambda: None, stop=lambda: None),
             motion_settings=MagicMock(),
+            worker_pool=pool,
         ),
     )
-    monkeypatch.setattr(zs, 'live_histo_off', lambda: None)
-    monkeypatch.setattr(zs, 'live_histo_reverse', lambda: None)
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
     monkeypatch.setattr(zs.common_utils, 'get_opened_layer', lambda _settings: 'Green')
     monkeypatch.setattr(zs, 'is_image_saving_enabled', lambda: False)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))
     return SimpleNamespace(
-        runner=member_runner, engine=engine, handle=handle, linked=linked, starter=_Starter()
+        runner=member_runner,
+        engine=engine,
+        handle=handle,
+        linked=linked,
+        shown=shown,
+        starter=_Starter(),
     )
 
 
@@ -122,20 +140,24 @@ def test_the_stop_names_the_handle_the_member_returned(clicked):
     assert clicked.linked == ['/runs/zstack_1']
 
 
-def test_a_refusal_resets_the_button_and_links_no_folder(clicked):
+def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
     clicked.runner.run_zstack.side_effect = ProtocolRunRefusedError(
         reason='zstack_not_configured', title='Z-Stack Not Configured', message='m'
     )
 
     clicked.starter.run_zstack_acquire_from_ui()
 
+    assert [n.title for n in clicked.shown] == ['Z-Stack Not Configured']
     assert clicked.starter.button.state == 'normal'
     assert clicked.starter.button.text == 'Acquire'
+    assert clicked.starter.zstack_pending is False, 'the button must come back for the next press'
     assert clicked.linked == []
 
 
-def test_progress_reads_the_runs_own_count(clicked, monkeypatch):
-    monkeypatch.setattr(zs, 'Clock', SimpleNamespace(schedule_once=lambda fn, _delay: fn(0)))
+def test_progress_reads_the_runs_own_step_and_count(clicked):
+    clicked.engine.is_live_run.side_effect = lambda run: run is clicked.handle
+    clicked.engine.is_stopping.return_value = False
+    clicked.engine.run_step_number.return_value = 3
     clicked.engine.run_num_steps.return_value = 7
 
     clicked.starter.run_zstack_acquire_from_ui()
@@ -143,18 +165,33 @@ def test_progress_reads_the_runs_own_count(clicked, monkeypatch):
     progress(3)
 
     assert clicked.starter.button.text == 'Z 3/7'
+    # Any other edge mid-run draws the same label: there is one writer.
+    clicked.starter.draw_zstack_button()
+    assert clicked.starter.button.text == 'Z 3/7'
 
 
-def test_progress_after_the_run_ended_writes_nothing(clicked, monkeypatch):
-    monkeypatch.setattr(zs, 'Clock', SimpleNamespace(schedule_once=lambda fn, _delay: fn(0)))
-    clicked.engine.run_num_steps.return_value = None
-
+def test_progress_after_the_run_ended_draws_idle(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
-    before = clicked.starter.button.text
     progress = clicked.runner.run_zstack.call_args.kwargs['callbacks']['update_step_number']
     progress(3)
 
-    assert clicked.starter.button.text == before
+    assert (clicked.starter.button.state, clicked.starter.button.text) == ('normal', 'Acquire')
+
+
+def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
+    from modules.sequential_io_executor import PRIORITY_HIGH
+
+    clicked.starter._zstack_run = clicked.handle
+    clicked.engine.is_live_run.side_effect = lambda run: run is clicked.handle
+    clicked.engine.is_stopping.side_effect = lambda run: clicked.engine.reset.called
+
+    clicked.starter.run_zstack_acquire_from_ui()
+
+    task = _app_ctx.ctx.worker_pool.put.call_args.args[0]
+    assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
+    clicked.engine.reset.assert_called_once_with(clicked.handle)
+    assert not clicked.runner.run_zstack.called, 'a Stop is not a start'
+    assert clicked.starter.button.text == 'Stopping...'
 
 
 class TestTheEnginesStepCount:

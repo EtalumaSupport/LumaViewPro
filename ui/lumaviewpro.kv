@@ -713,7 +713,7 @@
 			text: 'Acquire'
 			tooltip_text: 'Acquire Z-stack'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: app.recording_active or root.zstack_pending
 			on_release: root.run_zstack_acquire_from_ui()
 
 		Label:

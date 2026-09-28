@@ -502,6 +502,7 @@ class LumaViewProApp(TooltipMixin, App):
         """
         ctx.lumaview.draw_composite_button()
         ctx.motion_settings.ids['protocol_settings_id'].draw_protocol_buttons()
+        ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].draw_zstack_button()
         draw_shared_run_displays()
 
     def on_start(self) -> None:

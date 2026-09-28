@@ -16,12 +16,10 @@ has already ended" over a title of "Error".
 
 Two paths can do that today:
 
-- **The z-stack teardown.** ``_cleanup_at_end_of_acquire`` once called
-  the engine's ``reset()`` bare, and a teardown the engine refuses
-  (reason ``run_not_live``) unwound into the starter's blanket handler.
-  Its three siblings each already handle this -- the protocol starter
-  with a typed ``except``, the standalone autofocus by routing the reset
-  through an IOTask with ``silent_on_failure=True``.
+- **The z-stack Stop.** A teardown the engine refuses (reason
+  ``run_not_live``) once unwound into the starter's blanket handler. The
+  Stop now goes through the one boundary, which reports the refusal
+  through the one reporter in its own words.
 - **New Protocol.** Its ``except Exception as e`` renders ``str(e)``
   under the title "Protocol Creation Error". The builder cannot refuse
   today; it is about to, which is why this hole closes first.
@@ -85,6 +83,7 @@ class _ZStackStarter(zs.ZStack):
         # reason and the test would pass without exercising the teardown.
         self.button = SimpleNamespace(state='down', text='Running Z-Stack')
         self.ids = {'zstack_aqr_btn': self.button}
+        self.zstack_pending = False
         # The handle this button's start returned.
         self._zstack_run = PendingRunOutcome()
 
@@ -119,18 +118,30 @@ def refusing_runner():
 
 @pytest.fixture
 def app_ctx(monkeypatch, refusing_runner):
+    from modules.sequential_io_executor import ENQUEUED
+    from tests.shown_outcomes import capture_shown
+    import ui.ui_helpers as ui_helpers
+
+    pool = MagicMock()
+
+    def _run_now(task):
+        task.action(*task.args, **task.kwargs)
+        return ENQUEUED
+
+    pool.put.side_effect = _run_now
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
+    capture_shown(monkeypatch)
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
         SimpleNamespace(
             sequenced_capture_runner=refusing_runner,
             settings={},
+            worker_pool=pool,
         ),
     )
-    # Histogram restore and the GUI interaction log are ambient to this
-    # path; stubbing them keeps the test about what the user is told.
-    monkeypatch.setattr(zs, 'live_histo_off', lambda: None)
-    monkeypatch.setattr(zs, 'live_histo_reverse', lambda: None)
+    # The GUI interaction log is ambient to this path; stubbing it keeps
+    # the test about what the user is told.
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
     return refusing_runner
 

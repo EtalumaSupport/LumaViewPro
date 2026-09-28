@@ -57,12 +57,12 @@ UI_STARTERS = (
 BOUNDARY_PRESSES = (
     ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
     ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
+    ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
 )
 
 # Starters still on run_with_refusal_boundary. Each moves onto
 # submit_reported in its own commit of the same push, and leaves here.
 STARTERS_ON_THE_OLD_BOUNDARY = (
-    ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
     ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
 )
 

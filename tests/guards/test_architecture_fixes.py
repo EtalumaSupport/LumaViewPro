@@ -660,7 +660,7 @@ _UI_EXCEPT_PIN = {
     ('ui/ui_helpers.py', 'ProtocolRunRefusedError'): 2,
     ('ui/ui_helpers.py', 'RunAlreadyEndedError'): 1,
     ('ui/vertical_control.py', 'Exception'): 7,
-    ('ui/zstack.py', 'Exception'): 3,
+    ('ui/zstack.py', 'Exception'): 2,
 }
 
 

@@ -2,6 +2,7 @@
 import logging
 
 from kivy.clock import Clock
+from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
@@ -13,14 +14,11 @@ from modules.run_outcome import PendingRunOutcome
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
-    live_histo_off,
-    live_histo_reverse,
     reset_title,
-    reset_with_refusal_boundary,
-    run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
+    submit_reported,
     sync_layer_widgets_from_settings,
 )
 from modules.zstack_config import ZStackConfig
@@ -32,6 +30,9 @@ class ZStack(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
     _zstack_run: PendingRunOutcome | None = None
+    # True while this button's own request is on its way to the engine; the
+    # button is disabled until that request's redraw.
+    zstack_pending = BooleanProperty(False)
 
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
@@ -107,125 +108,102 @@ class ZStack(FloatLayout):
         with ctx.settings_lock:
             ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
-    def _reset_run_zstack_acquire_button(self, **kwargs):
-        self.ids['zstack_aqr_btn'].state = 'normal'
-        self.ids['zstack_aqr_btn'].text = 'Acquire'
-        live_histo_reverse()
-
-    def _cleanup_at_end_of_acquire(self):
-        ctx = _app_ctx.ctx
-        runner = ctx.sequenced_capture_runner
-        # On an abort, reset() returns immediately and the hardware
-        # teardown runs on the protocol thread; _zstack_run_complete
-        # (fired by cleanup) resets the button when it ends. Restoring
-        # the button here on the abort flavor would invite a new acquire
-        # while the old one is still tearing down (the start guard
-        # refuses it, but the label would lie about readiness).
-        deferred_to_cleanup = runner.run_in_progress()
-        if not reset_with_refusal_boundary(runner, self._zstack_run):
-            # The engine refused: another run is live and is still
-            # running. Nothing was torn down, so nothing here is restyled
-            # -- least of all to "Stopping...", which would describe a
-            # teardown that did not happen.
-            return
-        if deferred_to_cleanup:
-            self.ids['zstack_aqr_btn'].text = 'Stopping...'
-            return
-        self._reset_run_zstack_acquire_button()
-        live_histo_reverse()
-
-    def _zstack_run_complete(self, **kwargs):
-        self._reset_run_zstack_acquire_button()
-        live_histo_reverse()
-
     def run_zstack_acquire_from_ui(self):
-        try:
-            gui_logger.button('ZSTACK')
-            logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
-            ctx = _app_ctx.ctx
+        """Start a z-stack, or stop the one this button started.
 
-            live_histo_off()
+        Everything about the run -- the objective, the stack, the capture,
+        and every refusal of it -- is the member's, and the boundary shows
+        a refusal once. This button states only what a running GUI knows:
+        the open drawer, its own token, the live engineering flag and the
+        engineering panel's saving switch, all read here on the GUI thread.
 
-            trigger_source = 'zstack'
-            run_not_started_func = self._reset_run_zstack_acquire_button
-            run_complete_func = self._zstack_run_complete
+        Whether the press means Stop is the engine's answer -- is the run
+        this button started still live -- never the toggle's, which Kivy has
+        already flipped. The button changes nothing ahead of the engine's
+        answer; draw_zstack_button shows it.
+        """
+        gui_logger.button('ZSTACK')
+        logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
+        ctx = _app_ctx.ctx
+        run = self._zstack_run
+        # The button is disabled until this request's own redraw, so a
+        # second press cannot race the first one to the pool.
+        self.zstack_pending = True
 
-            # The live-run term is not redundant with the toggle read: a
-            # run callback can reset this button to 'normal' mid-run, and
-            # Kivy flips a toggle at touch-down, so the user's own Stop can
-            # arrive reading 'down'. Keyed on state alone, that click fell
-            # through to the start path and came back "already running".
-            if self.ids['zstack_aqr_btn'].state == 'normal' or (
-                ctx.sequenced_capture_runner.is_live_run(self._zstack_run)
-            ):
-                self._cleanup_at_end_of_acquire()
-                return
+        if ctx.sequenced_capture_runner.is_live_run(run):
+            submit_reported(
+                lambda: ctx.sequenced_capture_runner.reset(run),
+                self._zstack_request_done,
+                'ZSTACK',
+                stop=True,
+            )
+            return
 
-            # Immediate text while the first slice is being prepared.
-            # _zstack_progress (below) overwrites this with "Z {n}/{total}"
-            # as soon as the protocol_step_runner starts the first slice.
-            self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
+        runner = ctx.session.create_protocol_runner()
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        engineering_mode = ctx.engineering_mode
+        enable_image_saving = is_image_saving_enabled()
+        callbacks = {
+            **live_display_callbacks(),
+            'move_position': _handle_ui_update_for_axis,
+            # Each slice redraws the button, which reads the step from the
+            # engine: a redraw from any other edge draws the same thing.
+            'update_step_number': lambda step_num: self.draw_zstack_button(),
+            # LED observer handles UI sync -- no manual callbacks needed
+            'sync_layer_widgets': sync_layer_widgets_from_settings,
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
+            'pause_live_ui': lambda: (
+                ctx.scope_display.stop(),
+                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
+            ),
+            'resume_live_ui': lambda: (
+                ctx.scope_display.start(),
+                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
+                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
+            ),
+        }
 
-            runner = ctx.session.create_protocol_runner()
-            zstack_btn = self.ids['zstack_aqr_btn']
+        def _start():
+            self._zstack_run = runner.run_zstack(
+                layer=layer,
+                callbacks=callbacks,
+                run_trigger_source='zstack',
+                engineering_mode=engineering_mode,
+                enable_image_saving=enable_image_saving,
+            )
+            # A refusal raises out of run_zstack before this line, so the
+            # save folder can only ever point at THIS run's directory,
+            # never a previous run's stale data.
+            set_last_save_folder(dir=runner.run_dir())
 
-            # Per-step progress on the Acquire button. The step runner fires
-            # update_step_number(step) per slice, 1-indexed; the total is the
-            # run's own count, asked of the engine, because the member built
-            # the protocol and this widget never holds it. Clock marshals the
-            # text back to the main thread.
-            def _zstack_progress(step_num):
-                total_slices = ctx.sequenced_capture_runner.run_num_steps()
-                if total_slices is None:
-                    # The run ended between the step and this callback.
-                    return
-                Clock.schedule_once(
-                    lambda dt: setattr(zstack_btn, 'text', f'Z {step_num}/{total_slices}'),
-                    0,
-                )
+        submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 
-            callbacks = {
-                **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
-                'run_complete': run_complete_func,
-                'update_step_number': _zstack_progress,
-                # LED observer handles UI sync -- no manual callbacks needed
-                'sync_layer_widgets': sync_layer_widgets_from_settings,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-                'pause_live_ui': lambda: (
-                    ctx.scope_display.stop(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                ),
-                'resume_live_ui': lambda: (
-                    ctx.scope_display.start(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-                ),
-            }
+    def _zstack_request_done(self):
+        self.zstack_pending = False
+        self.draw_zstack_button()
 
-            # Everything about the run -- the objective, the stack, the
-            # capture, and every refusal of it -- is the member's. This
-            # starter states only what a running GUI knows: the open
-            # drawer, its own token, the live engineering flag and the
-            # engineering panel's saving switch.
-            def prepare_and_start():
-                self._zstack_run = runner.run_zstack(
-                    layer=common_utils.get_opened_layer(ctx.image_settings),
-                    callbacks=callbacks,
-                    run_trigger_source=trigger_source,
-                    engineering_mode=ctx.engineering_mode,
-                    enable_image_saving=is_image_saving_enabled(),
-                )
-                # A refusal raises out of run_zstack before this line, so the
-                # save folder can only ever point at THIS run's directory,
-                # never a previous run's stale data.
-                set_last_save_folder(dir=runner.run_dir())
+    def draw_zstack_button(self):
+        """Show the z-stack this button started, as the engine reports it.
 
-            run_with_refusal_boundary(prepare_and_start, on_refused=run_not_started_func)
-        except Exception as e:
-            logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        The only code that styles the button: after each of its own
+        requests, on every slice, and on every run-state edge -- including
+        the run's return to idle. "Z n/total" is the run's own step and
+        count, asked of the engine, because the member built the protocol
+        and this widget never holds it.
+        """
+        engine = _app_ctx.ctx.sequenced_capture_runner
+        button = self.ids['zstack_aqr_btn']
+        if not engine.is_live_run(self._zstack_run):
+            button.state = 'normal'
+            button.text = 'Acquire'
+            return
+        button.state = 'down'
+        if engine.is_stopping(self._zstack_run):
+            button.text = 'Stopping...'
+            return
+        step, total = engine.run_step_number(), engine.run_num_steps()
+        # Both are None only once the run has ended, between the live read
+        # above and these; the run-state edge that follows draws it idle.
+        button.text = 'Running Z-Stack' if step is None or total is None else f'Z {step}/{total}'
