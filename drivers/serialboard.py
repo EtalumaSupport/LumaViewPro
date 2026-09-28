@@ -1049,13 +1049,21 @@ class SerialBoard:
                     if line:
                         lines.append(line)
                     if any(m in line.upper() for m in [em.upper() for em in end_markers]):
-                        # Drain a few trailing lines
+                        # Take the few lines the board prints right after the
+                        # marker, and stop at the first quiet read: waiting the
+                        # call's long per-line window on each of them costs
+                        # five full windows when the reply is already over.
                         for _ in range(5):
+                            remaining = timeout - (time.monotonic() - start)
+                            if remaining <= 0:
+                                break
+                            self.driver.timeout = min(saved_timeout, remaining)
                             extra = self.driver.readline()
-                            if extra:
-                                decoded = extra.decode('utf-8', 'ignore').strip()
-                                if decoded and not decoded.startswith('RE:'):
-                                    lines.append(decoded)
+                            if not extra:
+                                break
+                            decoded = extra.decode('utf-8', 'ignore').strip()
+                            if decoded and not decoded.startswith('RE:'):
+                                lines.append(decoded)
                         break
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000

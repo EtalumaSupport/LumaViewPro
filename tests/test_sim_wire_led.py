@@ -249,6 +249,29 @@ def test_the_first_command_after_connect_gets_its_own_reply():
 
 
 @firmware_only
+def test_a_multiline_exchange_ends_when_the_reply_ends():
+    # The support report reads INFO up to its CALIBRATION line, and FACTORY
+    # up to its Y/N prompt. Once the reply is over, waiting the call's
+    # per-line window for each trailing line took 25 s and 10 s.
+    board = LEDBoard(backend=SimWireBackend(None, led=LED))
+    try:
+        t0 = time.monotonic()
+        info = board.exchange_multiline(
+            'INFO',
+            timeout=5,
+            end_markers=['RESET CAUSE', 'POWER-ON', 'HARD', 'WDT', 'CALIBRATION'],
+        )
+        assert 'Calibration' in info
+        assert time.monotonic() - t0 < 1.0
+        t0 = time.monotonic()
+        assert board.enter_engineering_mode(timeout=5)
+        assert time.monotonic() - t0 < 1.5
+        board.exit_engineering_mode()
+    finally:
+        board.disconnect()
+
+
+@firmware_only
 class TestWhatTheDacDrives:
     OFF = (True, True, 0)
 
