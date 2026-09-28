@@ -10,7 +10,6 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
-from modules.sequential_io_executor import IOTask
 from ui.image_settings import AccordionItemXyStageControl
 from ui.ui_helpers import (
     move_absolute,

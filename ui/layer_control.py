@@ -21,7 +21,6 @@ from modules.config_ui_getters import (
     get_layer_illumination_text_max,
 )
 from modules.exceptions import ProtocolError
-from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.layer_control')
