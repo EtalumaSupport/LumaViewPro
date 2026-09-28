@@ -32,6 +32,8 @@
 # step at a large position, nor the read-ahead past a switch edge.
 # Velocities and accelerations stay floats; their error is relative.
 
+import json
+
 try:
     from collections.abc import Callable
 except ImportError:
@@ -57,6 +59,10 @@ IHOLD_IRUN = 0x10
 SW_MODE = 0x14
 RAMP_STAT = 0x15
 XLATCH = 0x16
+
+# A datagram is 40 bits: an address byte, its top bit set on a write, and
+# 32 bits of data.
+DATAGRAM_BYTES = 5
 
 MOTOR_BASE = (0x20, 0x40)
 MOTOR_SPAN = 0x20
@@ -470,6 +476,8 @@ class Chip:
     def datagram(self, buf: bytes) -> bytes:
         """One 40-bit transfer: answer the previous datagram's read, apply
         this one's write, and queue this one's address."""
+        if len(buf) != DATAGRAM_BYTES:
+            raise ValueError(f'a {len(buf)}-byte transfer; the TMC5072 takes 5-byte datagrams')
         out = self.read(self.last_addr)
         addr = buf[0] & 0x7F
         if buf[0] & 0x80:
@@ -523,6 +531,14 @@ class Board:
             raise ValueError(f'unknown axis {repr(axis)}')
         self.motors[axis].set_fault(name, on)
 
+    def written(self, chip_name: str, buf: bytes) -> tuple | None:
+        """(axis or None, register, value) of the write a datagram makes, or
+        None for a read, as the oracle reports it."""
+        if not buf[0] & 0x80:
+            return None
+        axis, reg = self.register_name(chip_name, buf[0] & 0x7F)
+        return axis, reg, (buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]
+
     def register_name(self, chip_name: str, addr: int) -> tuple:
         """(axis, register offset) of an address on a chip, or (None, the
         address) for a register no single motor owns."""
@@ -542,3 +558,13 @@ class Board:
     def datagram(self, chip_name: str, buf: bytes) -> bytes:
         self.advance()
         return self.chips[chip_name].datagram(buf)
+
+
+def build(
+    sim: dict, ticks_us: 'Callable[[], int]', ticks_diff: 'Callable[[int, int], int]'
+) -> Board:
+    """The board's chips, as `machine` builds them at the first transfer: from
+    the unit config the firmware itself reads at boot."""
+    with open('motorconfig.json') as f:
+        motorconfig = json.load(f)
+    return Board(motorconfig, sim, ticks_us, ticks_diff)

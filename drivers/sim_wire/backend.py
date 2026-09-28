@@ -50,6 +50,12 @@ FCLK_HZ = 16_000_000
 # home finds the flag by moving as a real stage does.
 START_USTEPS = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}
 
+# Which chip sits behind which chip-select pin on each board, as its firmware
+# drives them: the motor firmware's XY_chip = Pin(1) and ZT_chip = Pin(5),
+# the LED firmware's chip = Pin(1) in front of its DAC.
+MOTOR_CHIP_SELECT = ((1, 'XY'), (5, 'ZT'))
+LED_CHIP_SELECT = ((1, 'DAC'),)
+
 # A complete unit config from the board bring-up template, built by the
 # Firmware repo's tools/build_sim_firmware.py. The firmware reads all of it
 # at boot; the simulator sets the model and the axes.
@@ -184,8 +190,10 @@ class MotorBoardSpec:
             ini_dir = _PACKAGE / 'firmware' / 'field-ini'
         files = {name: (ini_dir / name).read_bytes() for name in config['IniFiles'].values()}
         files['motorconfig.json'] = json.dumps(config).encode()
-        files['sim_chip.json'] = json.dumps(
+        files['sim_board.json'] = json.dumps(
             {
+                'model': 'tmc5072',
+                'chip_select': MOTOR_CHIP_SELECT,
                 'timing': self.timing,
                 'fclk_hz': self.fclk_hz,
                 'start_usteps': dict(self.start_usteps),
@@ -223,7 +231,11 @@ class LedBoardSpec:
         return BoardImage(
             runtime=str(runtime_path(LED_DIALECT)),
             firmware_mpy=str(_PACKAGE / 'firmware' / f'led-{LED_DIALECT}.mpy'),
-            files={},
+            files={
+                'sim_board.json': json.dumps(
+                    {'model': 'dac80508', 'chip_select': LED_CHIP_SELECT, 'oracle': False}
+                ).encode()
+            },
             module_path=_module_path(self.timing),
             # The firmware detects no fault in its DAC, so there is none to
             # inject: a fault no firmware reaction shows tests nothing.

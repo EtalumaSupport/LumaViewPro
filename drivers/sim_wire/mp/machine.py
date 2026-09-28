@@ -1,17 +1,19 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-# The RP2040 `machine` module as the EL-0940 firmware sees it, for the
-# firmware running inside MicroPython on the host. This file runs INSIDE the
-# MicroPython child process, not in LumaViewPro's interpreter: it shadows the
-# runtime's built-in `machine` because it is first on MICROPYPATH.
+# The RP2040 `machine` module as the EL-0940 boards' firmware sees it, for
+# the firmware running inside MicroPython on the host. This file runs INSIDE
+# the MicroPython child process, not in LumaViewPro's interpreter: it
+# shadows the runtime's built-in `machine` because it is first on
+# MICROPYPATH.
 #
 # Pure MicroPython, nothing host-only, so the same file can be carried onto a
 # physical RP2350 later.
 #
-# SPI is the two TMC5072 drivers in `tmc5072.py`, built on the first
-# transfer from the unit config the firmware reads (`motorconfig.json`) and
-# the simulator's own settings (`sim_chip.json`), both in the working
-# directory the port gives the child. Chip select is read from the pins the
-# firmware drives, so the model needs no wiring of its own.
+# SPI is the board's chips: the model module and the chip-select wiring the
+# board's settings (`sim_board.json`, in the working directory the port
+# gives the child) name. The model is built on the first transfer, and each
+# transfer goes, as sent, to the chip whose select pin the firmware holds
+# low; the chip frames it. So one stub serves every board: GP1 is the XY
+# TMC5072 on the motor board and the DAC on the LED board.
 #
 # The control channel. The firmware blocks in stdin's readline() while idle,
 # so this code runs only inside the firmware's own SPI transfers:
@@ -20,9 +22,9 @@
 #   It is read at every transfer: a pipe write the port has finished is
 #   readable at once, so a fault written before a command is in effect from
 #   its first transfer.
-# - With the oracle on, every register write goes out on stdout as a frame,
-#   in order with the firmware's own output; the port takes the frames out
-#   before the driver reads.
+# - With the oracle on, every register write the model names goes out on
+#   stdout as a frame, in order with the firmware's own output; the port
+#   takes the frames out before the driver reads.
 # The messages themselves are `channel.py`'s.
 
 import json
@@ -113,12 +115,11 @@ class Timer:
         pass
 
 
-# The firmware's chip-select pins: XY_chip = Pin(1), ZT_chip = Pin(5), low
-# while a transfer is in flight.
-_CHIP_SELECT = ((1, 'XY'), (5, 'ZT'))
-
 _board = None
 _oracle = False
+# (pin, chip name) for each chip on the board, from its settings; a chip's
+# select pin is low while a transfer to it is in flight.
+_chip_select = ()
 
 # Open for the life of the process: the port holds the other end.
 _faults_in = open('/dev/fd/' + os.getenv(channel.FAULTS_FD_ENV), 'rb')  # noqa: SIM115
@@ -138,7 +139,7 @@ def _read_faults(board) -> None:
 
 
 def _selected_chip():
-    for pin_id, name in _CHIP_SELECT:
+    for pin_id, name in _chip_select:
         pin = _PINS.get(pin_id)
         if pin is not None and pin._v == 0:
             return name
@@ -146,16 +147,14 @@ def _selected_chip():
 
 
 def _the_board():
-    global _board, _oracle
+    global _board, _oracle, _chip_select
     if _board is None:
-        import tmc5072
-
-        with open('motorconfig.json') as f:
-            motorconfig = json.load(f)
-        with open('sim_chip.json') as f:
+        with open('sim_board.json') as f:
             sim = json.load(f)
-        _board = tmc5072.Board(motorconfig, sim, time.ticks_us, time.ticks_diff)
-        _oracle = bool(sim.get('oracle', False))
+        model = __import__(sim['model'])
+        _board = model.build(sim, time.ticks_us, time.ticks_diff)
+        _oracle = bool(sim['oracle'])
+        _chip_select = tuple((pin, name) for pin, name in sim['chip_select'])
     return _board
 
 
@@ -167,19 +166,22 @@ class SPI:
         pass
 
     def _datagram(self, buf: bytes) -> bytes:
+        board = _the_board()
         chip = _selected_chip()
         if chip is None:
-            # No chip selected: nothing drives MISO.
-            return bytes(len(buf))
-        frame = bytes(buf[:5]) + bytes(max(0, 5 - len(buf)))
-        board = _the_board()
+            # The firmware selects a chip around every transfer it makes, so
+            # a transfer with none selected is this board's wiring naming the
+            # wrong pin; answered, it would pass as a chip that took it.
+            raise ValueError(
+                f'an SPI transfer with no chip selected; the board wires {_chip_select}'
+            )
         _read_faults(board)
-        out = board.datagram(chip, frame)
-        if _oracle and frame[0] & 0x80:
-            axis, reg = board.register_name(chip, frame[0] & 0x7F)
-            value = (frame[1] << 24) | (frame[2] << 16) | (frame[3] << 8) | frame[4]
-            sys.stdout.write(channel.write_frame(chip, axis, reg, value))
-        return out[: len(buf)]
+        out = board.datagram(chip, bytes(buf))
+        if _oracle:
+            written = board.written(chip, bytes(buf))
+            if written is not None:
+                sys.stdout.write(channel.write_frame(chip, *written))
+        return out
 
     def write(self, buf: bytes) -> None:
         self._datagram(buf)

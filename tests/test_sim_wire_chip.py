@@ -272,3 +272,11 @@ class TestTheRealisticRamp:
         settle(clock, 500)
         vactual = read(b, XY, M1 + chip.VACTUAL)
         assert vactual == pytest.approx(800000, abs=2)
+
+
+def test_a_transfer_that_is_not_a_40_bit_datagram_is_refused():
+    # The chip frames its own transfers; a short one is not padded into a
+    # datagram the firmware never sent.
+    b, _ = board()
+    with pytest.raises(ValueError, match='5-byte'):
+        b.datagram(XY, bytes(3))

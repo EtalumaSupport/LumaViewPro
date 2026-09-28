@@ -5,14 +5,19 @@ own port, beside the motor board's.
 What is pinned here is that a simulated scope has each of its boards as a
 board of its own: discovered under the vendor and product IDs the real
 board enumerates with, opened by its own device name, and holding its own
-hardware, faults included.
+hardware, faults included; and that the production LEDBoard connects to
+it, the firmware reaching its DAC through the chip select the board wires
+to it.
 """
 
+import pathlib
 import sys
 
 import pytest
 import serial
 
+from drivers.ledboard import LEDBoard
+from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import (
     LED_DEVICE,
     LED_PID,
@@ -25,6 +30,9 @@ from drivers.sim_wire.backend import (
     SimWireBackend,
 )
 from drivers.sim_wire.mp import tmc5072
+
+sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
+import dac80508
 
 firmware_only = pytest.mark.skipif(
     not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
@@ -113,3 +121,44 @@ class TestSpec:
         image = LED.image()
         assert image.firmware_mpy.endswith('led-field.mpy')
         assert image.runtime == MOTOR.image().runtime
+
+
+class TestTheDac:
+    def test_a_frame_is_three_bytes_and_miso_answers_zeros(self):
+        # The firmware only writes; nothing drives MISO back.
+        assert dac80508.Board().datagram('DAC', bytes((0x05, 0x00, 0x0A))) == bytes(3)
+
+    def test_a_transfer_that_is_not_a_dac_frame_is_refused(self):
+        with pytest.raises(ValueError, match='3-byte'):
+            dac80508.Board().datagram('DAC', bytes(5))
+
+
+@firmware_only
+class TestTheFirmwareBoots:
+    def test_the_production_led_board_connects_to_the_shipped_firmware(self):
+        board = LEDBoard(backend=SimWireBackend(None, led=LED))
+        try:
+            # The banner's date, and no version: the field firmware carries none.
+            assert board.firmware_date == '2024-06-05'
+            assert board.firmware_version is None
+            assert not board.firmware_silent
+            # The connect's safety LEDS_OFF was acknowledged.
+            assert board.last_safety_off_error is None
+        finally:
+            board.disconnect()
+
+    def test_the_motor_and_led_boards_each_reach_their_own_chip_at_gp1(self):
+        # GP1 is the XY TMC5072's chip select on the motor board and the
+        # DAC's on the LED board; each board's firmware must meet its own.
+        backend = SimWireBackend(MOTOR, led=LED)
+        motor = MotorBoard(backend=backend)
+        led = LEDBoard(backend=backend)
+        try:
+            assert led.firmware_date == '2024-06-05'
+            assert motor.home()
+            motor.move_abs_pos('X', 20000.0, overshoot_enabled=False)
+            assert motor.wait_for_position('X', timeout=2.0)
+            assert motor.current_pos('X') == pytest.approx(20000.0, abs=0.1)
+        finally:
+            led.disconnect()
+            motor.disconnect()
