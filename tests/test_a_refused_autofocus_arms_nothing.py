@@ -16,38 +16,21 @@ next standalone autofocus the user started inside that window, which is
 the run it force-aborts. A click that was refused would be reaching forward to
 kill the click that was not.
 
-So the bound is armed by the run it bounds: after ``start(plan)``
-commits, where a timer can only ever exist alongside the run it belongs
-to. Disarming on the refusal path would fix one of the three exits by
-hand; arming on commit makes all three unrepresentable.
+So the bound is armed by the run it bounds: by the button's redraw, the
+first time it sees that run live, and once per run. A press that started
+nothing never shows a live run, so it arms nothing whichever way it
+ended; disarming on each refusal path would fix the exits by hand.
 """
 
 from __future__ import annotations
 
-import sys
-import types
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
-import pytest
-
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_boxlayout = types.ModuleType('kivy.uix.boxlayout')
-_boxlayout.BoxLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.boxlayout', _boxlayout)
-
-import modules.app_context as _app_ctx
-import ui.vertical_control as vc
+from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa: F401
+    _live,
+    held,
+    pressed,
+)
 from modules.exceptions import ProtocolRunRefusedError
-from tests.scope_fakes import spec_scope
+from modules.run_outcome import PendingRunOutcome
 
 
 REFUSAL = ProtocolRunRefusedError(
@@ -57,104 +40,52 @@ REFUSAL = ProtocolRunRefusedError(
 )
 
 
-def _starter(arm_log):
-    """The starter's own methods, with the widget tree and cosmetics stubbed.
-
-    An unbound call with a namespace stub, the way this module's sibling
-    guards drive the completion handler: the starter reaches ``prepare``
-    through the real body, which is the ordering under test.
-    """
-    return SimpleNamespace(
-        ids={'autofocus_id': SimpleNamespace(state='down', text='Autofocus')},
-        # The handle the button's last start returned; none yet.
-        _autofocus_run=None,
-        _schedule_af_safety_timer=lambda: arm_log.append('armed'),
-        _unschedule_af_safety_timer=lambda: arm_log.append('disarmed'),
-        _set_run_autofocus_button=lambda: None,
-        _reset_run_autofocus_button_cosmetics=lambda: None,
-        _cleanup_at_end_of_autofocus=lambda: None,
-        _autofocus_run_complete=lambda **kw: None,
-    )
-
-
-@pytest.fixture
-def runner():
-    """Idle, so the click takes the start path rather than stop or refuse-early."""
-    r = MagicMock()
-    r.run_in_progress.return_value = False
-    r.run_trigger_source.return_value = None
-    r.is_live_run.return_value = False
-    return r
-
-
-@pytest.fixture
-def af_ctx(monkeypatch, runner, tmp_path):
-    # Specced, not bare: this test asserts what the starter did NOT do,
-    # and a double that answers any attribute at all would let a renamed
-    # collaborator pass silently.
-    scope = spec_scope()
-    scope.protocols.create_protocol.return_value = MagicMock()
-    session = MagicMock()
-    session.controls_locked = False
-    session.get_current_plate_position.return_value = {'x': 0.0, 'y': 0.0, 'z': 0.0}
-    session.scope.runtime_state.resolve_current_objective.return_value = ('objective', {})
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            scope=scope,
-            session=session,
-            sequenced_capture_runner=runner,
-            settings={'live_folder': str(tmp_path)},
-            settings_lock=MagicMock(),
-            engineering_mode=False,
-            source_path='.',
-            image_settings=MagicMock(),
-        ),
-    )
-    # Everything between the click and prepare() that reads the widget
-    # tree or the live settings; the ordering under test is untouched.
-    monkeypatch.setattr(vc, 'require_file_writes_idle', lambda operation: True)
-    monkeypatch.setattr(vc, 'live_histo_off', lambda: None)
-    monkeypatch.setattr(vc, 'live_histo_reverse', lambda: None)
-    monkeypatch.setattr(vc, 'live_display_callbacks', dict)
-    monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
-    monkeypatch.setattr(vc, 'get_selected_labware', lambda: ('labware', {}))
-    monkeypatch.setattr(vc, 'get_active_layer_config', lambda layer: ('Green', {}))
-    monkeypatch.setattr(vc, 'get_binning_from_ui', lambda: 1)
-    monkeypatch.setattr(vc, 'get_image_capture_config_from_ui', MagicMock())
-    monkeypatch.setattr(vc, 'get_auto_gain_settings', MagicMock())
-    monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda image_settings: 'Green')
-    monkeypatch.setattr(vc, 'TilingConfig', MagicMock())
-    monkeypatch.setattr(vc.config_helpers, 'build_sequenced_capture_config', lambda cfg: cfg)
-    monkeypatch.setattr(vc.config_helpers, 'autofocus_snapshot_from_settings', MagicMock())
-    monkeypatch.setattr(vc.config_helpers, 'get_sequenced_run_settings', lambda *a, **kw: {})
-    return runner
-
-
 class TestARefusedAutofocusClick:
-    def test_it_arms_no_safety_timer(self, af_ctx, monkeypatch):
-        af_ctx.prepare.side_effect = REFUSAL
-        armed: list[str] = []
+    def test_it_arms_no_safety_timer(self, pressed):
+        pressed.member.run_autofocus.side_effect = REFUSAL
 
-        vc.VerticalControl.run_autofocus_from_ui(_starter(armed))
+        pressed.button.run_autofocus_from_ui()
 
-        assert af_ctx.prepare.called, (
+        assert pressed.member.run_autofocus.called, (
             'the click never reached the engine -- the test is not exercising the refusal'
         )
-        assert 'armed' not in armed, (
+        assert pressed.button.armed == [], (
             'a refused click starts no run, so it must leave no stuck-AF bound '
             "behind it: the next real autofocus is what that timer's predicate "
-            f'would match. Timer calls: {armed}'
+            f'would match. Timer calls: {pressed.button.armed}'
         )
 
-    def test_a_started_run_still_arms_one(self, af_ctx, monkeypatch):
-        armed: list[str] = []
+    def test_a_started_run_still_arms_one(self, pressed):
+        _live(pressed.engine, pressed.handle)
 
-        vc.VerticalControl.run_autofocus_from_ui(_starter(armed))
+        pressed.button.run_autofocus_from_ui()
 
-        assert af_ctx.start.called, 'the run never started -- the bound has nothing to guard'
-        assert 'armed' in armed, (
+        assert pressed.button.armed == [pressed.handle], (
             'the stuck-AF bound is the reason this timer exists; a committed '
-            f'run must still get one. Timer calls: {armed}'
+            f'run must still get one. Timer calls: {pressed.button.armed}'
         )
+
+    def test_every_later_redraw_of_the_same_run_arms_nothing_more(self, pressed):
+        _live(pressed.engine, pressed.handle)
+        pressed.button.run_autofocus_from_ui()
+
+        pressed.button.draw_autofocus_button()
+        pressed.button.draw_autofocus_button()
+
+        assert pressed.button.armed == [pressed.handle], (
+            'one bound per run: a re-armed timer restarts the 15 s, and a run '
+            'redrawn on every edge would never be bounded at all'
+        )
+
+    def test_the_next_run_gets_its_own(self, pressed):
+        first, second = pressed.handle, PendingRunOutcome()
+        _live(pressed.engine, first)
+        pressed.button.run_autofocus_from_ui()
+        _live(pressed.engine)
+        pressed.button.draw_autofocus_button()
+
+        pressed.member.run_autofocus.return_value = second
+        _live(pressed.engine, second)
+        pressed.button.run_autofocus_from_ui()
+
+        assert pressed.button.armed == [first, second]

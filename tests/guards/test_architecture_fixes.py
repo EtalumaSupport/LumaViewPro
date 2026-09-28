@@ -581,7 +581,6 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/shader.py': 3,
     'ui/stage.py': 5,
     'ui/ui_helpers.py': 2,
-    'ui/vertical_control.py': 9,
     'ui/zstack.py': 1,
 }
 
@@ -659,7 +658,7 @@ _UI_EXCEPT_PIN = {
     ('ui/ui_helpers.py', 'ObjectiveUnknownError'): 1,
     ('ui/ui_helpers.py', 'ProtocolRunRefusedError'): 2,
     ('ui/ui_helpers.py', 'RunAlreadyEndedError'): 1,
-    ('ui/vertical_control.py', 'Exception'): 7,
+    ('ui/vertical_control.py', 'Exception'): 6,
     ('ui/zstack.py', 'Exception'): 2,
 }
 

@@ -214,26 +214,29 @@ class TestStandaloneAfLockout:
         assert node is not None, 'run_autofocus_from_ui not found'
         return ast, node
 
-    def test_standalone_af_runs_through_the_engine(self):
+    def test_standalone_af_runs_through_the_member(self):
         ast, node = self._starter_def()
-        uses_run_mode = any(
-            isinstance(sub, ast.Attribute) and sub.attr == 'SINGLE_AUTOFOCUS_SCAN'
+        called = {
+            sub.func.attr
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+        }
+        assert {'create_protocol_runner', 'run_autofocus'} <= called, (
+            'the standalone button must run ProtocolRunner.run_autofocus, the '
+            'one autofocus a script and REST also run; a second assembly in '
+            'the widget drifts from it'
+        )
+        assert not called & {'prepare', 'start'}, (
+            "the button builds no run of its own: prepare() and start() are the member's"
+        )
+        reaches_the_thread = any(
+            isinstance(sub, ast.Attribute) and sub.attr == 'autofocus_thread'
             for sub in ast.walk(node)
         )
-        assert uses_run_mode, (
-            'the standalone button must start a sequenced-capture run; '
-            'a direct AutofocusThread dispatch bypasses the claim, the '
-            'executor fencing, and the file queue the engineering '
-            'AF-data save rides on'
-        )
-        direct_dispatch = any(
-            isinstance(sub, ast.Call)
-            and isinstance(sub.func, ast.Attribute)
-            and sub.func.attr == 'run_autofocus'
-            for sub in ast.walk(node)
-        )
-        assert not direct_dispatch, (
-            'no direct AutofocusThread.run_autofocus dispatch from the standalone starter'
+        assert not reaches_the_thread, (
+            'no direct AutofocusThread dispatch from the standalone starter; it '
+            'bypasses the claim, the executor fencing, and the file queue the '
+            'engineering AF-data save rides on'
         )
 
     def test_start_ordered_after_every_refusal_gate(self):
@@ -246,17 +249,17 @@ class TestStandaloneAfLockout:
                     if isinstance(sub.func, ast.Attribute)
                     else getattr(sub.func, 'id', '')
                 )
-                if name in ('is_live_run', 'require_file_writes_idle', 'prepare'):
+                if name in ('is_live_run', 'require_file_writes_idle', 'run_autofocus'):
                     first_line.setdefault(name, sub.lineno)
         assert (
             0
             < first_line.get('is_live_run', 0)
             < first_line.get('require_file_writes_idle', 0)
-            < first_line.get('prepare', 0)
+            < first_line.get('run_autofocus', 0)
         ), (
             'the own-run stop gate and the files-idle gate must run before '
-            'the engine prepare; a cosmetics commit before a refusal shows '
-            f'a mid-run button for a run that never started. Found: {first_line}'
+            'the member starts the run; a start ahead of them runs an '
+            f'autofocus the press should have stopped or refused. Found: {first_line}'
         )
 
 

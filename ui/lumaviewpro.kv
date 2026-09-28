@@ -533,7 +533,7 @@
 		height: '30dp'
 		font_size: '12sp'
 		text: 'Autofocus'
-		disabled: app.recording_active
+		disabled: app.recording_active or root.autofocus_pending
 		on_release: root.run_autofocus_from_ui()
 
 	Label:

@@ -43,7 +43,8 @@ from tests.ast_seams import REPO_ROOT, parse_module
 
 
 # The UI code that kicks off a sequenced run: the protocol panel's one
-# press, the inputs it reads for each of its three runs, and the z-stack.
+# press, the inputs it reads for each of its three runs, the z-stack and the
+# autofocus.
 UI_STARTERS = (
     ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
     ('ui/protocol_settings.py', 'ProtocolSettings', '_scan_start'),
@@ -51,6 +52,7 @@ UI_STARTERS = (
     ('ui/protocol_settings.py', 'ProtocolSettings', '_autofocus_scan_start'),
     ('ui/protocol_settings.py', 'ProtocolSettings', '_sequenced_capture_start'),
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
+    ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
 )
 
 # The presses that hand a start and a Stop to the boundary.
@@ -58,13 +60,21 @@ BOUNDARY_PRESSES = (
     ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
     ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
-)
-
-# Starters still on run_with_refusal_boundary. Each moves onto
-# submit_reported in its own commit of the same push, and leaves here.
-STARTERS_ON_THE_OLD_BOUNDARY = (
     ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
 )
+
+# A control's one submit, where it marks its request in flight before
+# handing the call to submit_reported. A press may reach the boundary
+# through its control's own.
+SUBMIT_HELPERS = (
+    ('ui/protocol_settings.py', 'ProtocolSettings', '_submit_panel_request'),
+    ('ui/vertical_control.py', 'VerticalControl', '_submit_autofocus_request'),
+)
+_SUBMITTERS = {'submit_reported'} | {name for _, _, name in SUBMIT_HELPERS}
+
+# Starters still on run_with_refusal_boundary: none. A new one is a
+# regression.
+STARTERS_ON_THE_OLD_BOUNDARY = ()
 
 # Statements that would commit "a run is now underway" state in the
 # UI -- all retired: the claim inside start() is the one commit, and
@@ -142,7 +152,7 @@ def test_every_press_hands_its_start_and_its_stop_to_the_boundary():
             for n in ast.walk(method)
             if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
         }
-        assert called & {'submit_reported', '_submit_panel_request'}, (
+        assert called & _SUBMITTERS, (
             f'{class_name}.{method_name} must hand its press to submit_reported'
         )
         assert not called & {'run_with_refusal_boundary', 'reset_with_refusal_boundary'}, (
@@ -152,12 +162,11 @@ def test_every_press_hands_its_start_and_its_stop_to_the_boundary():
             f'{class_name}.{method_name} catches for itself; the boundary reports'
         )
 
-    panel_submit = _method_node(
-        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', '_submit_panel_request'
-    )
-    assert _calls_named(panel_submit, 'submit_reported'), (
-        "the panel's request must go through submit_reported"
-    )
+    for rel_path, class_name, method_name in SUBMIT_HELPERS:
+        helper = _method_node(REPO_ROOT / rel_path, class_name, method_name)
+        assert _calls_named(helper, 'submit_reported'), (
+            f'{class_name}.{method_name} must hand its request to submit_reported'
+        )
 
 
 def test_every_stop_goes_ahead_of_queued_work():
@@ -176,7 +185,7 @@ def test_every_stop_goes_ahead_of_queued_work():
                 isinstance(node, ast.Call)
                 and isinstance(node.func, (ast.Name, ast.Attribute))
                 and (node.func.id if isinstance(node.func, ast.Name) else node.func.attr)
-                in {'submit_reported', '_submit_panel_request'}
+                in _SUBMITTERS
             ):
                 continue
             if not any('.reset(' in ast.unparse(arg) for arg in node.args):
@@ -184,7 +193,7 @@ def test_every_stop_goes_ahead_of_queued_work():
             stop = next((kw.value for kw in node.keywords if kw.arg == 'stop'), None)
             stops.append((source_file.name, ast.unparse(node), stop))
 
-    assert len(stops) >= 2, 'derivation found too few Stops -- the AST shapes drifted'
+    assert len(stops) >= 3, 'derivation found too few Stops -- the AST shapes drifted'
     slow = [
         (where, src)
         for where, src, stop in stops
@@ -336,9 +345,6 @@ def test_every_ui_run_teardown_names_its_run():
     assert any(src.startswith('runner.reset') for _, src, _, _ in calls), (
         'derivation found no engine reset() call -- the AST shapes drifted'
     )
-    assert any('reset_with_refusal_boundary' in src for _, src, _, _ in calls), (
-        'derivation found no call through the teardown boundary -- the AST shapes drifted'
-    )
 
     unnamed = [
         (where, src)
@@ -369,70 +375,60 @@ def _teardown_iotasks():
             ):
                 continue
             action = next((kw.value for kw in node.keywords if kw.arg == 'action'), None)
+            if action is None and node.args:
+                action = node.args[0]
             if action is None or 'reset' not in ast.unparse(action):
                 continue
-            yield source_file.name, ast.unparse(action), node.keywords
+            yield source_file.name, ast.unparse(action)
 
 
-def test_a_refusable_teardown_task_does_not_double_notify():
+def test_a_refused_teardown_is_reported_once():
     """A refused teardown notifies once, not twice.
 
     reset() refuses a stop naming a run that is not the live one while
-    another run is live, and that refusal has already logged once and
-    notified once before it raises. The
-    executor's generic failure popup would be a SECOND notification for
-    one event -- and it titles that popup from the action, which for a
-    functools.partial is the partial's repr, heap address included. The
-    executor exposes silent_on_failure for exactly this: the caller that
-    notifies for itself opts out of the generic one.
+    another run is live. A Stop handed to the pool as a bare IOTask met the
+    executor's generic failure popup as well as its own report -- two
+    notifications for one event, the second titled from the action, which
+    for a functools.partial is its repr, heap address included. Every Stop
+    now goes through submit_reported, whose one reporter shows a refusal
+    once; a teardown task built by hand is a second reporting path.
     """
-    tasks = list(_teardown_iotasks())
-    assert tasks, 'derivation found no teardown IOTasks -- the AST shapes drifted'
-
-    loud = [
-        (where, action)
-        for where, action, keywords in tasks
-        if not any(
-            kw.arg == 'silent_on_failure' and getattr(kw.value, 'value', False) is True
-            for kw in keywords
-        )
-    ]
-    assert not loud, (
-        'a teardown IOTask that can be refused must set silent_on_failure -- '
-        f'otherwise one refusal raises two notifications: {loud}'
+    bare = list(_teardown_iotasks())
+    assert not bare, (
+        'a run teardown submitted as a bare IOTask bypasses the one reporter '
+        f'submit_reported hands a refusal to: {bare}'
     )
 
 
-def test_the_button_reset_funnel_never_aborts_autofocus():
-    """A button-reset function resets the button. Nothing else.
+def test_the_autofocus_redraw_never_aborts_autofocus():
+    """The Autofocus button's redraw draws the button. Nothing else.
 
-    _reset_run_autofocus_button runs as the completion callback of the
-    teardown task, and a completion callback fires whatever the outcome --
-    including a teardown the engine REFUSED. An abort in there therefore
-    killed the autofocus of a run the caller had just been told it did not
-    own. Scoped to this funnel on purpose: the completion handler's own
-    defensive abort is a different path (it runs when a run ENDS, never on
-    a refusal) and has its own ordering test.
+    draw_autofocus_button runs after each of the button's own requests,
+    whatever the outcome -- including a Stop the engine REFUSED -- and on
+    every run-state edge. An abort in there would kill the autofocus of a
+    run the caller had just been told it did not own, as the old reset
+    callback once did. Scoped to the redraw on purpose: the completion
+    handler's own defensive abort is a different path (it runs when a run
+    ENDS, never on a refusal) and has its own ordering test.
     """
     tree = parse_module('ui/vertical_control.py')
-    funnel = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == '_reset_run_autofocus_button'
-        ),
-        None,
-    )
-    assert funnel is not None, 'ui/vertical_control.py: _reset_run_autofocus_button is gone'
+    redraws = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name in ('draw_autofocus_button', '_autofocus_request_done')
+    ]
+    assert len(redraws) == 2, 'ui/vertical_control.py: the autofocus redraw path drifted'
 
     aborts = [
         ast.unparse(node)
-        for node in ast.walk(funnel)
+        for redraw in redraws
+        for node in ast.walk(redraw)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == 'abort'
     ]
     assert not aborts, (
-        'the button-reset funnel must not abort hardware -- it fires on a '
-        f'refused teardown too: {aborts}'
+        'the autofocus redraw must not abort hardware -- it runs after a '
+        f'refused Stop too: {aborts}'
     )

@@ -1,39 +1,25 @@
 # Copyright Etaluma, Inc.
-import functools
 import logging
-import pathlib
 
 from kivy.clock import Clock
+from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
 from modules import gui_logger
-from modules.config_ui_getters import (
-    get_active_layer_config,
-    get_auto_gain_settings,
-    get_binning_from_ui,
-    get_image_capture_config_from_ui,
-    get_selected_labware,
-)
 from modules.debounce import debounce
 from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import PRIORITY_HIGH, IOTask
-from modules.tiling_config import TilingConfig
+from modules.sequential_io_executor import IOTask
 from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
-    live_histo_off,
-    live_histo_reverse,
     move_absolute,
     move_home,
     move_relative,
-    reset_with_refusal_boundary,
     run_reported,
-    run_with_refusal_boundary,
+    submit_reported,
     unknown_position_refused,
 )
 
@@ -48,19 +34,24 @@ AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-rese
 
 
 class VerticalControl(BoxLayout):
+    # True while this button's own request is on its way to the engine; the
+    # Autofocus button is disabled until that request's redraw.
+    autofocus_pending = BooleanProperty(False)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] VerticalControl.__init__()')
 
         # boolean describing whether the scope is currently in the process of autofocus
         self.is_autofocus = False
-        self.is_complete = False
         self.record_autofocus_to_file = False
         self._next_pos = None
         self._af_safety_event = None
         # The handle this button's last start returned: what its Stop and
         # its stuck-AF bound name. The engine answers whether it is live.
         self._autofocus_run: PendingRunOutcome | None = None
+        # The run the stuck-AF bound was last armed for: one bound per run.
+        self._af_safety_run: PendingRunOutcome | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -353,60 +344,95 @@ class VerticalControl(BoxLayout):
             # waits for the loop and folds into the startup question.
             Clock.schedule_once(lambda dt: self.prompt_if_objective_unknown(), 0)
 
-    def _reset_run_autofocus_button_cosmetics(self, **kwargs):
-        self.ids['autofocus_id'].state = 'normal'
-        self.ids['autofocus_id'].text = 'Autofocus'
+    def run_autofocus_from_ui(self):
+        """Autofocus on the open layer, or stop the autofocus this button started.
 
-    def _reset_run_autofocus_button(self, **kwargs):
-        # Protocol AF steps route their completion through this funnel
-        # too, so it must never touch the shared lockout state -- the
-        # standalone release is generation-owned and lives with the
-        # standalone exits.
-        #
-        # Cosmetics only, deliberately. This runs as the completion
-        # callback of the teardown task, and a completion callback fires
-        # whatever the outcome -- including a teardown the engine
-        # REFUSED. An abort here therefore killed the autofocus of a run
-        # the caller had just been told it did not own. Unwinding the
-        # autofocus belongs to the engine's cleanup, which does it for
-        # the run's owner and waits for the sweep to finish before
-        # restoring the LEDs.
-        self._reset_run_autofocus_button_cosmetics()
+        The run is ProtocolRunner.run_autofocus, the one a script or REST
+        calls: everything about it -- the objective, the capture, every
+        refusal -- is the member's, and the boundary shows a refusal once.
+        This button states only what a running GUI knows: the open drawer,
+        its own trigger (the attended one), and the live engineering flag,
+        which is also whether the sweep's characterization data is saved.
 
-    def _set_run_autofocus_button(self, **kwargs):
-        self.ids['autofocus_id'].state = 'down'
-        self.ids['autofocus_id'].text = 'Focusing...'
-
-    def _cleanup_at_end_of_autofocus(self):
+        Whether the press means Stop is the engine's answer -- is the run
+        this button started still live -- never the toggle's, which Kivy has
+        already flipped. The button changes nothing ahead of the engine's
+        answer; draw_autofocus_button shows it.
+        """
+        gui_logger.button('AUTOFOCUS')
+        logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
         ctx = _app_ctx.ctx
+        run = self._autofocus_run
+        if ctx.sequenced_capture_runner.is_live_run(run):
+            self._stop_autofocus(run)
+            return
 
-        # SequencedCaptureRunner.reset() unwinds any running protocol
-        # (its _cleanup chain calls autofocus_thread.abort() on the AF
-        # thread and fires the run/files-complete callbacks, which
-        # release the lockout). AFE state is reset implicitly on the
-        # next AFE.run().
-        ctx.worker_pool.put(
-            IOTask(
-                # Through the boundary, which returns the outcome instead
-                # of raising: a stop naming a run that is not the live one
-                # is refused, and the callback below must still run to put
-                # the button back -- a refused stop is not a stop, and a
-                # button left mid-stop is dead until the process ends.
-                action=functools.partial(
-                    reset_with_refusal_boundary,
-                    ctx.sequenced_capture_runner,
-                    self._autofocus_run,
-                ),
-                callback=self._reset_run_autofocus_button,
-                # The engine logs and notifies a refusal exactly once.
-                # Without this the executor's generic failure popup fires a
-                # SECOND notification for the same event -- and titles it
-                # from the action, which for a partial is its repr, heap
-                # address and all.
-                silent_on_failure=True,
-                priority=PRIORITY_HIGH,
+        # The post-run file drain outlives the run by design: writes keep
+        # landing after the run itself has ended, so it needs a gate of its
+        # own here rather than riding on the run's. The gate helper owns the
+        # stalled-writer recovery popup.
+        if not require_file_writes_idle('start autofocus'):
+            self.draw_autofocus_button()
+            return
+
+        member = ctx.session.create_protocol_runner()
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        engineering_mode = ctx.engineering_mode
+        callbacks = {
+            **live_display_callbacks(),
+            'move_position': _handle_ui_update_for_axis,
+            'run_complete': self._autofocus_run_complete,
+        }
+
+        def _start():
+            self._autofocus_run = member.run_autofocus(
+                layer=layer,
+                save_characterization_data=engineering_mode,
+                callbacks=callbacks,
+                run_trigger_source='autofocus',
+                engineering_mode=engineering_mode,
             )
-        )
+
+        self._submit_autofocus_request(_start)
+
+    def _stop_autofocus(self, run: PendingRunOutcome | None) -> None:
+        runner = _app_ctx.ctx.sequenced_capture_runner
+        self._submit_autofocus_request(lambda: runner.reset(run), stop=True)
+
+    def _submit_autofocus_request(self, call, stop: bool = False) -> None:
+        # The button is disabled until this request's own redraw, so a
+        # second press cannot race the first one to the pool.
+        self.autofocus_pending = True
+        submit_reported(call, self._autofocus_request_done, 'AUTOFOCUS', stop=stop)
+
+    def _autofocus_request_done(self):
+        self.autofocus_pending = False
+        self.draw_autofocus_button()
+
+    def draw_autofocus_button(self):
+        """Show the autofocus this button started, as the engine reports it.
+
+        The only code that styles the button: after each of its own
+        requests and on every run-state edge -- including the run's return
+        to idle. It draws this button's own run and nothing else; a
+        protocol's autofocus steps are not this button's to show.
+        """
+        runner = _app_ctx.ctx.sequenced_capture_runner
+        run = self._autofocus_run
+        button = self.ids['autofocus_id']
+        if not runner.is_live_run(run):
+            button.state = 'normal'
+            button.text = 'Autofocus'
+            return
+        button.state = 'down'
+        button.text = 'Stopping...' if runner.is_stopping(run) else 'Focusing...'
+        # Armed by the run it bounds, the first time that run is seen live,
+        # and once per run: a timer armed before the run existed outlived
+        # every exit that started nothing and reached forward to abort the
+        # next autofocus that did.
+        if self._af_safety_run is not run:
+            self._af_safety_run = run
+            self._schedule_af_safety_timer()
 
     def _unschedule_af_safety_timer(self):
         if self._af_safety_event is not None:
@@ -429,15 +455,13 @@ class VerticalControl(BoxLayout):
             # fires must stay out of reach.
             if runner.is_live_run(self._autofocus_run):
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
-                self._cleanup_at_end_of_autofocus()
+                self._stop_autofocus(self._autofocus_run)
 
         self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
     def _autofocus_run_complete(self, **kwargs):
         ctx = _app_ctx.ctx
         self._unschedule_af_safety_timer()
-        live_histo_reverse()
-        Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
 
         # Defensive abort -- if the AF thread is somehow still in flight
         # at the completion path, this is a no-op; if not, it unwinds.
@@ -476,163 +500,6 @@ class VerticalControl(BoxLayout):
                 layer_obj.sync_widgets_from_settings()
             except Exception as e:
                 logger.warning(f'[AF] Widget sync after AF failed: {e}')
-
-    def run_autofocus_from_ui(self):
-        try:
-            gui_logger.button('AUTOFOCUS')
-            ctx = _app_ctx.ctx
-            logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
-            settings = ctx.settings
-            trigger_source = 'autofocus'
-            runner = ctx.sequenced_capture_runner
-
-            # A click during someone else's run falls through to the stop
-            # branch below and the engine refuses the teardown, naming the
-            # run that holds the scope. This widget asks nothing about
-            # rival runs: the same refusal has to reach a script and REST,
-            # so it is the engine's to give.
-
-            # Stop click: the toggle is back to 'normal', or re-clicked
-            # while this button's own run is live. The live-run term is
-            # load-bearing -- a run callback can reset this button to
-            # 'normal' mid-run, and Kivy flips a toggle at touch-down, so
-            # the user's own Stop can arrive reading 'down'.
-            if self.ids['autofocus_id'].state == 'normal' or runner.is_live_run(
-                self._autofocus_run
-            ):
-                self._cleanup_at_end_of_autofocus()
-                return
-
-            # The post-run file drain outlives the run by design: writes
-            # keep landing after the run itself has ended, so it needs a
-            # gate of its own here rather than riding on the run's. The
-            # gate helper owns the stalled-writer recovery popup.
-            if not require_file_writes_idle('start autofocus'):
-                self._reset_run_autofocus_button_cosmetics()
-                return
-
-            if ctx.engineering_mode:
-                save_autofocus_data = True
-                parent_dir = (
-                    pathlib.Path(settings['live_folder']).resolve() / 'Autofocus Characterization'
-                )
-            else:
-                save_autofocus_data = False
-                parent_dir = None
-
-            live_histo_off()
-
-            def run_refused_func():
-                self._reset_run_autofocus_button_cosmetics()
-                live_histo_reverse()
-
-            self._set_run_autofocus_button()
-
-            # A one-position run at the current location: the active
-            # layer with autofocus enabled, nothing saved. The same
-            # degenerate-plan recipe as the z-stack starter, so the
-            # standalone button and a protocol AF step share one engine.
-            labware_id, _ = get_selected_labware()
-            objective_id = ctx.scope.runtime_state.get_current_objective_id()
-            if objective_id is None:
-                from modules.notification_center import notifications
-
-                reason = 'The objective in the light path is unknown.'
-                logger.warning(f'[LVP Main  ] Autofocus: {reason}')
-                notifications.warning('Autofocus', 'Objective Unknown', reason)
-                run_refused_func()
-                return
-            active_layer, active_layer_config = get_active_layer_config(
-                common_utils.get_opened_layer(ctx.image_settings)
-            )
-            active_layer_config['acquire'] = 'image'
-            active_layer_config['autofocus'] = True
-
-            curr_position = ctx.session.get_current_plate_position()
-            curr_position.update({'name': 'Autofocus'})
-
-            tiling_config = TilingConfig(
-                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-            )
-            config = config_helpers.build_sequenced_capture_config(
-                {
-                    'labware_id': labware_id,
-                    'positions': [curr_position],
-                    'objective_id': objective_id,
-                    'zstack_params': {},
-                    'use_zstacking': False,
-                    'tiling': tiling_config.no_tiling_label(),
-                    'tiling_overlap_percent': 0.0,
-                    'layer_configs': {active_layer: active_layer_config},
-                    'period': None,
-                    'duration': None,
-                    'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
-                    'binning_size': get_binning_from_ui(),
-                    # A standalone autofocus never pulses stimulation;
-                    # an empty config keeps the built step stim-free.
-                    'stim_config': {},
-                }
-            )
-            af_sequence = ctx.scope.protocols.create_protocol(input_config=config)
-
-            callbacks = {
-                **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
-                'run_complete': self._autofocus_run_complete,
-            }
-
-            def prepare_and_start():
-                plan = runner.prepare(
-                    protocol=af_sequence,
-                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                    run_trigger_source=trigger_source,
-                    max_scans=1,
-                    sequence_name='autofocus',
-                    parent_dir=parent_dir,
-                    image_capture_config=get_image_capture_config_from_ui(),
-                    enable_image_saving=False,
-                    # The run saves no protocol artifacts; in
-                    # engineering mode the AF characterization data
-                    # allocates its own timestamped folder under
-                    # parent_dir, the on-disk shape the standalone
-                    # button has always produced.
-                    disable_saving_artifacts=True,
-                    save_autofocus_data=save_autofocus_data,
-                    autogain_settings=get_auto_gain_settings(),
-                    callbacks=callbacks,
-                    update_z_pos_from_autofocus=False,
-                    # A standalone autofocus is a one-shot at the field the
-                    # user is already watching, so it ends by putting the live
-                    # view back exactly as they had it, illumination included.
-                    # Ending dark is the right policy for an acquisition that
-                    # traverses the plate (the sample must not be left lit
-                    # between positions), and the wrong one for a run that
-                    # never leaves the current position. A fatal abort still
-                    # forces dark regardless of this policy.
-                    leds_state_at_end='return_to_original',
-                    engineering_mode=ctx.engineering_mode,
-                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                        settings, ctx.settings_lock
-                    ),
-                    **config_helpers.get_sequenced_run_settings(
-                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-                    ),
-                )
-                self._autofocus_run = runner.start(plan)
-                # Armed by the run it bounds, never before it. Arming
-                # ahead of prepare() outlived every exit between the arm
-                # and a committed run -- a refusal, a raise out of the
-                # builder, anything the blanket handler below catches --
-                # and a click that started nothing reached forward and
-                # aborted the next autofocus that did.
-                self._schedule_af_safety_timer()
-
-            run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
-        except Exception as e:
-            logger.error(f'[UI] run_autofocus_from_ui failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.

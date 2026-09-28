@@ -234,7 +234,6 @@ def _vertical_control_stub(af_runner, layer='Green', stored_focus=1234.0):
     ctx.image_settings.layer_lookup.return_value = layer_obj
     stub = SimpleNamespace(
         _unschedule_af_safety_timer=lambda: None,
-        _reset_run_autofocus_button=lambda: None,
     )
     return stub, ctx, settings, layer_obj, app_context
 
@@ -243,7 +242,6 @@ def _call_af_run_complete(monkeypatch, stub, ctx, app_context, opened_layer=None
     import ui.vertical_control as vc
 
     monkeypatch.setattr(app_context, 'ctx', ctx)
-    monkeypatch.setattr(vc, 'live_histo_reverse', lambda: None)
     monkeypatch.setattr(
         vc.common_utils,
         'get_opened_layer',
@@ -369,7 +367,7 @@ def _protocol_settings_stub(stored_z, focused_z):
 
     stub = SimpleNamespace(
         _protocol=protocol,
-        _panel_run_ended=lambda: None,
+        reset_autofocus_ui=lambda: None,
     )
     return stub, ctx, protocol, focused_protocol, app_context
 

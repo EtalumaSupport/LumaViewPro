@@ -35,15 +35,15 @@ from tests.ast_seams import parse_module
 # starter function -> (module, the call it hands the policy to, expected policy,
 # why that policy)
 STARTERS = {
-    'run_autofocus_from_ui': (
-        'ui/vertical_control.py',
-        'prepare',
+    # The Autofocus and Acquire buttons run through these members, so the
+    # members are where the policies are stated.
+    'run_autofocus': (
+        'modules/protocol_runner.py',
+        '_run',
         'return_to_original',
-        'the standalone autofocus button runs at the current position and '
-        'returns the user to the live view they were focusing',
+        'a standalone autofocus runs at the current position and returns the '
+        'user to the live view they were focusing',
     ),
-    # The Acquire button runs through this member, so the member is where
-    # the z-stack's policy is stated.
     'run_zstack': (
         'modules/protocol_runner.py',
         '_run',

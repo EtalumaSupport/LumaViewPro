@@ -61,10 +61,10 @@ COSMETICS_RESETS = frozenset(
     {
         'run_refused_func',
         'run_not_started_func',
-        # The panel draws its buttons from the engine; after a refused
-        # press, the redraw is what hands the toggle back.
+        # The panel and the Autofocus button draw from the engine; after a
+        # refused press, the redraw is what hands the toggle back.
         'draw_protocol_buttons',
-        '_reset_run_autofocus_button_cosmetics',
+        'draw_autofocus_button',
     }
 )
 

@@ -61,7 +61,7 @@ class _Stand:
         self._pending_run_dir = None
         self.dispatched = []
 
-    def _panel_run_ended(self):
+    def reset_autofocus_ui(self):
         pass
 
     def _dispatch_post_processing_auto_run(self, ctx, **kwargs):

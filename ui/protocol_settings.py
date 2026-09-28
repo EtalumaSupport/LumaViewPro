@@ -1696,11 +1696,6 @@ class ProtocolSettings(FloatLayout):
         setattr(self, f'{trigger}_pending', False)
         self.draw_protocol_buttons()
 
-    def _panel_run_ended(self) -> None:
-        """Hand back the autofocus widgets a panel run drove, however it ended."""
-        self.reset_autofocus_ui()
-        self._autofocus_complete_callback()
-
     def _autofocus_run_complete_callback(self, **kwargs):
         # Copy the Z-heights from the autofocus scan into the protocol --
         # but only from a scan that actually finished. An aborted or
@@ -1712,7 +1707,7 @@ class ProtocolSettings(FloatLayout):
         focused_protocol = kwargs['protocol']
         if kwargs.get('status') == 'completed':
             self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
-        self._panel_run_ended()
+        self.reset_autofocus_ui()
 
     def debug_func(self):
         pass
@@ -1753,8 +1748,6 @@ class ProtocolSettings(FloatLayout):
                 Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
             ),
             'run_scan_pre': self._run_scan_pre_callback,
-            'autofocus_in_progress': self._autofocus_in_progress_callback,
-            'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': self.draw_protocol_buttons,
             'update_step_number': _update_step_number_callback,
             'go_to_step': go_to_step,
@@ -1803,7 +1796,7 @@ class ProtocolSettings(FloatLayout):
         return _start
 
     def _scan_run_complete(self, **kwargs):
-        self._panel_run_ended()
+        self.reset_autofocus_ui()
 
     def run_scan_from_ui(self):
         gui_logger.protocol_action('SCAN')
@@ -1819,8 +1812,6 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         callbacks = {
             'run_scan_pre': self._run_scan_pre_callback,
-            'autofocus_in_progress': self._autofocus_in_progress_callback,
-            'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': self.draw_protocol_buttons,
             'run_complete': self._scan_run_complete,
             # LED observer handles UI sync -- no manual callbacks needed
@@ -1843,7 +1834,7 @@ class ProtocolSettings(FloatLayout):
         )
 
     def _protocol_run_complete(self, **kwargs):
-        self._panel_run_ended()
+        self.reset_autofocus_ui()
         # Reset completion event for this run (thread-safe)
         self._scan_files_completed_event.clear()
         # Nothing left to write: the engine fires files_complete right
@@ -1939,8 +1930,6 @@ class ProtocolSettings(FloatLayout):
         callbacks = {
             'protocol_iterate_pre': lambda **kwargs: self.draw_protocol_buttons(),
             'run_scan_pre': self._run_scan_pre_callback,
-            'autofocus_in_progress': self._autofocus_in_progress_callback,
-            'autofocus_complete': self._autofocus_complete_callback,
             'run_complete': self._protocol_run_complete,
             'files_complete': self._protocol_files_complete,
             # LED observer handles UI sync -- no manual callbacks needed
@@ -1986,19 +1975,7 @@ class ProtocolSettings(FloatLayout):
                 layer_obj._initializing = False
 
     def _run_scan_pre_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
         Clock.schedule_once(lambda dt: self.update_step_ui(), 0)
-
-    def _autofocus_in_progress_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id']._set_run_autofocus_button()
-
-    def _autofocus_complete_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
-        ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
-        # LED observer handles UI button sync after AF -- no manual update needed
 
     def _sequenced_capture_start(
         self,
