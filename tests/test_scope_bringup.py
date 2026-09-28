@@ -152,7 +152,10 @@ class TestSetScopeServicesContract:
         session.set_scope(new)
 
         new.register_executors.assert_called_once_with(
-            camera_executor=cam, io_executor=io, file_io_executor=file_io
+            camera_executor=cam,
+            io_executor=io,
+            file_io_executor=file_io,
+            camera_override_key=cam.ask_claim.return_value,
         )
         new.protocols.register_source_path.assert_called_once_with('/data/root')
         # No bundle held: a register_executor_bundle(None) call would
@@ -185,7 +188,10 @@ class TestConstructionServicesContract:
             source_path='/somewhere',
         )
         scope.register_executors.assert_called_once_with(
-            camera_executor=cam, io_executor=io, file_io_executor=None
+            camera_executor=cam,
+            io_executor=io,
+            file_io_executor=None,
+            camera_override_key=cam.ask_claim.return_value,
         )
         scope.protocols.register_source_path.assert_called_once_with('/somewhere')
         scope.register_executor_bundle.assert_not_called()
@@ -209,6 +215,7 @@ class TestConstructionServicesContract:
             camera_executor=cam,
             io_executor=io,
             file_io_executor=bundle.file_io_executor,
+            camera_override_key=cam.ask_claim.return_value,
         )
         scope.register_executor_bundle.assert_called_once_with(bundle, settings={})
 

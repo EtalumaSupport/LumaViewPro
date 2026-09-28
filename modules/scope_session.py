@@ -193,13 +193,6 @@ class ScopeSession:
         self.file_io_executor = file_io_executor or (
             executor_bundle.file_io_executor if executor_bundle else None
         )
-        # Service the scope NOW, after the handle derivations above and
-        # before any collaborator is composed: a session-composed scope
-        # must never exist un-serviced, or its dispatch falls back to
-        # inline execution on the calling thread (unserialized, and a
-        # protocol fence cannot reach an inline task).
-        self._register_scope_services(scope)
-
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
         # to IDLE after its cleanup, file-drain exit, scope rebind). They fire on the TRANSITIONING thread,
@@ -217,9 +210,17 @@ class ScopeSession:
         # The device lanes ask the claim before running work, so while a run
         # or a diagnostic holds the scope only its own work reaches the
         # hardware, whoever submits. The IO key is kept for the one named
-        # override on that lane, shutdown's LED drain.
+        # override on that lane, shutdown's LED drain; the camera key goes to
+        # the scope for its temperature read, so the lanes ask before the
+        # scope is serviced.
         self._io_override_key = self.io_executor.ask_claim(self.activity_claim)
-        self.camera_executor.ask_claim(self.activity_claim)
+        self._camera_override_key = self.camera_executor.ask_claim(self.activity_claim)
+        # Service the scope NOW, after the handle derivations above and
+        # before any collaborator is composed: a session-composed scope
+        # must never exist un-serviced, or its dispatch falls back to
+        # inline execution on the calling thread (unserialized, and a
+        # protocol fence cannot reach an inline task).
+        self._register_scope_services(scope)
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
@@ -292,6 +293,7 @@ class ScopeSession:
             camera_executor=self.camera_executor,
             io_executor=self.io_executor,
             file_io_executor=self.file_io_executor,
+            camera_override_key=self._camera_override_key,
         )
         if self.executor_bundle is not None:
             scope.register_executor_bundle(self.executor_bundle, settings=self.settings)

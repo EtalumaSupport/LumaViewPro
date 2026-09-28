@@ -1002,7 +1002,7 @@ class ImagingAPI:
     _CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S = 0.15
     _CAPTURE_DEADLINE_MARGIN = 1.5
 
-    def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s):
+    def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s, override=False):
         """Run one camera command for an external caller, on the right thread.
 
         Three outcomes. With no executor registered the body runs on the
@@ -1022,12 +1022,17 @@ class ImagingAPI:
         camera slot holds None when no camera is present -- there is no Null
         camera object -- so each `_impl` opens with a live driver guard and
         answers correctly on whichever thread it runs.
+
+        ``override`` admits the task whatever holds the scope, on the key the
+        session registered: only for a read that must touch the camera from
+        its lane's thread but changes nothing a holder depends on.
         """
         kwargs = kwargs or {}
         ex = self._scope._camera_executor
         if ex is None:
             return impl(*args, **kwargs)
-        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, timeout_s)
+        key = self._scope._camera_override_key if override else None
+        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, timeout_s, override=key)
 
     def set_gain_db(self, gain_db: float) -> bool | None:
         """Set the camera gain, and wait for it.

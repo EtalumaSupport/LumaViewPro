@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from modules.layer_record import LayerIdentity
     from modules.scope_init_config import ScopeInitConfig
+    from modules.sequential_io_executor import SequentialIOExecutor
 
 # Import additional libraries
 import logging as _logging
@@ -316,6 +317,7 @@ class Lumascope:
         self._camera_executor = None
         self._io_executor = None
         self._file_io_executor = None
+        self._camera_override_key = None
         self._executor_bundle = None
 
         # Metrics logger pre-constructed in __init__; diagnostic mode
@@ -937,7 +939,13 @@ class Lumascope:
     # to pass an executor on every call (parallel-paths anti-pattern).
 
     def register_executors(
-        self, *, camera_executor=None, io_executor=None, file_io_executor=None, replace=False
+        self,
+        *,
+        camera_executor: 'SequentialIOExecutor | None' = None,
+        io_executor: 'SequentialIOExecutor | None' = None,
+        file_io_executor: 'SequentialIOExecutor | None' = None,
+        camera_override_key: object | None = None,
+        replace: bool = False,
     ) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
 
@@ -952,6 +960,10 @@ class Lumascope:
             camera_executor: Executor for camera-bound IOTasks.
             io_executor: Executor for general IO/motion IOTasks.
             file_io_executor: Executor for file-IO IOTasks.
+            camera_override_key: The key ``camera_executor.ask_claim``
+                returned. The camera temperature read carries it, so the
+                temperature log keeps running while a run or a diagnostic
+                holds the scope.
             replace: Allow replacing already-registered, different
                 handles. Without it a second registration against a live
                 scope raises instead of silently swapping the executors
@@ -981,6 +993,7 @@ class Lumascope:
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
+        self._camera_override_key = camera_override_key
 
     def register_executor_bundle(self, executor_bundle, settings=None) -> None:
         """Register the ExecutorBundle + settings dict for MetricsLogger.

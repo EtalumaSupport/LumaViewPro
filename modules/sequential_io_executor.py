@@ -762,7 +762,14 @@ class SequentialIOExecutor:
             return fut
         return refusal
 
-    def call(self, task: IOTask, member: str, timeout_s: float | None) -> object:
+    def call(
+        self,
+        task: IOTask,
+        member: str,
+        timeout_s: float | None,
+        *,
+        override: object | None = None,
+    ) -> object:
         """Run ``task`` on this lane and wait for its result: the blocking dispatch.
 
         The public hardware members come through here. Refused work raises
@@ -773,6 +780,11 @@ class SequentialIOExecutor:
         Called on this lane's own worker -- from a task it is running -- the
         work runs inline on that worker, under the claim the same way.
 
+        ``override`` is the key ``ask_claim`` returned, for a member the API
+        admits whatever holds the scope: a read that has to touch the device
+        from this lane's thread. It passes a run's protocol fence the same
+        way, through the door the run's own work uses.
+
         Raises:
             RuntimeError: called from another lane's worker, which never
                 waits on a lane.
@@ -781,7 +793,7 @@ class SequentialIOExecutor:
         """
         worker = getattr(_lane_worker, 'executor', None)
         if worker is self:
-            self._stamp(task, None)
+            self._stamp(task, override)
             refusal = self._claim_refusal(task)
             if refusal is not None:
                 raise refusal
@@ -798,10 +810,15 @@ class SequentialIOExecutor:
         # put. Asked twice: a fence or its end can land between the question
         # and the submit, and both doors answer a closed lane with None.
         fut = None
-        if self._is_protocol_door_holder():
-            fut = self.protocol_put(task, return_future=True)
+        overriding = override is not None and override is self._override_key
+        if self._is_protocol_door_holder() or (overriding and self.is_protocol_running()):
+            fut = self.protocol_put(task, return_future=True, override=override)
         if fut is None:
-            fut = self.put(task, return_future=True) if self.accepts_work() else None
+            fut = (
+                self.put(task, return_future=True, override=override)
+                if self.accepts_work()
+                else None
+            )
         if fut is None:
             holder = self._claim.holder if self._claim is not None else None
             raise HardwareCommandRefusedError(
@@ -1020,7 +1037,9 @@ class SequentialIOExecutor:
             return fut
         return PROTOCOL_ENQUEUED
 
-    def protocol_put(self, task: IOTask, return_future: bool = False) -> object | None:
+    def protocol_put(
+        self, task: IOTask, return_future: bool = False, *, override: object | None = None
+    ) -> object | None:
         """Add an IOTask to the protocol execution queue.
 
         The protocol queue only drains while a protocol is in session (after
@@ -1038,7 +1057,7 @@ class SequentialIOExecutor:
         not enter the queue and will never run. Callers whose task must
         not be droppable use protocol_put_wait instead.
         """
-        self._stamp(task, None)
+        self._stamp(task, override)
         if self._disable:
             return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
 

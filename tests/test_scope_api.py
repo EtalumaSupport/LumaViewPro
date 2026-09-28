@@ -113,9 +113,9 @@ class _RecordingExecutor(SequentialIOExecutor):
         super().__init__(**kwargs)
         self.submitted = []
 
-    def put(self, task, return_future=False):
+    def put(self, task, return_future=False, *, override=None):
         self.submitted.append(task)
-        return super().put(task, return_future=return_future)
+        return super().put(task, return_future=return_future, override=override)
 
 
 def _make_real_scope_with_recording_executors(led=True, motor=True):

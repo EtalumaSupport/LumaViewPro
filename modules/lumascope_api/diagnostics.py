@@ -59,10 +59,22 @@ class DiagnosticsAPI:
     def get_camera_temperatures_degc(self) -> dict:
         """Get all camera temperature sensor readings.
 
+        Runs on the camera lane, admitted whatever holds the scope: the read
+        sets the camera's temperature selector, which must not interleave
+        with another camera write, but a run does not stop it.
+
         Returns:
             dict: Mapping of sensor name to temperature in degC.
             Empty dict if camera is inactive or has no temperature sensors.
         """
+        return self._scope.imaging._dispatch_camera(
+            self._get_camera_temperatures_degc_impl,
+            'get_camera_temperatures_degc',
+            timeout_s=self._scope.imaging._CAMERA_WRITE_TIMEOUT_S,
+            override=True,
+        )
+
+    def _get_camera_temperatures_degc_impl(self) -> dict:
         if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return {}
         try:
