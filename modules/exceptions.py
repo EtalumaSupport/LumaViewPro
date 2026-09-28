@@ -678,6 +678,45 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
         self.title = title
 
 
+class CameraSettingOutOfRangeError(Refusal, ValueError):
+    """A gain or exposure outside the range this camera declares was asked for.
+
+    Declined before anything reaches the camera, the same on every camera: a
+    body that would refuse the value and a body that would silently clamp it
+    both answer this way, so a caller that does not read the return cannot
+    record a value the camera never took. Nothing broke, and the caller can
+    ask again inside the range, so a refusal rather than a fault. A
+    ``ValueError`` too, for a caller that treats it as the bad argument it is.
+
+    Attributes:
+        reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
+        setting: Machine-readable setting name ('gain_db', 'exposure_ms').
+        requested: The value asked for.
+        minimum: The camera's declared floor, or None when it declares none
+            (an undeclared floor is not checked).
+        maximum: The camera's declared ceiling, or None when it declares none.
+        title: The notification title the reporter shows.
+    """
+
+    def __init__(
+        self,
+        setting: str,
+        requested: float,
+        minimum: float | None,
+        maximum: float | None,
+        *,
+        title: str,
+        message: str,
+    ):
+        super().__init__(message)
+        self.reason = f'{setting}_out_of_range'
+        self.setting = setting
+        self.requested = requested
+        self.minimum = minimum
+        self.maximum = maximum
+        self.title = title
+
+
 class FrameDepthError(Exception):
     """A frame carries a payload value above its declared significant-bits depth.
 

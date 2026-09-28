@@ -35,6 +35,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from modules.exceptions import ProtocolRunRefusedError, unknown_positions_sentence
+from modules.lumascope_api.imaging import camera_range_words
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -43,15 +44,6 @@ if TYPE_CHECKING:
     from modules.protocol import Protocol
 
 _api_log = logging.getLogger('LVP.api')
-
-
-def _camera_range(low: float | None, high: float | None, unit: str) -> str:
-    """A camera's range for a person: both ends when both are declared."""
-    if low is None:
-        return f'at most {high:g} {unit}'
-    if high is None:
-        return f'at least {low:g} {unit}'
-    return f'{low:g} to {high:g} {unit}'
 
 
 class ProtocolsAPI:
@@ -588,7 +580,7 @@ class ProtocolsAPI:
                 if (low is not None and value < low) or (high is not None and value > high):
                     problems.append(
                         f'Step "{step["Name"]}" ({step["Color"]}): {word} {value:g} {unit} is '
-                        f"outside this camera's range, {_camera_range(low, high, unit)}."
+                        f"outside this camera's range, {camera_range_words(low, high, unit)}."
                     )
         if problems:
             self._refuse(

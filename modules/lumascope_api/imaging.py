@@ -24,7 +24,7 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
 from modules.frame_validity import FrameValidity
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
@@ -185,6 +185,18 @@ def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
         'Captures will continue at the previous gain. Check that '
         'the value is within the camera limits.',
     )
+
+
+def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
+    """A camera's range for a person, naming only the ends it declares.
+
+    The one wording of a range, shared by the setters' refusal and the run's.
+    """
+    if low is None:
+        return f'at most {high:g} {unit}'
+    if high is None:
+        return f'at least {low:g} {unit}'
+    return f'{low:g} to {high:g} {unit}'
 
 
 def _value_in_effect(result: object, requested: float, scale: float = 1.0) -> float:
@@ -1082,6 +1094,42 @@ class ImagingAPI:
         )
         return ex.call(task, name, timeout_s, override=key)
 
+    def _refuse_out_of_range(
+        self,
+        setting: str,
+        requested: float,
+        minimum: float | None,
+        maximum: float | None,
+        *,
+        noun: str,
+        unit: str,
+    ) -> None:
+        """Refuse a request outside the camera's declared range.
+
+        Checked on the public setters, from the cached limits, so every
+        camera answers alike: a body that would refuse the value and one that
+        would silently clamp it both never see it. The impls check no range;
+        their callers (the layer apply, the auto-gain lock, the restore)
+        write values that are already the camera's own or capped to it. An
+        undeclared end is not checked.
+
+        Raises:
+            CameraSettingOutOfRangeError: The request is outside the range.
+        """
+        value = float(requested)
+        if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
+            raise CameraSettingOutOfRangeError(
+                setting,
+                value,
+                minimum,
+                maximum,
+                title='Camera Setting Out of Range',
+                message=(
+                    f"{noun.capitalize()} {value:g} {unit} is outside this camera's range, "
+                    f'{camera_range_words(minimum, maximum, unit)}. The {noun} was not changed.'
+                ),
+            )
+
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
 
@@ -1100,10 +1148,20 @@ class ImagingAPI:
                 active.
 
         Raises:
+            CameraSettingOutOfRangeError: The gain is outside the range the
+                camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
                 gain. It carries the words its reporter shows; nothing is
                 shown here. Not raised for a camera-absent no-op.
         """
+        self._refuse_out_of_range(
+            'gain_db',
+            gain_db,
+            self.min_gain_db_cached,
+            self.max_gain_db_cached,
+            noun='gain',
+            unit='dB',
+        )
         applied = self._dispatch_camera(
             self._set_gain_db_impl,
             'set_gain_db',
@@ -1132,10 +1190,20 @@ class ImagingAPI:
                 floor or quantized it. ``None`` when no camera is active.
 
         Raises:
+            CameraSettingOutOfRangeError: The exposure is outside the range
+                the camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
                 exposure. It carries the words its reporter shows; nothing is
                 shown here. Not raised for a camera-absent no-op.
         """
+        self._refuse_out_of_range(
+            'exposure_ms',
+            exposure_ms,
+            self.min_exposure_ms_cached,
+            self.max_exposure_ms_cached,
+            noun='exposure',
+            unit='ms',
+        )
         applied = self._dispatch_camera(
             self._set_exposure_ms_impl,
             'set_exposure_ms',
