@@ -174,8 +174,9 @@ class MotionAPI:
         # The fault the monitor gave an axis up with, recorded BEFORE the
         # UNKNOWN write that wakes a waiter, so the waiter raises the same
         # object the monitor reported and the person is shown it once.
-        # Cleared when the axis is next driven and on disconnect, so a
-        # later wait never raises a stale one. Under _axis_state_lock.
+        # Cleared when the axis is next driven or homed -- every wait
+        # follows one -- so a later wait never raises a stale one. Under
+        # _axis_state_lock.
         self._axis_fault: dict[str, MoveNotCompletedError] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
@@ -275,7 +276,6 @@ class MotionAPI:
         with self._axis_state_lock:
             for ax in self._axis_state:
                 self._axis_state[ax] = AxisState.UNKNOWN
-            self._axis_fault.clear()
         # Written directly above rather than through _set_axis_state, so the
         # slot that rule clears on an UNKNOWN turret is cleared here too.
         self._last_turret_position = None
