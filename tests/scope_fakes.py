@@ -55,11 +55,12 @@ from __future__ import annotations
 from unittest.mock import create_autospec
 
 
-#: Every scope `build_scope` has made and no test teardown has disconnected
-#: yet, oldest first. The autouse fixture in `conftest.py` disconnects the ones
-#: a test built when it ends; a scope a module-scoped fixture built before the
-#: test began is that fixture's to disconnect.
-_BUILT_SCOPES: list = []
+#: What `build_scope` and `give_stub_lanes` built and no test teardown has
+#: stopped yet, oldest first, as the call that stops each. The autouse fixture
+#: in `conftest.py` runs the ones a test built when it ends; a scope a
+#: module-scoped fixture built before the test began is that fixture's to
+#: disconnect.
+_TEARDOWNS: list = []
 
 
 def build_scope(**kwargs):
@@ -76,21 +77,65 @@ def build_scope(**kwargs):
     from modules.lumascope_api import Lumascope
 
     scope = Lumascope(**kwargs)
-    _BUILT_SCOPES.append(scope)
+    _TEARDOWNS.append(scope.disconnect)
     return scope
 
 
-def scopes_built() -> int:
-    """How many scopes are waiting on a teardown: the mark a test starts at."""
-    return len(_BUILT_SCOPES)
+def give_stub_lanes(scope):
+    """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
+
+    A stub skips the constructor, so it has no lanes, and every dispatcher
+    runs its command on one. The test's teardown shuts them. Returns the
+    scope.
+    """
+    from modules.sequential_io_executor import SequentialIOExecutor
+
+    scope._io_executor = SequentialIOExecutor(name='IO')
+    scope._camera_executor = SequentialIOExecutor(name='CAMERA')
+    scope._camera_override_key = None
+    for lane in (scope._io_executor, scope._camera_executor):
+        lane.start()
+        _TEARDOWNS.append(lane.shutdown)
+    return scope
 
 
-def disconnect_scopes_built_since(mark: int) -> None:
-    """Disconnect every scope `build_scope` made after ``mark``."""
-    built = _BUILT_SCOPES[mark:]
-    del _BUILT_SCOPES[mark:]
-    for scope in built:
-        scope.disconnect()
+def swap_lanes(scope, *, io=None, camera=None):
+    """Put a test's own lane in place of a scope's: the one sanctioned lane seam.
+
+    A scope builds its own IO and CAMERA lanes, and the session, the run
+    engine and cleanup all read them from it, so a test that needs a
+    recording, stalled or double lane puts it here and every reader sees
+    it. On a real scope the lane it replaces is shut; on a mock scope the
+    lane is what ``io_lane()`` / ``camera_lane()`` answer. The test owns
+    the lane it passed. Returns the scope.
+    """
+    from unittest.mock import Mock
+
+    for lane, getter, slot in (
+        (io, 'io_lane', '_io_executor'),
+        (camera, 'camera_lane', '_camera_executor'),
+    ):
+        if lane is None:
+            continue
+        if isinstance(scope, Mock):
+            getattr(scope, getter).return_value = lane
+        else:
+            getattr(scope, slot).shutdown(wait=False)
+            setattr(scope, slot, lane)
+    return scope
+
+
+def teardown_mark() -> int:
+    """How many teardowns are waiting: the mark a test starts at."""
+    return len(_TEARDOWNS)
+
+
+def tear_down_since(mark: int) -> None:
+    """Stop everything `build_scope` and `give_stub_lanes` built after ``mark``."""
+    built = _TEARDOWNS[mark:]
+    del _TEARDOWNS[mark:]
+    for stop in built:
+        stop()
 
 
 def build_real_sim_scope():

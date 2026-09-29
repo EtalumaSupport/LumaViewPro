@@ -21,7 +21,7 @@ from tests.settings_fixtures import complete_settings
 import modules.config_helpers as config_helpers
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, swap_lanes
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     cam_ex = _RecordingExecutor(name='TEST_CAMERA')
     io_ex.start()
     cam_ex.start()
-    scope.register_executors(io_executor=io_ex, camera_executor=cam_ex)
+    swap_lanes(scope, io=io_ex, camera=cam_ex)
     _LIVE_RIGS.append((scope, io_ex, cam_ex))
     return scope, io_ex, cam_ex
 
@@ -502,12 +502,11 @@ class TestScopeSession:
         `scope`'s registered mock executor (same instance as session.io_executor)
         so call-count assertions work end-to-end through the new API.
         """
-        scope, io_ex, cam_ex = _make_real_scope_with_recording_executors()
+        scope, _io_ex, _cam_ex = _make_real_scope_with_recording_executors()
         defaults = {
             'settings': _make_settings(),
             'scope': scope,
-            'io_executor': io_ex,
-            'camera_executor': cam_ex,
+            'executor_bundle': MagicMock(),
         }
         defaults.update(kwargs)
         return ScopeSession(**defaults)
@@ -522,7 +521,7 @@ class TestScopeSession:
         try:
             assert session.scope._camera_driver.is_grabbing()
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_init_stores_all_fields(self):
         settings = _make_settings()
@@ -530,8 +529,7 @@ class TestScopeSession:
         session = ScopeSession(
             settings=settings,
             scope=scope,
-            io_executor=io,
-            camera_executor=cam,
+            executor_bundle=MagicMock(),
             source_path='/test',
         )
         assert session.settings is settings
@@ -587,23 +585,3 @@ class TestScopeSession:
         assert session.is_protocol_running is True
         held.release()
         assert session.is_protocol_running is False
-
-    # This asserts only shutdown forwarding onto the mocks, so it builds
-    # on a fresh spec scope: constructing a session registers
-    # its executors on the scope, and registering mock handles over the
-    # rig's live pre-registered ones is exactly the silent-swap state
-    # register_executors refuses.
-    def test_shutdown_executors(self):
-        from tests.scope_fakes import spec_scope
-
-        io = MagicMock()
-        cam = MagicMock()
-        session = ScopeSession(
-            settings=_make_settings(),
-            scope=spec_scope(),
-            io_executor=io,
-            camera_executor=cam,
-        )
-        session.shutdown_executors()
-        io.shutdown.assert_called_once()
-        cam.shutdown.assert_called_once()

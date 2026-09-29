@@ -45,7 +45,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
-from tests.scope_fakes import build_scope, configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -126,7 +126,8 @@ def scope():
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -163,13 +164,12 @@ def executor(scope, executors):
     mock_af.is_running = MagicMock(return_value=False)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
@@ -541,4 +541,4 @@ class TestNoSilentHeadlessDefault:
                 runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
             assert not runner.is_running(), 'a refused config-less run must not be running'
         finally:
-            session.shutdown_executors()
+            session.shutdown()

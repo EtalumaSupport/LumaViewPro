@@ -430,32 +430,17 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
 
 
 def test_session_recover_file_writer_passthrough():
-    """L2 parity: a Session holding an executor bundle can recover a
-    wedged writer; a session with neither bundle nor file-io handle
-    reports False."""
+    """L2 parity: a Session recovers a wedged writer through its bundle's
+    FILE lane."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from modules.scope_session import ScopeSession
 
     bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
-    session = ScopeSession(
-        settings={},
-        scope=MagicMock(),
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-        executor_bundle=bundle,
-    )
+    session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
     assert session.recover_file_writer() is True
     bundle.file_io_executor.recover_wedged_protocol_queue.assert_called_once()
-
-    gui_hosted = ScopeSession(
-        settings={},
-        scope=MagicMock(),
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-    )
-    assert gui_hosted.recover_file_writer() is False
 
 
 def test_blank_labware_has_no_wells_and_fabricates_no_index():

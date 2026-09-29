@@ -35,6 +35,7 @@ from tests.protocol_drives import autofocus_snapshot
 
 
 from modules.run_outcome import EndingLatch, RunEnding
+from tests.scope_fakes import swap_lanes
 
 
 class TestSequencedCaptureRunMode:
@@ -434,16 +435,21 @@ class TestRunCleanup:
             'apply_led_transition_fn': lambda transition, ctx: None,
             'default_move_fn': lambda **kw: None,
             'cancel_scheduled_events_fn': lambda: None,
-            'io_executor': io_exec,
             'autofocus_thread': af_thread,
             'file_io_executor': file_exec,
-            'camera_executor': camera_exec,
             'ending': RunEnding(
                 'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
             ),
             'run_dir': None,
         }
         defaults.update(overrides)
+        # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a
+        # test's own, stand in for them there.
+        swap_lanes(
+            defaults['scope'],
+            io=defaults.pop('io_executor', io_exec),
+            camera=defaults.pop('camera_executor', camera_exec),
+        )
         return defaults, state
 
     def test_cleanup_hands_the_run_back_completing_and_does_not_end_it(self):
@@ -582,10 +588,10 @@ class TestRunCleanup:
 
         args, _ = self._make_cleanup_args()
         run_cleanup(**args)
-        assert args['io_executor'].protocol_ended
+        assert args['scope'].io_lane().protocol_ended
         assert args['autofocus_thread'].abort.called
-        assert args['camera_executor'].protocol_ended
-        assert args['camera_executor'].protocol_pending_cleared
+        assert args['scope'].camera_lane().protocol_ended
+        assert args['scope'].camera_lane().protocol_pending_cleared
 
     def test_cleanup_clears_scan_in_progress(self):
         from modules.protocol_cleanup import run_cleanup

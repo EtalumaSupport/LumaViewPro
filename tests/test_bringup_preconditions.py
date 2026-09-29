@@ -58,27 +58,25 @@ class TestScopeModelsCatalogue:
 
 
 class TestInitializeStaysOnTheCallingThread:
-    def test_initialize_completes_with_a_registered_but_unstarted_io_lane(self):
-        """The factory case: executors registered, no worker yet.
+    def test_initialize_takes_no_lane(self):
+        """Bring-up is the scope configuring itself, not a command.
 
-        The public LED dispatcher would submit the safety-off to the IO
-        lane and wait the full write timeout for a worker that never
-        comes. Bound to the impl, the write happens here and now.
+        Every write in it binds the impl, so it runs here and now, whatever
+        the lanes would answer: with both lanes refusing work, a dispatched
+        safety-off or camera apply would raise.
         """
         from modules.scope_init_config import ScopeInitConfig
-        from modules.sequential_io_executor import SequentialIOExecutor
         from tests.test_composite_run_config import _settings
 
         scope = build_scope(simulate=True, register_atexit=False)
-        io = SequentialIOExecutor(name='IO_UNSTARTED')
-        cam = SequentialIOExecutor(name='CAMERA_UNSTARTED')
         try:
-            scope.register_executors(io_executor=io, camera_executor=cam)
+            scope.io_lane().disable()
+            scope.camera_lane().disable()
             config = ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
             started = time.monotonic()
             scope.initialize(config)
             elapsed = time.monotonic() - started
-            assert elapsed < 2.0, f'initialize blocked {elapsed:.1f}s on an unstarted lane'
+            assert elapsed < 2.0, f'initialize took {elapsed:.1f}s'
             assert scope.runtime_state.get_current_objective_id() == config.objective_id
         finally:
             scope.disconnect()

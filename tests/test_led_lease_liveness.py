@@ -41,8 +41,6 @@ def _af_runner(scope):
 
     r = AutofocusRunner(
         scope=scope,
-        camera_executor=MagicMock(),
-        io_executor=MagicMock(),
         file_io_executor=MagicMock(),
     )
     r._objective_loader = MagicMock()

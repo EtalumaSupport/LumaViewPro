@@ -405,6 +405,8 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'A capture is still being saved. Try again in a moment.'
     if reason == 'activity_ended':
         return 'The activity that sent this command has ended, so the command was not sent.'
+    if reason == 'scope_disconnected':
+        return 'The microscope has been disconnected, so the command was not sent.'
     who = _HOLDER_NOUNS.get(holder, 'Another activity')
     return f'{who} is using the microscope. Try again when it ends.'
 

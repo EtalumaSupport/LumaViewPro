@@ -234,7 +234,7 @@ class TestClaimRefusalLeavesNoState:
         finally:
             if claim_held:
                 recording.release()
-            session.shutdown_executors()
+            session.shutdown()
 
 
 class TestTheHolderIsTheLiveRun:
@@ -289,4 +289,4 @@ class TestTheHolderIsTheLiveRun:
             )
             assert session.activity_claim.holder is None
         finally:
-            session.shutdown_executors()
+            session.shutdown()

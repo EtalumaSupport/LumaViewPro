@@ -177,10 +177,8 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
         runner = SequencedCaptureRunner(
             scope=MagicMock(),
             stage_offset={},
-            io_executor=MagicMock(),
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
             autofocus_thread=MagicMock(in_flight_sweep=None),
             activity_claim=ActivityClaim(),
             autofocus_runner=MagicMock(),

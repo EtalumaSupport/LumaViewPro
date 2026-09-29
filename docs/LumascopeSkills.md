@@ -91,7 +91,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`, `min_exposure_ms_cached`, `min_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. Some members still log and show their own notification before re-raising; they are being moved to raise only, so the failure is shown once, by whoever reports it. The typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
 - **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_frame_size`, `set_binning_size`, `set_pixel_format`) are the raise contract, not the True/False one. A confirmed driver rejection raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, and the `title` and message a person reads; nothing is logged or shown before it reaches you, so reporting it is yours. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`min_gain_db_cached` .. `max_gain_db_cached`, `min_exposure_ms_cached` .. `max_exposure_ms_cached`) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`min_frame_size_cached`, `get_native_resolution()` / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`), after the size is floored to the camera's grid (`get_pixel_alignment()`, never below one grid step); the Session's `set_frame_size` refuses before it stores. Two cases are deliberately **not** rejections and do not raise: no camera is active (a quiet no-op per the missing-hardware contract), and a driver with no confirmation signal (it answers `None`, meaning "cannot confirm", not "refused"). Gain and exposure rejections are both confirmable on Basler and IDS bodies. On the Classic (FX2) body the sensor register write raises out of the driver rather than reporting a refusal, so a failed apply there reaches you as that exception instead of as `CameraSettingRejected`.
-- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. With no executors registered at all (a bare `Lumascope()` in a script), every command runs directly on the calling thread. There is one form of each command; a caller that must not wait runs it on its own thread.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 
@@ -118,6 +118,8 @@ scope = Lumascope(camera_type='ids')      # force IDS
 ```
 
 Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
+
+The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. `ui_dispatcher=` (`Clock.schedule_once(func, dt)`'s shape) is where the lanes hand a finished command's callback; leave it `None` (the default) and callbacks run on the lane's worker. A GUI host passes its UI marshaller so they reach its UI thread.
 
 ### Layer identity
 
@@ -277,7 +279,7 @@ settings_init.load_lvp_settings(logger, '.')
 session = ScopeSession.create(settings=settings_init.settings, source_path='.')
 ```
 
-The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes. Each lane is started once, by the factory; starting a running lane again raises `RuntimeError`. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
+The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes: the scope builds and starts its own IO and CAMERA lanes, and the factory builds and starts the FILE lane, the worker pool and the protocol thread around them. Each lane is started once, by whoever built it; starting a running lane again raises `RuntimeError`. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
 
 `create` takes the host's injections as named keyword arguments; every one of them is optional, and the headless form passes none of them.
 
@@ -287,7 +289,8 @@ session = ScopeSession.create(
     source_path='.',
     simulate=False,                         # True builds a simulated scope instead of opening hardware
     ui_dispatcher=None,                     # host UI marshaling, Clock.schedule_once(func, dt)'s shape;
-                                            # None runs executor callbacks inline on the worker (headless)
+                                            # None runs executor callbacks inline on the worker (headless);
+                                            # refused beside scope= -- pass it to Lumascope(...) instead
     af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
     settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
     engineering_mode=False,                 # stored on the session
@@ -296,7 +299,7 @@ session = ScopeSession.create(
 
 `af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
 
-If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself.
+If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. Its lanes marshal callbacks through the `ui_dispatcher` you built it with, so `create` refuses a `ui_dispatcher` beside `scope` with `ValueError`. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
 
 ```python
 session = ScopeSession.create(settings=settings_init.settings, scope=my_scope)
@@ -582,7 +585,7 @@ A refusal with reason `files_writing` means the previous run's files are still d
 session.recover_file_writer()   # discards pending unsaved writes, unlocks the writer
 ```
 
-Recovery is deliberate data loss: pending writes from the wedged run are discarded (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns `False` when the session holds no file-IO executor (a GUI-hosted session -- use the GUI's recovery popup instead).
+Recovery is deliberate data loss: pending writes from the wedged run are discarded (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns `True` once the recovery is dispatched.
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
@@ -716,17 +719,18 @@ screen are assembled identically.
 ### Cleanup
 
 ```python
-# Full teardown of everything the session constructed. On a scope the FACTORY
-# built (create() with no scope=): LEDs off, motion
-# stopped, scope disconnected, executor lanes and their threads down. Reading
-# that scope afterwards: motor_connected is False, imaging.is_streaming() is False,
+# Full teardown of everything the session constructed: the FILE lane, the
+# worker pool and the session's threads always. On a scope the FACTORY built
+# (create() with no scope=) also: LEDs off, motion stopped, scope disconnected,
+# which shuts its IO and CAMERA lanes. Reading that scope afterwards:
+# motor_connected is False, imaging.is_streaming() is False,
 # diagnostics.get_microscope_model() is None. A second shutdown() logs one
 # info line and does nothing.
 session.shutdown()
 
-# Piecewise -- the form for a scope YOU passed as create(scope=...): shutdown()
-# leaves a caller-passed scope connected, so the disconnect is yours.
-session.shutdown_executors()
+# For a scope YOU passed as create(scope=...): shutdown() leaves it connected
+# with its lanes running, so the disconnect is yours.
+session.shutdown()
 session.scope.disconnect()
 ```
 

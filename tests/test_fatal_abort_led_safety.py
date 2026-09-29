@@ -44,6 +44,7 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 
 
 from modules.run_outcome import RunEnding
+from tests.scope_fakes import swap_lanes
 
 
 def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
@@ -141,6 +142,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     af_thread.current_future = None
     file_io_executor = _FakeExecutor()
 
+    swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
     run_cleanup(
         get_state_fn=lambda: state[0],
         set_state_fn=lambda s: state.__setitem__(0, s),
@@ -159,10 +161,8 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
         default_move_fn=lambda **kw: None,
         cancel_scheduled_events_fn=lambda: None,
-        io_executor=_FakeExecutor(),
         autofocus_thread=af_thread,
         file_io_executor=file_io_executor,
-        camera_executor=_FakeExecutor(),
         ending=RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'),
         run_dir=None,
     )

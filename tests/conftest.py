@@ -308,15 +308,16 @@ def _disconnect_the_scopes_a_test_built():
     """Each scope a test built through `build_scope` is disconnected when the test ends.
 
     A scope runs threads of its own until it is disconnected, so a suite of
-    tests that each leave one behind accumulates them in every worker. A
+    tests that each leave one behind accumulates them in every worker; the
+    lanes `give_stub_lanes` gave a stub are shut the same way. A
     module-scoped fixture's scope was built before this mark and is left to
     the fixture.
     """
-    from tests.scope_fakes import disconnect_scopes_built_since, scopes_built
+    from tests.scope_fakes import tear_down_since, teardown_mark
 
-    mark = scopes_built()
+    mark = teardown_mark()
     yield
-    disconnect_scopes_built_since(mark)
+    tear_down_since(mark)
 
 
 @pytest.fixture

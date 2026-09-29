@@ -45,7 +45,7 @@ def headless_session():
         yield session
     finally:
         try:
-            session.shutdown_executors()
+            session.shutdown()
         except Exception:
             # Teardown must not mask the test's own failure; a test may
             # already have shut the lanes down itself.
@@ -84,16 +84,12 @@ class TestCreateHeadlessComposesARealSession:
         """
         assert headless_session.scope.imaging.is_streaming()
 
-    def test_all_three_executor_handles_are_registered_on_the_scope(self, headless_session):
-        """`scope.X_async` lands on a real queue, not None.
-
-        The session holding an executor is not enough: the SCOPE has to
-        know about it too, or the async paths silently have nowhere to
-        put work.
-        """
-        assert headless_session.scope._io_executor is not None
-        assert headless_session.scope._camera_executor is not None
-        assert headless_session.scope._file_io_executor is not None
+    def test_the_session_s_lanes_are_the_scope_s(self, headless_session):
+        """The scope's commands and the session's run go through one IO and
+        one CAMERA lane, the scope's own: a second pair would serialize
+        nothing against the first."""
+        assert headless_session.io_executor is headless_session.scope.io_lane()
+        assert headless_session.camera_executor is headless_session.scope.camera_lane()
 
     def test_file_io_executor_is_the_bundle_s_one_instance(self, headless_session):
         """One FILE executor, not a duplicate per consumer.
@@ -121,7 +117,7 @@ class TestCreateHeadlessComposesARealSession:
 
 
 class TestExecutorLifecycle:
-    """The factory's lanes really run work, and `shutdown_executors` really stops them.
+    """The scope's lanes really run work, and the session's `shutdown` really stops them.
 
     Proven by running work, not by reading a thread flag.
     """
@@ -141,21 +137,12 @@ class TestExecutorLifecycle:
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0)
 
-        headless_session.shutdown_executors()
+        headless_session.shutdown()
         for executor in (headless_session.io_executor, headless_session.camera_executor):
             worker = executor._worker_thread
             if worker is not None:
                 worker.join(timeout=5.0)
                 assert not worker.is_alive(), f'{executor.executor_name} still running'
-
-    def test_shutdown_without_start_does_not_raise(self, headless_session):
-        """Teardown paths call this without knowing whether start ran.
-
-        An abort during bring-up reaches shutdown with executors that
-        were never started, and raising there would mask the original
-        failure.
-        """
-        headless_session.shutdown_executors()
 
 
 class TestIsProtocolRunning:

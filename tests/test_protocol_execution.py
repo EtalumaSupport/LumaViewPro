@@ -49,7 +49,7 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_until_ready_for_next_run,
 )
-from tests.scope_fakes import build_scope, configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -311,7 +311,8 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     s = _make_simulated_scope()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -342,13 +343,12 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,

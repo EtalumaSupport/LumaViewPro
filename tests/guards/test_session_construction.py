@@ -113,28 +113,23 @@ class TestCreateTakesTheHostInjections:
             session.shutdown()
             session.scope.disconnect()
 
-    def test_a_lane_the_caller_did_not_pass_takes_the_dispatcher(self, tmp_path):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        dispatcher = MagicMock(name='ui_dispatcher')
-        cam = SequentialIOExecutor(name='CAMERA_CONSTRUCTION_TEST')
-        cam.start()
-        session = ScopeSession.create(
-            settings=complete_settings(live_folder=str(tmp_path)),
-            camera_executor=cam,
-            simulate=True,
-            warn_pre_release=False,
-            ui_dispatcher=dispatcher,
-        )
-        try:
-            assert session.executor_bundle is None
-            assert session.io_executor._ui_dispatch is dispatcher
-            assert session.io_executor.worker_alive is False, (
-                'the factory never starts a lane it built beside a caller lane'
+    def test_a_dispatcher_beside_a_callers_scope_is_refused(self):
+        # A scope's lanes marshal through the dispatcher the scope was built
+        # with; a second one here would reach only the bundle's lanes, two
+        # stores for one fact.
+        with pytest.raises(ValueError, match='ui_dispatcher'):
+            ScopeSession.create(
+                settings=complete_settings(), scope=spec_scope(), ui_dispatcher=MagicMock()
             )
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
+
+    def test_create_takes_no_lanes(self):
+        # The scope builds its own; a caller's lane would be a second copy.
+        params = inspect.signature(ScopeSession.create).parameters
+        assert 'io_executor' not in params and 'camera_executor' not in params
+        with pytest.raises(TypeError):
+            ScopeSession.create(
+                settings=complete_settings(), scope=spec_scope(), io_executor=MagicMock()
+            )
 
     def test_the_default_still_warns_once(self, tmp_path, fresh_warning_latch):
         # The preserved half: a caller that shipped separately is warned.
@@ -153,79 +148,93 @@ class TestCreateTakesTheHostInjections:
 class TestScopeOwnershipIsConstructorState:
     """Whether shutdown() may tear the scope down is decided where the
     scope came from, at construction: a factory-built scope is the
-    session's, a passed or directly constructed one is the caller's."""
+    session's, a passed or directly constructed one is the caller's. The
+    bundle the session holds is always its own to stop."""
 
     def _settings(self, tmp_path):
         return complete_settings(live_folder=str(tmp_path))
 
-    def test_a_factory_built_scope_over_the_bundle_is_owned(self, tmp_path):
+    def test_a_factory_built_scope_is_owned(self, tmp_path):
         session = ScopeSession.create(
             settings=self._settings(tmp_path), simulate=True, warn_pre_release=False
         )
         try:
             assert session._owns_scope is True
-            assert session._owns_executors is True
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
-
-    def test_a_factory_built_scope_over_caller_lanes_is_owned(self, tmp_path):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        io, cam = (
-            SequentialIOExecutor(name='IO_OWN_TEST'),
-            SequentialIOExecutor(name='CAM_OWN_TEST'),
-        )
-        io.start()
-        cam.start()
-        session = ScopeSession.create(
-            settings=self._settings(tmp_path),
-            io_executor=io,
-            camera_executor=cam,
-            simulate=True,
-            warn_pre_release=False,
-        )
-        try:
-            assert session._owns_scope is True
-            assert session._owns_executors is False
         finally:
             session.shutdown()
             session.scope.disconnect()
 
     def test_a_passed_scope_is_not_owned(self):
-        session = ScopeSession.create(
-            settings=complete_settings(),
-            scope=spec_scope(),
-            io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-        )
-        try:
-            assert session._owns_scope is False
-            assert session._owns_executors is False
-        finally:
-            session.shutdown()
-
-    def test_a_passed_scope_over_the_bundle_is_not_owned(self):
         session = ScopeSession.create(settings=complete_settings(), scope=spec_scope())
         try:
             assert session._owns_scope is False
-            assert session._owns_executors is True
         finally:
             session.shutdown()
 
     def test_a_direct_construction_is_not_owned(self):
         session = ScopeSession(
-            settings=complete_settings(),
-            scope=spec_scope(),
-            io_executor=MagicMock(),
-            camera_executor=MagicMock(),
+            settings=complete_settings(), scope=spec_scope(), executor_bundle=MagicMock()
         )
         try:
             assert session._owns_scope is False
-            assert session._owns_executors is False
             assert session._shut_down is False
         finally:
             session.shutdown()
+
+    def test_a_session_needs_a_bundle(self):
+        # FILE, the worker pool and the run threads come from it; a session
+        # without one had five branches reading a FILE lane it did not have.
+        with pytest.raises(TypeError):
+            ScopeSession(settings=complete_settings(), scope=spec_scope())
+
+
+class TestTheLanesAreTheScopes:
+    """The scope builds its IO and CAMERA lanes; the session, its bundle and
+    its run engine read them from it and hold no copy."""
+
+    def test_the_sessions_lanes_are_its_scopes(self, tmp_path):
+        session = ScopeSession.create(
+            settings=complete_settings(live_folder=str(tmp_path)),
+            simulate=True,
+            warn_pre_release=False,
+        )
+        try:
+            scope = session.scope
+            for lanes in (
+                (session.io_executor, session.camera_executor),
+                (session.executor_bundle.io_executor, session.executor_bundle.camera_executor),
+                (
+                    session.sequenced_capture_runner._io_executor,
+                    session.sequenced_capture_runner.camera_executor,
+                ),
+            ):
+                assert lanes == (scope.io_lane(), scope.camera_lane())
+        finally:
+            session.shutdown()
+
+    def test_a_callers_scope_keeps_its_lanes_running(self):
+        from tests.scope_fakes import build_scope
+
+        scope = build_scope(simulate=True, warn_pre_release=False)
+        session = ScopeSession.create(settings=complete_settings(), scope=scope)
+        session.shutdown()
+        assert scope.io_lane().worker_alive and scope.camera_lane().worker_alive
+        assert scope.io_lane().accepts_work() and scope.camera_lane().accepts_work()
+
+    def test_a_second_session_over_one_scope_is_refused(self):
+        # Each lane asks one claim for its life: a second session would
+        # re-point the lanes at its own claim, and the first session's run
+        # and diagnostic fences would stop being enforced, silently.
+        from tests.scope_fakes import build_scope
+
+        scope = build_scope(simulate=True, warn_pre_release=False)
+        first = ScopeSession.create(settings=complete_settings(), scope=scope)
+        try:
+            with pytest.raises(RuntimeError, match='already asks an activity claim'):
+                ScopeSession.create(settings=complete_settings(), scope=scope)
+            assert scope.io_lane()._claim is first.activity_claim
+        finally:
+            first.shutdown()
 
 
 # ===========================================================================

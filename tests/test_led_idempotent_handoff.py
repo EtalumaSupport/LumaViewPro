@@ -60,16 +60,9 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
 
 @pytest.fixture
 def scope_io(scope):
-    """Simulated scope with a started io_executor registered, so the LED
-    members dispatch to it and run end to end. Manual step navigation
-    reaches the LED through apply_transition."""
-    from modules.sequential_io_executor import SequentialIOExecutor
-
-    ex = SequentialIOExecutor(name='TEST_LED_IO')
-    ex.start()
-    scope.register_executors(io_executor=ex)
-    yield scope
-    ex.shutdown(wait=True)
+    """Simulated scope whose own io lane runs the LED members end to end.
+    Manual step navigation reaches the LED through apply_transition."""
+    return scope
 
 
 def _preview(scope_io, ch, illumination_ma):

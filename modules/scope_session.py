@@ -103,19 +103,15 @@ class ScopeSession:
         self,
         settings: dict,
         scope,
-        io_executor,
-        camera_executor,
+        executor_bundle,
         wellplate_loader=None,
         coordinate_transformer=None,
         objective_helper=None,
         source_path: str = '.',
-        executor_bundle=None,
-        file_io_executor=None,
         protocol_thread=None,
         autofocus_runner=None,
         autofocus_thread=None,
         z_ui_update_func=None,
-        owns_executors: bool = False,
         owns_scope: bool = False,
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
@@ -157,8 +153,6 @@ class ScopeSession:
         # retry possible; read at entry to make the second call a logged
         # no-op. Host-serialized like the metrics flag.
         self._shut_down = False
-        self.io_executor = io_executor
-        self.camera_executor = camera_executor
         self.wellplate_loader = wellplate_loader
         self.coordinate_transformer = coordinate_transformer
         self.objective_helper = objective_helper
@@ -169,29 +163,22 @@ class ScopeSession:
         # itself; this is the store a headless run reads, the only one such
         # a process has.
         self.engineering_mode = engineering_mode
-        # Every host hands its bundle in, so bundle-presence says nothing
-        # about who owns the executor topology's teardown -- that fact is
-        # owns_executors, passed True only by the factories that BUILT
-        # the topology. Deriving ownership from the bundle would let a
-        # host-composed session tear down its host's executors.
+        # The session stops the bundle it holds at shutdown(), whoever built
+        # it: a caller that hands one to the constructor hands it over. The
+        # IO and CAMERA lanes the bundle holds are the scope's, and stop
+        # when the scope disconnects.
         self.executor_bundle = executor_bundle
-        self._owns_executors = owns_executors
-        # The same fact for the scope: True only when a factory BUILT it,
-        # False for a scope a host passed in.
-        # Decides whether shutdown() runs the hardware half (LEDs off,
-        # motion stopped, disconnect). Coupled to the object here, at
-        # construction, because _abandon() can run before a factory
-        # returns and a directly constructed session calls shutdown()
-        # too -- a flag patched on afterwards would miss both.
+        # True only when a factory BUILT the scope, False for a scope a host
+        # passed in. Decides whether shutdown() runs the hardware half (LEDs
+        # off, disconnect). Coupled to the object here, at construction,
+        # because shutdown() can run before a factory returns (a bring-up
+        # that raises) and a directly constructed session calls it too -- a
+        # flag patched on afterwards would miss both.
         self._owns_scope = owns_scope
-        # The canonical file-IO executor lives on the bundle; expose it here
-        # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
-        # source the one shared FILE executor instead of constructing a
-        # duplicate. A bundle-less host passes its handle in -- the session
-        # cannot read the file-drain fact without it.
-        self.file_io_executor = file_io_executor or (
-            executor_bundle.file_io_executor if executor_bundle else None
-        )
+        # The one FILE lane, from the bundle: the run engine and
+        # ProtocolRunner write through it, and the session reads the
+        # file-drain facts from it.
+        self.file_io_executor = executor_bundle.file_io_executor
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
         # to IDLE after its cleanup, file-drain exit). They fire on the TRANSITIONING thread,
@@ -214,11 +201,9 @@ class ScopeSession:
         # scope is serviced.
         self._io_override_key = self.io_executor.ask_claim(self.activity_claim)
         self._camera_override_key = self.camera_executor.ask_claim(self.activity_claim)
-        # Service the scope NOW, after the handle derivations above and
-        # before any collaborator is composed: a session-composed scope
-        # must never exist un-serviced, or its dispatch falls back to
-        # inline execution on the calling thread (unserialized, and a
-        # protocol fence cannot reach an inline task).
+        # Service the scope NOW, before any collaborator is composed: the
+        # temperature log reads the camera under the key, and the protocol
+        # constructors resolve their data files from the source path.
         self._register_scope_services(scope)
         # The session's periodic metrics: it holds the scheduler that starts
         # them, the bundle the watchdog snapshots and the settings the system
@@ -243,8 +228,7 @@ class ScopeSession:
             settings_snapshot=self.get_settings_snapshot,
             engineering_mode=self.engineering_mode,
         )
-        if self.file_io_executor is not None:
-            self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
+        self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
         # The run engine and its autofocus pair are SESSION-composed:
         # one SequencedCaptureRunner per session, shared by the GUI,
@@ -254,9 +238,7 @@ class ScopeSession:
         # factories construct real ones; a bare session composes an
         # engine with what it has (an AF-bearing run then refuses or
         # fails loudly at the producer site).
-        self.protocol_thread = protocol_thread or (
-            executor_bundle.protocol_thread if executor_bundle else None
-        )
+        self.protocol_thread = protocol_thread or executor_bundle.protocol_thread
         self.autofocus_runner = autofocus_runner
         self.autofocus_thread = autofocus_thread
         self.z_ui_update_func = z_ui_update_func
@@ -265,10 +247,8 @@ class ScopeSession:
         self.sequenced_capture_runner = SequencedCaptureRunner(
             scope=scope,
             stage_offset=settings.get('stage_offset', {}),
-            io_executor=io_executor,
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
-            camera_executor=camera_executor,
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
             z_ui_update_func=z_ui_update_func,
@@ -279,23 +259,34 @@ class ScopeSession:
         )
         self._protocol_runner = None
 
+    @property
+    def io_executor(self) -> 'SequentialIOExecutor':
+        """The scope's IO lane. Read from the scope, never held as a copy.
+
+        Composition wiring for the host that builds its context and its run
+        engine around the session -- not part of the L2 API surface.
+        """
+        return self.scope.io_lane()
+
+    @property
+    def camera_executor(self) -> 'SequentialIOExecutor':
+        """The scope's CAMERA lane. Read from the scope, never held as a copy.
+
+        Composition wiring for the host that builds its context and its run
+        engine around the session -- not part of the L2 API surface.
+        """
+        return self.scope.camera_lane()
+
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
 
-        Executors and the protocol source path live on the scope but
-        belong to the session's composition; a
-        scope missing them dispatches inline (unserialized, unfenceable)
-        and its protocol constructors cannot resolve their data files.
-        Construction comes through here so no scope the session drives
-        can be left un-serviced -- the bring-up steps are spelled out
-        exactly once.
+        The camera override key and the protocol source path live on the
+        scope but belong to the session's composition; a scope missing the
+        source path cannot resolve its protocol data files. Construction
+        comes through here so no scope the session drives can be left
+        un-serviced -- the bring-up steps are spelled out exactly once.
         """
-        scope.register_executors(
-            camera_executor=self.camera_executor,
-            io_executor=self.io_executor,
-            file_io_executor=self.file_io_executor,
-            camera_override_key=self._camera_override_key,
-        )
+        scope.set_camera_override_key(self._camera_override_key)
         scope.protocols.register_source_path(self.source_path)
 
     @contextlib.contextmanager
@@ -396,15 +387,13 @@ class ScopeSession:
     @property
     def protocol_files_draining(self) -> bool:
         """True while a run's file writer still holds pending work."""
-        file_io_executor = self.file_io_executor
-        return bool(file_io_executor is not None and file_io_executor.is_protocol_queue_active())
+        return self.file_io_executor.is_protocol_queue_active()
 
     @property
     def protocol_files_pending(self) -> int:
         """How many of a run's file writes are still to finish, the one in
         flight included; 0 when nothing is draining."""
-        file_io_executor = self.file_io_executor
-        return 0 if file_io_executor is None else file_io_executor.protocol_queue_size()
+        return self.file_io_executor.protocol_queue_size()
 
     @property
     def protocol_files_stalled(self) -> bool:
@@ -414,11 +403,7 @@ class ScopeSession:
         new run is refused for cannot disagree."""
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
-        file_io_executor = self.file_io_executor
-        return bool(
-            file_io_executor is not None
-            and file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S)
-        )
+        return self.file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S)
 
     @property
     def run_lockout(self) -> bool:
@@ -482,8 +467,6 @@ class ScopeSession:
         settings: dict,
         source_path: str = '.',
         scope: object | None = None,
-        io_executor: 'SequentialIOExecutor | None' = None,
-        camera_executor: 'SequentialIOExecutor | None' = None,
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
@@ -497,17 +480,14 @@ class ScopeSession:
 
         This is the one composition path: the GUI, REST and scripts all
         build their session here, passing what only a host knows as the
-        keyword arguments below. Pass ``scope`` or the two lanes to reuse
-        objects you built; omit them and the factory builds and starts
-        them.
+        keyword arguments below. Pass ``scope`` to reuse one you built;
+        omit it and the factory builds it.
 
-        When io_executor / camera_executor are omitted, the full production
-        executor bundle is built via executor_registry.create_default so L2
-        callers get the same topology the GUI runs: IO + CAMERA + FILE +
-        WORKER_POOL executors plus protocol_thread (started) and
-        scope_display_thread (constructed, not started). When callers pass
-        executor handles in, those are used and no bundle is created; a
-        lane the caller did not pass is constructed here and never started.
+        The executor bundle is always built, around the scope's own IO and
+        CAMERA lanes, via executor_registry.create_default, so every caller
+        gets the topology the GUI runs: FILE + WORKER_POOL executors plus
+        protocol_thread (started) and scope_display_thread (constructed,
+        not started).
 
         A scope the factory builds is brought up before this returns
         (``configure_scope``, then the camera start gate released) and is
@@ -525,7 +505,9 @@ class ScopeSession:
                 False; a separately shipped caller leaves the default.
             ui_dispatcher: ``schedule_once(func, dt)``'s shape; the four
                 lanes marshal their callbacks through it. None runs them
-                inline on the worker.
+                inline on the worker. Refused beside ``scope``: a scope's
+                lanes marshal through the dispatcher it was built with, so
+                pass it to the ``Lumascope`` instead.
             af_ui_update_func: ``(pos) -> None``; the autofocus runner's
                 ``ui_update_func`` and the capture engine's
                 ``z_ui_update_func`` -- one callable, both consumers.
@@ -539,6 +521,12 @@ class ScopeSession:
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
 
+        if scope is not None and ui_dispatcher is not None:
+            raise ValueError(
+                'ScopeSession.create: ui_dispatcher is refused beside a scope -- the '
+                "scope's lanes marshal through the dispatcher it was built with, so "
+                'pass it to Lumascope(ui_dispatcher=...) instead'
+            )
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -551,6 +539,7 @@ class ScopeSession:
                 warn_pre_release=warn_pre_release,
                 configured_model=settings.get('microscope'),
                 sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
+                ui_dispatcher=ui_dispatcher,
             )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,
@@ -559,57 +548,53 @@ class ScopeSession:
             # configure_scope() themselves, which releases the start gate.
             built_scope = True
 
-        executor_bundle = None
-        if io_executor is None and camera_executor is None:
-            from modules.executor_registry import create_default
+        from modules.executor_registry import create_default
 
-            executor_bundle = create_default(
-                ui_dispatcher=ui_dispatcher, ctx_provider=display_ctx_provider
-            )
-            io_executor = executor_bundle.io_executor
-            camera_executor = executor_bundle.camera_executor
-        else:
-            from modules.sequential_io_executor import SequentialIOExecutor
+        executor_bundle = create_default(
+            scope.io_lane(),
+            scope.camera_lane(),
+            ui_dispatcher=ui_dispatcher,
+            ctx_provider=display_ctx_provider,
+        )
 
-            if io_executor is None:
-                io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
-            if camera_executor is None:
-                camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
-
-        # Service registration (executors, bundle, source path) happens in
+        # Service registration (override key, source path) happens in
         # __init__ for every session-composed scope -- nothing here.
 
         wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
 
         autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
             scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+            file_io_executor=executor_bundle.file_io_executor,
             ui_update_func=af_ui_update_func,
         )
 
-        # Both ownership facts go in HERE, before _bring_up can call
-        # _abandon on a refusal: a session torn down mid-factory must
-        # already know what it owns.
-        session = cls(
-            settings=settings,
-            scope=scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            executor_bundle=executor_bundle,
-            autofocus_runner=autofocus_runner,
-            autofocus_thread=autofocus_thread,
-            z_ui_update_func=af_ui_update_func,
-            owns_scope=built_scope,
-            owns_executors=executor_bundle is not None,
-            settings_saved_hook=settings_saved_hook,
-            engineering_mode=engineering_mode,
-        )
+        # The ownership fact goes in HERE, before _bring_up can call
+        # shutdown on a refusal: a session torn down mid-factory must
+        # already know whether the scope is its own.
+        try:
+            session = cls(
+                settings=settings,
+                scope=scope,
+                wellplate_loader=wellplate_loader,
+                coordinate_transformer=coordinate_transformer,
+                objective_helper=objective_helper,
+                source_path=source_path,
+                executor_bundle=executor_bundle,
+                autofocus_runner=autofocus_runner,
+                autofocus_thread=autofocus_thread,
+                z_ui_update_func=af_ui_update_func,
+                owns_scope=built_scope,
+                settings_saved_hook=settings_saved_hook,
+                engineering_mode=engineering_mode,
+            )
+        except BaseException:
+            # No session exists to tear down -- a scope another session holds
+            # refuses a second claim -- so stop what this factory started.
+            autofocus_thread.stop(timeout=2.0)
+            executor_bundle.shutdown()
+            if built_scope:
+                scope.disconnect()
+            raise
         if built_scope:
             cls._bring_up(session)
         return session
@@ -767,38 +752,18 @@ class ScopeSession:
         camera start gate last, after the capture pixel format. A raise
         anywhere in here leaves the caller with no session object to tear
         down, so this tears down what the factory started before it lets
-        the raise out; a caller's own executor lanes are never touched."""
+        the raise out."""
         try:
             session.configure_scope()
         except BaseException:
-            session._abandon()
-            session.scope.disconnect()
+            session.shutdown()
             raise
         # The one marker for "the camera is grabbing and the session is
         # up": a host measures its own consumer's start against it.
         logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
 
-    def _abandon(self) -> None:
-        """Stop what a factory started for a session it will not return.
-
-        Owned executors, the display and protocol threads, the AF thread
-        and the scope's hardware half go through ``shutdown``. A session
-        over caller-passed lanes stops only its own scheduler and AF
-        thread: ``shutdown`` would stop the caller's lanes too, and a
-        lane cannot be restarted; the factory's ``_bring_up`` disconnects
-        the scope it built on that path.
-        """
-        if self._owns_executors:
-            self.shutdown()
-            return
-        self._scheduler.shutdown()
-        if self.autofocus_thread is not None:
-            self.autofocus_thread.stop(timeout=2.0)
-
     @staticmethod
-    def _build_autofocus_pair(
-        *, scope, camera_executor, io_executor, file_io_executor, ui_update_func=None
-    ):
+    def _build_autofocus_pair(*, scope, file_io_executor, ui_update_func=None):
         """Real AF runner + started AF thread for a factory-built session,
         so every host gets the same wiring; ``ui_update_func`` is the
         host's Z-position renderer, None for a host with no display."""
@@ -807,8 +772,6 @@ class ScopeSession:
 
         autofocus_runner = AutofocusRunner(
             scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
             file_io_executor=file_io_executor,
             ui_update_func=ui_update_func,
         )
@@ -832,9 +795,7 @@ class ScopeSession:
         a worker stuck mid-write is abandoned and replaced.
 
         Returns:
-            True when a recovery was dispatched; False when this session
-            holds no file-IO executor (the hosting GUI owns the bundle,
-            and its own recovery surface applies).
+            True: the recovery was dispatched.
 
         Raises:
             HardwareCommandRefusedError: a run or a diagnostic holds the
@@ -846,8 +807,6 @@ class ScopeSession:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'recover_file_writer', holder
             )
-        if self.file_io_executor is None:
-            return False
         self.file_io_executor.recover_wedged_protocol_queue()
         return True
 
@@ -1891,31 +1850,25 @@ class ScopeSession:
         self._metrics_started = False
         self.metrics_logger.stop()
 
-    def shutdown_executors(self) -> None:
-        """Shut down the IO and camera executors."""
-        self.io_executor.shutdown()
-        self.camera_executor.shutdown()
-
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
-        Two ownership facts decide what that is, both constructor state.
-        ``owns_scope`` (a factory BUILT the scope) is the hardware half:
-        the LEDs drained through the io lane while its worker is alive,
-        motion stopped, the scope disconnected -- so a headless host gets
-        the same teardown the GUI gets. ``owns_executors`` (a factory
-        BUILT the executor topology) is the lane half: the long-lived
-        consumer threads stop BEFORE the lanes they consume (a consumer
-        mid-iteration that finds its lane already shut can hang on a
-        dispatch that never fires; scope_display_thread consumes
-        camera_executor, protocol_thread drives io + camera + file), then
-        the four lanes. A session over caller-passed lanes shuts those
-        lanes and its AF thread instead -- never a host's bundle. Neither
-        half returns before the other. Running metrics stop first, or
-        their ticks would outlive the executors they snapshot.
+        The bundle the session holds always stops: its long-lived consumer
+        threads first, then the FILE lane and the worker pool. When
+        ``owns_scope`` (a factory BUILT the scope), the hardware half
+        follows: the LEDs drained through the io lane while its worker is
+        alive, then the scope disconnected, which shuts its IO and CAMERA
+        lanes before it turns the LEDs off and stops motion inline -- so a
+        headless host gets the same teardown the GUI gets. The consumers
+        stop BEFORE the lanes they consume (a consumer mid-iteration that
+        finds its lane already shut can hang on a dispatch that never
+        fires; scope_display_thread consumes camera_executor,
+        protocol_thread drives io + camera + file). Running metrics stop
+        first, or their ticks would outlive the executors they snapshot.
 
-        A scope passed in is left connected: it is the caller's. A second call is a logged no-op; a
-        call that raised part-way can be called again.
+        A scope passed in is left connected with its lanes running: it is
+        the caller's. A second call is a logged no-op; a call that raised
+        part-way can be called again.
         """
         if self._shut_down:
             logger.info('[Session  ] shutdown() called again -- nothing to do')
@@ -1925,8 +1878,7 @@ class ScopeSession:
         # does not wait for the file lanes to drain, so a merge still
         # waiting on this run's writes can never finish -- and a caller
         # blocked on the result would wait out its whole bound for an
-        # answer that is no longer coming. A borrowed-executor session
-        # tears down the same way from the waiter's point of view.
+        # answer that is no longer coming.
         runner = self.sequenced_capture_runner
         if runner is not None:
             outcome = runner.run_outcome()
@@ -1944,9 +1896,9 @@ class ScopeSession:
                         'The session shut down before the run reported.',
                     ),
                 )
-        # The session owns its scheduler: a session that borrowed its
-        # executors still ends its own timers (a live health check
-        # outliving the session would fire into torn-down state).
+        # The session owns its scheduler: a session over a caller's scope
+        # still ends its own timers (a live health check outliving the
+        # session would fire into torn-down state).
         self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
@@ -1991,17 +1943,13 @@ class ScopeSession:
                         logger.warning(f'[Session  ] shutdown leds_off failed: {e}')
             except Exception as e:
                 logger.warning(f'[Session  ] leds_off submission failed during shutdown: {e}')
-        if not self._owns_executors:
-            self.shutdown_executors()
-        else:
-            self.executor_bundle.shutdown()
+        self.executor_bundle.shutdown()
         if self._owns_scope:
-            # After the lanes: an in-flight move's callbacks have their
-            # lanes shut before the move is stopped. disconnect() stops
-            # motion again itself, turns the LEDs off inline and bounded,
-            # ends the motion monitor and unregisters the atexit hook; it
-            # is repeatable, so a host's own later disconnect is harmless.
-            self.scope.motion.stop_motion()
+            # disconnect() shuts the scope's lanes first, so nothing still
+            # queued on them runs after the off, then turns the LEDs off
+            # inline and bounded, stops motion, ends the motion monitor and
+            # unregisters the atexit hook; it is repeatable, so a host's own
+            # later disconnect is harmless.
             self.scope.disconnect()
         self._shut_down = True
 

@@ -26,6 +26,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api._lumascope import Lumascope
 from modules.lumascope_api.imaging import AppliedCameraSetting, ImagingAPI, cap_stored_value
+from tests.scope_fakes import give_stub_lanes
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -47,7 +48,7 @@ def imaging():
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     api = ImagingAPI(scope, cam)

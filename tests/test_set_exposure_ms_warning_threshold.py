@@ -27,6 +27,7 @@ trips immediately.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from tests.scope_fakes import give_stub_lanes
 
 
 def _warnings_for(exposure_ms: float, monkeypatch) -> list:
@@ -40,7 +41,7 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     imaging = ImagingAPI(scope, cam)
 
     records = []

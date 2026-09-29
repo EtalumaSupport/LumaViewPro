@@ -27,7 +27,7 @@ from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, give_stub_lanes, home_sim_scope
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def sim_imaging():
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)

@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 from tests.scope_fakes import spec_scope
 
 
-def _make_session(file_io_executor=None, has_xy_stage=True):
+def _make_session(file_io_executor, has_xy_stage=True):
     from modules.scope_session import ScopeSession
 
     # motion_enabled reads the XY fact off the live scope, so the double
@@ -34,9 +34,7 @@ def _make_session(file_io_executor=None, has_xy_stage=True):
     return ScopeSession(
         settings={},
         scope=scope,
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-        file_io_executor=file_io_executor,
+        executor_bundle=MagicMock(file_io_executor=file_io_executor),
     )
 
 
@@ -95,15 +93,10 @@ class TestDerivations:
         assert session.run_lockout is False
         assert session.motion_enabled is False
 
-    def test_no_file_executor_reads_drain_as_false(self):
-        session = _make_session(file_io_executor=None)
-        assert session.protocol_files_draining is False
-
     def test_the_pending_count_is_the_file_writers_own(self):
         executor = _file_executor(active=True)
         executor.protocol_queue_size.return_value = 7
         assert _make_session(executor).protocol_files_pending == 7
-        assert _make_session(file_io_executor=None).protocol_files_pending == 0
 
     def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
         # One threshold for "stuck": the display of a stalled writer and
@@ -114,7 +107,6 @@ class TestDerivations:
         executor.protocol_drain_stalled.return_value = True
         assert _make_session(executor).protocol_files_stalled is True
         executor.protocol_drain_stalled.assert_called_once_with(WRITE_STALL_FATAL_S)
-        assert _make_session(file_io_executor=None).protocol_files_stalled is False
 
     def test_close_drain_pending_covers_both_video_drain_sources(self):
         """What a close would interrupt on the video side, in one read.

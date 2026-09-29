@@ -54,14 +54,10 @@ class AutofocusRunner:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
-        camera_executor: SequentialIOExecutor,
-        io_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
         ui_update_func=None,
     ):
         self._scope = scope
-        self._camera_executor = camera_executor
-        self._io_executor = io_executor
         self._file_io_executor = file_io_executor
         self.ui_update_func = ui_update_func
 

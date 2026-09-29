@@ -57,7 +57,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
@@ -143,20 +143,17 @@ class _AfRig:
 
         self.af_runner = AutofocusRunner(
             scope=self.scope,
-            camera_executor=self.camera_executor,
-            io_executor=self.io_executor,
             file_io_executor=self.file_io_executor,
         )
         self.af_thread = AutofocusThread(afe=self.af_runner)
         self.af_thread.start()
 
+        swap_lanes(self.scope, io=self.io_executor, camera=self.camera_executor)
         self.runner = SequencedCaptureRunner(
             scope=self.scope,
             stage_offset={'x': 0.0, 'y': 0.0},
-            io_executor=self.io_executor,
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
-            camera_executor=self.camera_executor,
             autofocus_thread=self.af_thread,
             activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
@@ -240,7 +237,8 @@ class _AfRig:
                 # a teardown error, hiding the result this test exists to
                 # report. Nothing under test is observed after this point.
                 pass
-        self.scope.imaging.stop_streaming()
+        # disconnect() stops the stream itself; a stop sent through the camera
+        # lane would be refused, the lane being shut just above.
         self.scope.disconnect()
 
 
@@ -375,8 +373,6 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
 
         return AutofocusRunner(
             scope=spec_scope(),
-            camera_executor=MagicMock(),
-            io_executor=MagicMock(),
             file_io_executor=MagicMock(),
         )
 

@@ -141,10 +141,8 @@ class TestTheRunnerReadsTheClaim:
             SequencedCaptureRunner(
                 scope=spec_scope(),
                 stage_offset={},
-                io_executor=MagicMock(),
                 protocol_thread=MagicMock(),
                 file_io_executor=MagicMock(),
-                camera_executor=MagicMock(),
                 autofocus_thread=MagicMock(in_flight_sweep=None),
             )
 

@@ -1164,14 +1164,10 @@ class TestIssue602_AFExecutorLED:
         scope = build_scope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        io = SequentialIOExecutor(name='IO_TEST')
-        cam = SequentialIOExecutor(name='CAM_TEST')
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
-            camera_executor=cam,
-            io_executor=io,
             file_io_executor=file_ex,
         )
         # AF illuminates its own channel at scan start through the LED
@@ -1192,14 +1188,10 @@ class TestIssue602_AFExecutorLED:
         scope = build_scope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        io = SequentialIOExecutor(name='IO_TEST')
-        cam = SequentialIOExecutor(name='CAM_TEST')
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
-            camera_executor=cam,
-            io_executor=io,
             file_io_executor=file_ex,
         )
         # AF lights its channel at scan start; a non-success exit must end
@@ -1249,8 +1241,6 @@ class TestAFPrecisionModeRestoresOn:
         scope = build_scope(simulate=True)
         return AutofocusRunner(
             scope=scope,
-            camera_executor=SequentialIOExecutor(name='CAM_PREC'),
-            io_executor=SequentialIOExecutor(name='IO_PREC'),
             file_io_executor=SequentialIOExecutor(name='FILE_PREC'),
         ), scope
 
@@ -1609,12 +1599,7 @@ class TestRule14_A8_ScopeSessionHelperNotify:
             raise RuntimeError('config file corrupt')
 
         monkeypatch.setattr(patch_target, raising_loader)
-        session = ScopeSession.create(
-            settings={},
-            scope=MagicMock(),
-            io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-        )
+        session = ScopeSession.create(settings={}, scope=MagicMock())
         return session, captured
 
     def test_wellplate_loader_failure_notifies(self, monkeypatch):
@@ -1720,10 +1705,8 @@ def _run_cleanup_kwargs(**overrides):
         'apply_led_transition_fn': MagicMock(),
         'default_move_fn': MagicMock(),
         'cancel_scheduled_events_fn': MagicMock(),
-        'io_executor': MagicMock(),
         'autofocus_thread': None,
         'file_io_executor': file_io_executor,
-        'camera_executor': MagicMock(),
         'ending': RunEnding(
             'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
         ),
@@ -1789,7 +1772,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             'Return to position',
         ):
             assert step in body, f'step "{step}" missing from the summary; got: {body}'
-        assert kwargs['io_executor'].protocol_end.called, (
+        assert kwargs['scope'].io_lane().protocol_end.called, (
             'the executor teardown must still run after step failures'
         )
         kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
@@ -3251,14 +3234,19 @@ def _make_capture_runner(**overrides):
     kwargs = {
         'scope': MagicMock(),
         'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
-        'io_executor': MagicMock(),
         'protocol_thread': MagicMock(),
         'file_io_executor': file_io_executor,
-        'camera_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
     }
     kwargs.update(overrides)
+    # The engine reads IO and CAMERA from its scope; a test that passes its
+    # own lane puts it there.
+    swap_lanes(
+        kwargs['scope'],
+        io=kwargs.pop('io_executor', None),
+        camera=kwargs.pop('camera_executor', None),
+    )
     return SequencedCaptureRunner(**kwargs)
 
 
@@ -3719,7 +3707,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
             )
         )
         run_cleanup(**kwargs)
-        assert kwargs['io_executor'].protocol_end.called, (
+        assert kwargs['scope'].io_lane().protocol_end.called, (
             'cleanup steps after the shader raise must still run'
         )
         kwargs['set_state_fn'].assert_any_call(ProtocolState.COMPLETING)
@@ -3930,14 +3918,14 @@ class TestPF2_FileIoExecutorClearedOnAbort:
             "abort cleanup must clear file_io_executor's pending queue "
             '(queued frames pin memory and block the next protocol-start)'
         )
-        assert aborted['io_executor'].clear_protocol_pending.called
+        assert aborted['scope'].io_lane().clear_protocol_pending.called
 
         normal = _run_cleanup_kwargs()
         run_cleanup(**normal)
         assert not normal['file_io_executor'].clear_protocol_pending.called, (
             'normal completion must drain pending writes to disk, not drop them'
         )
-        assert normal['io_executor'].clear_protocol_pending.called, (
+        assert normal['scope'].io_lane().clear_protocol_pending.called, (
             'io_executor pending clear is unconditional'
         )
 
@@ -4089,7 +4077,7 @@ from tests.camera_fakes import (
     run_one_stats_poll as _run_one_stats_poll,
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, give_stub_lanes, swap_lanes
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -4225,7 +4213,7 @@ def _sim_backed_imaging():
     scope._camera_driver = cam
     # No executor: the public dispatchers run their body on the calling
     # thread, so these tests exercise the public surface inline.
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     scope.runtime_state = RuntimeState(scope)
     scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded
@@ -5075,7 +5063,7 @@ class TestPylonDiagnosticProbe:
         scope._camera_driver = fake_camera
         # No camera lane: the probe's dispatch runs its body inline, as it
         # does on a bare scope.
-        scope._camera_executor = None
+        give_stub_lanes(scope)
         scope.imaging = ImagingAPI.__new__(ImagingAPI)
         scope.imaging._scope = scope
         scope.diagnostics = DiagnosticsAPI(scope)
@@ -9108,10 +9096,8 @@ class TestSequencedCaptureRunnerRunDirCollision:
         exc = SequencedCaptureRunner(
             scope=MagicMock(),
             stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
-            io_executor=MagicMock(),
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
             autofocus_thread=MagicMock(in_flight_sweep=None),
             activity_claim=ActivityClaim(),
         )
@@ -9895,7 +9881,6 @@ class TestCreateDiagnosticSharesInitMinimal:
         '_camera_driver',
         '_camera_executor',
         '_io_executor',
-        '_file_io_executor',
     )
 
     def test_init_sets_all_shared_slots(self):
@@ -10745,12 +10730,12 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
     def test_leds_off_precedes_the_lane_shutdown(self):
         src = self._src()
         leds_off_idx = src.find('[Session  ] shutdown: leds_off through the io lane')
-        owner_idx = src.find('self.executor_bundle.shutdown()')
-        caller_idx = src.find('self.shutdown_executors()', leds_off_idx)
-        assert leds_off_idx >= 0 and owner_idx >= 0 and caller_idx >= 0
-        assert leds_off_idx < owner_idx and leds_off_idx < caller_idx, (
-            'Shutdown leds_off must fire BEFORE the io lane is shut, on '
-            'either ownership branch. Otherwise the put() races with the '
+        bundle_idx = src.find('self.executor_bundle.shutdown()', leds_off_idx)
+        disconnect_idx = src.find('self.scope.disconnect()', leds_off_idx)
+        assert leds_off_idx >= 0 and bundle_idx >= 0 and disconnect_idx >= 0
+        assert leds_off_idx < bundle_idx < disconnect_idx, (
+            'Shutdown leds_off must fire BEFORE the io lane is shut -- the '
+            "scope's disconnect shuts it. Otherwise the put() races with the "
             'worker exiting and the leds_off may never fire.'
         )
 
@@ -10858,15 +10843,18 @@ class TestScopeSessionBuildsFullExecutorBundle:
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_create_registers_file_io_executor_on_scope(self):
+    def test_create_gives_the_session_the_bundles_file_io_executor(self):
         from modules.scope_session import ScopeSession
 
         session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
-        assert session.scope._file_io_executor is not None, (
-            'ScopeSession.create(simulate=True) must register a file_io_executor '
-            'on the scope; without it, protocol_image_writer + IOTask file-IO '
-            'paths fall back to inline execution and pipelining is lost.'
-        )
+        try:
+            assert session.file_io_executor is session.executor_bundle.file_io_executor, (
+                'ScopeSession.create(simulate=True) must give the session the '
+                "bundle's file_io_executor; without it, protocol_image_writer + "
+                'IOTask file-IO paths have no lane and pipelining is lost.'
+            )
+        finally:
+            session.shutdown()
 
     def test_the_session_metrics_logger_holds_its_bundle_and_settings(self):
         from modules.scope_session import ScopeSession
@@ -10906,34 +10894,6 @@ class TestScopeSessionBuildsFullExecutorBundle:
                 f'Bundle missing {attr_name}; L2 caller will hit degraded '
                 f'topology when that executor is needed.'
             )
-
-    def test_create_with_explicit_executors_skips_bundle_build(self):
-        # When the caller passes their own executor handles (e.g. lumaviewpro.py
-        # build() owns the bundle and constructs ScopeSession with shared
-        # handles), create() must NOT spawn a second bundle.
-        from modules.scope_session import ScopeSession
-        from modules.sequential_io_executor import SequentialIOExecutor
-        from tests.settings_fixtures import complete_settings
-
-        io = SequentialIOExecutor(name='IO_TEST')
-        cam = SequentialIOExecutor(name='CAMERA_TEST')
-        try:
-            session = ScopeSession.create(
-                settings=complete_settings(),
-                simulate=True,
-                io_executor=io,
-                camera_executor=cam,
-            )
-            assert session.executor_bundle is None, (
-                'ScopeSession.create() must not build a bundle when the caller '
-                'passes io_executor + camera_executor explicitly; that path is '
-                'reserved for lumaviewpro.py-style bundle ownership.'
-            )
-            assert session.io_executor is io
-            assert session.camera_executor is cam
-        finally:
-            io.shutdown()
-            cam.shutdown()
 
 
 class TestHeadlessSettingsResolutionMatchesGui:
@@ -12279,7 +12239,7 @@ class TestSequentialIoExecutorWaitForIdle_F7:
 
         kwargs = _run_cleanup_kwargs()
         run_cleanup(**kwargs)
-        io_calls = [c[0] for c in kwargs['io_executor'].method_calls]
+        io_calls = [c[0] for c in kwargs['scope'].io_lane().method_calls]
         assert 'protocol_end' in io_calls and 'wait_for_idle' in io_calls, (
             'cleanup must call both protocol_end and wait_for_idle on '
             f'the io_executor; got {io_calls}'
@@ -12289,7 +12249,7 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             'is given bounded time to finish before downstream teardown '
             f'mutates state the task may reference; got {io_calls}'
         )
-        kwargs['io_executor'].wait_for_idle.assert_called_once_with(timeout=2.0)
+        kwargs['scope'].io_lane().wait_for_idle.assert_called_once_with(timeout=2.0)
 
 
 class TestShowPopupHostWidgetProxy_F9:

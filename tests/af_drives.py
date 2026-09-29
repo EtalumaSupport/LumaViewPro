@@ -36,8 +36,6 @@ def af_runner_and_scope():
     scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
     runner = AutofocusRunner(
         scope=scope,
-        camera_executor=MagicMock(),
-        io_executor=MagicMock(),
         file_io_executor=MagicMock(),
     )
     runner._objective_loader = MagicMock()

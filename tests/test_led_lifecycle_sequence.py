@@ -59,7 +59,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
@@ -317,13 +317,12 @@ def _make_runner(scope, execs):
     from modules.coord_transformations import CoordinateTransformer
     from modules.labware_loader import WellPlateLoader
 
+    swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=execs['io'],
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],
-        camera_executor=execs['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
@@ -591,11 +590,8 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
 @pytest.fixture
 def scope_io(scope):
-    ex = SequentialIOExecutor(name='TEST_LED_IO')
-    ex.start()
-    scope.register_executors(io_executor=ex)
-    yield scope
-    ex.shutdown(wait=True)
+    """The scope; its own io lane runs the LED members end to end."""
+    return scope
 
 
 def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
@@ -648,8 +644,6 @@ def _af_runner(scope):
 
     r = AutofocusRunner(
         scope=scope,
-        camera_executor=MagicMock(),
-        io_executor=MagicMock(),
         file_io_executor=MagicMock(),
     )
     r._objective_loader = MagicMock()

@@ -153,26 +153,6 @@ class TestARefusingFactoryLeavesNothingBehind:
         # that the refusing factory left none of its own behind.
         assert _wait_for_thread_count(baseline) <= baseline
 
-    def test_a_callers_lanes_survive_the_refusal(self):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        io = SequentialIOExecutor(name='IO_CALLER')
-        cam = SequentialIOExecutor(name='CAMERA_CALLER')
-        io.start()
-        cam.start()
-        try:
-            with pytest.raises(ConfigError):
-                ScopeSession.create(
-                    settings=complete_settings_without('frame'),
-                    simulate=True,
-                    io_executor=io,
-                    camera_executor=cam,
-                )
-            assert io.accepts_work() and cam.accepts_work()
-        finally:
-            io.shutdown()
-            cam.shutdown()
-
 
 class TestDisableHomingIsNoStartupMotion:
     """`disable_homing=True` means no startup motion on any axis: the

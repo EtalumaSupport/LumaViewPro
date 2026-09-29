@@ -144,11 +144,9 @@ def run_cleanup(
     apply_led_transition_fn: Callable[[LedTransition, LedTransitionCtx], object],
     default_move_fn: Callable[..., object],
     cancel_scheduled_events_fn: Callable[[], None],
-    # IO executors
-    io_executor: SequentialIOExecutor,
+    # IO executors; the IO and CAMERA lanes are the scope's
     autofocus_thread: AutofocusThread | None,
     file_io_executor: SequentialIOExecutor,
-    camera_executor: SequentialIOExecutor,
     logger_name: str = 'SequencedCaptureRunner',
     # How the run ended, and why. Terminal outcome the run_complete
     # subscribers receive.
@@ -408,6 +406,8 @@ def run_cleanup(
     # --- End executors ---
     scan_in_progress.clear()
 
+    io_executor = scope.io_lane()
+    camera_executor = scope.camera_lane()
     io_executor.protocol_end()
     # Wait for any task that was in-flight when protocol_end fired to
     # finish before we mutate scope / camera / settings state below --

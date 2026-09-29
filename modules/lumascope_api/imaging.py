@@ -1083,14 +1083,11 @@ class ImagingAPI:
     ):
         """Run one camera command for an external caller, on the right thread.
 
-        Three outcomes. With no executor registered the body runs on the
-        calling thread -- a bare `Lumascope()` in a script or an example has
-        no executors and still has to drive hardware. With a live executor
-        the body runs on the camera worker, serialized against every other
-        camera-bus operation, and this blocks until it has. With an executor
-        that will not accept work the caller is told so, because the
-        alternative is `put` returning None and the command disappearing
-        with nothing raised and nothing logged.
+        The body runs on the scope's camera lane, serialized against every
+        other camera-bus operation, and this blocks until it has. A lane that
+        will not accept work tells the caller so, because the alternative is
+        `put` returning None and the command disappearing with nothing raised
+        and nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
@@ -1107,14 +1104,11 @@ class ImagingAPI:
         its lane's thread but changes nothing a holder depends on.
         """
         kwargs = kwargs or {}
-        ex = self._scope._camera_executor
-        if ex is None:
-            return impl(*args, **kwargs)
         key = self._scope._camera_override_key if override else None
         task = IOTask(
             action=impl, args=args, kwargs=kwargs, falsifies_recording=falsifies_recording
         )
-        return ex.call(task, name, timeout_s, override=key)
+        return self._scope._camera_executor.call(task, name, timeout_s, override=key)
 
     def _refuse_out_of_range(
         self,

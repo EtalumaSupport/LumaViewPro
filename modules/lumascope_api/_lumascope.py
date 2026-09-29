@@ -51,12 +51,12 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import CameraSettingRejected
 from modules.scope_capabilities import ScopeCapabilities
+from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.layer_record import LayerIdentity
     from modules.scope_init_config import ScopeInitConfig
-    from modules.sequential_io_executor import SequentialIOExecutor
 
 # Import additional libraries
 import logging as _logging
@@ -278,12 +278,12 @@ class Lumascope:
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
-    def _init_minimal(self, simulated: bool) -> None:
+    def _init_minimal(self, simulated: bool, ui_dispatcher=None) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
 
         Sets the non-driver state that every Lumascope instance must
         carry: transformers, locks, camera cache, objective state slots,
-        executor slot defaults, source path. Both __init__ and
+        the scope's two lanes, source path. Both __init__ and
         create_diagnostic call this first; each then does its
         driver-connection-specific work.
 
@@ -312,11 +312,20 @@ class Lumascope:
         # on self.motion. engineering_mode lives on the app context
         # (ctx.engineering_mode).
 
-        # Executor slot defaults (registered post-construction via
-        # register_executors)
-        self._camera_executor = None
-        self._io_executor = None
-        self._file_io_executor = None
+        # The scope's two lanes, built and started here and shut by
+        # disconnect(). Every LED, motion and camera command goes through
+        # one, so commands from any caller -- a session's GUI or REST, or a
+        # script's bare scope -- run one at a time per bus, in order, and a
+        # run holding the scope can refuse what is not its own. A session
+        # composed over this scope asks the lanes its activity claim.
+        self._io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
+        self._camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
+        self._io_executor.start()
+        self._camera_executor.start()
+        # The key the camera lane's claim returned to the session, which
+        # hands it here: the camera temperature read carries it, so the
+        # temperature log keeps running while a run or a diagnostic holds
+        # the scope. None until a session asks the claim.
         self._camera_override_key = None
 
     @staticmethod
@@ -390,6 +399,7 @@ class Lumascope:
         warn_pre_release: bool = True,
         configured_model: str | None = None,
         sim_tier: str = 'fast',
+        ui_dispatcher=None,
     ):
         """Initialize Microscope.
 
@@ -446,14 +456,18 @@ class Lumascope:
                 tells it nothing and reaches the user as noise on every
                 launch. Defaults True: a new caller that has not thought
                 about it is warned.
+            ui_dispatcher: ``Clock.schedule_once(func, dt)``'s shape. The
+                scope's IO and CAMERA lanes hand a finished command's
+                callback to it, so a GUI host gets its callbacks on its UI
+                thread. None (default) runs them on the lane's worker.
         """
         if warn_pre_release:
             _fire_pre_release_warning()
 
         # Shared state-slot init (audit #35) -- transformers, locks,
-        # camera cache, objective/turret state, executor slot defaults.
+        # camera cache, objective/turret state, the scope's lanes.
         # Driver construction + sub-API wiring happen below.
-        self._init_minimal(simulated=simulate)
+        self._init_minimal(simulated=simulate, ui_dispatcher=ui_dispatcher)
 
         # LED state slots (_led_listeners, _led_state, _lit_by,
         # _led_state_lock, _led_listeners_lock, _led_lock) live on
@@ -646,7 +660,7 @@ class Lumascope:
         # _last_turret_position, illumination owns LED state,
         # runtime_state owns settings-host state (labware / objective /
         # turret_config / stage_offset). Lumascope holds driver slots,
-        # executor handles and source_path.
+        # its two lanes and source_path.
 
         # Frame validity, camera_cache, scale_bar, +
         # _camera_listeners/_frame_buffer/_focusing_event/
@@ -763,10 +777,9 @@ class Lumascope:
         self._motion_expected = config.expects_motion
         self._notify_partial_hardware(config)
         # The safety-off is bound to the impl like every other write here,
-        # never to the public dispatcher: a session factory runs initialize
-        # while its IO lane may be registered but not yet started, and a
-        # dispatch onto that lane blocks for the whole write timeout and then
-        # raises. The board check the dispatcher performs is copied here for
+        # never to the public dispatcher: bring-up is the scope configuring
+        # itself, not a command from a caller, so it takes no lane and asks
+        # no claim. The board check the dispatcher performs is copied here for
         # the same reason it lives there: with no board the composition root
         # installs a Null driver, which is truthy, so the impl's own `if not
         # self._driver` never fires and the state cache would record LEDs it
@@ -854,10 +867,7 @@ class Lumascope:
         # requests, so nothing is left believing a rejected value.
         # Bring-up binds the impls: these writes are the scope's own
         # composition, not external commands, so they stay direct on the
-        # calling thread by design -- and the caller may hold executor
-        # lanes that are registered but not started (a session factory
-        # configures before it releases the camera), so nothing in this
-        # method may dispatch.
+        # calling thread by design and nothing in this method dispatches.
         for apply_fn in (
             lambda: self.imaging._set_binning_size_impl(binning_size),
             lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
@@ -925,78 +935,34 @@ class Lumascope:
                 f'Not connected: {", ".join(missing)}. Some features will be unavailable.',
             )
 
-    # --- Executor-backed command API ---
-    #
-    # Single canonical path for hardware operations that need executor
-    # dispatch: caller invokes scope.X_async(...) or scope.X_sync(...);
-    # Lumascope picks the right executor internally. Replaces the older
-    # modules/scope_commands.py helper functions where the caller had
-    # to pass an executor on every call (parallel-paths anti-pattern).
+    # --- The scope's lanes, for the session that composes around it ---
 
-    def register_executors(
-        self,
-        *,
-        camera_executor: 'SequentialIOExecutor | None' = None,
-        io_executor: 'SequentialIOExecutor | None' = None,
-        file_io_executor: 'SequentialIOExecutor | None' = None,
-        camera_override_key: object | None = None,
-        replace: bool = False,
-    ) -> None:
-        """Register the executor handles used by the X_async / X_sync command methods.
+    def io_lane(self) -> SequentialIOExecutor:
+        """The lane this scope runs its LED and motion commands on.
 
-        Internal session-composition wiring -- called by ScopeSession at
-        construction and not part of the L2 API surface.
-
-        Call once at startup after the executors are constructed. Tests
-        that don't drive the executor-backed API can skip this -- those
-        methods raise RuntimeError if invoked without executors registered.
-
-        Args:
-            camera_executor: Executor for camera-bound IOTasks.
-            io_executor: Executor for general IO/motion IOTasks.
-            file_io_executor: Executor for file-IO IOTasks.
-            camera_override_key: The key ``camera_executor.ask_claim``
-                returned. The camera temperature read carries it, so the
-                temperature log keeps running while a run or a diagnostic
-                holds the scope.
-            replace: Allow replacing already-registered, different
-                handles. Without it a second registration against a live
-                scope raises instead of silently swapping the executors
-                out from under in-flight dispatch -- a swap that would
-                produce no symptom until a protocol fence is bypassed.
-                Re-registering the SAME handles is idempotent and always
-                allowed.
-
-        Raises:
-            RuntimeError: A different executor is already registered for
-                one of the slots and ``replace`` is False.
+        Composition wiring for the session that holds this scope -- it asks
+        the lane its activity claim and builds its run engine around it --
+        and not part of the L2 API surface.
         """
-        if not replace:
-            for slot_name, existing, new in (
-                ('camera_executor', self._camera_executor, camera_executor),
-                ('io_executor', self._io_executor, io_executor),
-                ('file_io_executor', self._file_io_executor, file_io_executor),
-            ):
-                if existing is not None and existing is not new:
-                    raise RuntimeError(
-                        f'Lumascope.register_executors: {slot_name} is already '
-                        f'registered with a different executor. A silent swap '
-                        f'would strand in-flight dispatch on the old handle; '
-                        f'pass replace=True only when deliberately rewiring a '
-                        f'live scope.'
-                    )
-        self._camera_executor = camera_executor
-        self._io_executor = io_executor
-        self._file_io_executor = file_io_executor
-        self._camera_override_key = camera_override_key
+        return self._io_executor
 
-    def _require_executor(self, executor, name):
-        if executor is None:
-            raise RuntimeError(
-                f'Lumascope.{name} requires register_executors() to have '
-                f'been called with the relevant executor handle.'
-            )
-        return executor
+    def camera_lane(self) -> SequentialIOExecutor:
+        """The lane this scope runs its camera commands on.
+
+        Composition wiring for the session that holds this scope -- it asks
+        the lane its activity claim and builds its run engine around it --
+        and not part of the L2 API surface.
+        """
+        return self._camera_executor
+
+    def set_camera_override_key(self, key: object) -> None:
+        """Take the key the camera lane's claim returned to the session.
+
+        The camera temperature read carries it, so the temperature log keeps
+        running while a run or a diagnostic holds the scope. Composition
+        wiring for the session, not part of the L2 API surface.
+        """
+        self._camera_override_key = key
 
     # --- LED command API ---
     # All LED methods + change-listener registry live on IlluminationAPI;
@@ -1079,7 +1045,7 @@ class Lumascope:
             return False
 
     def disconnect(self) -> bool:
-        """Disconnect from all hardware (LED, motion, camera).
+        """Disconnect from all hardware (LED, motion, camera) and stop the scope's lanes.
 
         Best-effort teardown: every sub-system is attempted even if a
         prior one raises. State is always reset to the Null variants
@@ -1096,7 +1062,18 @@ class Lumascope:
         """
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
-        # Darken the LEDs before anything else is torn down. Closing the
+        # Shut the lanes before anything is turned off, without waiting for
+        # the work in flight: shutting a lane drops what is queued on it, so
+        # an LED on or a move still waiting behind the current task cannot
+        # run after the off and the stop below and leave the scope lit or
+        # moving once it reads as disconnected. The task in flight is not
+        # waited for; an LED write in flight holds the LED lock, which the
+        # bounded off below waits on. A command sent afterwards is refused
+        # at once rather than queued where no worker will run it.
+        self._io_executor.shutdown(wait=False)
+        self._camera_executor.shutdown(wait=False)
+
+        # Darken the LEDs before any board is torn down. Closing the
         # serial port does not turn a board off -- the channels hold their
         # commanded current until something sends an off or power drops --
         # so a teardown without this leaves the sample illuminated until the

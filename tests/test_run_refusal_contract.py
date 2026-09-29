@@ -69,7 +69,7 @@ from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
-from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope, swap_lanes
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -207,7 +207,8 @@ def _make_two_objective_protocol():
 def scope():
     s = _make_simulated_scope()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -232,13 +233,12 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
@@ -428,7 +428,7 @@ class TestHeadlessRefusalDoesNotHang:
             )
             assert wait_until_not_running(session)
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
 
 # ---------------------------------------------------------------------------

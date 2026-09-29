@@ -4,12 +4,15 @@
 
 Every entry point that boots LVP (Kivy app, REST API, headless test
 runner, future CLI tools) needs the same topology of SequentialIOExecutor
-instances:
+instances. Two of them are the scope's own, built and stopped by the
+``Lumascope`` itself so a bare scope in a script serializes its commands
+too; the bundle holds them beside the ones it builds:
 
-    IO          -- generic motor/serial work (also aliased as stage,
-                  turret because all motor serial I/O goes through one
-                  executor to prevent concurrent motor-board access)
-    CAMERA      -- camera-config / settings writes (CAMERA_WORKER thread)
+    IO          -- the scope's: generic motor/serial work (also aliased as
+                  stage, turret because all motor serial I/O goes through
+                  one executor to prevent concurrent motor-board access)
+    CAMERA      -- the scope's: camera-config / settings writes
+                  (CAMERA_WORKER thread)
     FILE        -- file IO; protocol_queue bounded at 32 (F-2)
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
     PROTOCOL    -- protocol orchestration (bare Thread, no queue)
@@ -27,8 +30,8 @@ AutofocusRunner it drives are available, and lives on the session.
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
 shell silently forgot one executor and surfaced as a deep deferred
-RuntimeError. ``ExecutorRegistry.create_default(ui_dispatcher)`` returns
-a single ``ExecutorBundle`` that holds every executor with the aliases
+RuntimeError. ``create_default(io, camera, ui_dispatcher)`` returns a
+single ``ExecutorBundle`` that holds every executor with the aliases
 already wired and ``start()`` already called. Callers unpack the bundle
 into their context object.
 
@@ -105,24 +108,29 @@ class ExecutorBundle:
     def shutdown(self) -> None:
         """Stop every thread this bundle started, without waiting for queued work.
 
-        The one teardown for whoever built the bundle: a session that built
-        it, or a host that built lanes for a scope of its own.
+        The IO and CAMERA lanes are the scope's and stop when the scope
+        disconnects; the display and protocol threads that consume them stop
+        here first either way.
         """
         self.scope_display_thread.stop()
         self.protocol_thread.stop(timeout=2.0)
-        self.io_executor.shutdown(wait=False)
-        self.camera_executor.shutdown(wait=False)
         self.file_io_executor.shutdown(wait=False)
         self.worker_pool.shutdown(wait=False)
 
 
 def create_default(
+    io_executor: SequentialIOExecutor,
+    camera_executor: SequentialIOExecutor,
     ui_dispatcher: Callable[[Callable, float], Any] | None,
     ctx_provider: Callable[[], Any] | None = None,
 ) -> ExecutorBundle:
-    """Construct + start the standard LVP executor topology.
+    """Construct + start the standard LVP executor topology around a scope's lanes.
 
     Args:
+        io_executor: The scope's IO lane (``scope.io_lane()``), already
+            started by the scope.
+        camera_executor: The scope's CAMERA lane (``scope.camera_lane()``),
+            already started by the scope.
         ui_dispatcher: Callable matching ``Clock.schedule_once(func, dt)``
             so executors can hand callbacks back to the GUI thread without
             importing Kivy (executors stay GUI-agnostic). Headless callers
@@ -134,12 +142,10 @@ def create_default(
             display and passes nothing.
 
     Returns:
-        ExecutorBundle with every executor constructed, named, aliased,
-        and started. The session that owns the bundle tears it down in
-        ``ScopeSession.shutdown()``.
+        ExecutorBundle holding the scope's two lanes and every executor and
+        thread it built, those started. The session that holds the bundle
+        tears it down in ``ScopeSession.shutdown()``.
     """
-    io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
-    camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
     # F-2: bounded protocol_queue prevents a save thread that falls
     # behind from letting the queue grow without bound.
     file_io_executor = SequentialIOExecutor(
@@ -170,21 +176,14 @@ def create_default(
         worker_pool=worker_pool,
     )
 
-    for ex in (
-        io_executor,
-        camera_executor,
-        file_io_executor,
-        worker_pool,
-    ):
-        ex.start()
+    file_io_executor.start()
+    worker_pool.start()
     protocol_thread.start()
 
     logger.info(
-        '[LVP Main  ] ExecutorRegistry: created + started '
-        '4 SequentialIOExecutor instances (IO, CAMERA, FILE, '
-        'WORKER_POOL) + protocol_thread + scope_display_thread '
-        '(started separately from lumaviewpro.build); stage/turret '
-        'aliased to IO; AutofocusThread constructed in lumaviewpro.build '
-        'with the AFE handle'
+        '[LVP Main  ] ExecutorRegistry: created + started FILE and '
+        "WORKER_POOL + protocol_thread around the scope's IO and CAMERA "
+        'lanes; scope_display_thread constructed (started separately from '
+        'lumaviewpro.build); stage/turret aliased to IO'
     )
     return bundle

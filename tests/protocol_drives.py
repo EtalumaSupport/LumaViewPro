@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from tests.scope_fakes import swap_lanes
 
 
 def held_run_claim():
@@ -134,10 +135,8 @@ def bare_capture_runner(**overrides):
     kwargs = {
         'scope': MagicMock(),
         'stage_offset': {},
-        'io_executor': MagicMock(),
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
-        'camera_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
@@ -149,6 +148,13 @@ def bare_capture_runner(**overrides):
         # the default scope states the homed answer. A test about position
         # passes its own scope.
         kwargs['scope'].motion.axes_without_position.return_value = {}
+    # The engine reads IO and CAMERA from its scope; a test that passes its
+    # own lane puts it there.
+    swap_lanes(
+        kwargs['scope'],
+        io=kwargs.pop('io_executor', None),
+        camera=kwargs.pop('camera_executor', None),
+    )
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
     # A run takes the camera only once the camera lane is idle; a bare mock

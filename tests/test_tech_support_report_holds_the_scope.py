@@ -41,9 +41,7 @@ def _make_session():
     return ScopeSession(
         settings={},
         scope=scope,
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-        file_io_executor=file_io_executor,
+        executor_bundle=MagicMock(file_io_executor=file_io_executor),
     )
 
 

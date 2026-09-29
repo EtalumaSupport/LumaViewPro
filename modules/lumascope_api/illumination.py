@@ -762,14 +762,11 @@ class IlluminationAPI:
     def _dispatch_led(self, impl, name, args=(), kwargs=None):
         """Run one LED command for an external caller, on the right thread.
 
-        Three outcomes. With no executor registered the body runs on the
-        calling thread -- a bare `Lumascope()` in a script or an example has
-        no executors and still has to drive hardware. With a live executor
-        the body runs on the io worker, serialized against every other
-        hardware write, and this blocks until it has. With an executor that
-        will not accept work the caller is told so, because the alternative
-        is `put` returning None and the command disappearing with nothing
-        raised and nothing logged.
+        The body runs on the scope's io lane, serialized against every other
+        hardware write, and this blocks until it has. A lane that will not
+        accept work tells the caller so, because the alternative is `put`
+        returning None and the command disappearing with nothing raised and
+        nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
@@ -787,10 +784,9 @@ class IlluminationAPI:
         if not self._scope.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return None
-        ex = self._scope._io_executor
-        if ex is None:
-            return impl(*args, **kwargs)
-        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S)
+        return self._scope._io_executor.call(
+            IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S
+        )
 
     def led_on(
         self,

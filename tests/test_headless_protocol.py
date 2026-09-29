@@ -76,7 +76,7 @@ import modules.kivy_utils as _kivy_utils
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.protocol_drives import autofocus_snapshot
-from tests.scope_fakes import build_scope, configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 install_mock_deps()
 
@@ -281,13 +281,12 @@ class TestHeadlessProtocolExecution:
                 mock_af.best_focus_position = MagicMock(return_value=5000.0)
                 mock_af.run_in_progress = MagicMock(return_value=False)
 
+                swap_lanes(scope, io=execs['io'], camera=execs['camera'])
                 executor = SequencedCaptureRunner(
                     scope=scope,
                     stage_offset={'x': 0.0, 'y': 0.0},
-                    io_executor=execs['io'],
                     protocol_thread=execs['protocol'],
                     file_io_executor=execs['file_io'],
-                    camera_executor=execs['camera'],
                     autofocus_thread=MagicMock(in_flight_sweep=None),
                     activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,

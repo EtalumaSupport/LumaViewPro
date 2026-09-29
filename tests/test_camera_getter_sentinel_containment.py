@@ -61,6 +61,7 @@ GOOD_ROUND = {
 
 
 from modules.run_outcome import EndingLatch
+from tests.scope_fakes import give_stub_lanes
 
 
 class _StampedFrameHandler:
@@ -165,7 +166,7 @@ def _build_imaging(cam) -> ImagingAPI:
     pattern) so the production getter / populate path is exercised."""
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)

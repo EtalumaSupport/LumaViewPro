@@ -192,10 +192,8 @@ class SequencedCaptureRunner:
         self,
         scope: Lumascope,
         stage_offset: dict,
-        io_executor: SequentialIOExecutor,
         protocol_thread,
         file_io_executor: SequentialIOExecutor,
-        camera_executor: SequentialIOExecutor,
         autofocus_thread,
         activity_claim: ActivityClaim,
         autofocus_runner: AutofocusRunner | None = None,
@@ -231,10 +229,8 @@ class SequencedCaptureRunner:
         # mutations of ctx.settings['stage_offset'].
         self._stage_offset_source = stage_offset
         self._stage_offset = stage_offset
-        self._io_executor = io_executor
         self.protocol_thread = protocol_thread
         self.file_io_executor = file_io_executor
-        self.camera_executor = camera_executor
         self.autofocus_thread = autofocus_thread
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
@@ -617,6 +613,16 @@ class SequencedCaptureRunner:
                 return False
             time.sleep(0.05)
         return True
+
+    @property
+    def _io_executor(self) -> SequentialIOExecutor:
+        """The scope's IO lane. Read from the scope, never held as a copy."""
+        return self._scope.io_lane()
+
+    @property
+    def camera_executor(self) -> SequentialIOExecutor:
+        """The scope's CAMERA lane. Read from the scope, never held as a copy."""
+        return self._scope.camera_lane()
 
     @property
     def video_drain_busy(self) -> bool:
@@ -2018,10 +2024,8 @@ class SequencedCaptureRunner:
                 apply_led_transition_fn=self._step_executor.apply_led_transition,
                 default_move_fn=self._step_executor.default_move,
                 cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
-                io_executor=self._io_executor,
                 autofocus_thread=self.autofocus_thread,
                 file_io_executor=self.file_io_executor,
-                camera_executor=self.camera_executor,
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
                 # Read here, with the claim still held, so the value the

@@ -44,7 +44,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -250,7 +250,8 @@ def scope():
     s.imaging.start_streaming()
     home_sim_scope(s)
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -280,13 +281,12 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
@@ -301,18 +301,15 @@ def af_executor(scope, executors):
     """Create a SequencedCaptureRunner with real AutofocusRunner for AF tests."""
     af = AutofocusRunner(
         scope=scope,
-        camera_executor=executors['camera'],
-        io_executor=executors['io'],
         file_io_executor=executors['file_io'],
     )
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=af,
@@ -602,8 +599,6 @@ class TestIntegrationAutofocus:
 
         af = AutofocusRunner(
             scope=scope,
-            camera_executor=executors['camera'],
-            io_executor=executors['io'],
             file_io_executor=executors['file_io'],
         )
 
@@ -779,7 +774,7 @@ class TestHeadlessSession:
             scope.illumination.led_off(channel=0)
             assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_headless_motor_position(self):
         """Headless session should support motor position queries."""
@@ -854,7 +849,7 @@ class TestHeadlessSession:
             completed = done.wait(timeout=COMPLETION_TIMEOUT)
             assert completed, 'Headless protocol did not complete within timeout'
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_protocol_runner_afe_no_kivy_dependency(self):
         """AFE has no Kivy Clock dependency (Rule 15). Under the
@@ -1072,7 +1067,7 @@ class TestRestAPIPrep:
             assert status['in_progress'] is False
             assert status['best_position'] is None
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_autofocus_thread_abort_noop_when_idle(self):
         """AutofocusThread.abort() should be safe when no run is in flight."""
@@ -1090,7 +1085,7 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_autofocus_thread_run_and_complete(self):
         """AutofocusThread.run_autofocus() resolves Future with the
@@ -1129,7 +1124,7 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_autofocus_thread_abort_during_run(self):
         """AutofocusThread.abort() unwinds an in-flight run; the Future
@@ -1168,7 +1163,7 @@ class TestRestAPIPrep:
             finally:
                 thread.stop(timeout=2.0)
         finally:
-            session.shutdown_executors()
+            session.shutdown()
 
     def test_settings_has_rest_api_section(self):
         """Default settings template should include rest_api configuration."""
@@ -1196,8 +1191,6 @@ class TestAbortedAutofocusRestoresLeds:
 
         af = AutofocusRunner(
             scope=scope,
-            camera_executor=executors['camera'],
-            io_executor=executors['io'],
             file_io_executor=executors['file_io'],
         )
         abort = threading.Event()

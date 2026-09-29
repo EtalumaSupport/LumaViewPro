@@ -31,7 +31,7 @@ from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.protocol_drives import autofocus_snapshot, wait_until_ready_for_next_run
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
@@ -210,7 +210,8 @@ def scope():
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -251,13 +252,12 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
@@ -289,13 +289,12 @@ def real_executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
@@ -2711,7 +2710,9 @@ class TestFeedLossEndsVideoStep:
 
         def _kill_feed_soon():
             time.sleep(1.5)
-            scope.imaging.stop_streaming()
+            # The body, not the member: the run holds the camera lane, and a
+            # feed that dies asks no one's leave.
+            scope.imaging._stop_streaming_impl()
 
         killer = threading.Thread(target=_kill_feed_soon, daemon=True)
         killer.start()

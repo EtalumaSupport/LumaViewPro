@@ -279,8 +279,10 @@ class TestNoLaneWorkerWaitsOnALane:
         Stop's inline cleanup and a GUI job both run there and call the
         blocking public members, which must wait on the lane, not raise."""
         from modules.executor_registry import create_default
+        from tests.scope_fakes import build_scope
 
-        bundle = create_default(None)
+        scope = build_scope(simulate=True, warn_pre_release=False)
+        bundle = create_default(scope.io_lane(), scope.camera_lane(), None)
         try:
             fut = bundle.worker_pool.put(
                 IOTask(
@@ -291,15 +293,7 @@ class TestNoLaneWorkerWaitsOnALane:
             )
             assert fut.result(timeout=_WAIT_S) == 'ran'
         finally:
-            bundle.scope_display_thread.stop()
-            bundle.protocol_thread.stop(timeout=2.0)
-            for ex in (
-                bundle.io_executor,
-                bundle.camera_executor,
-                bundle.file_io_executor,
-                bundle.worker_pool,
-            ):
-                ex.shutdown(wait=False)
+            bundle.shutdown()
 
 
 class TestTheSession:

@@ -31,6 +31,7 @@ from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import parse_module
+from tests.scope_fakes import give_stub_lanes
 
 # Driver methods that mutate camera state. A call to any of these must be wrapped
 # in a write thunk handed to ImagingAPI._camera_write, never issued directly --
@@ -77,7 +78,7 @@ def _build_imaging(cam):
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)

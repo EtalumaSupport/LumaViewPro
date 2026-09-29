@@ -36,6 +36,7 @@ import ast
 import pathlib
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.scope_fakes import swap_lanes
 
 
 _WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 100_000.0}}}
@@ -173,7 +174,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     proto = _stacked()
     runner = scan_ready_runner(protocol_step())
     runner._protocol = proto
-    runner._io_executor = _InlineIOExecutor()
+    swap_lanes(runner._scope, io=_InlineIOExecutor())
     runner._coordinate_transformer = MagicMock()
     runner._coordinate_transformer.plate_to_stage.return_value = (1.0, 2.0)
     runner._wellplate_loader = MagicMock()

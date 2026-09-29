@@ -7,13 +7,14 @@ directly, so the dispatcher is reached only by external callers -- an SDK
 script, a REST handler, a MATLAB client -- who are never on an executor
 worker and never on the protocol or autofocus thread.
 
-Three branches, and this file pins one test per branch:
+Every scope builds its own IO and CAMERA lanes, a bare ``Lumascope()`` in
+a script included, so there is no branch that runs the body on the calling
+thread. Two branches, and this file pins them:
 
-  * no executor registered -> run ``_impl`` on the calling thread. A bare
-    ``Lumascope()`` in a script or an example has no executors and must
-    still drive hardware.
-  * the executor will not accept work -> raise HardwareCommandRefusedError.
-  * otherwise -> submit to the executor and block for the result.
+  * the lane will not accept work -> raise HardwareCommandRefusedError,
+    saying which: another activity has the scope, or the lane was shut
+    when the scope disconnected.
+  * otherwise -> submit to the lane and block for the result.
 
 The middle branch asks WHETHER the executor accepts work, never WHY it
 might not. A run disables the camera executor while io and file are fenced
@@ -37,12 +38,13 @@ the calling thread for a direct call, the executor's worker for a submit.
 from __future__ import annotations
 
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
-from modules.sequential_io_executor import SequentialIOExecutor
+from tests.scope_fakes import homed_sim_scope
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
 # non-refusing branches: a direct call returns what _impl returned, and a
@@ -119,25 +121,22 @@ FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 
 @pytest.fixture
 def executors(sim_scope):
-    """Real executors, started and registered on the scope.
+    """The scope's own two lanes, which it built and started.
 
-    Real SequentialIOExecutors rather than doubles: the refusal branches are
-    driven through disable() and protocol_start(), the production state
-    transitions, so a double would only prove the test agrees with itself.
+    Real lanes rather than doubles: the refusal branches are driven through
+    disable() and protocol_start(), the production state transitions, so a
+    double would only prove the test agrees with itself. sim_scope is a bare
+    scope with no session, the shape of a script's ``Lumascope()``.
+
+    The lanes are the scope's, so a test's disable or fence would outlive
+    it into sim_scope's teardown, which stops the stream through the camera
+    lane; both are lifted again first.
     """
-    io = SequentialIOExecutor(name='TEST_IO')
-    camera = SequentialIOExecutor(name='TEST_CAMERA')
-    file_io = SequentialIOExecutor(name='TEST_FILE')
-    for ex in (io, camera, file_io):
-        ex.start()
-    sim_scope.register_executors(camera_executor=camera, io_executor=io, file_io_executor=file_io)
-    yield {'io': io, 'camera': camera, 'file_io': file_io}
-    # Unregistered before they stop: the scope fixture's own teardown stops
-    # the stream, which dispatches onto whatever lane is registered, and a
-    # stopped lane would hold it for the whole wait.
-    sim_scope.register_executors(replace=True)
-    for ex in (io, camera, file_io):
-        ex.shutdown()
+    lanes = {'io': sim_scope.io_lane(), 'camera': sim_scope.camera_lane()}
+    yield lanes
+    for lane in lanes.values():
+        lane.enable()
+        lane.protocol_end()
 
 
 def _install_probe(scope, family, member):
@@ -157,26 +156,41 @@ def _install_probe(scope, family, member):
     return sub, threads
 
 
+def test_a_waited_home_runs_on_the_io_lane(sim_scope):
+    """The fourth dispatcher, the waited home's, runs on the lane too."""
+    threads: list[str] = []
+
+    def _home():
+        threads.append(threading.current_thread().name)
+        return True
+
+    with patch.object(sim_scope.motion, '_home_action_for', return_value=_home):
+        assert sim_scope.motion.move_home_and_wait('Z') is True
+
+    assert threads == [sim_scope.io_lane().executor_name]
+
+
 @pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
-def test_absent_executor_runs_impl_on_the_calling_thread(sim_scope, family, member, kwargs, slot):
-    # sim_scope registers no executors, which is the shape of a bare
-    # Lumascope() in a script. This branch PRESERVES what the base member
-    # does today -- it never touches an executor -- through the dispatcher
-    # that now fronts it. What changes is the absorbed blocking tier, which
-    # raises RuntimeError here today rather than driving the hardware.
-    assert sim_scope._io_executor is None
-    assert sim_scope._camera_executor is None
+def test_a_shut_lane_refuses_at_once(family, member, kwargs, slot):
+    # A shut lane has no worker to drain its queue. Work it accepted would
+    # sit there while the caller waited out the member's whole timeout
+    # (5 s for an LED or camera write, up to 120 s for a move) and then got
+    # a TimeoutError that names nothing; it is refused at submit instead.
+    # A scope of its own, not sim_scope: the lane stays shut, and
+    # sim_scope's teardown stops the stream through it.
+    scope = homed_sim_scope()
+    lane = scope.io_lane() if slot == 'io' else scope.camera_lane()
+    lane.shutdown()
+    sub, threads = _install_probe(scope, family, member)
 
-    sub, threads = _install_probe(sim_scope, family, member)
-    caller = threading.current_thread().name
+    started = time.monotonic()
+    with pytest.raises(HardwareCommandRefusedError) as excinfo:
+        getattr(sub, member)(**kwargs)
 
-    result = getattr(sub, member)(**kwargs)
-
-    assert threads == [caller], (
-        f'{family}.{member} with no executor must run its body on the calling '
-        f'thread, not raise and not defer; body ran on {threads}'
-    )
-    assert result is IMPL_RESULT
+    assert time.monotonic() - started < 1.0
+    assert excinfo.value.reason == 'scope_disconnected'
+    assert excinfo.value.member == member
+    assert threads == []
 
 
 @pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
@@ -214,6 +228,9 @@ def test_protocol_fenced_executor_refuses(sim_scope, executors, family, member, 
 
 @pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
 def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, kwargs, slot):
+    # sim_scope has no session: the shape of a bare Lumascope() in a script,
+    # which used to run every command on the calling thread, unserialized
+    # and out of reach of a run holding the scope. Its own lane runs it now.
     sub, threads = _install_probe(sim_scope, family, member)
     worker = executors[slot].executor_name
     caller = threading.current_thread().name

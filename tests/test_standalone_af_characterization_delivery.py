@@ -47,7 +47,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -132,20 +132,17 @@ class TestStandaloneAfDeliversCharacterizationData:
 
         af_runner = AutofocusRunner(
             scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
             file_io_executor=file_io_executor,
         )
         af_thread = AutofocusThread(afe=af_runner)
         af_thread.start()
 
+        swap_lanes(scope, io=io_executor, camera=camera_executor)
         runner = SequencedCaptureRunner(
             scope=scope,
             stage_offset={'x': 0.0, 'y': 0.0},
-            io_executor=io_executor,
             protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
-            camera_executor=camera_executor,
             autofocus_thread=af_thread,
             activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
@@ -217,5 +214,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     e.shutdown()
                 except Exception:
                     pass
-            scope.imaging.stop_streaming()
+            # disconnect() stops the stream itself; a stop sent through the
+            # camera lane would be refused, the lane being shut just above.
             scope.disconnect()

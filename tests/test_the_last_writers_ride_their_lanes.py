@@ -254,29 +254,3 @@ class TestTheSupportReportDuringARun:
             assert 'SKIPPED' in text and 'protocol' in text, (rel, text)
         camera = (tmp_path / 'camera_info' / 'camera_info.txt').read_text()
         assert 'emperature' in camera, camera
-
-
-class TestBringUpWithLanesNotYetStarted:
-    def test_create_does_not_dispatch_the_stream_start(self, tmp_path):
-        # A caller may hand create() lanes it has not started yet; a stream
-        # start dispatched at bring-up would wait out its whole bound on them.
-        import time
-
-        from modules.scope_session import ScopeSession
-        from modules.sequential_io_executor import SequentialIOExecutor
-        from tests.settings_fixtures import complete_settings
-
-        io = SequentialIOExecutor(name='NOT_STARTED_IO')
-        camera = SequentialIOExecutor(name='NOT_STARTED_CAMERA')
-        t0 = time.monotonic()
-        s = ScopeSession.create(
-            complete_settings(live_folder=str(tmp_path), microscope='LS850T'),
-            simulate=True,
-            io_executor=io,
-            camera_executor=camera,
-        )
-        try:
-            assert time.monotonic() - t0 < 10.0
-            assert s.scope.imaging.is_streaming()
-        finally:
-            s.shutdown()

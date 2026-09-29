@@ -95,7 +95,9 @@ class TestLEDListener:
         assert scope.illumination.get_led_state(scope.illumination.ch2color(0))['enabled']
 
     def test_listener_fires_from_multiple_threads(self, scope):
-        """Listeners fire correctly regardless of which thread calls led_on."""
+        """Listeners fire for every caller, whichever thread calls led_on.
+
+        The command runs on the scope's io lane, so that is where they fire."""
         events = []
         lock = threading.Lock()
 
@@ -115,9 +117,7 @@ class TestLEDListener:
         t1.join()
         t2.join()
 
-        assert len(events) == 2
-        assert 'thread-A' in events
-        assert 'thread-B' in events
+        assert events == [scope.io_lane().executor_name] * 2
 
 
 # ---------------------------------------------------------------------------

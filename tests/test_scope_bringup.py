@@ -1,22 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Scope bring-up is session-owned: construction services the scope.
 
-A new Lumascope needs two service registrations (executors, protocol
-source path) before it behaves like the application's
-scope: without executors every *_async dispatch falls back to INLINE
-execution on the calling thread, losing per-lane serialization and the
-protocol fence. Bring-up used to be open-coded at three sites (GUI
-startup, both session factories) and absent at the fourth (reconnect);
-now ScopeSession registers the services in __init__, so a scope the
-session drives can never be left service-less.
+A scope builds its own IO and CAMERA lanes, so it dispatches on them
+whoever holds it; the session registers the rest of its services (the
+camera override key, the protocol source path) in __init__, so a scope
+the session drives can never be left service-less.
 
-The INVARIANT pins (real sim scope + recording executors) assert the
-harm itself cannot recur: after construction, dispatch lands ON the
-session's executor instead of running inline.
+The INVARIANT pins (real sim scope + recording lanes) assert that a
+session composed around a scope leaves its dispatch on the scope's lane.
 
-Also pinned: shutdown()
-ownership (owns_executors, not bundle-presence, decides teardown
-scope).
+Also pinned: shutdown() ownership (owns_scope decides the hardware
+teardown; the bundle the session holds always stops).
 """
 
 from unittest.mock import MagicMock
@@ -26,7 +20,7 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope, spec_scope
+from tests.scope_fakes import build_scope, spec_scope, swap_lanes
 from tests.test_scope_api import _RecordingExecutor
 
 
@@ -34,8 +28,7 @@ def _make_spec_session(**kwargs):
     defaults = {
         'settings': {},
         'scope': spec_scope(),
-        'io_executor': MagicMock(),
-        'camera_executor': MagicMock(),
+        'executor_bundle': MagicMock(),
     }
     defaults.update(kwargs)
     return ScopeSession(**defaults)
@@ -83,19 +76,13 @@ class TestDispatchInvariant:
     def test_construction_services_the_scope_for_dispatch(self):
         io_ex = _real_executor('BRINGUP_IO2')
         cam_ex = _real_executor('BRINGUP_CAM2')
-        scope = _real_scope()  # bare: nothing pre-registered
-        ScopeSession(
-            settings={},
-            scope=scope,
-            io_executor=io_ex,
-            camera_executor=cam_ex,
-        )
+        scope = swap_lanes(_real_scope(), io=io_ex, camera=cam_ex)
+        ScopeSession(settings={}, scope=scope, executor_bundle=MagicMock())
 
         scope.motion.home('Z')
         assert io_ex.submitted, (
-            'a session-composed scope must dispatch through the session '
-            'executors from construction on; inline execution here means '
-            '__init__ did not service the scope'
+            "a session-composed scope must dispatch through the scope's own "
+            'lane; the session composing around it must not reroute it'
         )
 
 
@@ -105,12 +92,10 @@ class TestDispatchInvariant:
 
 
 class TestShutdownOwnership:
-    def test_host_injected_session_shutdown_leaves_the_bundle_alone(self):
-        # A host (the GUI) passes its bundle so the session can service
-        # scopes -- that must NOT hand the session teardown rights over
-        # the host's executor topology. The False path keeps today's
-        # documented contract: it still stops the handles the caller
-        # passed in (io, camera, AF thread) and nothing else.
+    def test_a_session_stops_the_bundle_it_holds_and_leaves_a_callers_scope(self):
+        # The bundle is the session's whoever built it: a caller that hands
+        # one to the constructor hands it over. The scope's lanes are the
+        # scope's, and a scope passed in is the caller's, so they run on.
         bundle = MagicMock()
         af = MagicMock()
         session = _make_spec_session(
@@ -119,23 +104,16 @@ class TestShutdownOwnership:
         )
         session.shutdown()
 
-        bundle.scope_display_thread.stop.assert_not_called()
-        bundle.protocol_thread.stop.assert_not_called()
-        bundle.io_executor.shutdown.assert_not_called()
-        bundle.camera_executor.shutdown.assert_not_called()
-        bundle.file_io_executor.shutdown.assert_not_called()
-        bundle.worker_pool.shutdown.assert_not_called()
-
-        session.io_executor.shutdown.assert_called_once()
-        session.camera_executor.shutdown.assert_called_once()
+        bundle.shutdown.assert_called_once()
         af.stop.assert_called_once()
+        session.scope.io_lane.return_value.shutdown.assert_not_called()
+        session.scope.camera_lane.return_value.shutdown.assert_not_called()
+        session.scope.disconnect.assert_not_called()
 
     def test_factory_session_shutdown_still_tears_down_its_bundle(self):
-        # Green before the owns_executors change BY DESIGN: this pins
-        # the True side -- a factory that forgot owns_executors=True
-        # (or a flipped default) would leak the bundle's threads on
-        # every headless session, and nothing else in the suite
-        # asserts this teardown.
+        # A factory-built session stops everything it built: the bundle's
+        # threads and, through the scope's disconnect, the scope's lanes.
+        # Nothing else in the suite asserts this teardown.
         session = ScopeSession.create(complete_settings(), simulate=True)
         bundle = session.executor_bundle
         session.shutdown()

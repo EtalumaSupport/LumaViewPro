@@ -702,7 +702,20 @@ class SequentialIOExecutor:
         key is the one way past that: the composition root keeps it for the
         named overrides, so a caller holding this executor cannot mark its
         own work as one.
+
+        A lane asks one claim for its life. A second session composed over
+        the same scope would otherwise re-point the lane at its own claim,
+        and the first session's run and diagnostic fences would stop being
+        enforced with nothing said.
+
+        Raises:
+            RuntimeError: this lane already asks a claim.
         """
+        if self._claim is not None:
+            raise RuntimeError(
+                f'{self.executor_name}: already asks an activity claim -- a second '
+                'session over the same scope would take the lane from the first'
+            )
         self._claim = claim
         self._override_key = object()
         return self._override_key
@@ -827,6 +840,8 @@ class SequentialIOExecutor:
                 else None
             )
         if fut is None:
+            if self.pending_shutdown:
+                raise HardwareCommandRefusedError('scope_disconnected', member)
             holder = self._claim.holder if self._claim is not None else None
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', member, holder.kind if holder is not None else None
@@ -907,8 +922,10 @@ class SequentialIOExecutor:
     def accepts_work(self) -> bool:
         """Whether a task submitted to ``put`` right now would be queued.
 
-        ``put`` drops silently -- returns None -- in two unrelated states: the
-        executor was disabled outright, and a protocol fenced it. A caller that
+        ``put`` drops silently -- returns None -- in three unrelated states: the
+        lane was shut down, the executor was disabled outright, and a protocol
+        fenced it. A shut lane has no worker left to drain its queue, so work
+        accepted there would wait out its caller's whole timeout. A caller that
         must know BEFORE submitting asks this instead of re-deriving the two
         conditions, because a second copy of them drifts from the ones ``put``
         actually enforces, and the drift is invisible -- the task is dropped and
@@ -918,7 +935,7 @@ class SequentialIOExecutor:
         Does NOT describe ``protocol_put``, whose fence runs the other way: it
         requires a protocol to be running and drops when none is.
         """
-        if self._disable:
+        if self.pending_shutdown or self._disable:
             return False
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
@@ -932,7 +949,8 @@ class SequentialIOExecutor:
 
         - return_future True, enqueued: the task's waiter (await its result).
         - return_future False, enqueued: ENQUEUED.
-        - executor disabled or fenced by a running protocol: None (dropped).
+        - lane shut down, executor disabled or fenced by a running protocol:
+          None (dropped).
         - droppable_live task over the in-flight cap: LIVE_FRAME_DROPPED.
         - the scope is held and the task is not the holder's: the refusal
           (a waiter already carrying it, when return_future).
@@ -950,13 +968,13 @@ class SequentialIOExecutor:
             # accepts_work stays the single written-down copy of the gate; the
             # flag is read again only to attribute the cause, not to re-derive
             # the condition.
-            return self._refuse_submit(
-                _LANE_DEFAULT,
-                'the executor is disabled'
-                if self._disable
-                else 'a protocol run has this lane fenced',
-                task,
-            )
+            if self.pending_shutdown:
+                cause = 'the lane is shut down'
+            elif self._disable:
+                cause = 'the executor is disabled'
+            else:
+                cause = 'a protocol run has this lane fenced'
+            return self._refuse_submit(_LANE_DEFAULT, cause, task)
         refusal = self._claim_refusal(task)
         if refusal is not None:
             return self._refused_at_submit(task, refusal, return_future)
