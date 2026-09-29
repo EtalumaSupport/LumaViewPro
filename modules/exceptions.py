@@ -679,7 +679,7 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
 
 
 class CameraSettingOutOfRangeError(Refusal, ValueError):
-    """A gain or exposure outside the range this camera declares was asked for.
+    """A camera setting outside the range this camera declares was asked for.
 
     Declined before anything reaches the camera, the same on every camera: a
     body that would refuse the value and a body that would silently clamp it
@@ -690,7 +690,8 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
-        setting: Machine-readable setting name ('gain_db', 'exposure_ms').
+        setting: Machine-readable setting name ('gain_db', 'exposure_ms',
+            'frame_width', 'frame_height').
         requested: The value asked for.
         minimum: The camera's declared floor, or None when it declares none
             (an undeclared floor is not checked).

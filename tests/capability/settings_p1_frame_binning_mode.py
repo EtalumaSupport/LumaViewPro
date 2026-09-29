@@ -33,16 +33,18 @@ try:
     print('frame_size_cached     :', im.frame_size_cached)
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
+    from modules.exceptions import CameraSettingOutOfRangeError
+
     try:
         out = im.set_frame_size(13414, 13414)
         print('set_frame_size(13414,13414) RETURNED:', out)
-        _common.void(
+        _common.check(
             '13414 refused (not silently clamped)',
             False,
             f'clamped to {out} and returned as delivered -- no raise',
         )
-    except Exception as e:
-        _common.void('13414 refused', True, f'{type(e).__name__}: {e}')
+    except CameraSettingOutOfRangeError as e:
+        _common.check('13414 refused (not silently clamped)', True, str(e))
     print('after oversize, read-back:', im.get_width(), im.get_height())
 
     # --- frame size, zero / negative ------------------------------------

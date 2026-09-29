@@ -1755,32 +1755,34 @@ class ScopeSession:
             held = imaging.frame_size_cached
             self.settings['frame']['width'] = int(held['width'])
             self.settings['frame']['height'] = int(held['height'])
-        return self._apply_frame(native, size)
+        return self._apply_frame(native, self._target_frame(native, size))
 
     def set_frame_size(self, width: int, height: int) -> 'dict | None':
         """Frame the camera at ``width`` x ``height`` at the stored binning, and store it.
 
         The one writer of the frame for every host. The size is what the
         person sees and captures (post-binning); the unbinned region it
-        implies is stored beside it, capped at the sensor. A size the camera
-        already delivers is not written again.
+        implies is stored beside it. A size the camera already delivers is
+        not written again.
 
         Returns:
             The frame the camera delivers, which may differ from the request
-            (the camera's grid, its minimum). None when no camera is
-            connected; nothing is stored.
+            by the camera's grid. None when no camera is connected; nothing
+            is stored.
 
         Raises:
+            CameraSettingOutOfRangeError: The size, floored to the camera's
+                grid, is below the camera's minimum frame or above its sensor
+                at the stored binning. Nothing is stored.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 stored.
         """
         factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
-        typed = {'width': int(width), 'height': int(height)}
-        native_max = self.scope.imaging.get_native_resolution() or {
-            'width': typed['width'] * factor,
-            'height': typed['height'] * factor,
-        }
-        return self._apply_frame(binning.displayed_to_native(typed, factor, native_max), factor)
+        native = {'width': int(width) * factor, 'height': int(height) * factor}
+        target = binning.native_to_displayed(
+            native, factor, self.scope.imaging.get_pixel_alignment()
+        )
+        return self._apply_frame(native, target)
 
     def frame_at_binning(self, size: int) -> dict:
         """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
@@ -1822,12 +1824,14 @@ class ScopeSession:
         return native
 
     def _target_frame(self, native: dict, factor: int) -> dict:
-        """The displayed frame ``native`` gives at ``factor``.
+        """The displayed frame a stored ``native`` region gives at a new ``factor``.
 
         The region divided by the binning and floored to the camera's grid,
         so it follows from the region alone. It is raised to the camera's
         minimum: a Pylon camera floors only to its maximum and refuses a
-        smaller request outright.
+        smaller request outright, and no one asked for this frame -- a
+        binning change derives it, so there is no request to refuse. A frame
+        a person asks for is refused out of range instead (``set_frame_size``).
         """
         imaging = self.scope.imaging
         target = binning.native_to_displayed(native, factor, imaging.get_pixel_alignment())
@@ -1839,10 +1843,9 @@ class ScopeSession:
             }
         return target
 
-    def _apply_frame(self, native: dict, factor: int) -> 'dict | None':
-        """Apply the frame ``native`` gives at ``factor``, then store both."""
+    def _apply_frame(self, native: dict, target: dict) -> 'dict | None':
+        """Apply the displayed ``target``, then store it and the ``native`` region it came from."""
         imaging = self.scope.imaging
-        target = self._target_frame(native, factor)
         if target == imaging.frame_size_cached:
             delivered = target
         else:

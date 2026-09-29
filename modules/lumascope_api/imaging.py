@@ -1583,9 +1583,25 @@ class ImagingAPI:
         large-frame resize is a slow write).
 
         Raises:
+            CameraSettingOutOfRangeError: A width or height below the
+                camera's minimum frame, or above its sensor at the current
+                binning. Nothing reaches the camera; an undeclared end is not
+                checked.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
         """
+        minimum = self.min_frame_size_cached
+        sensor = self.get_native_resolution()
+        factor = self._binning_size
+        for axis, value in (('width', w), ('height', h)):
+            self._refuse_out_of_range(
+                f'frame_{axis}',
+                value,
+                minimum[axis] if minimum else None,
+                sensor[axis] // factor if sensor else None,
+                noun=f'frame {axis}',
+                unit='px',
+            )
         return self._dispatch_camera(
             self._set_frame_size_impl,
             'set_frame_size',
