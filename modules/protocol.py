@@ -642,11 +642,12 @@ class Protocol:
             if obj not in valid_objectives:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
-            # Exposure -- 0 is valid (blank/placeholder steps)
+            # Exposure -- no camera takes 0 ms; the camera's own floor is
+            # checked when the run is prepared, against the connected body.
             try:
                 exposure = float(step.get('Exposure', 0))
-                if exposure < 0:
-                    errors.append(f'{label}: Exposure must be >= 0, got {exposure}')
+                if exposure <= 0:
+                    errors.append(f'{label}: Exposure must be more than 0 ms, got {exposure}')
             except (ValueError, TypeError):
                 errors.append(f'{label}: Exposure is not a valid number')
 

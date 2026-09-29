@@ -1672,12 +1672,11 @@ class TestProtocolValidation:
         errors = proto.validate_steps()
         assert any('Exposure' in e for e in errors)
 
-    def test_zero_exposure_valid(self):
-        """Zero exposure is valid (placeholder steps)."""
+    def test_zero_exposure_rejected(self):
+        """No camera takes 0 ms."""
         proto = _build_protocol([_make_step(exposure=0.0)])
         errors = proto.validate_steps()
-        exp_errors = [e for e in errors if 'Exposure' in e]
-        assert exp_errors == []
+        assert any('Exposure' in e for e in errors)
 
     def test_negative_gain_rejected(self):
         proto = _build_protocol([_make_step(gain=-1.0)])

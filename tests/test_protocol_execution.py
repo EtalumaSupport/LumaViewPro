@@ -1556,10 +1556,12 @@ class TestDisconnectedScope:
 
 
 class TestZeroExposure:
-    """Zero exposure -- tests floor behavior in timing paths."""
+    """Near-zero exposure -- tests floor behavior in timing paths. A 0 ms
+    step is refused at validation, so the smallest step a camera without a
+    declared floor takes stands in for it."""
 
     def test_zero_exposure_completes(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='BF', exposure=0.0)
+        protocol = _make_single_step_protocol(color='BF', exposure=0.001)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 

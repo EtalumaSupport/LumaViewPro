@@ -179,15 +179,17 @@ class TestValidateObjective:
 
 
 class TestValidateExposure:
-    def test_zero_exposure_is_valid(self):
-        """Exposure=0 is allowed for blank/placeholder steps."""
+    def test_zero_exposure_is_refused(self):
+        """No camera takes 0 ms, so a 0 ms step is refused here rather than
+        called valid and refused later by the run."""
         p = _make_protocol([_valid_step(Exposure=0)])
-        assert p.validate_steps() == []
+        errors = p.validate_steps()
+        assert any('Exposure must be more than 0 ms' in e for e in errors)
 
     def test_negative_exposure(self):
         p = _make_protocol([_valid_step(Exposure=-10)])
         errors = p.validate_steps()
-        assert any('Exposure must be >= 0' in e for e in errors)
+        assert any('Exposure must be more than 0 ms' in e for e in errors)
 
     def test_valid_exposure(self):
         p = _make_protocol([_valid_step(Exposure=100.5)])
