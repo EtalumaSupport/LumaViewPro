@@ -110,6 +110,16 @@ class StallWatch:
         self._last_value = None
         self._last_change_ts: float | None = None
 
+    def raise_threshold(self, threshold_s: float) -> None:
+        """Lengthen the threshold to ``threshold_s``; a shorter one is ignored.
+
+        For a feed whose frame interval can grow while it is watched (an
+        exposure raised mid-recording). Never shortened: a frame already
+        exposing at the longer interval can still arrive that late, and a
+        dead feed caught later is better than a live one stopped.
+        """
+        self._threshold_s = max(self._threshold_s, threshold_s)
+
     def stalled(self, progress_value, now: float) -> bool:
         """True when ``progress_value`` has not changed for the threshold."""
         if self._last_change_ts is None or progress_value != self._last_value:

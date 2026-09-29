@@ -46,6 +46,11 @@ class _FakeImaging:
         self._binning_size = 1
 
     @property
+    def longest_exposure_ms(self):
+        # No auto-gain arm in this fake: the exposure in force is the cache.
+        return self.exposure_ms_cached
+
+    @property
     def frame_size_cached(self):
         return dict(self._frame_size)
 
@@ -1016,6 +1021,32 @@ class TestFeedLossDetection:
             next((controller.save_folder).glob('recording_manifest.json')).read_text()
         )
         assert manifest['end_reason'] == 'camera_stalled'
+
+    def test_an_exposure_raised_mid_recording_is_not_a_dead_feed(self, tmp_path, monkeypatch):
+        controller, scope, clock, _notify = self._recording_controller(tmp_path, monkeypatch)
+        # Started at 100 ms: the bound is the 5 s floor. Raised to 8 s, the
+        # next frame is 8 s away; judged by the start exposure, the live
+        # feed would be stopped as dead at 5 s.
+        scope.imaging.exposure_ms_cached = 8000.0
+        controller._scheduler.fire()
+        clock.advance(7.5)
+        controller._scheduler.fire()
+        assert controller.is_recording, 'a longer exposure was taken for a dead feed'
+        feed_frames(scope, clock, 1, fps=1 / 8.0)
+        controller._scheduler.fire()
+        assert controller.is_recording
+        controller.stop()
+        finish(controller)
+
+    def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, monkeypatch):
+        controller, scope, clock, _notify = self._recording_controller(tmp_path, monkeypatch)
+        scope.imaging.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
+        controller._scheduler.fire()
+        clock.advance(8.5)
+        controller._scheduler.fire()
+        assert not controller.is_recording
+        finish(controller)
+        assert controller.end_reason == 'camera_stalled'
 
     def test_disconnect_stops_immediately_without_waiting_for_the_threshold(
         self, tmp_path, monkeypatch

@@ -260,3 +260,22 @@ class TestTheSessionConfiguration:
         assert refused.value.holder == 'recording'
         assert sim_session.scope.runtime_state.get_current_objective_id() == current
         assert sim_session.settings['turret_objectives'] == turret_before
+
+
+_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0}
+
+
+class TestTheLongestExposure:
+    """Exposure and gain stay open during a recording, so its feed-death bound
+    reads the longest exposure the camera may be using, not the start value."""
+
+    def test_it_is_the_cached_exposure_with_no_auto_gain_armed(self, sim_session):
+        imaging = sim_session.scope.imaging
+        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
+
+    def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(self, sim_session):
+        imaging = sim_session.scope.imaging
+        imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
+        assert imaging.longest_exposure_ms == 150.0
+        imaging.set_auto_gain(False, dict(_AUTO_GAIN))
+        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached

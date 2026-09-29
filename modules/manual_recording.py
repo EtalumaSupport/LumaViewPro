@@ -145,6 +145,7 @@ class ManualRecordingController:
         self._writer: VideoWriter | None = None
         self._start_ts: float | None = None
         self._stall_watch: StallWatch | None = None
+        self._effective_fps: float | None = None
         self._rebaser: CameraTickRebaser | None = None
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
@@ -454,7 +455,8 @@ class ManualRecordingController:
                 self._plan = plan
                 self._writer = writer
                 self._start_ts = self._clock()
-                self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
+                self._effective_fps = effective_fps
+                self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
                 self._rebaser = CameraTickRebaser(
                     identity['timestamp_tick_frequency_hz'], self._clock
                 )
@@ -585,6 +587,7 @@ class ManualRecordingController:
             config = self._config
             start_ts = self._start_ts
             stall_watch = self._stall_watch
+            effective_fps = self._effective_fps
         if engine is None or not engine.is_recording or start_ts is None or config is None:
             return
         if self._clock() - start_ts >= config.duration_s:
@@ -593,8 +596,18 @@ class ManualRecordingController:
         if not self._scope.imaging.active_cached:
             self._stop_for_camera_loss(reason='camera_disconnected')
             return
-        if stall_watch is not None and stall_watch.stalled(engine.frames_selected, self._clock()):
+        if stall_watch is None:
+            return
+        # Exposure and gain stay open during a recording, so the interval
+        # between frames can grow after start: the bound follows it.
+        stall_watch.raise_threshold(self._stall_threshold_now(effective_fps))
+        if stall_watch.stalled(engine.frames_selected, self._clock()):
             self._stop_for_camera_loss(reason='camera_stalled')
+
+    def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
+        """The feed-death bound for the longest exposure the camera may be using now."""
+        exposure_ms = max(floor_ms, self._scope.imaging.longest_exposure_ms or 0.0)
+        return stall_threshold_s(effective_fps, exposure_ms / 1000.0)
 
     def _disarm_health_check(self) -> None:
         handle = self._health_handle

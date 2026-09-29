@@ -1117,6 +1117,13 @@ scope.imaging.exposure_ms_cached
 scope.imaging.pixel_format_cached
 scope.imaging.min_frame_size_cached                # dict, or None when no camera is connected
 
+# The longest exposure the camera may be using now (ms), no driver I/O: the
+# armed auto-gain's exposure ceiling while continuous auto-gain is on (the
+# sensor maximum when it was given none), else exposure_ms_cached. Bound a
+# wait for the next frame by this, not by the cache, which holds the value
+# from before auto-gain was armed. None when neither is known.
+scope.imaging.longest_exposure_ms
+
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
 # skipped while the objective is unknown, with one warning each time it becomes unknown)
 scope.imaging.set_scale_bar(True, color='red')

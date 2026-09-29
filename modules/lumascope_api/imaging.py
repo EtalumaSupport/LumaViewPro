@@ -3502,6 +3502,28 @@ class ImagingAPI:
             return self._camera_cache['gain_db']
 
     @property
+    def longest_exposure_ms(self) -> float | None:
+        """The longest exposure the camera may be using now, in ms.
+
+        While continuous auto-gain is armed the camera picks its own
+        exposure up to the ceiling the arm was given (the sensor maximum
+        when it was given none), and the cached exposure is the value from
+        before the arm; otherwise the cached exposure is the one in force.
+        A consumer bounding how long a frame may take -- a feed-death
+        watch -- needs the former, not the cache.
+
+        Returns:
+            float | None: The bound in ms; None when the arm has no ceiling
+                and no camera reports a maximum.
+        """
+        with self._state_lock:
+            arm = self._auto_gain_arm
+        if arm is None:
+            return self.exposure_ms_cached
+        ceiling = arm.settings.get('max_exposure_ms')
+        return float(ceiling) if ceiling else self.max_exposure_ms_cached
+
+    @property
     def exposure_ms_cached(self) -> float:
         """Current camera exposure time in ms (reads cache).
 
