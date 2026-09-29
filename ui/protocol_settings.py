@@ -544,16 +544,12 @@ class ProtocolSettings(FloatLayout):
             selected = labware
 
         if selected:
-            try:
-                ctx.session.select_labware(selected)
-            except exceptions.ConfigError as e:
-                # Every value the spinner offers comes from the loader's own
-                # plate list, so a pick cannot land here; what can is a stored
-                # or supplied name the catalogue no longer has. Both stores
-                # keep the plate they had, and the tail below still renders
-                # that plate -- the panel must not be left describing a
-                # selection the scope did not take.
-                logger.error(f'[LVP Main  ] Labware selection refused: {e}')
+            # A refusal -- a plate change while a recording still holds the
+            # scope, or a stored name the catalogue no longer has -- leaves
+            # both stores on the plate they had, and the tail below renders
+            # that plate, so the panel is never left describing a selection
+            # the scope did not take.
+            run_reported(lambda: ctx.session.select_labware(selected), None, 'LABWARE')
 
         labware_id, labware_obj = get_selected_labware()
 

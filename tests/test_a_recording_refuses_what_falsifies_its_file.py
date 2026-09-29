@@ -295,3 +295,46 @@ class TestReselectingThePlateInPlace:
         finally:
             held.release()
         assert sim_session.settings['protocol']['labware'] == current
+
+
+class TestTheLabwarePanelReportsARefusal:
+    """A plate picked while a recording still holds the scope (its drain, when
+    the GUI's controls are free again) is refused at the API; the panel shows
+    that once, through the one reporter, and renders the plate in place."""
+
+    def test_a_refused_pick_is_shown_once_and_the_panel_carries_on(self, monkeypatch):
+        import types
+
+        import modules.app_context as _app_ctx
+        import ui.protocol_settings as protocol_settings_module
+        from tests.shown_outcomes import capture_shown
+
+        shown = capture_shown(monkeypatch)
+        redrawn = []
+
+        def _refuse(name):
+            raise HardwareCommandRefusedError(
+                'exclusive_activity_running', 'select_labware', 'recording'
+            )
+
+        monkeypatch.setattr(
+            _app_ctx,
+            'ctx',
+            types.SimpleNamespace(
+                wellplate_loader=types.SimpleNamespace(get_plate_list=lambda: ['A', 'B']),
+                session=types.SimpleNamespace(select_labware=_refuse),
+                stage=types.SimpleNamespace(full_redraw=lambda: redrawn.append('stage')),
+            ),
+        )
+        monkeypatch.setattr(
+            protocol_settings_module, 'get_selected_labware', lambda: ('A', object())
+        )
+        panel = types.SimpleNamespace(
+            ids={'labware_spinner': types.SimpleNamespace(text='B', values=[])},
+            _protocol=None,
+        )
+
+        protocol_settings_module.ProtocolSettings.select_labware(panel)
+
+        assert [n.title for n in shown] == ['Microscope Busy']
+        assert redrawn == ['stage'], 'the panel must still render the plate in place'
