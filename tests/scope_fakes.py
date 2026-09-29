@@ -55,6 +55,13 @@ from __future__ import annotations
 from unittest.mock import create_autospec
 
 
+#: Every scope `build_scope` has made and no test teardown has disconnected
+#: yet, oldest first. The autouse fixture in `conftest.py` disconnects the ones
+#: a test built when it ends; a scope a module-scoped fixture built before the
+#: test began is that fixture's to disconnect.
+_BUILT_SCOPES: list = []
+
+
 def build_scope(**kwargs):
     """A `Lumascope` for a test: the one place a test constructs one.
 
@@ -62,11 +69,28 @@ def build_scope(**kwargs):
     its own, rather than a session's, builds it here, so what every such
     scope is built with changes in one place.
 
-    The caller owns disconnecting it.
+    The test's teardown disconnects it, which stops the threads it runs;
+    a test may disconnect it earlier itself, since disconnect repeats
+    safely.
     """
     from modules.lumascope_api import Lumascope
 
-    return Lumascope(**kwargs)
+    scope = Lumascope(**kwargs)
+    _BUILT_SCOPES.append(scope)
+    return scope
+
+
+def scopes_built() -> int:
+    """How many scopes are waiting on a teardown: the mark a test starts at."""
+    return len(_BUILT_SCOPES)
+
+
+def disconnect_scopes_built_since(mark: int) -> None:
+    """Disconnect every scope `build_scope` made after ``mark``."""
+    built = _BUILT_SCOPES[mark:]
+    del _BUILT_SCOPES[mark:]
+    for scope in built:
+        scope.disconnect()
 
 
 def build_real_sim_scope():
@@ -75,7 +99,8 @@ def build_real_sim_scope():
     Production defaults are kept (`register_atexit` left on) so the spec
     covers everything a production caller can reach.
 
-    The caller owns disconnecting it. `spec_scope()` does that for you.
+    The test's teardown disconnects it; `spec_scope()` disconnects its own
+    at once.
     """
     return build_scope(simulate=True)
 
@@ -97,7 +122,7 @@ def homed_sim_scope():
     this does, and paying it once per test would cost minutes of suite
     time. The scope's timing mode is left exactly as constructed.
 
-    The caller owns disconnecting it.
+    The test's teardown disconnects it.
     """
     return home_sim_scope(build_real_sim_scope())
 

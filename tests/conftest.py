@@ -303,6 +303,22 @@ def _fresh_notification_dedup():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _disconnect_the_scopes_a_test_built():
+    """Each scope a test built through `build_scope` is disconnected when the test ends.
+
+    A scope runs threads of its own until it is disconnected, so a suite of
+    tests that each leave one behind accumulates them in every worker. A
+    module-scoped fixture's scope was built before this mark and is left to
+    the fixture.
+    """
+    from tests.scope_fakes import disconnect_scopes_built_since, scopes_built
+
+    mark = scopes_built()
+    yield
+    disconnect_scopes_built_since(mark)
+
+
 @pytest.fixture
 def diagnostic_scope():
     """Lumascope.create_diagnostic() with each board connect answered by its

@@ -225,12 +225,14 @@ class TestAccelerationBound:
 
 
 def _make_scope_with_no_hardware():
-    """Sim scope, strip drivers to Null* / no camera, flip `_simulated`
+    """Sim scope, disconnected -- which leaves the Null* drivers and no
+    camera, and frees the simulated boards -- with `_simulated` flipped
     off so the early-return doesn't fire."""
     scope = build_scope(simulate=True)
-    scope._led_driver = NullLEDBoard()
-    scope._motion_driver = NullMotionBoard()
-    scope._camera_driver = None
+    scope.disconnect()
+    assert isinstance(scope._led_driver, NullLEDBoard)
+    assert isinstance(scope._motion_driver, NullMotionBoard)
+    assert scope._camera_driver is None
     scope._simulated = False
     return scope
 
@@ -308,7 +310,12 @@ class TestNotifyPartialHardware:
         and the OR short-circuits to a false-positive missing-Camera."""
         scope = _make_scope_with_no_hardware()
         scope._led_driver = object()
-        scope._motion_driver = object()
+
+        class _ConnectedMotor:
+            def is_connected(self):
+                return True
+
+        scope._motion_driver = _ConnectedMotor()
 
         class _ActiveCam:
             active = True
