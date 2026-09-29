@@ -31,11 +31,20 @@ class TestPylon:
     @pytest.fixture
     def cam(self):
         cam = bare_pylon_camera()
-        cam.active.Gain.GetValue.return_value = 0.0
+        gain = cam.active.Gain
+        gain.GetValue.return_value = 0.0
+        gain.SetValue.side_effect = lambda v: setattr(gain.GetValue, 'return_value', v)
         return cam
 
     def test_a_written_gain_answers_its_db(self, cam):
         assert cam.gain(12.5) == pytest.approx(12.5)
+
+    def test_a_gain_the_node_snaps_answers_the_snapped_db(self, cam):
+        """Bodies with a Gain increment snap an off-increment request; the
+        answer is what the node reads back, not the request."""
+        gain = cam.active.Gain
+        gain.SetValue.side_effect = lambda v: setattr(gain.GetValue, 'return_value', 12.4)
+        assert cam.gain(12.5) == pytest.approx(12.4)
 
     def test_a_short_circuited_gain_answers_the_db_in_effect(self, cam):
         cam.active.Gain.GetValue.return_value = 12.5

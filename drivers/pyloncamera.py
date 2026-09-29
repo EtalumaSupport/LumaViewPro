@@ -3110,8 +3110,12 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
-            _log_cam('debug', f'[CAM Class ] Gain set to {value}')
-            return float(value)
+            # Read back rather than echo the request: bodies with a Gain
+            # increment snap an off-increment value, and the caller records
+            # this answer as the gain in effect.
+            applied = float(self.active.Gain.GetValue())
+            _log_cam('debug', f'[CAM Class ] Gain set to {applied} (requested {value})')
+            return applied
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')

@@ -51,10 +51,14 @@ def pylon_cam():
     """A real PylonCamera over a fake SDK handle, at a known gain.
 
     ``Gain.GetValue`` answers 0.0 so a request for any other value takes the
-    write path rather than the short-circuit.
+    write path rather than the short-circuit. A completed ``SetValue`` moves
+    what ``GetValue`` answers, as the node does, because the driver reads the
+    gain back after writing it.
     """
     cam = bare_pylon_camera()
-    cam.active.Gain.GetValue.return_value = 0.0
+    gain = cam.active.Gain
+    gain.GetValue.return_value = 0.0
+    gain.SetValue.side_effect = lambda v: setattr(gain.GetValue, 'return_value', v)
     # frame_validity reads frames_delivered on every invalidate, which reads
     # cam_image_handler. None is the documented never-streamed state and
     # answers 0 -- seeded here rather than in the shared bare_pylon_camera so
