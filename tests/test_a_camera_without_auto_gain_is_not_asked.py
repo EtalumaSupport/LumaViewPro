@@ -15,6 +15,7 @@ or to set that mode's target, is refused and says the camera has no such
 mode.
 """
 
+import logging
 import threading
 
 import pytest
@@ -24,7 +25,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingUnsupportedError
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import answer_auto_gain_like_the_api, give_stub_lanes
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -200,3 +201,68 @@ class TestARun:
         assert result is not None and result.status == 'completed', result
         assert asked == []
         assert reported == [], [str(exc) for exc, _ in reported]
+
+
+class _ApiLog(logging.Handler):
+    """The api.log records ('LVP.api' is a plain stdlib logger)."""
+
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_imaging):
+    collector = _ApiLog()
+    api_log = logging.getLogger('LVP.api')
+    # It inherits root's WARNING, which drops the INFO line before any handler.
+    previous_level = api_log.level
+    api_log.setLevel(logging.INFO)
+    api_log.addHandler(collector)
+    try:
+        ag_less_imaging.apply_layer_camera_settings(
+            gain_db=5.0,
+            exposure_ms=10.0,
+            auto_gain=True,
+            auto_gain_settings=AG_SETTINGS,
+            layer='BF',
+        )
+    finally:
+        api_log.removeHandler(collector)
+        api_log.setLevel(previous_level)
+
+    (line,) = [m for m in collector.messages if m.startswith('apply_layer_camera_settings')]
+    assert 'auto_gain=False' in line, line
+    assert 'capped(stored auto_gain=True: no hardware auto-gain)' in line, line
+
+
+def test_a_video_step_marked_auto_gain_records_manual_on_such_a_camera(tmp_path):
+    from tests.test_video_camera_lost_outcome import _make_recorder
+
+    recorder = _make_recorder(tmp_path, {'t': 1000.0})
+    recorder._autogain_settings = dict(AG_SETTINGS)
+    answer_auto_gain_like_the_api(recorder._scope.imaging, has_auto_gain=False)
+
+    recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True})
+
+    recorder._scope.imaging.set_auto_gain.assert_not_called()
+    recorder._scope.imaging.auto_gain_once.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    'call',
+    [
+        lambda cam: cam.auto_exposure_t(True),
+        lambda cam: cam.auto_gain(False),
+        lambda cam: cam.auto_gain_once(True),
+        lambda cam: cam.update_auto_gain_target_brightness(0.5),
+        lambda cam: cam.update_auto_gain_min_max(0.0, 20.0),
+    ],
+)
+def test_the_ids_driver_raises_rather_than_answer_for_a_write_it_never_made(call):
+    from tests.camera_fakes import bare_ids_camera
+
+    with pytest.raises(NotImplementedError, match='no hardware auto-'):
+        call(bare_ids_camera())
