@@ -256,16 +256,27 @@ class ActivityClaim:
             self._on_transition()
         return held
 
-    def refusing_holder(self, taking: Taking | None) -> ActivityHolder | None:
+    def refusing_holder(
+        self, taking: Taking | None, *, falsifies_recording: bool = False
+    ) -> ActivityHolder | None:
         """The holder that refuses work made under ``taking``, or None.
 
         While a run or a diagnostic holds the scope, only work under its
         taking -- the HeldClaim, or a borrowing of it that has not ended --
         is the holder's. Anything else is refused, and the holder is named
         so the refusal can say who has the scope.
+
+        A recording refuses only work that would falsify the file it is
+        writing (``falsifies_recording``: the frame geometry, the pixel
+        format, the turret), whoever makes it -- the recording itself never
+        does. Everything else stays open to anyone during one.
         """
         holder = self._holder
-        if holder is None or holder.kind not in SCOPE_HOLDING_KINDS:
+        if holder is None:
+            return None
+        if holder.kind == 'recording':
+            return holder if falsifies_recording else None
+        if holder.kind not in SCOPE_HOLDING_KINDS:
             return None
         if taking is not None and taking.claim is self and taking.holds:
             return None

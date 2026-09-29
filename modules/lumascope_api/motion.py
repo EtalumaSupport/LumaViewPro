@@ -472,7 +472,7 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
-    def _submit_motion(self, action, name, *, wait_timeout):
+    def _submit_motion(self, action, name, *, wait_timeout, falsifies_recording=False):
         """Run one motion body on the io executor and wait up to ``wait_timeout`` seconds.
 
         With no executor registered the task runs on the calling thread --
@@ -487,7 +487,7 @@ class MotionAPI:
             enough to keep going -- can. None when the executor declined the
             task, which the caller reads as "did not run".
         """
-        task = IOTask(action=action)
+        task = IOTask(action=action, falsifies_recording=falsifies_recording)
         ex = self._scope._io_executor
         if ex is None:
             # run() renames the current thread to the task's name (normally
@@ -1219,6 +1219,16 @@ class MotionAPI:
         logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
         return None
 
+    def _home_moves_turret(self, action) -> bool:
+        """Whether the home body ``action`` moves the turret.
+
+        The whole-scope home homes every axis the board has, so it moves the
+        turret exactly when the scope has one.
+        """
+        if action == self._home_turret_impl:
+            return True
+        return action == self._home_impl and self._scope.capabilities.has_turret
+
     def move_home_and_wait(self, axis: str, *, timeout: float | None = None) -> bool:
         """Home an axis (or the whole scope) and report whether it worked.
 
@@ -1242,6 +1252,11 @@ class MotionAPI:
                 home are all False -- the caller's question is "can I
                 trust the reference frame", and the answer to all three
                 is no.
+
+        Raises:
+            HardwareCommandRefusedError: the lane refused the home: a run
+                or a diagnostic holds the scope, or a recording does and
+                this home moves the turret.
         """
         action = self._home_action_for(axis)
         if action is None:
@@ -1251,6 +1266,7 @@ class MotionAPI:
                 action,
                 'move_home_and_wait',
                 wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
+                falsifies_recording=self._home_moves_turret(action),
             )
             is True
         )
@@ -2069,7 +2085,15 @@ class MotionAPI:
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
     def _dispatch_motion(
-        self, impl, name, args=(), kwargs=None, *, timeout_s, slow_task_threshold_sec=None
+        self,
+        impl,
+        name,
+        args=(),
+        kwargs=None,
+        *,
+        timeout_s,
+        slow_task_threshold_sec=None,
+        falsifies_recording=False,
     ):
         """Run one motion command for an external caller, on the right thread.
 
@@ -2084,7 +2108,8 @@ class MotionAPI:
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
-        call is not made under its taking.
+        call is not made under its taking, or ``falsifies_recording`` is set
+        and a recording holds the scope.
 
         slow_task_threshold_sec declares how long this command may take
         before the elapsed-time WARNING means anything. Left None the task
@@ -2103,6 +2128,7 @@ class MotionAPI:
                 args=args,
                 kwargs=kwargs,
                 slow_task_threshold_sec=slow_task_threshold_sec,
+                falsifies_recording=falsifies_recording,
             ),
             name,
             timeout_s,
@@ -2188,6 +2214,9 @@ class MotionAPI:
             ValueError: on an unknown axis. A blocking member returning
                 bool must not turn a typo'd axis into a falsy return
                 indistinguishable from a real homing failure.
+            HardwareCommandRefusedError: a recording holds the scope and
+                this home moves the turret (``'T'``, or ``'ALL'`` on a
+                scope with one).
         """
         a = axis.upper()
         if a == 'Z':
@@ -2202,6 +2231,7 @@ class MotionAPI:
             impl,
             'home',
             timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
+            falsifies_recording=self._home_moves_turret(impl),
         )
 
     def move_turret(self, position: int, restore_z: bool = True) -> None:
@@ -2209,6 +2239,10 @@ class MotionAPI:
 
         The wait bound covers three physically-waited motions: the Z park,
         the turret move itself, and the Z restore.
+
+        Raises:
+            HardwareCommandRefusedError: a recording holds the scope: its
+                frames carry the pixel size of the objective it started with.
         """
         return self._dispatch_motion(
             self._move_turret_impl,
@@ -2216,6 +2250,7 @@ class MotionAPI:
             args=(position,),
             kwargs={'restore_z': restore_z},
             timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+            falsifies_recording=True,
         )
 
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:

@@ -317,8 +317,12 @@ class IOTask:
         silent_on_failure=False,
         droppable_live: bool = False,
         priority: int = PRIORITY_MED,
+        falsifies_recording: bool = False,
     ):
         self.action = action
+        # Set by the API member whose write would falsify a recording's
+        # file; the lane refuses such a task while a recording holds.
+        self.falsifies_recording = falsifies_recording
         self.priority = priority
         self._ui_dispatch = None  # Set by executor when task is dispatched
         # When True, _on_task_done skips the generic "Task failed"
@@ -693,7 +697,8 @@ class SequentialIOExecutor:
         While a run or a diagnostic holds the scope, a task that was not
         made under the holder's taking is refused -- at submit and again
         when the worker takes it off the queue -- with
-        ``HardwareCommandRefusedError``, whoever made it and however. The
+        ``HardwareCommandRefusedError``, whoever made it and however; while
+        a recording holds it, a task marked ``falsifies_recording`` is. The
         key is the one way past that: the composition root keeps it for the
         named overrides, so a caller holding this executor cannot mark its
         own work as one.
@@ -719,7 +724,9 @@ class SequentialIOExecutor:
         # would have wanted it is gone.
         if task.taking is not None and not task.taking.holds:
             return HardwareCommandRefusedError('activity_ended', who)
-        holder = self._claim.refusing_holder(task.taking)
+        holder = self._claim.refusing_holder(
+            task.taking, falsifies_recording=task.falsifies_recording
+        )
         if holder is None:
             if not door or task.taking is self._protocol_taking:
                 return None

@@ -1002,7 +1002,17 @@ class ImagingAPI:
     _CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S = 0.15
     _CAPTURE_DEADLINE_MARGIN = 1.5
 
-    def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s, override=False):
+    def _dispatch_camera(
+        self,
+        impl,
+        name,
+        args=(),
+        kwargs=None,
+        *,
+        timeout_s,
+        override=False,
+        falsifies_recording=False,
+    ):
         """Run one camera command for an external caller, on the right thread.
 
         Three outcomes. With no executor registered the body runs on the
@@ -1016,7 +1026,8 @@ class ImagingAPI:
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
-        call is not made under its taking.
+        call is not made under its taking, or ``falsifies_recording`` is set
+        and a recording holds the scope.
 
         Unlike the LED dispatcher there is no connected pre-check here: the
         camera slot holds None when no camera is present -- there is no Null
@@ -1032,7 +1043,10 @@ class ImagingAPI:
         if ex is None:
             return impl(*args, **kwargs)
         key = self._scope._camera_override_key if override else None
-        return ex.call(IOTask(action=impl, args=args, kwargs=kwargs), name, timeout_s, override=key)
+        task = IOTask(
+            action=impl, args=args, kwargs=kwargs, falsifies_recording=falsifies_recording
+        )
+        return ex.call(task, name, timeout_s, override=key)
 
     def set_gain_db(self, gain_db: float) -> bool | None:
         """Set the camera gain, and wait for it.
@@ -1381,12 +1395,17 @@ class ImagingAPI:
         and the rejection semantics; this adds only the dispatch
         described on ``_dispatch_camera``, on the geometry timeout (a
         large-frame resize is a slow write).
+
+        Raises:
+            HardwareCommandRefusedError: A recording holds the scope: its
+                frames are fitted to the geometry it started with.
         """
         return self._dispatch_camera(
             self._set_frame_size_impl,
             'set_frame_size',
             args=(w, h),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            falsifies_recording=True,
         )
 
     def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
@@ -1475,12 +1494,17 @@ class ImagingAPI:
         See ``_set_binning_size_impl`` for the apply/rejection contract;
         this adds only the dispatch described on ``_dispatch_camera``,
         on the geometry timeout (binning reallocates buffers).
+
+        Raises:
+            HardwareCommandRefusedError: A recording holds the scope: its
+                frames and their pixel size follow the binning it started with.
         """
         return self._dispatch_camera(
             self._set_binning_size_impl,
             'set_binning_size',
             args=(size,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            falsifies_recording=True,
         )
 
     def _set_binning_size_impl(self, size: int) -> bool:
@@ -1565,12 +1589,17 @@ class ImagingAPI:
         See ``_set_pixel_format_impl`` for the apply/rejection contract;
         this adds only the dispatch described on ``_dispatch_camera``,
         on the geometry timeout (a format change reallocates geometry).
+
+        Raises:
+            HardwareCommandRefusedError: A recording holds the scope: its
+                frames are written at the depth it started with.
         """
         return self._dispatch_camera(
             self._set_pixel_format_impl,
             'set_pixel_format',
             args=(pixel_format,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            falsifies_recording=True,
         )
 
     def _set_pixel_format_impl(self, pixel_format: str) -> bool:
