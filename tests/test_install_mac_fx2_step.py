@@ -2,9 +2,10 @@
 """``scripts/install_mac.sh``'s FX2 step runs the driver's own gate.
 
 The step's two functions are cut from the script and run in bash, with a
-stub ``brew`` first on PATH so nothing is ever installed. The real-driver
-case pins that the script calls names the driver actually has; the stub
-interpreter cases pin the three branches the gate's answer selects.
+stub ``brew`` first on PATH that records any call: the library comes from
+pip, so no case may reach Homebrew. The real-driver case pins that the
+script calls names the driver actually has; the stub interpreter cases pin
+that a not-ready gate is reported, not repaired, and an import failure aborts.
 """
 
 from __future__ import annotations
@@ -85,33 +86,18 @@ def test_the_step_prints_the_real_drivers_readiness_line(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().splitlines()[-1] == expected
+    assert _brew_calls(tmp_path) == []
 
 
-def test_a_missing_libusb_is_installed_through_homebrew(tmp_path):
+def test_a_not_ready_gate_is_reported_and_homebrew_is_never_called(tmp_path):
     python = tmp_path / 'fake_python'
-    _stub(
-        python,
-        'case "$2" in *fx2_readiness_line*) echo "FX2 line";; *) echo False;; esac\n',
-    )
-
-    result = _run_step(tmp_path, python)
-
-    assert result.returncode == 0, result.stderr
-    assert _brew_calls(tmp_path) == ['brew install libusb']
-    assert result.stdout.strip().splitlines()[-1] == 'FX2 line'
-
-
-def test_a_present_libusb_installs_nothing(tmp_path):
-    python = tmp_path / 'fake_python'
-    _stub(
-        python,
-        'case "$2" in *fx2_readiness_line*) echo "FX2 line";; *) echo True;; esac\n',
-    )
+    _stub(python, 'echo "FX2 (LS560/LS620/LS720) support: NOT ready -- libusb-package missing"\n')
 
     result = _run_step(tmp_path, python)
 
     assert result.returncode == 0, result.stderr
     assert _brew_calls(tmp_path) == []
+    assert result.stdout.strip().splitlines()[-1].endswith('libusb-package missing')
 
 
 def test_a_driver_that_fails_to_import_aborts_without_installing(tmp_path):

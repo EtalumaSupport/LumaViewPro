@@ -137,10 +137,7 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
 2. **Install camera SDK**
    - [Basler Pylon for macOS](https://docs.baslerweb.com/pylon-software-suite)
    - [IDS Peak for macOS](https://en.ids-imaging.com/ids-peak.html) (if using an IDS camera)
-   - For an LS560, LS620 or LS720, the native USB library (`scripts/install_mac.sh` does this for you):
-   ```bash
-   brew install libusb
-   ```
+   - For an LS560, LS620 or LS720, nothing extra: the USB library comes with the Python requirements.
 
 3. **Download LumaViewPro**
    ```bash

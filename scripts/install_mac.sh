@@ -12,9 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
-# FX2 scopes (LS560/LS620/LS720) need the native libusb-1.0, which pip
-# cannot install. The driver's own availability gate decides whether it
-# is loadable and reports the result, so the installer never guesses.
+# FX2 scopes (LS560/LS620/LS720) run on the libusb that requirements.txt
+# installs (libusb-package); nothing outside pip is needed. The driver's own
+# availability gate reports whether it loaded, so the installer never guesses.
 fx2_driver_py() {
     (cd "$PROJECT_DIR" && "$VENV_DIR/bin/python" -c "$1")
 }
@@ -23,17 +23,7 @@ setup_fx2_usb() {
     echo ""
     echo "Checking USB support for FX2 scopes (LS560/LS620/LS720)..."
     # A driver that fails to import aborts the install here (set -e) rather
-    # than reading as a missing libusb.
-    local libusb
-    libusb=$(fx2_driver_py 'from drivers.fx2driver import fx2_readiness; print(fx2_readiness()["libusb-package"])')
-    if [ "$libusb" != "True" ]; then
-        if command -v brew &>/dev/null; then
-            echo "Installing the native libusb through Homebrew..."
-            brew install libusb || echo "Warning: 'brew install libusb' failed; FX2 scopes will not connect until it is installed."
-        else
-            echo "Homebrew not found. To use an FX2 scope, install Homebrew (https://brew.sh), then run: brew install libusb"
-        fi
-    fi
+    # than printing a readiness line it could not compute.
     fx2_driver_py 'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
 }
 
@@ -67,15 +57,13 @@ if [ ${#FOUND[@]} -eq 0 ]; then
         else
             echo "Error: Python 3.$py_minor found, but LumaViewPro requires 3.12 or 3.13."
             echo "Install a supported version:"
-            echo "  brew install python@3.13"
-            echo "  or: https://www.python.org/downloads/macos/"
+            echo "  https://www.python.org/downloads/macos/"
             exit 1
         fi
     else
         echo "Error: No Python installation found."
         echo "Install Python 3.12+:"
-        echo "  brew install python@3.13"
-        echo "  or: https://www.python.org/downloads/macos/"
+        echo "  https://www.python.org/downloads/macos/"
         exit 1
     fi
 fi
