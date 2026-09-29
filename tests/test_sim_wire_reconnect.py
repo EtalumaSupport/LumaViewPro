@@ -115,7 +115,7 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S
         assert motion.axes_without_position() == {'X': 'unknown'}
-        assert errors == [('Motion', 'Motor board disconnected')]
+        assert errors == [('Motion', 'Motor Board Disconnected')]
     finally:
         session.shutdown()
 

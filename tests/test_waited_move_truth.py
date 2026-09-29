@@ -62,7 +62,7 @@ def test_a_stalled_waited_move_raises_and_the_axis_stays_unknown(session, monkey
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
-def test_a_board_lost_during_the_wait_raises_faulted(session, monkeypatch):
+def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     motion = session.scope.motion
     driver = motion._driver
     real_connected = driver.is_connected
@@ -77,7 +77,7 @@ def test_a_board_lost_during_the_wait_raises_faulted(session, monkeypatch):
         motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
 
     assert exc.value.axis == 'Z'
-    assert exc.value.reason == 'faulted'
+    assert exc.value.reason == 'board_lost'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 

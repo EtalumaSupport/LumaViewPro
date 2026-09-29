@@ -31,7 +31,7 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, NoReturn
 from collections.abc import Iterable, Iterator, Mapping
 
 from drivers.exceptions import HardwareError
@@ -170,6 +170,12 @@ class MotionAPI:
         # forever, while only explicit waiters carry their own timeout.
         # Only the monitor thread touches it.
         self._moving_since: dict[str, float] = {}
+        # The fault the monitor gave an axis up with, recorded BEFORE the
+        # UNKNOWN write that wakes a waiter, so the waiter raises the same
+        # object the monitor reported and the person is shown it once.
+        # Cleared when the axis is next driven and on disconnect, so a
+        # later wait never raises a stale one. Under _axis_state_lock.
+        self._axis_fault: dict[str, MoveNotCompletedError] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
@@ -268,6 +274,7 @@ class MotionAPI:
         with self._axis_state_lock:
             for ax in self._axis_state:
                 self._axis_state[ax] = AxisState.UNKNOWN
+            self._axis_fault.clear()
         # Written directly above rather than through _set_axis_state, so the
         # slot that rule clears on an UNKNOWN turret is cleared here too.
         self._last_turret_position = None
@@ -324,8 +331,8 @@ class MotionAPI:
             state = self._axis_state.get(axis)
         return self._position_known(state)
 
-    def _fault_axis(self, axis: str) -> None:
-        """Record that a commanded move failed at the driver.
+    def _fail_drive(self, axis: str, cause: Exception) -> NoReturn:
+        """A commanded move failed at the driver: the axis is UNKNOWN, and raise.
 
         The axis keeps whatever state it held before the attempt unless
         something says otherwise -- commonly IDLE, which reads as
@@ -336,16 +343,12 @@ class MotionAPI:
         this is where the state has to be corrected. Nothing about the
         ordering needs to change.
 
-        Notifies once. The user asked for motion and did not get it;
-        without a word, the stage simply appears to ignore them.
+        Raises:
+            MoveNotCompletedError: ``'driver_failed'``, chained from the
+                driver's error. The one object its caller reports.
         """
         self._set_axis_state(axis, AxisState.UNKNOWN)
-        notifications.error(
-            'Motion',
-            'Move Failed',
-            f'The {axis} move did not complete. That axis position is now '
-            f'unknown -- home the scope before moving it again.',
-        )
+        raise MoveNotCompletedError(axis, 'driver_failed') from cause
 
     @staticmethod
     def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
@@ -1719,10 +1722,9 @@ class MotionAPI:
         stop_generation = self._stop_generation
         try:
             self._driver.move_abs_pos(axis, position, overshoot_enabled=overshoot_enabled)
-        except Exception:
+        except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
-            self._fault_axis(axis)
-            raise
+            self._fail_drive(axis, e)
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
@@ -1776,7 +1778,8 @@ class MotionAPI:
 
         Raises:
             MoveNotCompletedError: The axis was faulted UNKNOWN during the
-                wait, or had not arrived when the wait's bound ran out (the
+                wait (the monitor's own ``'stalled'`` or ``'board_lost'``
+                object when it gave the axis up), or had not arrived when the wait's bound ran out (the
                 axis is UNKNOWN either way), or a stop was issued while it
                 moved (the axis is where the stop left it).
         """
@@ -1784,8 +1787,14 @@ class MotionAPI:
         if not all_stopped and not self._arrival_events[axis].is_set():
             self._set_axis_state(axis, AxisState.UNKNOWN)
             raise MoveNotCompletedError(axis, 'timed_out')
-        if self.get_axis_state(axis) == AxisState.UNKNOWN:
-            raise MoveNotCompletedError(axis, 'faulted')
+        with self._axis_state_lock:
+            unknown = self._axis_state.get(axis) == AxisState.UNKNOWN
+            fault = self._axis_fault.get(axis)
+        if unknown:
+            # The monitor's own object when it gave the axis up, so the
+            # person is shown it once; otherwise something else set it
+            # UNKNOWN during the wait.
+            raise fault if fault is not None else MoveNotCompletedError(axis, 'faulted')
         if self._stopped_since(stop_generation):
             raise MoveNotCompletedError(axis, 'stopped')
 
@@ -1893,10 +1902,9 @@ class MotionAPI:
         stop_generation = self._stop_generation
         try:
             self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
-        except Exception:
+        except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
-            self._fault_axis(axis)
-            raise
+            self._fail_drive(axis, e)
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
@@ -2161,6 +2169,10 @@ class MotionAPI:
             )
 
         if state in (AxisState.MOVING, AxisState.HOMING):
+            # Driven again: the monitor's fault from an earlier move is not
+            # this one's.
+            with self._axis_state_lock:
+                self._axis_fault.pop(axis, None)
             # Clear arrival event -- axis is now in motion
             self._arrival_events[axis].clear()
             # Wake the motion monitor to start polling
@@ -2177,6 +2189,23 @@ class MotionAPI:
                 self._move_profile[axis] = None
 
         self._fire_position_listeners(axis)
+
+    def _give_axis_up(self, axis: str, reason: str) -> None:
+        """The monitor gives a moving axis up: one fault, reported, then UNKNOWN.
+
+        The fault is recorded and reported before the UNKNOWN write,
+        because that write is what wakes a waiter: the waiter then always
+        finds the record and raises the same object, and the reporter shows
+        an object once. Nobody waits on a jog, so the monitor's report is
+        its only popup; for a waited move, a report the reporter suppressed
+        (an unattended run, the dedup window) leaves it for the waiter's
+        caller to show.
+        """
+        fault = MoveNotCompletedError(axis, reason)
+        with self._axis_state_lock:
+            self._axis_fault[axis] = fault
+        notifications.report_outcome(fault, solicited=False, category='Motion')
+        self._set_axis_state(axis, AxisState.UNKNOWN)
 
     def _motion_monitor_loop(self):
         """Background thread: polls firmware for axis arrival at 50 Hz.
@@ -2237,15 +2266,8 @@ class MotionAPI:
                             # is_moving() unblock) and notify the user once.
                             first = self._disconnect_since.setdefault(ax, time.monotonic())
                             if time.monotonic() - first > self._DISCONNECT_FAULT_S:
-                                self._set_axis_state(ax, AxisState.UNKNOWN)
                                 self._disconnect_since.pop(ax, None)
-                                notifications.error(
-                                    'Motion',
-                                    'Motor board disconnected',
-                                    f'Lost the motor board while axis {ax} was '
-                                    f'moving; the move was aborted. Reconnect '
-                                    f'the board and retry.',
-                                )
+                                self._give_axis_up(ax, 'board_lost')
                             continue
                         # Reconnected (or never lost) before the deadline.
                         self._disconnect_since.pop(ax, None)
@@ -2300,18 +2322,8 @@ class MotionAPI:
                                 # wins over the stall verdict.
                                 moving_first = self._moving_since.setdefault(ax, time.monotonic())
                                 if time.monotonic() - moving_first > self._MOTION_SETTLE_TIMEOUT_S:
-                                    self._set_axis_state(ax, AxisState.UNKNOWN)
                                     self._moving_since.pop(ax, None)
-                                    notifications.error(
-                                        'Motion',
-                                        'Motor axis stalled',
-                                        f'Axis {ax} did not reach its target '
-                                        f'within '
-                                        f'{self._MOTION_SETTLE_TIMEOUT_S:.0f}s; '
-                                        f'the move was abandoned. Check for an '
-                                        f'obstruction, then home the axis and '
-                                        f'retry.',
-                                    )
+                                    self._give_axis_up(ax, 'stalled')
                                     continue
                                 # Propagate the refreshed cache value to UI
                                 # listeners.

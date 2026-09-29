@@ -678,7 +678,7 @@ class AxisStateUnknownError(Refusal, Exception):
 
 
 class MoveNotCompletedError(Exception):
-    """A waited move ended without its axis arriving at the target.
+    """A move ended without its axis arriving at the target.
 
     The move was driven, so this is a failure, not a refusal: the motor
     may have travelled any part of the way. A waited move that returns
@@ -691,15 +691,33 @@ class MoveNotCompletedError(Exception):
 
     Attributes:
         axis: The axis whose move did not complete.
-        reason: ``'faulted'`` -- the motion monitor gave the axis up during
-            the wait (a stall, or the board lost); ``'timed_out'`` -- the
-            wait's bound ran out before the axis arrived. Both leave the
-            axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
+        reason: ``'driver_failed'`` -- the motor board did not take the
+            command (chained from the driver's error). ``'stalled'`` --
+            the motion monitor gave the axis up: it did not reach its
+            target within the motion bound. ``'board_lost'`` -- the
+            monitor lost the motor board while the axis moved.
+            ``'faulted'`` -- something else set the axis UNKNOWN during
+            the wait (a disconnect, a home). ``'timed_out'`` -- the wait's
+            bound ran out before the axis arrived. Each of those leaves
+            the axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
             moved; the axis is where the stop left it, which its position
             reports, and a turret is in no known slot.
+        title: The heading shown with the sentence, which follows the reason.
     """
 
     _SENTENCES: ClassVar[dict[str, str]] = {
+        'driver_failed': (
+            'the motor board did not take the command. The {axis} position is now '
+            'unknown -- home the scope before moving it again.'
+        ),
+        'stalled': (
+            'it did not reach its target within the motion time limit and was '
+            'abandoned. Check for an obstruction, then home the axis and retry.'
+        ),
+        'board_lost': (
+            'the motor board was lost while it moved, so the move was aborted. '
+            'Reconnect the board and retry.'
+        ),
         'faulted': (
             'it stalled or the board was lost during the move. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
@@ -711,12 +729,18 @@ class MoveNotCompletedError(Exception):
         'stopped': 'the motors were stopped before it arrived.',
     }
 
+    _TITLES: ClassVar[dict[str, str]] = {
+        'stalled': 'Motor Axis Stalled',
+        'board_lost': 'Motor Board Disconnected',
+    }
+
     def __init__(self, axis: str, reason: str):
         super().__init__(
             f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
         )
         self.axis = axis
         self.reason = reason
+        self.title = self._TITLES.get(reason, 'Move Did Not Complete')
 
 
 class HomingFailedError(Exception):

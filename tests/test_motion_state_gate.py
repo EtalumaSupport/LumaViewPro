@@ -40,7 +40,7 @@ import pytest
 
 from drivers.exceptions import HardwareError
 from drivers.sim_wire.mp import tmc5072
-from modules.exceptions import AxisStateUnknownError, HomingFailedError
+from modules.exceptions import AxisStateUnknownError, HomingFailedError, MoveNotCompletedError
 from modules.lumascope_api import AxisState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -354,15 +354,17 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope):
     scope.motion._home_impl()
     _pull_the_cable(scope)
 
-    with pytest.raises(HardwareError):
+    with pytest.raises(MoveNotCompletedError) as failed:
         scope.motion._move_absolute_impl('Z', position=1000)
 
     assert scope.motion._axis_state['Z'] == AxisState.UNKNOWN, (
         'a move that failed at the driver must leave the axis UNKNOWN, not IDLE'
     )
-    assert any(c == 'Motion' for c, _t, _m in scope.notifications_seen), (
-        'the user must be told the move failed'
-    )
+    # The user is told through the one typed fault the move raises, which
+    # its caller shows; the move itself posts nothing.
+    assert failed.value.reason == 'driver_failed'
+    assert isinstance(failed.value.__cause__, HardwareError)
+    assert scope.notifications_seen == []
 
 
 def test_a_failed_move_then_refuses_the_next_one(scope):
@@ -370,7 +372,7 @@ def test_a_failed_move_then_refuses_the_next_one(scope):
     the gate then refuses the follow-up instead of driving blind again."""
     scope.motion._home_impl()
     _pull_the_cable(scope)
-    with pytest.raises(HardwareError):
+    with pytest.raises(MoveNotCompletedError):
         scope.motion._move_absolute_impl('Z', position=1000)
 
     with pytest.raises(AxisStateUnknownError):
