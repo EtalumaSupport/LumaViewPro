@@ -165,10 +165,13 @@ _STOP_REST = (
     'on the board it always read within a microstep of it'
 )
 _FLAKY_REPLY_GAPS = {'stop_position X': _STOP_REST, 'stop_position Y': _STOP_REST}
+_FLAKY_DURATION_GAPS = {
+    'multi-line drains': 'the drain ends a few ms sooner than on the board, which sometimes '
+    "still falls inside the bench's window",
+}
 _DURATION_GAPS = {
     'one-line exchanges': 'the board takes longer to answer than the simulator: a few ms on a '
     'short reply, up to 85 ms on a long one (CONFIG, FULLINFO)',
-    'multi-line drains': 'the drain ends a few ms sooner than on the board',
     'homes': 'a home takes about half the time it takes on the board',
     'moves X': "short X moves lack the board's floor of about 160 ms, and the unit's own XY "
     'register table is not in the simulator',
@@ -204,7 +207,7 @@ def test_replies_match_the_bench(replayed_on_the_firmware, group):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('group', marked(_DURATION_GROUPS, _DURATION_GAPS))
+@pytest.mark.parametrize('group', marked(_DURATION_GROUPS, _DURATION_GAPS, _FLAKY_DURATION_GAPS))
 def test_durations_fall_within_the_bench(replayed_on_the_firmware, group):
     outside = []
     for index in _DURATION_GROUPS[group]:
