@@ -1202,6 +1202,9 @@ class Camera(ABC):
             float: Applied -- the gain in dB the hardware now holds,
                 including when the write was skipped because it already
                 held it.
+            True: Applied, but the value in effect could not be read back
+                (the write succeeded and the confirming read failed). The
+                caller keeps the request as its best knowledge.
             False: Refused -- the hardware did NOT move. The caller must
                 not record the request as truth.
             None: Not attempted, because no camera is active. Not a

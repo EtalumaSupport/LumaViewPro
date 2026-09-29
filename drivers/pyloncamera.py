@@ -3112,8 +3112,20 @@ class PylonCamera(Camera):
             self.active.Gain.SetValue(float(value))
             # Read back rather than echo the request: bodies with a Gain
             # increment snap an off-increment value, and the caller records
-            # this answer as the gain in effect.
-            applied = float(self.active.Gain.GetValue())
+            # this answer as the gain in effect. A read that fails after the
+            # write succeeded is not a refusal -- the node took the write --
+            # so it answers applied-unconfirmed; lost comms still reach the
+            # disconnect handler below.
+            try:
+                applied = float(self.active.Gain.GetValue())
+            except genicam.RuntimeException:
+                raise
+            except Exception as e:
+                _cam_log.warning(
+                    f'[CAM Class ] Gain {value} written but the read-back failed; '
+                    f'the gain in effect is unconfirmed: {e}'
+                )
+                return True
             _log_cam('debug', f'[CAM Class ] Gain set to {applied} (requested {value})')
             return applied
         except genicam.RuntimeException as e:

@@ -52,6 +52,40 @@ class TestPylon:
         cam.active.Gain.SetValue.assert_not_called()
 
 
+class TestPylonReadBack:
+    """The write succeeded and the confirming read failed: applied, but the
+    value in effect is unknown -- never reported as a refusal, which would
+    leave the old gain recorded over a node that took the new one."""
+
+    @pytest.fixture
+    def cam(self):
+        cam = bare_pylon_camera()
+        reads = iter([0.0])
+
+        def get():
+            # The first read is the short-circuit check; the read-back fails.
+            for value in reads:
+                return value
+            raise cam._read_back_error
+
+        cam.active.Gain.GetValue.side_effect = get
+        return cam
+
+    def test_a_failed_read_back_answers_applied_unconfirmed(self, cam):
+        from drivers.pyloncamera import genicam
+
+        cam._read_back_error = genicam.TimeoutException('read-back timed out')
+        assert cam.gain(12.5) is True
+        cam._mark_disconnected.assert_not_called()
+
+    def test_lost_comms_on_the_read_back_still_marks_the_camera_gone(self, cam):
+        from drivers.pyloncamera import genicam
+
+        cam._read_back_error = genicam.RuntimeException('comms lost')
+        assert cam.gain(12.5) is False
+        cam._mark_disconnected.assert_called_once()
+
+
 class TestIDS:
     def _cam(self, maximum):
         cam = bare_ids_camera()
