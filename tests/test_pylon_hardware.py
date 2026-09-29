@@ -320,5 +320,79 @@ class TestPylon(unittest.TestCase):
         self.camera.connect()
 
 
+@pytest.fixture
+def pylon_imaging():
+    """The public imaging API over a connected Basler body."""
+    import threading
+
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.imaging import ImagingAPI
+    from tests.scope_fakes import give_stub_lanes
+
+    cam = PylonCamera()
+    cam.open_and_start()
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    give_stub_lanes(scope)
+    scope._cam_lock = threading.RLock()
+    scope._state_lock = threading.RLock()
+    imaging = ImagingAPI(scope, cam)
+    scope.imaging = imaging
+    imaging._populate_camera_cache()
+    yield imaging, cam
+    cam.disconnect()
+    time.sleep(0.5)
+
+
+@pytest.mark.pylon_hardware
+def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_imaging):
+    """The range the public setters refuse against is the one the body
+    declares, and a refused value never reaches the camera."""
+    from modules.exceptions import CameraSettingOutOfRangeError
+
+    imaging, cam = pylon_imaging
+    min_gain = imaging.min_gain_db_cached
+    max_gain = imaging.max_gain_db_cached
+    max_exposure = imaging.max_exposure_ms_cached
+    print(
+        f'\n  gain {min_gain} to {max_gain} dB, exposure {imaging.min_exposure_ms_cached}'
+        f' to {max_exposure} ms'
+    )
+    assert max_gain is not None and max_exposure is not None
+
+    imaging.set_gain_db(min_gain if min_gain is not None else 0.0)
+    imaging.set_exposure_ms(15.0)
+    gain_before = cam.get_gain()
+    exposure_before = cam.get_exposure_t()
+
+    with pytest.raises(CameraSettingOutOfRangeError) as over_gain:
+        imaging.set_gain_db(max_gain + 5.0)
+    print(f'  {over_gain.value}')
+    assert over_gain.value.reason == 'gain_db_out_of_range'
+    assert (over_gain.value.requested, over_gain.value.minimum, over_gain.value.maximum) == (
+        max_gain + 5.0,
+        min_gain,
+        max_gain,
+    )
+    assert cam.get_gain() == pytest.approx(gain_before, abs=0.01)
+
+    if min_gain is not None:
+        with pytest.raises(CameraSettingOutOfRangeError) as under_gain:
+            imaging.set_gain_db(min_gain - 1.0)
+        print(f'  {under_gain.value}')
+        assert cam.get_gain() == pytest.approx(gain_before, abs=0.01)
+
+    with pytest.raises(CameraSettingOutOfRangeError) as over_exposure:
+        imaging.set_exposure_ms(max_exposure + 1.0)
+    print(f'  {over_exposure.value}')
+    assert over_exposure.value.reason == 'exposure_ms_out_of_range'
+    assert over_exposure.value.maximum == max_exposure
+    assert cam.get_exposure_t() == pytest.approx(exposure_before, abs=0.01)
+
+    in_range_gain = (min_gain or 0.0) + (max_gain - (min_gain or 0.0)) / 2
+    imaging.set_gain_db(in_range_gain)
+    assert cam.get_gain() == pytest.approx(in_range_gain, abs=0.1)
+
+
 if __name__ == '__main__':
     unittest.main()
