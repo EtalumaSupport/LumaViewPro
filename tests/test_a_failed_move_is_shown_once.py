@@ -85,18 +85,32 @@ def _monitor_gives_up_first(motion, monkeypatch):
     )
 
 
-def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(session, centre, monkeypatch):
+_DRIVER_MOVES = {
+    'absolute': (
+        'move_abs_pos',
+        lambda motion: motion.move_absolute('Z', _z_target(motion), wait_until_complete=True),
+    ),
+    'relative': (
+        'move_rel_pos',
+        lambda motion: motion.move_relative('Z', 20.0, wait_until_complete=True),
+    ),
+}
+
+
+@pytest.mark.parametrize('kind', list(_DRIVER_MOVES))
+def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
+    session, centre, monkeypatch, kind
+):
     motion = session.scope.motion
     cause = HardwareError('no response from motor board')
+    driver_call, move = _DRIVER_MOVES[kind]
 
     def _dead(*args, **kwargs):
         raise cause
 
-    monkeypatch.setattr(motion._driver, 'move_abs_pos', _dead)
+    monkeypatch.setattr(motion._driver, driver_call, _dead)
 
-    raised = _the_caller_reports(
-        centre, lambda: motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
-    )
+    raised = _the_caller_reports(centre, lambda: move(motion))
 
     assert raised.reason == 'driver_failed'
     assert raised.__cause__ is cause
