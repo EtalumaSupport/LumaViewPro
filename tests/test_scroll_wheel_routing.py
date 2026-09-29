@@ -255,7 +255,7 @@ class TestWheelDirectionIsConsistent:
             types.SimpleNamespace(
                 image_settings=panel,
                 motion_settings=panel,
-                session=types.SimpleNamespace(run_lockout=False),
+                session=types.SimpleNamespace(controls_locked=False),
                 # The step comes from the API's jog step, as the jog
                 # buttons' does.
                 scope=types.SimpleNamespace(

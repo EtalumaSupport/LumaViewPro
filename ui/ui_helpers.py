@@ -239,10 +239,7 @@ def _handle_autofocus_ui(pos: float):
 
 
 def _user_motion_locked(axis: str) -> bool:
-    """True while a run or a diagnostic locks the control surface.
-
-    A recording does not: moves stay open during one, and a gesture that
-    would move the turret meets the API's refusal instead.
+    """True while an exclusive activity locks the control surface.
 
     kv ``disabled:`` reaches widgets, but bound input observers (the
     viewer's right-click-to-center, scroll-to-focus) fire before any
@@ -253,15 +250,13 @@ def _user_motion_locked(axis: str) -> bool:
     from kivy.app import App
 
     app = App.get_running_app()
-    locked = getattr(app, 'run_lockout', False) if app is not None else False
+    locked = getattr(app, 'controls_locked', False) if app is not None else False
     # The lock engages only on the App property's explicit True: the
     # real BooleanProperty always yields a bool, and anything else means
     # there is no real app (headless / mocked hosts are never locked).
     if locked is not True:
         return False
-    logger.info(
-        f'[UI] {axis} move blocked: controls locked (a run or a diagnostic holds the scope)'
-    )
+    logger.info(f'[UI] {axis} move blocked: controls locked (protocol run or recording active)')
     return True
 
 

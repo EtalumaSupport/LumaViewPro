@@ -54,7 +54,7 @@ def ctx(monkeypatch):
         io_executor=object(),
         camera_executor=object(),
         settings={'Green': {'illumination_ma': 120.0, 'focus': 4321.0}},
-        session=SimpleNamespace(run_lockout=False, recover_file_writer=MagicMock()),
+        session=SimpleNamespace(controls_locked=False, recover_file_writer=MagicMock()),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)

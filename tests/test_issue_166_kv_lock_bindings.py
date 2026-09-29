@@ -105,11 +105,11 @@ def _block_for_id(control_id: str) -> list[str]:
 
 
 def _block_has_bind(block: list[str]) -> bool:
-    # configuration_locked is true whenever run_lockout is (it adds a
-    # recording), so either token satisfies "disabled during a protocol".
+    # controls_locked derives from run_lockout OR recording_active,
+    # so either token satisfies "disabled during a protocol".
     for line in block:
         if line.strip().startswith('disabled:') and (
-            'app.run_lockout' in line or 'app.configuration_locked' in line
+            'app.run_lockout' in line or 'app.controls_locked' in line
         ):
             return True
     return False
@@ -142,7 +142,7 @@ def _ancestor_has_bind(control_id: str) -> bool:
                 if _indent(prop) <= header_indent or child_header.match(prop):
                     break
                 if prop.strip().startswith('disabled:') and (
-                    'app.run_lockout' in prop or 'app.configuration_locked' in prop
+                    'app.run_lockout' in prop or 'app.controls_locked' in prop
                 ):
                     return True
             depth = header_indent
@@ -176,7 +176,7 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
             break  # end of rule
         # First non-comment property line establishes the rule-root depth.
         if line.strip().startswith('disabled:') and (
-            'app.run_lockout' in line or 'app.configuration_locked' in line
+            'app.run_lockout' in line or 'app.controls_locked' in line
         ):
             return True
     return False

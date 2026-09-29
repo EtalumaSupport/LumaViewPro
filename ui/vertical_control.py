@@ -124,7 +124,7 @@ class VerticalControl(BoxLayout):
             overshoot_enabled: Enable backlash compensation overshoot.
         """
         ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
+        if ctx.session.controls_locked:
             return
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
@@ -165,7 +165,7 @@ class VerticalControl(BoxLayout):
         only the move lives here.
         """
         ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
+        if ctx.session.controls_locked:
             return None
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
@@ -232,7 +232,7 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
+        if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
@@ -243,7 +243,7 @@ class VerticalControl(BoxLayout):
     def home(self):
         gui_logger.button('HOME_Z')
         ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
+        if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] VerticalControl.home()')
         run_reported(lambda: move_home(axis='Z'), None, 'HOME_Z')

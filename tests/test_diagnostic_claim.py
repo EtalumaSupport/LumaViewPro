@@ -81,13 +81,13 @@ class TestTheDiagnosticHoldsTheScope:
     def test_the_controls_lock_while_it_holds_and_listeners_see_both_edges(self):
         session = _make_session()
         seen = []
-        session.add_run_state_listener(lambda: seen.append(session.configuration_locked))
+        session.add_run_state_listener(lambda: seen.append(session.controls_locked))
         seen.clear()
         with session.diagnostic_claim():
             assert session.run_lockout is True
-            assert session.configuration_locked is True
+            assert session.controls_locked is True
             assert session.motion_enabled is False
-        assert session.configuration_locked is False
+        assert session.controls_locked is False
         assert seen == [True, False], f'a listener must see the lock set and cleared; saw {seen}'
 
     @pytest.mark.parametrize(
