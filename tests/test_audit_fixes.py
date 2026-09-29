@@ -8844,7 +8844,14 @@ class TestFx2DriverLibusbBackendProbe:
 
     @classmethod
     def _load_fx2_module(
-        cls, monkeypatch, *, backend, package=True, library_path=_BUNDLED, usb1_loads=True
+        cls,
+        monkeypatch,
+        *,
+        backend,
+        package=True,
+        library_path=_BUNDLED,
+        usb1_loads=True,
+        usb1_opens=True,
     ):
         import importlib.util
         import types
@@ -8869,8 +8876,24 @@ class TestFx2DriverLibusbBackendProbe:
         usb_mod.util = usb_util
         usb_mod.backend = usb_backend
         usb1_mod = types.ModuleType('usb1')
-        usb1_mod.loadLibrary = lambda lib: usb1_loads
+        handed_to_usb1 = []
+
+        def load_library(lib):
+            handed_to_usb1.append(lib)
+            return usb1_loads
+
+        usb1_mod.loadLibrary = load_library
         usb1_mod.getVersion = lambda: '1.0.30'
+        # The fake library path cannot be opened; python-libusb1's own
+        # handle is recorded by the path it was opened on instead.
+        import ctypes
+
+        def open_handle(path):
+            if not usb1_opens:
+                raise OSError(f'dlopen({path}) failed')
+            return ('CDLL', path)
+
+        monkeypatch.setattr(ctypes, 'CDLL', open_handle)
 
         modules = [
             ('usb', usb_mod),
@@ -8920,7 +8943,7 @@ class TestFx2DriverLibusbBackendProbe:
         )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return module, records, registered, found
+        return module, records, registered, found, handed_to_usb1
 
     @pytest.mark.parametrize(
         ('case', 'kwargs', 'reason'),
@@ -8938,6 +8961,7 @@ class TestFx2DriverLibusbBackendProbe:
                 {'usb1_loads': False},
                 'python-libusb1 had already loaded another libusb',
             ),
+            ('usb1 handle fails', {'usb1_opens': False}, 'did not load for python-libusb1'),
         ],
     )
     def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
@@ -8946,7 +8970,7 @@ class TestFx2DriverLibusbBackendProbe:
         backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
         if backend == 'OTHER':
             backend = self._backend_on('/opt/homebrew/lib/libusb-1.0.dylib')
-        module, records, registered, _found = self._load_fx2_module(
+        module, records, registered, _found, _handed = self._load_fx2_module(
             monkeypatch, backend=backend, **kwargs
         )
         assert module._HAS_USB is True
@@ -8962,8 +8986,12 @@ class TestFx2DriverLibusbBackendProbe:
     def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the
         gate opens, the drivers register, and the log names the file."""
-        module, records, registered, found = self._load_fx2_module(
-            monkeypatch, backend=self._backend_on(self._BUNDLED)
+        backend = self._backend_on(self._BUNDLED)
+        module, records, registered, found, handed = self._load_fx2_module(
+            monkeypatch, backend=backend
+        )
+        assert handed == [('CDLL', self._BUNDLED)] and handed[0] is not backend.lib, (
+            f'python-libusb1 must get its own handle to the bundled file; got {handed}'
         )
         assert found == [self._BUNDLED], (
             f'pyusb must be handed the bundled path, never a search; got {found}'

@@ -64,6 +64,7 @@ References
 from __future__ import annotations
 
 import atexit
+import ctypes
 import logging
 import math
 import os
@@ -231,8 +232,17 @@ def _load_bundled_libusb():
         return None, f'the bundled libusb at {path} did not load'
     if backend.lib._name != path:
         return None, f'another libusb was loaded before the bundled one: {backend.lib._name}'
-    if _HAS_USB1 and not usb1.loadLibrary(backend.lib):
-        return None, 'python-libusb1 had already loaded another libusb'
+    # Its own handle to the same file: each binding declares argument types
+    # on the functions of the handle it holds, so one shared handle leaves
+    # pyusb calling with python-libusb1's declarations and every descriptor
+    # read fails. The OS loader still maps the file once.
+    if _HAS_USB1:
+        try:
+            usb1_handle = ctypes.CDLL(path)
+        except OSError as ex:
+            return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
+        if not usb1.loadLibrary(usb1_handle):
+            return None, 'python-libusb1 had already loaded another libusb'
     return path, None
 
 
