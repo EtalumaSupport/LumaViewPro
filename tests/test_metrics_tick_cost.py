@@ -24,7 +24,7 @@ operator believed it off.
 """
 
 from collections import defaultdict
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -180,7 +180,10 @@ def _make_session(**kwargs):
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
-    return ScopeSession(**defaults)
+    # The session builds its own metrics logger; a stand-in shows what the
+    # session asks of it.
+    with patch('modules.scope_session.MetricsLogger'):
+        return ScopeSession(**defaults)
 
 
 class TestCadence:
@@ -195,7 +198,7 @@ class TestCadence:
         session = _make_session()
         monkeypatch.setattr(app_context, 'ctx', None)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
     def test_engineering_mode_keeps_sixty_seconds(self, monkeypatch):
         # Build the scope before installing the ctx -- construction reads
@@ -203,7 +206,7 @@ class TestCadence:
         session = _make_session()
         monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(
+        session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=60.0
         )
 
@@ -211,7 +214,7 @@ class TestCadence:
         session = _make_session()
         monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(False))
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
     def test_explicit_override_beats_engineering_mode(self, monkeypatch):
         # A bench operator naming an interval is honoured even on a machine
@@ -219,7 +222,7 @@ class TestCadence:
         session = _make_session(settings={'profiling': {'metrics_interval_s': 42}})
         monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(
+        session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=42.0
         )
 
@@ -229,4 +232,4 @@ class TestCadence:
         session = _make_session()
         monkeypatch.setattr(app_context, 'ctx', None)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)

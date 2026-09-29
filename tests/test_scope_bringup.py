@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Scope bring-up is session-owned: construction services the scope.
 
-A new Lumascope needs three service registrations (executors, executor
-bundle, protocol source path) before it behaves like the application's
+A new Lumascope needs two service registrations (executors, protocol
+source path) before it behaves like the application's
 scope: without executors every *_async dispatch falls back to INLINE
 execution on the calling thread, losing per-lane serialization and the
 protocol fence. Bring-up used to be open-coded at three sites (GUI
@@ -10,16 +10,9 @@ startup, both session factories) and absent at the fourth (reconnect);
 now ScopeSession registers the services in __init__, so a scope the
 session drives can never be left service-less.
 
-Two layers of pins, deliberately redundant:
-
-- CONTRACT-SEAM pins (spec fakes) assert the registration calls with
-  the session's resolved handles -- they catch a dropped or mis-wired
-  call cheaply.
-- INVARIANT pins (real sim scope + recording executors) assert the
-  harm itself cannot recur: after construction, dispatch
-  lands ON the session's executor instead of running inline. A
-  regression that keeps the call but breaks the wiring ships green
-  through the seam pins and red here.
+The INVARIANT pins (real sim scope + recording executors) assert the
+harm itself cannot recur: after construction, dispatch lands ON the
+session's executor instead of running inline.
 
 Also pinned: shutdown()
 ownership (owns_executors, not bundle-presence, decides teardown
@@ -104,58 +97,6 @@ class TestDispatchInvariant:
             'executors from construction on; inline execution here means '
             '__init__ did not service the scope'
         )
-
-
-# ===========================================================================
-# Contract-seam pins: the registration calls, with resolved handles
-# ===========================================================================
-
-
-class TestConstructionServicesContract:
-    def test_direct_construction_registers_trio(self):
-        # DIRECT construction, never a factory: the factories were
-        # green-before (they open-coded the trio) and would void this
-        # pin's fail-before.
-        io, cam = MagicMock(), MagicMock()
-        scope = spec_scope()
-        ScopeSession(
-            settings={},
-            scope=scope,
-            io_executor=io,
-            camera_executor=cam,
-            source_path='/somewhere',
-        )
-        scope.register_executors.assert_called_once_with(
-            camera_executor=cam,
-            io_executor=io,
-            file_io_executor=None,
-            camera_override_key=cam.ask_claim.return_value,
-        )
-        scope.protocols.register_source_path.assert_called_once_with('/somewhere')
-        scope.register_executor_bundle.assert_not_called()
-
-    def test_construction_registers_resolved_file_io_from_bundle(self):
-        # The trio must register the RESOLVED file-io handle (derived
-        # from the bundle when no explicit one is passed), or the
-        # bundle-building factory path silently degrades protocol
-        # file-IO to inline execution.
-        bundle = MagicMock()
-        io, cam = MagicMock(), MagicMock()
-        scope = spec_scope()
-        ScopeSession(
-            settings={},
-            scope=scope,
-            io_executor=io,
-            camera_executor=cam,
-            executor_bundle=bundle,
-        )
-        scope.register_executors.assert_called_once_with(
-            camera_executor=cam,
-            io_executor=io,
-            file_io_executor=bundle.file_io_executor,
-            camera_override_key=cam.ask_claim.return_value,
-        )
-        scope.register_executor_bundle.assert_called_once_with(bundle, settings={})
 
 
 # ===========================================================================

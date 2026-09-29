@@ -313,16 +313,11 @@ class Lumascope:
         # (ctx.engineering_mode).
 
         # Executor slot defaults (registered post-construction via
-        # register_executors / register_executor_bundle)
+        # register_executors)
         self._camera_executor = None
         self._io_executor = None
         self._file_io_executor = None
         self._camera_override_key = None
-        self._executor_bundle = None
-
-        # Metrics logger pre-constructed in __init__; diagnostic mode
-        # leaves it None.
-        self.metrics_logger = None
 
     @staticmethod
     def _build_simulated_motor_board(model: str, sim_tier: str) -> MotorBoardProtocol:
@@ -391,7 +386,6 @@ class Lumascope:
         simulate: bool = False,
         camera_type: str = 'auto',
         register_atexit: bool = True,
-        register_metrics: bool = True,
         sim_model: str | None = None,
         warn_pre_release: bool = True,
         configured_model: str | None = None,
@@ -415,12 +409,6 @@ class Lumascope:
                 stays on if a test crashes mid-LED-on otherwise. Set to
                 False only when the caller has its own equivalent
                 shutdown path that supersedes the atexit hook.
-            register_metrics: If True (default), construct a
-                MetricsLogger on this Lumascope. Doesn't START it --
-                callers must call ``self.metrics_logger.start(scheduler)``
-                with a Scheduler (every host uses the session-owned
-                ThreadingTimerScheduler). Tests that don't need
-                periodic logging set False.
             sim_model: When simulating, the scope model the simulated
                 motor board reports (e.g. 'LS850', 'LS850T'). Selects
                 which axes the simulated scope presents -- an LS850 has
@@ -658,7 +646,7 @@ class Lumascope:
         # _last_turret_position, illumination owns LED state,
         # runtime_state owns settings-host state (labware / objective /
         # turret_config / stage_offset). Lumascope holds driver slots,
-        # executor handles, source_path, and metrics_logger.
+        # executor handles and source_path.
 
         # Frame validity, camera_cache, scale_bar, +
         # _camera_listeners/_frame_buffer/_focusing_event/
@@ -698,33 +686,6 @@ class Lumascope:
                 self.motion._refresh_position_cache()
             except Exception:
                 pass  # OK -- cache stays at 0.0 if firmware unresponsive
-
-        # LVP-A-13: pre-construct MetricsLogger so every Lumascope user
-        # (Kivy app, REST API, headless tests, CLI tools) shares the
-        # same metrics surface -- engineering plugin / status endpoints
-        # can call self.metrics_logger.snapshot_executors() etc. without
-        # waiting for the host to register one. Lifecycle is two-phase:
-        # __init__ constructs (this block); the host calls
-        # self.metrics_logger.start(scheduler) once it knows which
-        # scheduler is appropriate for its environment. Doesn't start
-        # any timers / Clock events here, so test fixtures don't pay
-        # for periodic work they don't want.
-        #
-        # metrics_logger + _executor_bundle slots defaulted to None in
-        # _init_minimal. The composing session calls
-        # register_executor_bundle() when it services the scope, before
-        # anything calls metrics_logger.start.
-        if register_metrics:
-            try:
-                from modules.metrics_logger import MetricsLogger
-
-                self.metrics_logger = MetricsLogger(
-                    scope=self,
-                    executor_bundle=None,  # set later via register_executor_bundle
-                    settings={},  # ditto
-                )
-            except Exception as _e:
-                logger.warning(f'[SCOPE API ] MetricsLogger construction failed: {_e}')
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI
@@ -1028,32 +989,6 @@ class Lumascope:
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
         self._camera_override_key = camera_override_key
-
-    def register_executor_bundle(
-        self, executor_bundle: object, settings: dict | None = None
-    ) -> None:
-        """Register the ExecutorBundle + settings dict for MetricsLogger.
-
-        Internal session-composition wiring -- called by ScopeSession at
-        construction and not part of the L2 API surface.
-
-        Lumascope construction (__init__) creates a MetricsLogger but
-        cannot fill in the bundle yet -- the bundle exists only once the
-        executor topology is built. The composing ScopeSession calls
-        this while servicing the scope at construction, BEFORE anything calls
-        ``self.metrics_logger.start(scheduler)``. Settings dict is
-        optional; defaults to ``{}`` if MetricsLogger was created with
-        a placeholder.
-
-        Args:
-            executor_bundle: ExecutorBundle instance to attach.
-            settings: Optional settings dict for MetricsLogger.
-        """
-        self._executor_bundle = executor_bundle
-        if self.metrics_logger is not None:
-            self.metrics_logger._bundle = executor_bundle
-            if settings is not None:
-                self.metrics_logger._settings = settings
 
     def _require_executor(self, executor, name):
         if executor is None:

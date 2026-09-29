@@ -22,7 +22,6 @@ def _sim_scope(**kwargs):
     return build_scope(
         simulate=True,
         register_atexit=False,
-        register_metrics=False,
         warn_pre_release=False,
         **kwargs,
     )

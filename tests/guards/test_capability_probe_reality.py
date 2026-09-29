@@ -22,8 +22,8 @@ RECEIVER-SPECIFICALLY.
 Both halves of that sentence are load-bearing and each killed an earlier
 design:
 
-- CONSTRUCTED, not the class. The six sub-APIs, the driver slots and
-  `metrics_logger` are all assigned in `__init__`, so a class-level
+- CONSTRUCTED, not the class. The six sub-APIs and the driver slots
+  are all assigned in `__init__`, so a class-level
   oracle sees none of them -- it would miss Family 2 and false-positive
   on every legitimate instance-attribute probe.
 - RECEIVER-SPECIFIC, not the union of scope + sub-APIs. A union oracle
@@ -156,8 +156,8 @@ def scope_probe_sites():
 def scope_surface():
     """Names present on a fully constructed Lumascope.
 
-    Constructed with production defaults -- `register_metrics` and
-    `register_atexit` left ON -- because production code probes the
+    Constructed with production defaults -- `register_atexit` left
+    ON -- because production code probes the
     fully-wired object, and an oracle built from a cheaper construction
     would report attributes missing that production callers really do
     see.

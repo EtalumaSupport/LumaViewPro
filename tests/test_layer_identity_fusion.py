@@ -21,9 +21,7 @@ from tests.scope_fakes import build_scope
 
 @pytest.fixture
 def scope():
-    s = build_scope(
-        simulate=True, register_atexit=False, register_metrics=False, sim_model='LS850T'
-    )
+    s = build_scope(simulate=True, register_atexit=False, sim_model='LS850T')
     yield s
     s.disconnect()
 

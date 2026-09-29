@@ -67,7 +67,7 @@ _RETIRED_FROM_LUMASCOPE = (
 
 def _new_scope():
 
-    return build_scope(simulate=True, register_atexit=False, register_metrics=False)
+    return build_scope(simulate=True, register_atexit=False)
 
 
 def _legacy_call_sites():

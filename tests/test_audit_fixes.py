@@ -9896,13 +9896,11 @@ class TestCreateDiagnosticSharesInitMinimal:
         '_camera_executor',
         '_io_executor',
         '_file_io_executor',
-        '_executor_bundle',
-        'metrics_logger',
     )
 
     def test_init_sets_all_shared_slots(self):
 
-        scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
             for slot in self.REQUIRED_SHARED_SLOTS:
                 assert hasattr(scope, slot), (
@@ -9938,7 +9936,7 @@ class TestLedSentinelReturnsAreNone:
         exercises the not-self._driver branch -- returns None, not -1."""
         from drivers.null_ledboard import NullLEDBoard
 
-        scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
@@ -10870,16 +10868,20 @@ class TestScopeSessionBuildsFullExecutorBundle:
             'paths fall back to inline execution and pipelining is lost.'
         )
 
-    def test_create_attaches_executor_bundle_to_scope(self):
+    def test_the_session_metrics_logger_holds_its_bundle_and_settings(self):
         from modules.scope_session import ScopeSession
         from modules.executor_registry import ExecutorBundle
 
         session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
-        # register_executor_bundle stores the bundle on _executor_bundle.
-        bundle = getattr(session.scope, '_executor_bundle', None)
-        assert isinstance(bundle, ExecutorBundle), (
-            'ScopeSession.create(simulate=True) must call register_executor_bundle '
-            'so MetricsLogger snapshot() reports all 4 executor queue depths.'
+        logger_ = session.metrics_logger
+        assert isinstance(logger_._bundle, ExecutorBundle), (
+            'the watchdog tick snapshots the bundle; without it the four '
+            'executor queue depths go unreported'
+        )
+        assert logger_._bundle is session.executor_bundle
+        assert logger_._settings is session.settings, (
+            "the system tick reads live_folder and profiling from the session's "
+            'settings; an empty dict would log against no folder, silently'
         )
 
     def test_create_session_carries_bundle_reference(self):

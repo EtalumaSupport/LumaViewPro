@@ -43,7 +43,7 @@ from modules.exceptions import (
 )
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
-from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
+from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 
@@ -220,6 +220,12 @@ class ScopeSession:
         # inline execution on the calling thread (unserialized, and a
         # protocol fence cannot reach an inline task).
         self._register_scope_services(scope)
+        # The session's periodic metrics: it holds the scheduler that starts
+        # them, the bundle the watchdog snapshots and the settings the system
+        # tick reads, so it builds the logger with all three at once.
+        self.metrics_logger = MetricsLogger(
+            scope=scope, executor_bundle=executor_bundle, settings=settings
+        )
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
@@ -276,17 +282,13 @@ class ScopeSession:
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
 
-        Executors, the executor bundle, and the protocol source path all
-        live on the scope but belong to the session's composition; a
+        Executors and the protocol source path live on the scope but
+        belong to the session's composition; a
         scope missing them dispatches inline (unserialized, unfenceable)
         and its protocol constructors cannot resolve their data files.
         Construction comes through here so no scope the session drives
         can be left un-serviced -- the bring-up steps are spelled out
         exactly once.
-
-        The bundle is registered only when held: register_executor_bundle
-        overwrites the metrics logger's bundle unconditionally, so a
-        None-bundle call would blank a pre-wired scope's metrics wiring.
         """
         scope.register_executors(
             camera_executor=self.camera_executor,
@@ -294,8 +296,6 @@ class ScopeSession:
             file_io_executor=self.file_io_executor,
             camera_override_key=self._camera_override_key,
         )
-        if self.executor_bundle is not None:
-            scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
         scope.protocols.register_source_path(self.source_path)
 
     @contextlib.contextmanager
@@ -1839,15 +1839,12 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     def start_metrics(self) -> None:
-        """Start the scope's periodic metrics logging.
+        """Start the session's periodic metrics logging.
 
         Uses the session's scheduler and the
         ``settings.profiling.metrics_interval_s`` cadence override when
         present. Metrics stay opt-in by the call itself: headless hosts
-        simply never call this. A scope whose MetricsLogger failed to
-        construct (that failure is logged as a warning at construction)
-        is tolerated as a no-op: metrics are observability, not a
-        reason to fail the session lifecycle.
+        simply never call this.
 
         Raises:
             RuntimeError: Metrics are already running. A second
@@ -1861,13 +1858,6 @@ class ScopeSession:
                 'ScopeSession.start_metrics: metrics are already running; '
                 'a second start would orphan the existing schedule handles'
             )
-        metrics_logger = self.scope.metrics_logger
-        if metrics_logger is None:
-            logger.warning(
-                '[ScopeSession] start_metrics: the scope has no MetricsLogger; '
-                'periodic metrics stay off'
-            )
-            return
         # Cadence resolution, in precedence order: an explicit setting wins
         # everywhere (a bench operator asking for a specific interval must be
         # honoured even on an engineering machine); otherwise engineering mode
@@ -1886,11 +1876,11 @@ class ScopeSession:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif getattr(_app_ctx.ctx, 'engineering_mode', False):
             start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
-        metrics_logger.start(self._scheduler, **start_kwargs)
+        self.metrics_logger.start(self._scheduler, **start_kwargs)
         self._metrics_started = True
 
     def stop_metrics(self) -> None:
-        """Stop the scope's periodic metrics logging. Idempotent.
+        """Stop the session's periodic metrics logging. Idempotent.
 
         Never shuts the scheduler itself down -- a shut scheduler
         refuses all future schedules, and the host may start metrics
@@ -1899,9 +1889,7 @@ class ScopeSession:
         if not self._metrics_started:
             return
         self._metrics_started = False
-        metrics_logger = self.scope.metrics_logger
-        if metrics_logger is not None:
-            metrics_logger.stop()
+        self.metrics_logger.stop()
 
     def shutdown_executors(self) -> None:
         """Shut down the IO and camera executors."""

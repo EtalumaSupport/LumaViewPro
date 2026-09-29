@@ -22,7 +22,6 @@ def bare_turret_scope():
         simulate=True,
         sim_model='LS850T',
         register_atexit=False,
-        register_metrics=False,
         warn_pre_release=False,
     )
     assert scope.capabilities.has_turret

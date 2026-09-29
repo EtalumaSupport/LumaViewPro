@@ -54,7 +54,6 @@ def test_the_fast_tier_reports_every_catalogue_models_axes(model):
         sim_model=model,
         sim_tier='fast',
         warn_pre_release=False,
-        register_metrics=False,
         register_atexit=False,
     )
     try:
@@ -135,7 +134,6 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
         simulate=False,
         camera_type='sim',
         warn_pre_release=False,
-        register_metrics=False,
         register_atexit=False,
     )
     try:
@@ -160,7 +158,6 @@ def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
         simulate=False,
         camera_type='sim',
         warn_pre_release=False,
-        register_metrics=False,
         register_atexit=False,
     )
     try:

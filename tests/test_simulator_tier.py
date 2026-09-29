@@ -45,7 +45,6 @@ def _scope(**kwargs) -> Lumascope:
     return build_scope(
         simulate=True,
         warn_pre_release=False,
-        register_metrics=False,
         register_atexit=False,
         **kwargs,
     )

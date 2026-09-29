@@ -23,7 +23,7 @@ while the only realistic creep-back site is exactly lumaviewpro.py.
 """
 
 import ast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -47,31 +47,34 @@ def _make_session(**kwargs):
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
-    return ScopeSession(**defaults)
+    # The session builds its own metrics logger; a stand-in shows what the
+    # session asks of it.
+    with patch('modules.scope_session.MetricsLogger'):
+        return ScopeSession(**defaults)
 
 
 class TestStartStop:
     def test_start_metrics_uses_injected_scheduler_and_interval_override(self):
         session = _make_session()
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(
+        session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=42.0
         )
 
     def test_start_metrics_without_override_uses_logger_defaults(self):
         session = _make_session(settings={})
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
     def test_default_session_owns_a_real_scheduler_and_metrics_stay_opt_in(self):
         # No injected scheduler: the session builds and owns its own, and
         # metrics still start ONLY when start_metrics is called -- the
         # scheduler existing must not start them.
         session = _make_session(scheduler=None)
-        session.scope.metrics_logger.start.assert_not_called()
+        session.metrics_logger.start.assert_not_called()
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once()
-        (sched_arg,), _kwargs = session.scope.metrics_logger.start.call_args
+        session.metrics_logger.start.assert_called_once()
+        (sched_arg,), _kwargs = session.metrics_logger.start.call_args
         assert sched_arg is session._scheduler
 
     def test_double_start_refuses_loudly(self):
@@ -83,25 +86,19 @@ class TestStartStop:
         with pytest.raises(RuntimeError):
             session.start_metrics()
 
-    def test_start_tolerates_absent_metrics_logger(self):
-        # MetricsLogger construction can fail-to-warning; a scope with
-        # metrics_logger None must not crash the session lifecycle.
-        session = _make_session(scope=spec_scope(metrics_logger=None))
-        session.start_metrics()
-
     def test_stop_metrics_stops_and_is_idempotent(self):
         session = _make_session()
         session.start_metrics()
         session.stop_metrics()
-        session.scope.metrics_logger.stop.assert_called_once()
+        session.metrics_logger.stop.assert_called_once()
         session.stop_metrics()  # second stop: no raise, no second call
-        session.scope.metrics_logger.stop.assert_called_once()
+        session.metrics_logger.stop.assert_called_once()
 
     def test_shutdown_stops_running_metrics(self):
         session = _make_session()
         session.start_metrics()
         session.shutdown()
-        session.scope.metrics_logger.stop.assert_called_once()
+        session.metrics_logger.stop.assert_called_once()
 
 
 class TestCtxMirrorStaysRetired:

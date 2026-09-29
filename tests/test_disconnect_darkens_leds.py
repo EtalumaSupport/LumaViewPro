@@ -40,7 +40,7 @@ def scope():
     The hook would darken the LEDs at interpreter exit and mask whether
     `disconnect()` did it, which is the whole question here.
     """
-    s = build_scope(simulate=True, register_atexit=False, register_metrics=False)
+    s = build_scope(simulate=True, register_atexit=False)
     yield s
     s.disconnect()
 

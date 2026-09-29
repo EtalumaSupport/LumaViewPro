@@ -15,7 +15,7 @@ calling a method with the wrong signature raises `TypeError`.
 
 Autospec the INSTANCE, never the class. All six sub-APIs
 (`illumination`, `imaging`, `motion`, `diagnostics`, `io`,
-`runtime_state`), the driver slots and `metrics_logger` are assigned in
+`runtime_state`) and the driver slots are assigned in
 `Lumascope.__init__`. A class autospec therefore has none of them, so it
 would reject `scope.illumination.led_on(...)` -- legitimate production
 access -- while the instance autospec accepts it and still rejects what
@@ -72,9 +72,8 @@ def build_scope(**kwargs):
 def build_real_sim_scope():
     """A constructed `Lumascope(simulate=True)`, for use as the spec.
 
-    Production defaults are kept (`register_metrics` / `register_atexit`
-    left on) so the spec covers everything a production caller can
-    reach, including `metrics_logger`.
+    Production defaults are kept (`register_atexit` left on) so the spec
+    covers everything a production caller can reach.
 
     The caller owns disconnecting it. `spec_scope()` does that for you.
     """

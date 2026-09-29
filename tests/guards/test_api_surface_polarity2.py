@@ -64,10 +64,6 @@ RULED = {
     # HOLD: KEEP ruling, doc row deferred until the software-AE work
     # exercises it (S10.3 Q-1)
     'imaging.set_auto_exposure_time',
-    # INTERNAL by ruling, but an instance ATTRIBUTE -- no docstring
-    # surface to mark (S10.3 mini-batch; session owns its lifecycle via
-    # the documented start_metrics/stop_metrics)
-    'Lumascope.metrics_logger',
 }
 
 
@@ -81,7 +77,7 @@ def load_surface():
     from modules.lumascope_api.illumination import LedLease
     from modules.scope_session import ScopeSession
 
-    scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
+    scope = build_scope(simulate=True, register_atexit=False)
     surface = {}
     for sub in SUBS:
         obj = getattr(scope, sub, None)

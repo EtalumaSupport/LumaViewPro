@@ -180,7 +180,7 @@ def live_objects():
     warnings.simplefilter('ignore', FutureWarning)
     from modules.scope_session import ScopeSession
 
-    scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
+    scope = build_scope(simulate=True, register_atexit=False)
     session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     yield {
         'scope': scope,
