@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Scope bring-up is session-owned: construction and set_scope service
-the scope.
+"""Scope bring-up is session-owned: construction services the scope.
 
 A new Lumascope needs three service registrations (executors, executor
 bundle, protocol source path) before it behaves like the application's
@@ -8,8 +7,8 @@ scope: without executors every *_async dispatch falls back to INLINE
 execution on the calling thread, losing per-lane serialization and the
 protocol fence. Bring-up used to be open-coded at three sites (GUI
 startup, both session factories) and absent at the fourth (reconnect);
-now ScopeSession registers the services in __init__ and set_scope, so
-a rewired scope can never be left service-less.
+now ScopeSession registers the services in __init__, so a scope the
+session drives can never be left service-less.
 
 Two layers of pins, deliberately redundant:
 
@@ -17,18 +16,16 @@ Two layers of pins, deliberately redundant:
   the session's resolved handles -- they catch a dropped or mis-wired
   call cheaply.
 - INVARIANT pins (real sim scope + recording executors) assert the
-  harm itself cannot recur: after set_scope / construction, dispatch
+  harm itself cannot recur: after construction, dispatch
   lands ON the session's executor instead of running inline. A
   regression that keeps the call but breaks the wiring ships green
   through the seam pins and red here.
 
-Also pinned: the scope-swap guard (both legs -- a held activity claim
-AND a still-busy recording drain refuse the swap) and shutdown()
+Also pinned: shutdown()
 ownership (owns_executors, not bundle-presence, decides teardown
 scope).
 """
 
-import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -90,29 +87,6 @@ def _real_executor(name):
 
 
 class TestDispatchInvariant:
-    def test_set_scope_services_the_new_scope_for_dispatch(self):
-        io_ex = _real_executor('BRINGUP_IO')
-        cam_ex = _real_executor('BRINGUP_CAM')
-        scope = _real_scope()
-        session = ScopeSession(
-            settings={},
-            scope=scope,
-            io_executor=io_ex,
-            camera_executor=cam_ex,
-        )
-
-        new_scope = _real_scope()  # bare: no executors registered anywhere
-        session.set_scope(new_scope)
-
-        baseline = len(io_ex.submitted)
-        new_scope.motion.home('Z')
-        assert len(io_ex.submitted) > baseline, (
-            'a motion dispatch on the post-set_scope scope must land on the '
-            "session's io executor; an empty submit list means it ran INLINE "
-            'on the calling thread (unserialized, unfenced) -- the reconnect '
-            'bring-up gap'
-        )
-
     def test_construction_services_the_scope_for_dispatch(self):
         io_ex = _real_executor('BRINGUP_IO2')
         cam_ex = _real_executor('BRINGUP_CAM2')
@@ -135,41 +109,6 @@ class TestDispatchInvariant:
 # ===========================================================================
 # Contract-seam pins: the registration calls, with resolved handles
 # ===========================================================================
-
-
-class TestSetScopeServicesContract:
-    def test_set_scope_registers_trio_with_session_handles(self):
-        io, cam, file_io = MagicMock(), MagicMock(), MagicMock()
-        session = _make_spec_session(
-            io_executor=io,
-            camera_executor=cam,
-            file_io_executor=file_io,
-            source_path='/data/root',
-        )
-        new = spec_scope()
-
-        session.set_scope(new)
-
-        new.register_executors.assert_called_once_with(
-            camera_executor=cam,
-            io_executor=io,
-            file_io_executor=file_io,
-            camera_override_key=cam.ask_claim.return_value,
-        )
-        new.protocols.register_source_path.assert_called_once_with('/data/root')
-        # No bundle held: a register_executor_bundle(None) call would
-        # clobber metrics_logger._bundle on a pre-wired scope.
-        new.register_executor_bundle.assert_not_called()
-
-    def test_set_scope_registers_bundle_when_held(self):
-        bundle = MagicMock()
-        settings = {'stage_offset': {}}
-        session = _make_spec_session(settings=settings, executor_bundle=bundle)
-        new = spec_scope()
-
-        session.set_scope(new)
-
-        new.register_executor_bundle.assert_called_once_with(bundle, settings=settings)
 
 
 class TestConstructionServicesContract:
@@ -217,40 +156,6 @@ class TestConstructionServicesContract:
             camera_override_key=cam.ask_claim.return_value,
         )
         scope.register_executor_bundle.assert_called_once_with(bundle, settings={})
-
-
-# ===========================================================================
-# The scope-swap guard: both exclusive activities refuse, drain included
-# ===========================================================================
-
-
-class TestSetScopeGuard:
-    def test_held_activity_claim_refuses_the_swap(self):
-        # A mid-run protocol holds the claim; swapping the scope under
-        # it would mix two hardware identities inside one run.
-        session = _make_spec_session()
-        assert session.activity_claim.try_claim('protocol')
-        with pytest.raises(RuntimeError):
-            session.set_scope(spec_scope())
-
-    def test_recording_drain_window_still_refuses(self):
-        # The recording engine RELEASES its claim before the post-drain
-        # finish thread completes, but the finish thread still touches
-        # the scope -- so the guard must be the SUPERSET (is_busy OR
-        # claim held), never the claim alone. This leg is green before
-        # the guard widening by design: it pins the recording leg so
-        # the superset cannot regress to claim-only.
-        session = _make_spec_session()
-        release = threading.Event()
-        finish = threading.Thread(target=release.wait, daemon=True)
-        finish.start()
-        session.manual_recording._finish_thread = finish
-        try:
-            with pytest.raises(RuntimeError):
-                session.set_scope(spec_scope())
-        finally:
-            release.set()
-            finish.join(timeout=2)
 
 
 # ===========================================================================

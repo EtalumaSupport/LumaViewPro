@@ -181,9 +181,8 @@ class MetricsLogger:
         reaching up into the view. Frame accounting belongs to the
         imaging API; arming this activates the wrong read. (The other
         historical blocker -- a reconnect leaving this logger pointed
-        at a dead scope -- is gone: the session stops the old scope's
-        logger and starts the new one's at every rebind, so a running
-        logger's scope is always the live one.)
+        at a dead scope -- is gone: a session never changes its scope,
+        so a running logger's scope is always the live one.)
 
         So the order is: move fps accounting into the API, then arm.
         Until then a False here is honest and a True would be a guess.

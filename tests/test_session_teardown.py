@@ -242,24 +242,6 @@ class TestACallersScopeIsLeftAlone:
         scope.motion.stop_motion.assert_not_called()
         session.io_executor.put.assert_not_called()
 
-    def test_after_set_scope_neither_scope_is_disconnected(self, tmp_path):
-        session = ScopeSession.create(
-            settings=complete_settings(live_folder=str(tmp_path)),
-            simulate=True,
-            warn_pre_release=False,
-        )
-        built = session.scope
-        swapped_in = spec_scope()
-        try:
-            session.set_scope(swapped_in)
-            assert session._owns_scope is False
-            session.shutdown()
-            swapped_in.disconnect.assert_not_called()
-            swapped_in.motion.stop_motion.assert_not_called()
-            assert built.motor_connected is True, "the built scope is the caller's after the swap"
-        finally:
-            built.disconnect()
-
     def test_a_second_shutdown_logs_and_touches_nothing(self, session_log):
         session, _scope = self._caller_session()
         session.shutdown()

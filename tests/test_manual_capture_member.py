@@ -303,25 +303,3 @@ class TestTheRecordIsTheCapturesMoment:
         writer.join(RESULT_TIMEOUT_S)
 
         assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
-
-
-def test_a_reconnect_rewires_the_capture_controller():
-    """Left on the discarded scope, a still after a reconnect would grab
-    from a camera that is gone."""
-    from unittest.mock import MagicMock
-
-    from modules.scope_session import ScopeSession
-    from tests.scope_fakes import spec_scope
-
-    old_scope = spec_scope()
-    new_scope = spec_scope()
-    session = ScopeSession(
-        settings={},
-        scope=old_scope,
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-    )
-
-    session.set_scope(new_scope)
-
-    assert session.manual_capture._scope is new_scope

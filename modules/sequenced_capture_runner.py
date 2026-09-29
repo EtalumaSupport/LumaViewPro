@@ -281,9 +281,6 @@ class SequencedCaptureRunner:
         self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
-    def set_scope(self, scope: Lumascope):
-        self._scope = scope
-
     def _set_state(self, new_state: ProtocolState) -> None:
         """Transition to *new_state* with validation. Thread-safe.
 

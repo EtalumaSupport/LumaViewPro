@@ -150,7 +150,7 @@ class ScopeSession:
         # The one store for "metrics are running"; start_metrics /
         # stop_metrics are its only writers. Host-serialized (main
         # thread in the GUI): a threaded host must serialize
-        # start_metrics / stop_metrics / set_scope itself.
+        # start_metrics / stop_metrics itself.
         self._metrics_started = False
         # Whether a shutdown() pass has COMPLETED. Written True as the last
         # statement of that pass, so a pass that raised part-way leaves a
@@ -169,8 +169,7 @@ class ScopeSession:
         # itself; this is the store a headless run reads, the only one such
         # a process has.
         self.engineering_mode = engineering_mode
-        # Every host hands its bundle in (the session re-registers it on
-        # the scope at every rebind), so bundle-presence says nothing
+        # Every host hands its bundle in, so bundle-presence says nothing
         # about who owns the executor topology's teardown -- that fact is
         # owns_executors, passed True only by the factories that BUILT
         # the topology. Deriving ownership from the bundle would let a
@@ -178,7 +177,7 @@ class ScopeSession:
         self.executor_bundle = executor_bundle
         self._owns_executors = owns_executors
         # The same fact for the scope: True only when a factory BUILT it,
-        # False for a scope a host passed in or swapped in with set_scope.
+        # False for a scope a host passed in.
         # Decides whether shutdown() runs the hardware half (LEDs off,
         # motion stopped, disconnect). Coupled to the object here, at
         # construction, because _abandon() can run before a factory
@@ -195,7 +194,7 @@ class ScopeSession:
         )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
-        # to IDLE after its cleanup, file-drain exit, scope rebind). They fire on the TRANSITIONING thread,
+        # to IDLE after its cleanup, file-drain exit). They fire on the TRANSITIONING thread,
         # possibly under engine locks, so a listener must only schedule
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
@@ -281,9 +280,9 @@ class ScopeSession:
         live on the scope but belong to the session's composition; a
         scope missing them dispatches inline (unserialized, unfenceable)
         and its protocol constructors cannot resolve their data files.
-        Construction and set_scope both come through here so no scope
-        the session drives can be left un-serviced -- the bring-up steps
-        are spelled out exactly once.
+        Construction comes through here so no scope the session drives
+        can be left un-serviced -- the bring-up steps are spelled out
+        exactly once.
 
         The bundle is registered only when held: register_executor_bundle
         overwrites the metrics logger's bundle unconditionally, so a
@@ -298,64 +297,6 @@ class ScopeSession:
         if self.executor_bundle is not None:
             scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
         scope.protocols.register_source_path(self.source_path)
-
-    def set_scope(self, scope: object) -> None:
-        """Rewire this session onto a NEW scope after a reconnect.
-
-        The session and its recording controller each hold the scope by
-        reference; left unrewired after a reconnect they keep driving
-        the discarded, disconnected scope (start_application_session
-        homes it; a recording captures from it). The new scope is
-        serviced FIRST (executors, bundle, source path), before any
-        holder is rewired onto it, so nothing can dispatch against a
-        rewired-but-unserviced scope. After the swap the session owns
-        neither scope: ``shutdown()`` disconnects neither, the caller
-        disconnects both.
-
-        Raises:
-            RuntimeError: An exclusive activity still owns the hardware.
-                Both facts are checked -- the activity claim (a run mid
-                flight would mix two hardware identities in one run) AND
-                the recording controller's busy state, which outlives
-                the claim: the recording engine releases its claim
-                before the post-drain finish thread completes, and that
-                finish still touches the scope. The claim alone would
-                un-guard the drain window.
-        """
-        holder = self.activity_claim.owner
-        if self.manual_recording.is_busy or holder is not None:
-            busy_with = holder if holder is not None else 'a finishing recording'
-            raise RuntimeError(
-                f'ScopeSession.set_scope: refusing to swap the scope while '
-                f'{busy_with} owns the hardware; stop it and let it finish '
-                f'before reconnecting'
-            )
-        # Capture the OLD logger before the scope handle is reassigned:
-        # after the swap, self.scope.metrics_logger is the NEW one, and
-        # stopping that instead would leave the old ticks running
-        # beside the restarted logger (double-ticking).
-        old_metrics_logger = self.scope.metrics_logger if self._metrics_started else None
-        self._register_scope_services(scope)
-        self.scope = scope
-        # The swapped-in scope is the caller's, and the old one is now
-        # the caller's to disconnect too: shutdown() tears down neither.
-        self._owns_scope = False
-        self.manual_recording.set_scope(scope)
-        self.manual_capture.set_scope(scope)
-        self.sequenced_capture_runner.set_scope(scope)
-        if self.autofocus_runner is not None:
-            self.autofocus_runner.set_scope(scope)
-        if old_metrics_logger is not None:
-            # Metrics were running: move them to the new scope with the
-            # same scheduler and cadence. The old logger's system and
-            # watchdog ticks survive a disconnect (they read
-            # host-lifetime objects), so they must be stopped here.
-            self._metrics_started = False
-            old_metrics_logger.stop()
-            self.start_metrics()
-        # Level republish: listeners registered before the swap re-read
-        # the derivations against the new scope's world.
-        self.notify_run_state()
 
     @contextlib.contextmanager
     def diagnostic_claim(self) -> Iterator[HeldClaim]:
@@ -1952,8 +1893,8 @@ class ScopeSession:
         """Stop the scope's periodic metrics logging. Idempotent.
 
         Never shuts the scheduler itself down -- a shut scheduler
-        refuses all future schedules, and set_scope must be able to
-        restart metrics on the next scope with the same instance.
+        refuses all future schedules, and the host may start metrics
+        again with the same instance.
         """
         if not self._metrics_started:
             return
@@ -1985,8 +1926,7 @@ class ScopeSession:
         half returns before the other. Running metrics stop first, or
         their ticks would outlive the executors they snapshot.
 
-        A scope passed in or swapped in with ``set_scope`` is left
-        connected: it is the caller's. A second call is a logged no-op; a
+        A scope passed in is left connected: it is the caller's. A second call is a logged no-op; a
         call that raised part-way can be called again.
         """
         if self._shut_down:

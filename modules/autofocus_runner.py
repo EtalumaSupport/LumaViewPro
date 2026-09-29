@@ -121,9 +121,6 @@ class AutofocusRunner:
             )
         self._reset_state()
 
-    def set_scope(self, scope: lumascope_api.Lumascope):
-        self._scope = scope
-
     def _calculate_params(self):
         center = self._scope.motion.get_current_position('Z')
 

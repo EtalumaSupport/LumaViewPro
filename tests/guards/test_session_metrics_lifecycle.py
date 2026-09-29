@@ -3,11 +3,7 @@
 
 The MetricsLogger lives ON the scope, but its scheduler is a host
 choice (Kivy Clock vs threading timers) -- so the session holds the
-injected scheduler and owns start/stop/restart. The payoff is the
-reconnect path: set_scope stops the OLD scope's logger (its
-system/watchdog ticks survive a disconnect and would double-tick
-beside the new logger) and starts the NEW scope's with the same
-scheduler and the same settings-derived cadence. Sessions without a
+injected scheduler and owns start/stop. Sessions without a
 scheduler (headless factories) never start metrics -- the pre-existing
 contract, preserved.
 
@@ -106,29 +102,6 @@ class TestStartStop:
         session.start_metrics()
         session.shutdown()
         session.scope.metrics_logger.stop.assert_called_once()
-
-
-class TestSetScopeRestart:
-    def test_running_metrics_move_to_the_new_scope(self):
-        session = _make_session()
-        session.start_metrics()
-        old_logger = session.scope.metrics_logger
-        new = spec_scope()
-
-        session.set_scope(new)
-
-        old_logger.stop.assert_called_once()
-        new.metrics_logger.start.assert_called_once_with(_SCHEDULER, system_metrics_interval_s=42.0)
-
-    def test_stopped_metrics_stay_stopped_across_set_scope(self):
-        session = _make_session()
-        old_logger = session.scope.metrics_logger
-        new = spec_scope()
-
-        session.set_scope(new)
-
-        old_logger.stop.assert_not_called()
-        new.metrics_logger.start.assert_not_called()
 
 
 class TestCtxMirrorStaysRetired:

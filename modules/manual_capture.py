@@ -60,11 +60,6 @@ class ManualCaptureController:
         # grab. Released on the lane, which a plain Lock allows.
         self._in_flight = threading.Lock()
 
-    def set_scope(self, scope: Any) -> None:
-        """Rewire onto a NEW scope after a reconnect. A still already in
-        flight finishes on the scope it started on."""
-        self._scope = scope
-
     @property
     def in_flight(self) -> bool:
         """True from a capture call until its camera-lane body has ended."""

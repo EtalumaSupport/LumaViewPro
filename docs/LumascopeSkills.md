@@ -403,8 +403,7 @@ the GUI injects a Kivy-clock scheduler) — with no scheduler,
 unless the host opts in. `settings['profiling']['metrics_interval_s']`
 overrides the default hourly cadence. `start_metrics()` raises
 `RuntimeError` if metrics are already running; `stop_metrics()` is
-idempotent. After a scope rebind (`set_scope`), running metrics move to
-the new scope automatically — same scheduler, same cadence. These members
+idempotent. These members
 are host-serialized: call them from one thread (the GUI uses its main
 thread only).
 
@@ -713,16 +712,6 @@ config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
 The GUI builds the same configuration through the same builder, supplying
 those two from its own controls, so a scripted run and a run started from the
 screen are assembled identically.
-
-### Reconnect
-
-```python
-# After a hardware reconnect, rewire the SAME session onto the new scope --
-# executors, metrics, and the run machinery follow automatically. After the
-# swap the session owns NEITHER scope: disconnect the old one and the new
-# one yourself.
-session.set_scope(new_scope)
-```
 
 ### Cleanup
 

@@ -1029,7 +1029,9 @@ class Lumascope:
         self._file_io_executor = file_io_executor
         self._camera_override_key = camera_override_key
 
-    def register_executor_bundle(self, executor_bundle, settings=None) -> None:
+    def register_executor_bundle(
+        self, executor_bundle: object, settings: dict | None = None
+    ) -> None:
         """Register the ExecutorBundle + settings dict for MetricsLogger.
 
         Internal session-composition wiring -- called by ScopeSession at
@@ -1038,8 +1040,7 @@ class Lumascope:
         Lumascope construction (__init__) creates a MetricsLogger but
         cannot fill in the bundle yet -- the bundle exists only once the
         executor topology is built. The composing ScopeSession calls
-        this while servicing the scope (construction and every
-        set_scope rebind), BEFORE anything calls
+        this while servicing the scope at construction, BEFORE anything calls
         ``self.metrics_logger.start(scheduler)``. Settings dict is
         optional; defaults to ``{}`` if MetricsLogger was created with
         a placeholder.

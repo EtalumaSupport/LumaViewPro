@@ -174,13 +174,6 @@ class TestTransitionNotification:
         session = _make_session(executor)
         executor.add_protocol_idle_listener.assert_called_once_with(session.notify_run_state)
 
-    def test_set_scope_republishes(self):
-        session = _make_session(_file_executor(active=False))
-        fired = []
-        session._run_state_listeners.append(lambda: fired.append(True))
-        session.set_scope(spec_scope())
-        assert fired, 'a scope rebind must level-republish run state'
-
     def test_failed_claim_does_not_notify(self):
         session = _make_session(_file_executor(active=False))
         assert session.activity_claim.try_claim('protocol')
