@@ -340,12 +340,15 @@ class LiveProcessingRegistry(_BaseNamespace):
             )
         with self._lock:
             self._assert_unique(spec)
+            # Forward to the canonical listener list on ImagingAPI before
+            # recording the plugin: a listener the camera refuses raises
+            # here, and a plugin recorded first would stay listed as loaded
+            # with a handler that never runs, and refuse a retry as a
+            # duplicate. The name= param surfaces in the log and the
+            # auto-remove warning so L1 can identify which plugin misbehaved.
+            self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
             self._handlers[spec.name] = (spec, frame_handler)
             self._record_loaded(spec)
-        # Forward to the canonical listener list on ImagingAPI. The
-        # name= param surfaces in WARNING logs and the auto-remove
-        # notification body so L1 can identify which plugin misbehaved.
-        self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
 
     def unregister(self, name: str) -> None:
         """Remove the listener registered by plugin `name`. No-op if not registered."""

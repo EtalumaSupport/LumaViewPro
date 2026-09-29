@@ -77,7 +77,9 @@ def test_one_in_budget_call_resets_counter():
 
 
 def test_drop_at_K_consecutive_over_budget():
-    """K consecutive over-budget hits triggers auto-remove + notification."""
+    """K consecutive over-budget hits triggers auto-remove + one report."""
+    from modules.exceptions import FrameHandlerRemovedError
+
     imaging = _make_imaging_stub()
 
     def slow(*args):
@@ -88,10 +90,12 @@ def test_drop_at_K_consecutive_over_budget():
         for _ in range(HANDLER_DROP_K):
             w(None, None, None)
         imaging._remove_wrapper.assert_called_once_with(w)
-        mock_notify.warning.assert_called_once()
-        # Notification title + body name the plugin so L1 knows who to debug.
-        title_args = mock_notify.warning.call_args[0]
-        assert 'slow-plugin' in title_args[1]
+        mock_notify.report_outcome.assert_called_once()
+        # The outcome names the plugin so L1 knows who to debug.
+        outcome = mock_notify.report_outcome.call_args[0][0]
+        assert isinstance(outcome, FrameHandlerRemovedError)
+        assert outcome.reason == 'over_budget'
+        assert 'slow-plugin' in str(outcome)
     assert w._removed is True
 
 
@@ -300,18 +304,18 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     assert handler not in scope.imaging._frame_listener_wrappers
 
 
-def test_add_frame_listener_notifies_user_on_driver_registration_failure(monkeypatch):
+def test_a_driver_registration_failure_is_raised_to_the_registrant(monkeypatch):
     """When the driver rejects register_frame_callback, add_frame_listener
-    must surface the failure via notifications.warning (Rule 14).
+    raises it to whoever registered the listener, once, naming the listener.
 
-    Pre-fix, the except handler logged + rolled back the dict entry but
-    fired no user-facing notification -- a plugin's frame handler would
-    silently never receive frames, with no signal to the user that the
-    registration failed. AUDIT_SILENT_FAIL_AST_2026-05-23 flagged this
-    as the one confirmed Class B Rule 14 violation in the listener
-    cluster.
+    A plugin's frame handler, a recording or a script whose listener the
+    driver refused would otherwise never receive frames with no signal to
+    anyone. The registrant is the one with something to undo, so the failure
+    is raised to it rather than shown as a popup beside a normal return.
     """
-    from modules.lumascope_api import imaging as imaging_mod
+    import pytest
+
+    from modules.exceptions import FrameListenerNotRegisteredError
 
     scope = _make_simulated_scope()
 
@@ -321,40 +325,17 @@ def test_add_frame_listener_notifies_user_on_driver_registration_failure(monkeyp
 
     monkeypatch.setattr(scope._camera_driver, 'register_frame_callback', boom)
 
-    captured = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append((category, title, message))
-
-        def info(self, *_a, **_kw):
-            pass
-
-        def error(self, *_a, **_kw):
-            pass
-
-        def critical(self, *_a, **_kw):
-            pass
-
-    monkeypatch.setattr(imaging_mod, 'notifications', _RecordingNotifier())
-
     def handler(_image, _ts, _chunks):
         pass
 
-    scope.imaging.add_frame_listener(handler, name='rejected_listener')
+    with pytest.raises(FrameListenerNotRegisteredError) as raised:
+        scope.imaging.add_frame_listener(handler, name='rejected_listener')
 
-    assert len(captured) == 1, (
-        f'add_frame_listener must fire exactly one notifications.warning '
-        f'when the driver rejects registration. Captured: {captured}'
+    assert 'rejected_listener' in str(raised.value), (
+        'The failure must name the listener so the registrant can correlate it '
+        f'with their registration call; got {raised.value}'
     )
-    category, title, _message = captured[0]
-    assert category == 'Frame Listener', (
-        f"Notification category must be 'Frame Listener'; got {category!r}"
-    )
-    assert 'rejected_listener' in title, (
-        f'Notification title must name the listener so the user can correlate '
-        f'with their registration call; got title={title!r}'
-    )
+    assert isinstance(raised.value.__cause__, RuntimeError)
     # The dict rollback must still happen -- a future register attempt
     # for the same handler must not see the stale wrapper entry.
     assert handler not in scope.imaging._frame_listener_wrappers, (

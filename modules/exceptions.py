@@ -359,6 +359,67 @@ class ImageSaveError(CaptureError):
         self.file_loc = file_loc
 
 
+class FrameListenerNotRegisteredError(CaptureError):
+    """The camera driver would not take a frame listener, so it will receive no frames.
+
+    Raised by ``add_frame_listener`` to whoever registered it -- a plugin, a
+    recording, a script -- because each of them has something to undo or to
+    refuse: a recording that started without its frames records nothing, and
+    a plugin listed as loaded never runs. The driver's error is the cause.
+
+    Attributes:
+        name: The listener's display name.
+    """
+
+    title = 'Frame Listener Not Registered'
+
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"The camera did not accept the frame listener '{name}', so it will "
+            'receive no frames. Check the log for the camera driver error.',
+            'frame_listener_refused',
+        )
+        self.name = name
+
+
+class FrameHandlerRemovedError(Refusal, Exception):
+    """The API stopped calling a frame handler that kept failing or kept running too long.
+
+    Nothing raises it: the frame thread that removes the handler has no
+    caller to raise to, so it is built to be reported. A refusal -- the API
+    declining to go on calling the handler, which the plugin's author can fix
+    -- so it is shown as a warning and logged without a traceback.
+
+    Attributes:
+        name: The handler's display name.
+        reason: ``'over_budget'`` -- it ran past the per-frame budget for the
+            drop count of frames in a row; ``'raised'`` -- it raised for the
+            drop count of frames in a row.
+    """
+
+    title = 'Plugin Removed'
+
+    def __init__(
+        self, name: str, reason: str, *, budget_ms: int, drop_k: int, last_ms: float = 0.0
+    ) -> None:
+        if reason == 'over_budget':
+            cause = (
+                f'exceeded the {budget_ms}ms budget for {drop_k} consecutive frames '
+                f'(last: {last_ms:.0f}ms)'
+            )
+            fix = "Reduce the handler's per-frame cost"
+        else:
+            cause = f'raised an error on {drop_k} consecutive frames'
+            fix = "Fix the handler's error (the first one is in the log)"
+        super().__init__(
+            f"Plugin '{name}': the frame handler {cause}. It has been disabled to "
+            f'protect the imaging pipeline. {fix} and re-register, or restart the '
+            'application.'
+        )
+        self.name = name
+        self.reason = reason
+
+
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, or the lane is closed.
 

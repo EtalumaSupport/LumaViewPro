@@ -45,7 +45,7 @@ from modules.common_utils import (
 )
 import modules.image_save as image_save
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, FrameListenerNotRegisteredError
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.recording_frames import (
@@ -336,6 +336,15 @@ class ProtocolVideoStep:
             scope.imaging.add_frame_listener(
                 self._on_camera_frame, name=f'protocol_video:{self._name}'
             )
+        except FrameListenerNotRegisteredError as refused:
+            # The camera will deliver nothing to this step: the same end as a
+            # dead feed, so the step ends with no frames and takes the strike
+            # a capture failure takes. Its flight ends here; unsolicited, so
+            # an unattended run logs it without a popup.
+            self._unwind_failed_start(engine)
+            self._reset_title()
+            notifications.report_outcome(refused, solicited=False, category='Protocol')
+            return NO_FRAMES
         except BaseException:
             # The nested claim leaks nothing to the session, but a step left
             # recording never satisfies the runner's end-of-run wait, so the

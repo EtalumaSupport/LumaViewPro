@@ -47,7 +47,12 @@ from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
 )
-from modules.exceptions import HyperstackRefusedError, RecordingRefusedError
+from modules.exceptions import (
+    CaptureError,
+    FrameListenerNotRegisteredError,
+    HyperstackRefusedError,
+    RecordingRefusedError,
+)
 from modules.notification_center import notifications
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
@@ -435,9 +440,17 @@ class ManualRecordingController:
             clock=self._clock,
             notify=notifications,
         )
+        # The frames leg's folder, reserved above; a start that fails from
+        # here on leaves it holding nothing.
+        frames_folder = save_folder if video_as_frames else None
+
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
-        engine.start(config)
+        try:
+            engine.start(config)
+        except BaseException:
+            _discard_if_empty(frames_folder)
+            raise
         try:
             with self._state_lock:
                 self._engine = engine
@@ -470,11 +483,20 @@ class ManualRecordingController:
             self._health_handle = self._scheduler.schedule_interval(
                 self._health_check, HEALTH_CHECK_INTERVAL_S
             )
+        except FrameListenerNotRegisteredError as refused:
+            self._unwind_failed_start(engine, writer, frames_folder)
+            # Said as what the person pressed Record for: the recording, not
+            # the listener it would have needed.
+            raise CaptureError(
+                'The recording did not start: the camera did not accept its frame '
+                'listener. Check the log for the camera driver error.',
+                'recording_not_started',
+            ) from refused
         except BaseException:
             # Past the commit point the engine holds the claim, and this is
             # the only frame holding the writer -- the engine is handed a
             # write_frame callable and can never close it.
-            self._unwind_failed_start(engine, writer)
+            self._unwind_failed_start(engine, writer, frames_folder)
             raise
         rate = (
             'every delivered frame' if effective_fps is None else f'{effective_fps:.2f} fps limit'
@@ -485,7 +507,9 @@ class ManualRecordingController:
             f'-> {save_folder}'
         )
 
-    def _unwind_failed_start(self, engine: VideoRecordingEngine, writer: Any) -> None:
+    def _unwind_failed_start(
+        self, engine: VideoRecordingEngine, writer: Any, frames_folder: Path | None
+    ) -> None:
         """Undo a start that raised after the engine committed.
 
         Order matters: stop delivering frames, then end the recording so
@@ -522,6 +546,7 @@ class ManualRecordingController:
                     writer.output_path.unlink(missing_ok=True)
             except Exception:
                 logger.exception('[ManualRecord] writer disposal failed during start unwind')
+        _discard_if_empty(frames_folder)
 
         self._engine = None
         self._writer = None
@@ -894,6 +919,25 @@ def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
     message = ' '.join(reasons)
     logger.warning(f'[ManualRecord] {message}')
     notifications.warning('Recording', 'Position Not Recorded', message)
+
+
+def _discard_if_empty(frames_folder: Path | None) -> None:
+    """Remove the frames leg's reserved folder after a start that failed.
+
+    The folder is reserved before the engine's commit point, so a start
+    that fails afterwards leaves an empty ``Video_<timestamp>`` folder in
+    the user's Manual folder, reading as a recording that holds nothing --
+    the mp4 leg already deletes its empty container for the same reason.
+    Only an empty folder is removed: anything written into it is kept.
+    """
+    if frames_folder is None:
+        return
+    try:
+        frames_folder.rmdir()
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        logger.warning(f'[ManualRecord] kept {frames_folder} after a failed start: {e}')
 
 
 @dataclass(frozen=True)
