@@ -25,7 +25,7 @@ setup_fx2_usb() {
     # A driver that fails to import aborts the install here (set -e) rather
     # than reading as a missing libusb.
     local libusb
-    libusb=$(fx2_driver_py 'from drivers.fx2driver import fx2_readiness; print(fx2_readiness()["libusb-1.0"])')
+    libusb=$(fx2_driver_py 'from drivers.fx2driver import fx2_readiness; print(fx2_readiness()["libusb-package"])')
     if [ "$libusb" != "True" ]; then
         if command -v brew &>/dev/null; then
             echo "Installing the native libusb through Homebrew..."

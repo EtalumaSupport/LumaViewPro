@@ -40,8 +40,8 @@ Dependencies
 - ``pyusb``  (firmware upload + control transfers)
 - ``libusb1`` (isochronous streaming on macOS/Linux -- python-libusb1 binding)
 - ``drivers.winusb_iso`` (isochronous streaming on Windows -- ctypes wrapper)
-- Native ``libusb-1.0`` library (macOS: ``brew install libusb``;
-  Windows: vendored ``libusb-1.0.dll`` via PyInstaller binaries list)
+- ``libusb-package`` (the native ``libusb-1.0`` library itself, one
+  versioned copy on every platform; never a host copy)
 
 Import-time safety
 ------------------
@@ -186,27 +186,64 @@ except ImportError:
     _USBError = OSError
     _USBTimeoutError = TimeoutError
 
-# pyusb imports without the native libusb-1.0 binary on the path; the
-# missing-DLL case only surfaces at the first usb.core.find() call,
-# which then raises NoBackendError mid-_connect and produces a noisy
-# traceback in lumaviewpro_errors.log on every startup. Probe the
-# backend at module load so the case is classified as "FX2 not
-# applicable to this install" rather than "FX2 driver crashed."
-_HAS_USB_BACKEND = False
-if _HAS_USB:
-    try:
-        import usb.backend.libusb1
-
-        _HAS_USB_BACKEND = usb.backend.libusb1.get_backend() is not None
-    except Exception:
-        _HAS_USB_BACKEND = False
-
 try:
     import usb1
 
     _HAS_USB1 = True
 except ImportError:
     _HAS_USB1 = False
+
+
+def _load_bundled_libusb():
+    """Bind pyusb and python-libusb1 to libusb-package's library.
+
+    Returns ``(path, None)`` when both bindings run on the bundled file, or
+    ``(None, reason)`` when they cannot. Which libusb a host happens to have
+    (Homebrew's, a distro's, a stray DLL) must never decide what the driver
+    runs on, so there is no fallback: ``libusb_package.get_libusb1_backend``
+    would fall back to the system search when its own file is missing, so
+    the path is taken and checked here instead.
+
+    Ordering invariant: pyusb keeps one backend per process, bound by the
+    first ``get_backend`` call, and python-libusb1 loads its library once
+    (``loadLibrary`` returns False, it does not raise, when another is
+    already loaded). This must run before anything else in the process
+    touches either binding; the checks below catch it if something did.
+    """
+    try:
+        import libusb_package
+    except ImportError:
+        return None, (
+            'libusb-package is not installed (pip install -r requirements.txt; '
+            'it has no wheel for 32-bit ARM Linux or Windows on ARM)'
+        )
+    lib_path = libusb_package.get_library_path()
+    if lib_path is None:
+        return None, 'libusb-package holds no library file in this install'
+    path = str(lib_path)
+    try:
+        import usb.backend.libusb1
+
+        backend = usb.backend.libusb1.get_backend(find_library=lambda _name: path)
+    except Exception as ex:
+        return None, f'the bundled libusb at {path} did not load: {ex}'
+    if backend is None:
+        return None, f'the bundled libusb at {path} did not load'
+    if backend.lib._name != path:
+        return None, f'another libusb was loaded before the bundled one: {backend.lib._name}'
+    if _HAS_USB1 and not usb1.loadLibrary(backend.lib):
+        return None, 'python-libusb1 had already loaded another libusb'
+    return path, None
+
+
+# Resolved at import so a host without a usable libusb is classified as
+# "FX2 not applicable to this install" here, instead of the first
+# usb.core.find() raising NoBackendError mid-connect on every startup.
+_LIBUSB_PATH = None
+_LIBUSB_REFUSAL = 'pyusb is not installed'
+if _HAS_USB:
+    _LIBUSB_PATH, _LIBUSB_REFUSAL = _load_bundled_libusb()
+_HAS_USB_BACKEND = _LIBUSB_PATH is not None
 
 
 # FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
@@ -227,34 +264,35 @@ if not _FX2_AVAILABLE:
         )
     elif not _HAS_USB_BACKEND:
         logger.info(
-            '[FX2 Driver] libusb-1.0 native library not loadable -- FX2 '
-            '(LumaviewClassic) drivers will not be registered. Install '
-            'the native library to enable LVC hardware support: macOS: '
-            'brew install libusb; Windows: ensure libusb-1.0.dll is on '
-            'PATH or vendored alongside the executable; Linux: apt '
-            'install libusb-1.0-0.'
+            f'[FX2 Driver] bundled libusb not in use: {_LIBUSB_REFUSAL} -- '
+            'FX2 (LumaviewClassic) drivers will not be registered.'
         )
     elif not _HAS_USB1:
         logger.info(
             '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
             'drivers will not be registered on macOS/Linux. Install '
-            'libusb1 (pip install libusb1) plus the native libusb to '
-            'enable LVC hardware support.'
+            'libusb1 (pip install -r requirements.txt) to enable LVC '
+            'hardware support.'
         )
+if _HAS_USB_BACKEND:
+    logger.info(
+        f'[FX2 Driver] libusb {usb1.getVersion() if _HAS_USB1 else "(version unread)"} '
+        f'loaded from {_LIBUSB_PATH}'
+    )
 
 
 def fx2_readiness() -> dict[str, bool | None]:
     """Each term of the availability gate, as this process found it at import.
 
-    Keys name what an installer installs: ``pyusb``, ``libusb-1.0`` (the
-    native library pyusb loads) and ``libusb1`` (the binding that streams
+    Keys name what an installer installs: ``pyusb``, ``libusb-package``
+    (the native library both bindings run on) and ``libusb1`` (the binding that streams
     frames off Windows). ``libusb1`` is ``None`` on Windows, where the gate
     does not need it. ``scripts/install_mac.sh`` reports these rather than
     probing on its own, so what it prints is what the driver will do.
     """
     return {
         'pyusb': _HAS_USB,
-        'libusb-1.0': _HAS_USB_BACKEND,
+        'libusb-package': _HAS_USB_BACKEND,
         'libusb1': None if sys.platform == 'win32' else _HAS_USB1,
     }
 
@@ -266,7 +304,10 @@ def fx2_readiness_line() -> str:
         for name, present in fx2_readiness().items()
     )
     verdict = 'ready' if _FX2_AVAILABLE else 'NOT ready'
-    return f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
+    line = f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
+    if _HAS_USB and not _HAS_USB_BACKEND:
+        line += f' ({_LIBUSB_REFUSAL})'
+    return line
 
 
 def _register_if_fx2_available(registry, name, **kwargs):
@@ -718,8 +759,7 @@ class _FX2Connection:
         if sys.platform != 'win32' and not _HAS_USB1:
             raise ImportError(
                 'libusb1 (python-libusb1) is required for FX2 ISO streaming '
-                'on macOS / Linux. Install with: pip install libusb1. '
-                'On macOS you also need the native library: brew install libusb.'
+                'on macOS / Linux. Install with: pip install -r requirements.txt'
             )
         self._dev = None
         self._lock = threading.Lock()

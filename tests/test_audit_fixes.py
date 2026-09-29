@@ -8824,24 +8824,36 @@ class TestModSliderAwareScrollView:
 
 
 class TestFx2DriverLibusbBackendProbe:
-    """Issue #645 Bug A: fx2driver.py must probe the libusb-1.0 native
-    backend at module load so the missing-DLL case is classified as
-    'FX2 not applicable to this install' rather than crashing with
-    NoBackendError mid-_connect.
+    """Issue #645 Bug A: fx2driver.py must resolve its libusb at module
+    load so a host without a usable one is classified as 'FX2 not
+    applicable to this install' rather than crashing with NoBackendError
+    mid-_connect. The library is libusb-package's bundled copy and never a
+    host copy: each way the bundled load can fail -- package absent, no
+    library file, the backend bound to another file, python-libusb1 already
+    holding another -- classifies unavailable and logs why.
 
     Behavioral: the module is executed FRESH under a controlled fake
-    usb tree (pyusb importable, get_backend() controllable) and fake
-    registries, so the load-time classification itself is what's
-    proven -- on this machine's real pyusb state it would be
-    environment-dependent.
+    usb / usb1 / libusb_package tree and fake registries, so the load-time
+    classification itself is what's proven -- on this machine's real state
+    it would be environment-dependent.
     """
 
+    _BUNDLED = '/site-packages/libusb_package/libusb-1.0.dylib'
+
     @staticmethod
-    def _load_fx2_module(monkeypatch, backend):
+    def _backend_on(path):
+        import types
+
+        return types.SimpleNamespace(lib=types.SimpleNamespace(_name=path))
+
+    @classmethod
+    def _load_fx2_module(
+        cls, monkeypatch, *, backend, package=True, library_path=_BUNDLED, usb1_loads=True
+    ):
         import importlib.util
         import types
 
-        # Fake pyusb tree: importable, with a controllable backend probe.
+        # Fake pyusb tree: importable, with a controllable backend load.
         usb_mod = types.ModuleType('usb')
         usb_core = types.ModuleType('usb.core')
         usb_core.USBError = type('USBError', (OSError,), {})
@@ -8849,21 +8861,37 @@ class TestFx2DriverLibusbBackendProbe:
         usb_util = types.ModuleType('usb.util')
         usb_backend = types.ModuleType('usb.backend')
         usb_libusb1 = types.ModuleType('usb.backend.libusb1')
-        usb_libusb1.get_backend = lambda: backend
+        found = []
+
+        def get_backend(find_library=None):
+            found.append(find_library('usb-1.0') if find_library else None)
+            return backend
+
+        usb_libusb1.get_backend = get_backend
         usb_backend.libusb1 = usb_libusb1
         usb_mod.core = usb_core
         usb_mod.util = usb_util
         usb_mod.backend = usb_backend
         usb1_mod = types.ModuleType('usb1')
+        usb1_mod.loadLibrary = lambda lib: usb1_loads
+        usb1_mod.getVersion = lambda: '1.0.30'
 
-        for name, mod in (
+        modules = [
             ('usb', usb_mod),
             ('usb.core', usb_core),
             ('usb.util', usb_util),
             ('usb.backend', usb_backend),
             ('usb.backend.libusb1', usb_libusb1),
             ('usb1', usb1_mod),
-        ):
+        ]
+        if package:
+            package_mod = types.ModuleType('libusb_package')
+            package_mod.get_library_path = lambda: library_path
+            modules.append(('libusb_package', package_mod))
+        else:
+            # None in sys.modules makes the import raise ImportError.
+            modules.append(('libusb_package', None))
+        for name, mod in modules:
             monkeypatch.setitem(sys.modules, name, mod)
 
         # Recording logger + inert registries so the fresh module exec
@@ -8896,33 +8924,62 @@ class TestFx2DriverLibusbBackendProbe:
         )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return module, records, registered
+        return module, records, registered, found
 
-    def test_missing_backend_classifies_unavailable_and_logs_hint(self, monkeypatch):
-        """pyusb importable but get_backend() -> None (the missing-DLL
-        case): FX2 must classify as not-applicable, register nothing,
-        and log the install hint instead of raising NoBackendError."""
-        module, records, registered = self._load_fx2_module(monkeypatch, backend=None)
+    @pytest.mark.parametrize(
+        ('case', 'kwargs', 'reason'),
+        [
+            ('package absent', {'package': False}, 'libusb-package is not installed'),
+            ('no library file', {'library_path': None}, 'holds no library file'),
+            ('backend did not load', {'backend': None}, 'did not load'),
+            (
+                'another libusb first',
+                {'backend': 'OTHER'},
+                'another libusb was loaded before the bundled one: /opt/homebrew/lib/libusb-1.0.dylib',
+            ),
+            (
+                'usb1 holds another',
+                {'usb1_loads': False},
+                'python-libusb1 had already loaded another libusb',
+            ),
+        ],
+    )
+    def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
+        self, monkeypatch, case, kwargs, reason
+    ):
+        backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
+        if backend == 'OTHER':
+            backend = self._backend_on('/opt/homebrew/lib/libusb-1.0.dylib')
+        module, records, registered, _found = self._load_fx2_module(
+            monkeypatch, backend=backend, **kwargs
+        )
         assert module._HAS_USB is True
-        assert module._HAS_USB_BACKEND is False
-        assert module._FX2_AVAILABLE is False, (
-            'pyusb-installed-but-no-native-backend must not register FX2 drivers'
-        )
-        assert registered == [], (
-            f'no driver registration may happen without a backend; got {registered}'
-        )
+        assert module._HAS_USB_BACKEND is False, case
+        assert module._FX2_AVAILABLE is False, case
+        assert registered == [], f'{case}: no driver may register; got {registered}'
+        assert reason in module._LIBUSB_REFUSAL, (case, module._LIBUSB_REFUSAL)
         assert any(
-            lvl == 'INFO' and 'libusb-1.0 native library not loadable' in msg
+            lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
             for lvl, msg in records
-        ), f'missing-backend case must log the install hint; got {records}'
+        ), f'{case}: the refusal must be logged with its reason; got {records}'
 
-    def test_loadable_backend_classifies_available(self, monkeypatch):
-        """With a loadable backend (and usb1 importable), the gate opens
-        and the FX2 drivers register."""
-        module, _records, registered = self._load_fx2_module(monkeypatch, backend=object())
+    def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
+        """The backend is asked for the bundled file and nothing else, the
+        gate opens, the drivers register, and the log names the file."""
+        module, records, registered, found = self._load_fx2_module(
+            monkeypatch, backend=self._backend_on(self._BUNDLED)
+        )
+        assert found == [self._BUNDLED], (
+            f'pyusb must be handed the bundled path, never a search; got {found}'
+        )
         assert module._HAS_USB_BACKEND is True
+        assert module._LIBUSB_PATH == self._BUNDLED
         assert module._FX2_AVAILABLE is True
         assert registered, 'FX2 drivers must register when prerequisites are met'
+        assert any(
+            lvl == 'INFO' and f'loaded from {self._BUNDLED}' in msg and '1.0.30' in msg
+            for lvl, msg in records
+        ), f'the loaded library must be named once; got {records}'
 
 
 # ---------------------------------------------------------------------------
