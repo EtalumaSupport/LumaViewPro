@@ -512,8 +512,8 @@ class ImageSettings(BoxLayout):
         fail-safe live in camera_autogain_supported() (the single gate).
 
         Only the visibility gate is set here; the persisted per-layer auto_gain
-        is NOT mutated. The effective enable (preference AND capability) is
-        derived non-destructively at the consumption point
+        is NOT mutated. The enable actually in force is the API's answer
+        (imaging.applied_auto_gain_for), read at the consumption point
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """

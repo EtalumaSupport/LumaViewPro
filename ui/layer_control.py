@@ -1003,9 +1003,10 @@ class LayerControl(BoxLayout):
                 # The box drives the gain/exposure widgets' enabled state in
                 # the kv; on a camera whose Auto Gain control is hidden a
                 # ticked box would grey them with nothing to un-grey them.
-                self.ids['auto_gain'].active = bool(
-                    step['Auto_Gain'] and self.camera_autogain_support
-                )
+                # So it shows what the camera will run, not what was stored.
+                self.ids['auto_gain'].active = _app_ctx.ctx.scope.imaging.applied_auto_gain_for(
+                    step['Auto_Gain']
+                ).applied
 
             if 'Exposure' in step:
                 self._show_value_on_widgets('exp_slider', 'exp_text', step['Exposure'])
@@ -1190,15 +1191,15 @@ class LayerControl(BoxLayout):
     def effective_auto_gain(self) -> bool:
         """The auto-gain enable actually in force for this layer's camera.
 
-        The saved preference (settings[layer]['auto_gain']) gated by the
-        camera's hardware capability (camera_autogain_support -- the same gate
-        the kv visibility uses). On a camera without hardware AG/AE the Auto
-        Gain/Exp control is hidden, so its stored preference resolves to off
-        here. Derived on read, never written back, so a capable camera's saved
-        preference survives a swap to an AG-less body and back.
+        The API's answer for the saved preference (settings[layer]['auto_gain']):
+        a camera without hardware auto-gain runs manual, and its Auto Gain/Exp
+        control is hidden. Read, never written back, so a capable camera's
+        saved preference survives a swap to a camera without it and back.
         """
-        settings = _app_ctx.ctx.settings
-        return bool(settings[self.layer]['auto_gain'] and self.camera_autogain_support)
+        ctx = _app_ctx.ctx
+        return ctx.scope.imaging.applied_auto_gain_for(
+            ctx.settings[self.layer]['auto_gain']
+        ).applied
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
@@ -1320,7 +1321,7 @@ class LayerControl(BoxLayout):
         gain = settings[self.layer]['gain_db']
 
         if not ctx.session.run_lockout:
-            # Effective enable = saved preference gated by camera capability
+            # Effective enable = the API's answer for the saved preference
             # (effective_auto_gain): on a camera without hardware AG/AE the
             # control is hidden, so a stored True must read as off here -- else
             # the gain/exposure sliders below stay disabled with no UI to clear

@@ -201,10 +201,26 @@ class _Widget:
         self.min = None
 
 
+def _scope_with_auto_gain(has_auto_gain):
+    """A scope whose camera does or does not have hardware auto-gain.
+
+    The API's own ``applied_auto_gain_for`` answers, over a camera stand that
+    reports only that capability, so the widget shows the real decision.
+    """
+    from tests.scope_fakes import answer_auto_gain_like_the_api
+
+    imaging = SimpleNamespace()
+    answer_auto_gain_like_the_api(imaging, has_auto_gain=has_auto_gain)
+    return SimpleNamespace(imaging=imaging)
+
+
 class _NoSettingsCtx:
     """A ctx whose settings cannot be read: a pure widget setter never asks."""
 
     settings_lock = threading.Lock()
+
+    def __init__(self, has_auto_gain=True):
+        self.scope = _scope_with_auto_gain(has_auto_gain)
 
     @property
     def settings(self):
@@ -212,15 +228,14 @@ class _NoSettingsCtx:
 
 
 class _LayerStand:
-    """A LayerControl stand-in: the widgets, the layer name, the capability
-    flag, and no-op visibility; the methods under test are called unbound."""
+    """A LayerControl stand-in: the widgets, the layer name, and no-op
+    visibility; the methods under test are called unbound."""
 
-    def __init__(self, layer, widget_ids, camera_autogain_support=True):
+    def __init__(self, layer, widget_ids):
         from ui.layer_control import LayerControl
 
         self.ids = {name: _Widget() for name in widget_ids}
         self.layer = layer
-        self.camera_autogain_support = camera_autogain_support
         self.show_stim_controls = None
         self._initializing = False
         self.visibility_calls = 0
@@ -285,8 +300,8 @@ class TestSetStepStateIsAPureWidgetSetter:
         with the control hidden there would be no way to un-grey them."""
         from ui.layer_control import LayerControl
 
-        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx())
-        stand = _LayerStand('Green', _STEP_WIDGETS, camera_autogain_support=False)
+        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False))
+        stand = _LayerStand('Green', _STEP_WIDGETS)
 
         LayerControl.set_step_state(stand, {'Auto_Gain': True})
 
@@ -366,7 +381,10 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         }
         lock = _CountingLock()
         monkeypatch.setattr(
-            'modules.app_context.ctx', SimpleNamespace(settings=settings, settings_lock=lock)
+            'modules.app_context.ctx',
+            SimpleNamespace(
+                settings=settings, settings_lock=lock, scope=_scope_with_auto_gain(True)
+            ),
         )
         stand = _LayerStand(layer, _SETTINGS_WIDGETS)
         stand._initializing = True
