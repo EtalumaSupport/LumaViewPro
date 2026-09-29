@@ -69,9 +69,8 @@ from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
-from tests.scope_fakes import configure_turret_like_bringup, home_sim_scope
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -88,7 +87,7 @@ TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _make_simulated_scope():
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)

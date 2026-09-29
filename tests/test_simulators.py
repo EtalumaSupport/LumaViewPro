@@ -26,6 +26,7 @@ from drivers.simulated_camera import SimulatedCamera
 # the AMAX/DMAX probe-warning filter at import time, and
 # test_amax_dmax_probe_warning_suppressed measures that filter.
 from drivers.motorboard import MotorBoard  # noqa: F401
+from tests.scope_fakes import build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -528,27 +529,24 @@ class TestScaleBarObjectiveInit:
 
     def test_objective_none_at_init(self):
         """Lumascope starts with no objective set."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert scope.runtime_state._objective is None
 
     def test_set_objective_populates(self):
         """set_objective() should populate _objective dict."""
-        from modules.lumascope_api import Lumascope
 
         from tests.scope_fakes import record_turret_answer
 
-        scope = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
+        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
         scope.runtime_state.set_objective('20x Oly')
         assert scope.runtime_state._objective is not None
         assert scope.runtime_state._objective['magnification'] == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective -> use_scale_bar forced False."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True
         assert scope.runtime_state._objective is None
@@ -556,11 +554,10 @@ class TestScaleBarObjectiveInit:
 
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
-        from modules.lumascope_api import Lumascope
 
         from tests.scope_fakes import record_turret_answer
 
-        scope = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
+        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
         scope.runtime_state.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True

@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
+from tests.scope_fakes import build_scope
 
 
 class TestCameraMaxExposureContract:
@@ -36,9 +37,8 @@ class TestCameraMaxExposureContract:
 
     def test_inactive_camera_yields_none_max_exposure(self):
         """Forcing camera cache to inactive must leave max_exposure None."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         # Simulator connects an active camera by default. Force the exact
         # no-camera state that load_settings sees on a real missing camera.
         with scope.imaging._camera_cache_lock:
@@ -54,9 +54,8 @@ class TestCameraMaxExposureContract:
         the property still returns None so callers see a consistent
         "camera missing" signal.
         """
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 0.0
 
@@ -64,9 +63,8 @@ class TestCameraMaxExposureContract:
 
     def test_populated_value_passes_through(self):
         """A real positive value in the cache is returned as float."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 500.0
 
@@ -75,9 +73,8 @@ class TestCameraMaxExposureContract:
 
     def test_integer_in_cache_is_coerced_to_float(self):
         """Integer from a driver is returned as float for caller consistency."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 750
 

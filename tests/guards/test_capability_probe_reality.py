@@ -60,6 +60,7 @@ from dataclasses import dataclass
 import pytest
 
 from tests.ast_seams import iter_package_modules
+from tests.scope_fakes import build_scope
 
 # Packages that hold callers of the scope API. `drivers/` is excluded on
 # purpose: it sits BELOW the API and never holds a scope reference.
@@ -161,9 +162,8 @@ def scope_surface():
     would report attributes missing that production callers really do
     see.
     """
-    from modules.lumascope_api import Lumascope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     try:
         yield frozenset(dir(scope))
     finally:
@@ -210,7 +210,6 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     fooled locks the receiver-specific design in place: if someone
     "simplifies" the oracle to a union, this test fails.
     """
-    from modules.lumascope_api import Lumascope
 
     caught = {
         (site.rel_path, site.name) for site in scope_probe_sites() if site.name not in scope_surface
@@ -225,7 +224,7 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
         f'_ALLOWED_MISSING entry) or the oracle stopped biting.'
     )
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     try:
         union = set(dir(scope))
         for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics', 'io'):

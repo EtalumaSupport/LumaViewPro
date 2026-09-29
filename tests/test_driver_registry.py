@@ -27,6 +27,7 @@ from drivers.registry import (
     camera_registry,
 )
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from tests.scope_fakes import build_scope
 
 
 class TestDriverRegistryUnit:
@@ -402,12 +403,11 @@ class TestLumascopeUsesRegistry:
     via the registry, not via hardcoded class references."""
 
     def test_simulate_true_yields_simulated_drivers(self):
-        from modules.lumascope_api import Lumascope
         from drivers.simulated_motorboard import SimulatedMotorBoard
         from drivers.simulated_ledboard import SimulatedLEDBoard
         from drivers.simulated_camera import SimulatedCamera
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert isinstance(scope._motion_driver, SimulatedMotorBoard)
         assert isinstance(scope._led_driver, SimulatedLEDBoard)
         assert isinstance(scope._camera_driver, SimulatedCamera)
@@ -415,9 +415,8 @@ class TestLumascopeUsesRegistry:
     def test_simulated_scope_satisfies_protocols(self):
         """Cross-check with B1: whatever the registry returns in
         simulate mode must still satisfy the driver protocols."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert isinstance(scope._motion_driver, MotorBoardProtocol)
         assert isinstance(scope._led_driver, LEDBoardProtocol)
 

@@ -19,7 +19,8 @@ the driver's real error handling runs.
 
 import pytest
 
-from modules.lumascope_api import AxisState, Lumascope
+from modules.lumascope_api import AxisState
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def scope(monkeypatch):
         'error',
         lambda category, title, message, **k: errors.append((category, title, message)),
     )
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope.notifications_seen = errors
     yield scope
     scope.motion._disconnect()

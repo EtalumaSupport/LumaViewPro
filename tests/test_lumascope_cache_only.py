@@ -26,7 +26,7 @@ spies fire, the test fails with a clear message.
 
 import pytest
 
-import modules.lumascope_api as lumascope_api
+from tests.scope_fakes import build_scope
 
 
 def _explode(name):
@@ -56,7 +56,7 @@ def scope_with_io_traps():
     interpreter exit. The trap is the whole point of the fixture; we
     just want it scoped to the test, not to interpreter teardown.
     """
-    scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
+    scope = build_scope(simulate=True, register_atexit=False)
 
     # Trap motor-board serial-equivalent methods.
     if hasattr(scope._motion_driver, 'exchange_command'):

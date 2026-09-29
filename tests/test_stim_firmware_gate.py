@@ -10,8 +10,8 @@ appearing on firmware that cannot drive stim is the defect this guards against.
 from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
-from modules.lumascope_api import Lumascope
 from modules.config_ui_getters import firmware_stim_supported
+from tests.scope_fakes import build_scope
 
 
 def _ctx_reporting_stim(supported):
@@ -44,5 +44,5 @@ def test_default_simulated_scope_reports_no_firmware_stim():
     # The pre-3.0.8-firmware case (a scope that cannot stim): the capability
     # must read False so the gate hides stim. This is the real-path anchor for
     # the mocked gate tests above.
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     assert scope.capabilities.has_firmware_stim is False

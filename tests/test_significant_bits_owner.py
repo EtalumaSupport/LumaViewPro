@@ -25,8 +25,8 @@ import pytest
 
 from modules import image_utils
 from modules.exceptions import FrameDepthError
-from modules.lumascope_api import Lumascope
 from modules.recording_frames import FrameFact
+from tests.scope_fakes import build_scope
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -47,7 +47,7 @@ def make_scope():
     scopes = []
 
     def _make(pixel_format, pattern='White'):
-        scope = _configure_sim(Lumascope(simulate=True), pixel_format, pattern)
+        scope = _configure_sim(build_scope(simulate=True), pixel_format, pattern)
         scopes.append(scope)
         return scope
 

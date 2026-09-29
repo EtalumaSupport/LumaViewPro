@@ -32,6 +32,7 @@ import pytest
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
 from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
+from tests.scope_fakes import build_scope
 
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -75,9 +76,8 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
 
 @pytest.fixture
 def sim_scope():
-    from modules.lumascope_api import Lumascope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope.protocols.register_source_path(_REPO_ROOT)
     try:
         yield scope

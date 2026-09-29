@@ -19,9 +19,9 @@ from tests.settings_fixtures import complete_settings
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
-import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
+from tests.scope_fakes import build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ def _make_real_scope_with_recording_executors(led=True, motor=True):
     """
     from tests.scope_fakes import record_turret_answer
 
-    scope = record_turret_answer(lumascope_api.Lumascope(simulate=True))
+    scope = record_turret_answer(build_scope(simulate=True))
     if not led:
         from drivers.null_ledboard import NullLEDBoard
 
@@ -479,7 +479,7 @@ class TestLumascopeLedAPI:
         body runs on the calling thread instead of raising. A bare
         Lumascope() in a script or an example has no executors and must
         still drive hardware."""
-        scope = lumascope_api.Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         try:
             scope.illumination.led_on(channel=0, illumination_ma=30)
             color = scope.illumination.ch2color(0)

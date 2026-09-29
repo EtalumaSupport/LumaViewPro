@@ -23,9 +23,9 @@ from unittest.mock import MagicMock
 import pytest
 
 import modules.sequenced_capture_runner as scr
-from modules.lumascope_api import Lumascope
 from tests.protocol_drives import held_run_claim
 from modules.run_outcome import RunEnding
+from tests.scope_fakes import build_scope
 
 LAYER = 'Blue'
 ILLUMINATION_MA = 10.0
@@ -33,7 +33,7 @@ ILLUMINATION_MA = 10.0
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     return s
 

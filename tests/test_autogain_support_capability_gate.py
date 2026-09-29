@@ -39,8 +39,8 @@ from unittest.mock import MagicMock
 import modules.app_context as _app_ctx
 from modules.config_ui_getters import camera_autogain_supported
 from drivers.camera_profiles import lookup_profile
-from modules.lumascope_api import Lumascope
 from modules.scope_capabilities import ScopeCapabilities
+from tests.scope_fakes import build_scope
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
@@ -144,7 +144,7 @@ class TestCapabilityMapping:
 
     def test_simulated_scope_reports_hardware_autogain(self):
         # Real-path anchor for the mocked getter tests: the sim camera has AG.
-        assert Lumascope(simulate=True).capabilities.camera_supports_auto_gain is True
+        assert build_scope(simulate=True).capabilities.camera_supports_auto_gain is True
 
 
 class TestUiWiring:

@@ -37,6 +37,7 @@ from tests.test_camera_getter_sentinel_containment import (
     ScriptedCameraDriver,
     _build_imaging,
 )
+from tests.scope_fakes import build_scope
 
 
 class _RecordingNotifications:
@@ -304,9 +305,8 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
 
     Returns (applied_binnings, applied_frames, logged_errors, reached_end).
     """
-    from modules.lumascope_api import Lumascope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     saved_driver = scope._camera_driver
     try:
         # initialize is bring-up and binds the impl seams (it runs before

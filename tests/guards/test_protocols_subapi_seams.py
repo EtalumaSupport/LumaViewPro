@@ -27,6 +27,7 @@ import pathlib
 import pytest
 
 from tests.ast_seams import find_def, iter_package_modules, parse_module
+from tests.scope_fakes import build_scope
 
 _LUMASCOPE_SRC = 'modules/lumascope_api/_lumascope.py'
 _PROTOCOLS_SRC = 'modules/lumascope_api/protocols.py'
@@ -65,9 +66,8 @@ _RETIRED_FROM_LUMASCOPE = (
 
 
 def _new_scope():
-    from modules.lumascope_api import Lumascope
 
-    return Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+    return build_scope(simulate=True, register_atexit=False, register_metrics=False)
 
 
 def _legacy_call_sites():

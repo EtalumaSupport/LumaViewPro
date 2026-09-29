@@ -11,12 +11,12 @@ untested there.
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
 def scope():
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     yield scope
     scope.motion._disconnect()
 

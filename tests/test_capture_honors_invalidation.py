@@ -31,7 +31,7 @@ import pytest
 from unittest.mock import patch
 
 import modules.lumascope_api.imaging as imaging_module
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signal
 
@@ -41,7 +41,7 @@ def live_scope():
     """A full simulated scope: real IlluminationAPI over SimulatedLEDBoard,
     streaming camera, no executors (dispatch runs inline on the calling
     thread, so an injected LED write invalidates synchronously)."""
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')

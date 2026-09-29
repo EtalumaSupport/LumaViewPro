@@ -30,6 +30,7 @@ members that only exist on real hardware are outside its reach.
 import re
 
 from tests.ast_seams import REPO_ROOT
+from tests.scope_fakes import build_scope
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
@@ -77,11 +78,10 @@ def load_surface():
     sub-API objects are composed at runtime; a static read of the class
     bodies misses members a driver or mixin contributes.
     """
-    import modules.lumascope_api as la
     from modules.lumascope_api.illumination import LedLease
     from modules.scope_session import ScopeSession
 
-    scope = la.Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+    scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
     surface = {}
     for sub in SUBS:
         obj = getattr(scope, sub, None)

@@ -17,6 +17,7 @@ from modules.lumascope_api.imaging import (
     HANDLER_BUDGET_MS,
     HANDLER_DROP_K,
 )
+from tests.scope_fakes import build_scope
 
 
 def _make_imaging_stub():
@@ -143,9 +144,8 @@ def _make_simulated_scope():
     ~1000 times/sec, which keeps wall-clock test latency in the
     tens-of-ms range even when waiting for K=30 callbacks.
     """
-    from modules.lumascope_api._lumascope import Lumascope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope.imaging.set_exposure_ms(1.0)
     return scope
 

@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO))
 import pytest
 
 from modules import common_utils
+from tests.scope_fakes import build_scope
 
 
 def _driver_classes():
@@ -97,9 +98,8 @@ class _FourColourRecordingBoard:
 
 @pytest.fixture
 def sim_scope():
-    from modules.lumascope_api import Lumascope
 
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

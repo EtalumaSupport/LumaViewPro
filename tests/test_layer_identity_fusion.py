@@ -15,13 +15,13 @@ never strand a lit LED outside the restore/extinguish machinery.
 
 import pytest
 
-import modules.lumascope_api as lumascope_api
 from modules.exceptions import ConfigError
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
 def scope():
-    s = lumascope_api.Lumascope(
+    s = build_scope(
         simulate=True, register_atexit=False, register_metrics=False, sim_model='LS850T'
     )
     yield s

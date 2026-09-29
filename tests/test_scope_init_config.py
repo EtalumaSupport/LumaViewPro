@@ -15,12 +15,12 @@ scope's expected hardware as captured on `ScopeInitConfig`.
 
 import pytest
 
-from modules.lumascope_api import Lumascope
 from modules.notification_center import NotificationCenter, Severity
 from modules.scope_init_config import ScopeInitConfig
 from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN, MotorBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
+from tests.scope_fakes import build_scope
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -227,7 +227,7 @@ class TestAccelerationBound:
 def _make_scope_with_no_hardware():
     """Sim scope, strip drivers to Null* / no camera, flip `_simulated`
     off so the early-return doesn't fire."""
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope._led_driver = NullLEDBoard()
     scope._motion_driver = NullMotionBoard()
     scope._camera_driver = None
@@ -248,7 +248,7 @@ def captured_warnings(monkeypatch):
 
 class TestNotifyPartialHardware:
     def test_simulator_never_warns(self, captured_warnings):
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             labware=None,

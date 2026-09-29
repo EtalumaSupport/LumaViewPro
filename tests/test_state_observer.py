@@ -11,8 +11,8 @@ import pytest
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from modules.lumascope_api import Lumascope
 from tests.protocol_drives import held_run_claim
+from tests.scope_fakes import build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ from tests.protocol_drives import held_run_claim
 @pytest.fixture
 def scope():
     """Simulated Lumascope with fast timing."""
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

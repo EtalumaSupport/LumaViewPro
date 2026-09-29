@@ -19,12 +19,12 @@ reported, and a driver that simply completes is still fine.
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
 def scope():
-    return Lumascope(simulate=True)
+    return build_scope(simulate=True)
 
 
 def test_a_driver_refusal_is_raised_to_the_caller(scope, monkeypatch):

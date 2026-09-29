@@ -15,12 +15,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     yield s
     s.disconnect()
 

@@ -44,8 +44,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -236,7 +235,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 @pytest.fixture
 def scope():
     """Create a real Lumascope with simulated hardware."""
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)
@@ -1047,7 +1046,7 @@ class TestRestAPIPrep:
         A factory-built session is configured, so the unset state lives on
         a bare scope now, not on a session.
         """
-        scope = Lumascope(simulate=True, register_atexit=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
             assert scope.runtime_state.get_current_objective() is None
         finally:

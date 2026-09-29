@@ -20,6 +20,7 @@ import pytest
 from modules.exceptions import ConfigError
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
+from tests.scope_fakes import build_scope
 
 
 def _runner(acquiring=('BF',)):
@@ -332,7 +333,6 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         import pathlib
 
         import modules.config_helpers as config_helpers
-        from modules.lumascope_api import Lumascope
         from modules.protocol import Protocol
 
         kwargs = {
@@ -356,7 +356,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
             wellplate_loader,
             **kwargs,
         )
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         try:
             return Protocol.from_config(
                 input_config=config,

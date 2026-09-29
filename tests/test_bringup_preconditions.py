@@ -22,6 +22,7 @@ import pytest
 
 import tests.ast_seams as ast_seams
 from modules.exceptions import ConfigError
+from tests.scope_fakes import build_scope
 
 
 class TestScopeModelsCatalogue:
@@ -64,12 +65,11 @@ class TestInitializeStaysOnTheCallingThread:
         lane and wait the full write timeout for a worker that never
         comes. Bound to the impl, the write happens here and now.
         """
-        import modules.lumascope_api as lumascope_api
         from modules.scope_init_config import ScopeInitConfig
         from modules.sequential_io_executor import SequentialIOExecutor
         from tests.test_composite_run_config import _settings
 
-        scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         io = SequentialIOExecutor(name='IO_UNSTARTED')
         cam = SequentialIOExecutor(name='CAMERA_UNSTARTED')
         try:
@@ -87,12 +87,11 @@ class TestInitializeStaysOnTheCallingThread:
         """Preservation pin: the board check the dispatcher applied survives
         the move. With a Null board the impl must not run at all, or the
         state cache would record a safety-off the hardware never saw."""
-        import modules.lumascope_api as lumascope_api
         from drivers.null_ledboard import NullLEDBoard
         from modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
 
-        scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
             # IlluminationAPI._driver is a read-only view of the scope's slot.
             monkeypatch.setattr(scope, '_led_driver', NullLEDBoard())

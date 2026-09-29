@@ -40,7 +40,6 @@ from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.protocol_state_machine import ProtocolState
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -50,7 +49,7 @@ from tests.protocol_drives import (
     held_run_claim,
     wait_until_ready_for_next_run,
 )
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -65,7 +64,7 @@ COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
 def _make_simulated_scope():
     """Create a Lumascope with simulated hardware in fast timing mode."""
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     # The session registers the data root at bring-up; a runner over a
     # bare scope needs it too, or the run refuses at start.
     s.protocols.register_source_path('.')

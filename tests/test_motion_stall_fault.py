@@ -12,6 +12,7 @@ user once, the same terminal shape as the disconnect fault.
 """
 
 import time
+from tests.scope_fakes import build_scope
 
 
 def _wait_until(predicate, timeout=3.0, interval=0.02):
@@ -34,12 +35,12 @@ def _silence_notifications(monkeypatch, sink):
 
 
 def test_stalled_move_faults_axis_and_notifies(monkeypatch):
-    from modules.lumascope_api import AxisState, Lumascope
+    from modules.lumascope_api import AxisState
 
     errors = []
     _silence_notifications(monkeypatch, errors)
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     motion = scope.motion
     # Fault on the next poll rather than after the 120 s production bound.
     motion._MOTION_SETTLE_TIMEOUT_S = 0.0
@@ -62,12 +63,12 @@ def test_arriving_move_never_stall_faults(monkeypatch):
     """A move that reaches its target must complete IDLE with no fault and
     no notification, even with the stall bound at its most aggressive --
     arrival must always win over the stall clock."""
-    from modules.lumascope_api import AxisState, Lumascope
+    from modules.lumascope_api import AxisState
 
     errors = []
     _silence_notifications(monkeypatch, errors)
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     motion = scope.motion
     motion._MOTION_SETTLE_TIMEOUT_S = 0.0
     monkeypatch.setattr(motion, 'get_target_status', lambda ax: True)

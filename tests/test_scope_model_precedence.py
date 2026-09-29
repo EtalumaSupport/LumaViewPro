@@ -12,14 +12,14 @@ the bring-up, and a headless host never did.
 
 import pytest
 
-import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
 from tests.log_capture import capture_module_log
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import build_scope
 
 
 def _sim_scope(**kwargs):
-    return lumascope_api.Lumascope(
+    return build_scope(
         simulate=True,
         register_atexit=False,
         register_metrics=False,

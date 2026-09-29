@@ -12,13 +12,13 @@ answers, the objective is unknown and cannot be set.
 
 import pytest
 
-import modules.lumascope_api as lumascope_api
 from modules.exceptions import ConfigError, ObjectiveUnknownError
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
 def bare_turret_scope():
-    scope = lumascope_api.Lumascope(
+    scope = build_scope(
         simulate=True,
         sim_model='LS850T',
         register_atexit=False,

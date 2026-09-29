@@ -27,7 +27,7 @@ from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope
 
 
 @pytest.fixture
@@ -149,7 +149,7 @@ class TestMotionValiditySources:
     @staticmethod
     def _scope_with_invalidate_recorder():
         """Simulated scope whose frame_validity.invalidate records sources."""
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         scope._motion_driver.set_timing_mode('instant')
         # Home before recording: the home's own invalidations are setup,
         # not the transitions under test.

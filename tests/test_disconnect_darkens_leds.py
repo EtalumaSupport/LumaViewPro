@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def scope():
     The hook would darken the LEDs at interpreter exit and mask whether
     `disconnect()` did it, which is the whole question here.
     """
-    s = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+    s = build_scope(simulate=True, register_atexit=False, register_metrics=False)
     yield s
     s.disconnect()
 

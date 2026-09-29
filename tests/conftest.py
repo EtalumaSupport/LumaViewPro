@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
+from tests.scope_fakes import build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -606,11 +607,10 @@ def sim_scope():
     directly, which only a scope with no turret can do -- on a turret scope
     the objective is the slot's assignment.
     """
-    from modules.lumascope_api import Lumascope
 
     from tests.scope_fakes import record_turret_answer
 
-    s = record_turret_answer(Lumascope(simulate=True, sim_model='LS850'))
+    s = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

@@ -55,6 +55,20 @@ from __future__ import annotations
 from unittest.mock import create_autospec
 
 
+def build_scope(**kwargs):
+    """A `Lumascope` for a test: the one place a test constructs one.
+
+    Takes the constructor's own arguments. A test that needs a scope of
+    its own, rather than a session's, builds it here, so what every such
+    scope is built with changes in one place.
+
+    The caller owns disconnecting it.
+    """
+    from modules.lumascope_api import Lumascope
+
+    return Lumascope(**kwargs)
+
+
 def build_real_sim_scope():
     """A constructed `Lumascope(simulate=True)`, for use as the spec.
 
@@ -64,9 +78,7 @@ def build_real_sim_scope():
 
     The caller owns disconnecting it. `spec_scope()` does that for you.
     """
-    from modules.lumascope_api import Lumascope
-
-    return Lumascope(simulate=True)
+    return build_scope(simulate=True)
 
 
 def homed_sim_scope():

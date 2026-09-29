@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 class _CameraAnsweringBothSeparately:
@@ -46,7 +46,7 @@ class _CameraAnsweringBothSeparately:
 
 @pytest.fixture
 def scope():
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     yield scope
     scope.disconnect()
 

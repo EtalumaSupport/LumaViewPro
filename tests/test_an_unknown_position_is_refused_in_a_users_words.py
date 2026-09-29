@@ -14,13 +14,13 @@ exactly the state a failed home leaves every axis in.
 import pytest
 
 from modules.exceptions import AxisStateUnknownError
-from modules.lumascope_api import AxisState, Lumascope
-from tests.scope_fakes import home_sim_scope
+from modules.lumascope_api import AxisState
+from tests.scope_fakes import build_scope, home_sim_scope
 
 
 @pytest.fixture
 def unhomed_scope():
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     yield scope
     scope.motion._disconnect()
 

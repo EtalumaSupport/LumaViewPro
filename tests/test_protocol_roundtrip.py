@@ -31,8 +31,7 @@ from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope
 from tests.protocol_drives import autofocus_snapshot, wait_until_ready_for_next_run
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
@@ -199,7 +198,7 @@ def _save_and_reload(protocol, tmp_path):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(Lumascope(simulate=True))
+    s = home_sim_scope(build_scope(simulate=True))
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)

@@ -10,6 +10,7 @@ the user exactly once.
 """
 
 import time
+from tests.scope_fakes import build_scope
 
 
 def _wait_until(predicate, timeout=3.0, interval=0.02):
@@ -22,7 +23,7 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
 
 
 def test_disconnect_mid_move_faults_axis_and_notifies(monkeypatch):
-    from modules.lumascope_api import AxisState, Lumascope
+    from modules.lumascope_api import AxisState
 
     errors = []
     import modules.notification_center as nc
@@ -33,7 +34,7 @@ def test_disconnect_mid_move_faults_axis_and_notifies(monkeypatch):
         lambda category, title, message, **k: errors.append((category, title, message)),
     )
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     motion = scope.motion
     # Fault on the next poll rather than after the 3 s production deadline.
     motion._DISCONNECT_FAULT_S = 0.0

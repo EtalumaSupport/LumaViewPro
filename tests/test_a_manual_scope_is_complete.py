@@ -22,9 +22,9 @@ import modules.notification_center as notification_center
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules.layer_record import load_scope_models, model_axes
-from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import build_scope
 
 MODELS = load_scope_models()
 MANUAL = sorted(model for model in MODELS if not model_axes(MODELS, model))
@@ -49,7 +49,7 @@ def test_the_catalogue_has_manual_scopes():
 
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_fast_tier_reports_every_catalogue_models_axes(model):
-    scope = Lumascope(
+    scope = build_scope(
         simulate=True,
         sim_model=model,
         sim_tier='fast',
@@ -131,7 +131,7 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
     monkeypatch.setattr(
         lumascope_module.led_registry, 'create', lambda name='auto', **kwargs: NullLEDBoard()
     )
-    scope = Lumascope(
+    scope = build_scope(
         simulate=False,
         camera_type='sim',
         warn_pre_release=False,
@@ -156,7 +156,7 @@ def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
     monkeypatch.setattr(
         lumascope_module.motor_registry, 'create', lambda name='auto', **kwargs: NullMotionBoard()
     )
-    scope = Lumascope(
+    scope = build_scope(
         simulate=False,
         camera_type='sim',
         warn_pre_release=False,

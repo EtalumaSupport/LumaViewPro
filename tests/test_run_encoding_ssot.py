@@ -37,7 +37,6 @@ from modules.image_mode import (
     SAVE_ENCODING_RGB,
     SAVE_ENCODING_RIGHT_ALIGNED,
 )
-from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.sequenced_capture_runner import (
@@ -46,7 +45,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -115,7 +114,7 @@ def _build_protocol():
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)

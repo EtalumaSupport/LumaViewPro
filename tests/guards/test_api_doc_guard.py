@@ -52,6 +52,7 @@ import warnings
 import pytest
 
 from tests.ast_seams import REPO_ROOT
+from tests.scope_fakes import build_scope
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
@@ -177,10 +178,9 @@ def live_objects():
     which is ~0.5s and pointless to repeat per test.
     """
     warnings.simplefilter('ignore', FutureWarning)
-    from modules.lumascope_api import Lumascope
     from modules.scope_session import ScopeSession
 
-    scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+    scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
     session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     yield {
         'scope': scope,

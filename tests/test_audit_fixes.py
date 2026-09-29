@@ -243,11 +243,10 @@ class TestDomainExceptions:
 @pytest.fixture
 def sim_scope(_mock_heavy_deps):
     """Create a homed Lumascope in simulate mode (no hardware needed)."""
-    from modules.lumascope_api import Lumascope
 
     from tests.scope_fakes import home_sim_scope
 
-    scope = home_sim_scope(Lumascope(simulate=True))
+    scope = home_sim_scope(build_scope(simulate=True))
     yield scope
     scope.disconnect()
 
@@ -982,9 +981,9 @@ class TestAxisState:
         one is about the state BEFORE any of that, so it needs the
         untouched construction.
         """
-        from modules.lumascope_api import AxisState, Lumascope
+        from modules.lumascope_api import AxisState
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         try:
             for ax in ('X', 'Y', 'Z', 'T'):
                 assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
@@ -1033,10 +1032,10 @@ class TestAxisState:
         the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
         on no-turret scopes and `home(axis='T')` is a silent no-op there.
         """
-        from modules.lumascope_api import Lumascope, AxisState
+        from modules.lumascope_api import AxisState
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, 'LS850T sim must report T present'
@@ -1060,9 +1059,9 @@ class TestAxisState:
         unlike swapping _motion_driver post-init, which left T in the
         already-built capabilities.
         """
-        from modules.lumascope_api import Lumascope, AxisState
+        from modules.lumascope_api import AxisState
 
-        scope = Lumascope(simulate=True, sim_model='LS850')
+        scope = build_scope(simulate=True, sim_model='LS850')
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
             assert 'T' not in scope.capabilities.axes
@@ -1161,9 +1160,8 @@ class TestIssue602_AFExecutorLED:
     def test_af_executor_turns_led_on(self, _mock_heavy_deps):
         """AF executor should call led_on when led_color is provided."""
         from modules.autofocus_runner import AutofocusRunner
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
 
         io = SequentialIOExecutor(name='IO_TEST')
@@ -1188,11 +1186,10 @@ class TestIssue602_AFExecutorLED:
     def test_af_executor_led_off_in_cancel(self, _mock_heavy_deps):
         """AF executor cancel() should turn off LED."""
         from modules.autofocus_runner import AutofocusRunner
-        from modules.lumascope_api import Lumascope
         from unittest.mock import patch
         from tests.protocol_drives import held_run_claim
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         from modules.sequential_io_executor import SequentialIOExecutor
 
         io = SequentialIOExecutor(name='IO_TEST')
@@ -1247,10 +1244,9 @@ class TestAFPrecisionModeRestoresOn:
 
     def _build_af(self):
         from modules.autofocus_runner import AutofocusRunner
-        from modules.lumascope_api import Lumascope
         from modules.sequential_io_executor import SequentialIOExecutor
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         return AutofocusRunner(
             scope=scope,
             camera_executor=SequentialIOExecutor(name='CAM_PREC'),
@@ -1396,9 +1392,8 @@ class TestB6_WriteMotorRegisterRemoved:
 
     def test_write_motor_register_removed(self, _mock_heavy_deps):
         """write_motor_register should no longer exist on the API class."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert not hasattr(scope, 'write_motor_register'), (
             'write_motor_register() should have been removed (B6 -- zero callers)'
         )
@@ -1410,9 +1405,8 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
 
     def test_returns_only_present_axes(self, _mock_heavy_deps):
         """get_current_position(None) should return dict keyed by present axes only."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         result = scope.motion.get_current_position(axis=None)
         assert set(result.keys()) == set(scope.capabilities.axes), (
             'get_current_position(None) should use scope.capabilities.axes, not a hardcoded axis list'
@@ -4095,6 +4089,7 @@ from tests.camera_fakes import (
     run_one_stats_poll as _run_one_stats_poll,
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
+from tests.scope_fakes import build_scope
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -9906,9 +9901,8 @@ class TestCreateDiagnosticSharesInitMinimal:
     )
 
     def test_init_sets_all_shared_slots(self):
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+        scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
         try:
             for slot in self.REQUIRED_SHARED_SLOTS:
                 assert hasattr(scope, slot), (
@@ -9942,10 +9936,9 @@ class TestLedSentinelReturnsAreNone:
     def test_get_led_ma_returns_none_when_driver_absent(self):
         """A diagnostic-mode instance with a NullLEDBoard driver path
         exercises the not-self._driver branch -- returns None, not -1."""
-        from modules.lumascope_api import Lumascope
         from drivers.null_ledboard import NullLEDBoard
 
-        scope = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+        scope = build_scope(simulate=True, register_atexit=False, register_metrics=False)
         try:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
@@ -10198,9 +10191,8 @@ class TestGetLedStateShape:
     """
 
     def _scope(self):
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         scope._led_driver.set_timing_mode('fast')
         return scope
 
@@ -10311,11 +10303,10 @@ class TestPreReleaseFutureWarning:
 
     def test_lumascope_init_fires_future_warning(self):
         import warnings
-        from modules.lumascope_api import Lumascope
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            Lumascope(simulate=True)
+            build_scope(simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) >= 1
         msg = str(future_warnings[0].message)
@@ -10324,13 +10315,12 @@ class TestPreReleaseFutureWarning:
 
     def test_warning_fires_once_per_process(self):
         import warnings
-        from modules.lumascope_api import Lumascope
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            Lumascope(simulate=True)
-            Lumascope(simulate=True)
-            Lumascope(simulate=True)
+            build_scope(simulate=True)
+            build_scope(simulate=True)
+            build_scope(simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) == 1, (
             f'PRE-RELEASE FutureWarning must fire once-per-process; '
@@ -10343,11 +10333,10 @@ class TestPreReleaseFutureWarning:
         so it has no such exposure -- and the warning reached the user's
         console on every launch instead."""
         import warnings
-        from modules.lumascope_api import Lumascope
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            Lumascope(simulate=True, warn_pre_release=False)
+            build_scope(simulate=True, warn_pre_release=False)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert not future_warnings, (
             'an app-owned construction must not fire the SDK pre-release warning'
@@ -10359,12 +10348,11 @@ class TestPreReleaseFutureWarning:
         in-process SDK consumer afterwards would never be warned -- the
         opt-out would silently become a global disable."""
         import warnings
-        from modules.lumascope_api import Lumascope
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            Lumascope(simulate=True, warn_pre_release=False)
-            Lumascope(simulate=True)
+            build_scope(simulate=True, warn_pre_release=False)
+            build_scope(simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) == 1, (
             f'an SDK consumer after an app-owned construction must still be '
@@ -10389,11 +10377,10 @@ class TestPreReleaseFutureWarning:
         LumascopeSkills preface / CHANGELOG note are the other three
         mechanisms, verified outside this test file."""
         import warnings
-        from modules.lumascope_api import Lumascope
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            Lumascope(simulate=True)
+            build_scope(simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert future_warnings, 'PRE-RELEASE FutureWarning must fire on first Lumascope()'
         msg = str(future_warnings[0].message)

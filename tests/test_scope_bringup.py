@@ -35,9 +35,8 @@ import pytest
 
 from tests.settings_fixtures import complete_settings
 
-import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import build_scope, spec_scope
 from tests.test_scope_api import _RecordingExecutor
 
 
@@ -73,7 +72,7 @@ def _teardown_live_rigs():
 
 
 def _real_scope():
-    scope = lumascope_api.Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     _LIVE.append(('scope', scope))
     return scope
 

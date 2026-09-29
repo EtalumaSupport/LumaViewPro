@@ -52,6 +52,7 @@ import warnings
 import pytest
 
 from tests.ast_seams import REPO_ROOT
+from tests.scope_fakes import build_scope
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
@@ -63,11 +64,10 @@ _SKIP_TYPE_MODULES = ('builtins', 'threading', 'logging', 'queue')
 
 @pytest.fixture(scope='module')
 def live_scope():
-    from modules.lumascope_api import Lumascope
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        return Lumascope(simulate=True)
+        return build_scope(simulate=True)
 
 
 def _public_members(obj):

@@ -26,6 +26,7 @@ from modules.layer_record import load_scope_models, model_axes
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import build_scope
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -41,7 +42,7 @@ def _catalogue_axes(model: str) -> set[str]:
 
 
 def _scope(**kwargs) -> Lumascope:
-    return Lumascope(
+    return build_scope(
         simulate=True,
         warn_pre_release=False,
         register_metrics=False,

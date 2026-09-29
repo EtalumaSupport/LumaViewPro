@@ -61,7 +61,6 @@ _purge_kivy_from_sys_modules()
 # Now import the protocol execution chain -- these MUST not require Kivy
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -77,7 +76,7 @@ import modules.kivy_utils as _kivy_utils
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.protocol_drives import autofocus_snapshot
-from tests.scope_fakes import configure_turret_like_bringup
+from tests.scope_fakes import build_scope, configure_turret_like_bringup
 
 install_mock_deps()
 
@@ -258,7 +257,7 @@ class TestHeadlessProtocolExecution:
             from modules.coord_transformations import CoordinateTransformer
             from modules.labware_loader import WellPlateLoader
 
-            scope = Lumascope(simulate=True)
+            scope = build_scope(simulate=True)
             # A bare scope skipped bring-up, which fills the turret from the
             # persisted slots; an empty turret addresses no glass at all.
             configure_turret_like_bringup(scope)

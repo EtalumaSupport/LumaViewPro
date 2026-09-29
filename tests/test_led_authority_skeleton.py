@@ -21,13 +21,13 @@ import threading
 
 import pytest
 
-from modules.lumascope_api import Lumascope
 from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedTransition,
     LedTransitionCtx,
 )
+from tests.scope_fakes import build_scope
 
 
 class LedSubstream:
@@ -101,7 +101,7 @@ class LedSubstream:
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     yield s
     s.disconnect()
