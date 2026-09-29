@@ -10747,7 +10747,7 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
     def test_leds_off_precedes_the_lane_shutdown(self):
         src = self._src()
         leds_off_idx = src.find('[Session  ] shutdown: leds_off through the io lane')
-        owner_idx = src.find('bundle.io_executor.shutdown(wait=False)')
+        owner_idx = src.find('self.executor_bundle.shutdown()')
         caller_idx = src.find('self.shutdown_executors()', leds_off_idx)
         assert leds_off_idx >= 0 and owner_idx >= 0 and caller_idx >= 0
         assert leds_off_idx < owner_idx and leds_off_idx < caller_idx, (

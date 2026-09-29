@@ -102,6 +102,19 @@ class ExecutorBundle:
             out['PROTOCOL'] = -1
         return out
 
+    def shutdown(self) -> None:
+        """Stop every thread this bundle started, without waiting for queued work.
+
+        The one teardown for whoever built the bundle: a session that built
+        it, or a host that built lanes for a scope of its own.
+        """
+        self.scope_display_thread.stop()
+        self.protocol_thread.stop(timeout=2.0)
+        self.io_executor.shutdown(wait=False)
+        self.camera_executor.shutdown(wait=False)
+        self.file_io_executor.shutdown(wait=False)
+        self.worker_pool.shutdown(wait=False)
+
 
 def create_default(
     ui_dispatcher: Callable[[Callable, float], Any] | None,

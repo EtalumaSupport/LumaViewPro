@@ -2066,13 +2066,7 @@ class ScopeSession:
         if not self._owns_executors:
             self.shutdown_executors()
         else:
-            bundle = self.executor_bundle
-            bundle.scope_display_thread.stop()
-            bundle.protocol_thread.stop(timeout=2.0)
-            bundle.io_executor.shutdown(wait=False)
-            bundle.camera_executor.shutdown(wait=False)
-            bundle.file_io_executor.shutdown(wait=False)
-            bundle.worker_pool.shutdown(wait=False)
+            self.executor_bundle.shutdown()
         if self._owns_scope:
             # After the lanes: an in-flight move's callbacks have their
             # lanes shut before the move is stopped. disconnect() stops
