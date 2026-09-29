@@ -249,8 +249,8 @@ def fx2_readiness() -> dict[str, bool | None]:
     Keys name what an installer installs: ``pyusb``, ``libusb-1.0`` (the
     native library pyusb loads) and ``libusb1`` (the binding that streams
     frames off Windows). ``libusb1`` is ``None`` on Windows, where the gate
-    does not need it. The installers report these rather than probing on
-    their own, so what they print is what the driver will do.
+    does not need it. ``scripts/install_mac.sh`` reports these rather than
+    probing on its own, so what it prints is what the driver will do.
     """
     return {
         'pyusb': _HAS_USB,

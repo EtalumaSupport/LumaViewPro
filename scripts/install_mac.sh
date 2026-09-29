@@ -22,7 +22,11 @@ fx2_driver_py() {
 setup_fx2_usb() {
     echo ""
     echo "Checking USB support for FX2 scopes (LS560/LS620/LS720)..."
-    if ! fx2_driver_py 'import sys; from drivers.fx2driver import fx2_readiness; sys.exit(0 if fx2_readiness()["libusb-1.0"] else 1)'; then
+    # A driver that fails to import aborts the install here (set -e) rather
+    # than reading as a missing libusb.
+    local libusb
+    libusb=$(fx2_driver_py 'from drivers.fx2driver import fx2_readiness; print(fx2_readiness()["libusb-1.0"])')
+    if [ "$libusb" != "True" ]; then
         if command -v brew &>/dev/null; then
             echo "Installing the native libusb through Homebrew..."
             brew install libusb || echo "Warning: 'brew install libusb' failed; FX2 scopes will not connect until it is installed."
