@@ -77,7 +77,11 @@ RECENT_VIDEO_RECEIPT_COUNT = 20
 BACKLASH_FOLDER_PATTERNS = ['backlash', 'Backlash', 'BACKLASH']
 
 LOG_DELIMITER = (
-    '\n=' * 72 + '\n=== TECH SUPPORT REPORT GENERATION STARTED -- {timestamp} ===\n=' * 72 + '\n'
+    '\n'
+    + '=' * 72
+    + '\n=== TECH SUPPORT REPORT GENERATION STARTED -- {timestamp} ===\n'
+    + '=' * 72
+    + '\n'
 )
 
 # Camera bandwidth test defaults

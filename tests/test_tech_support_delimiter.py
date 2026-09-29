@@ -32,3 +32,17 @@ def test_delimiter_does_not_append_to_the_newest_log_file(tmp_path, caplog):
     assert any(
         'TECH SUPPORT REPORT GENERATION STARTED' in record.getMessage() for record in caplog.records
     ), 'the delimiter must travel through the logging system'
+
+
+def test_the_delimiter_names_the_report_once(caplog):
+    report = TechSupportReport()
+    with caplog.at_level(logging.INFO, logger='modules.tech_support_report'):
+        report._write_log_delimiter()
+
+    message = next(
+        record.getMessage()
+        for record in caplog.records
+        if 'TECH SUPPORT REPORT GENERATION STARTED' in record.getMessage()
+    )
+    assert message.count('TECH SUPPORT REPORT GENERATION STARTED') == 1
+    assert '=' * 72 in message, 'a full rule of = sets the banner apart'
