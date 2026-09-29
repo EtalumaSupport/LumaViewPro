@@ -2449,7 +2449,7 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def home(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
+        assert 'session.run_lockout' in method_body, (
             'Z home() must check the exclusive-activity lock before homing (F7)'
         )
 
@@ -2461,7 +2461,7 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def goto_bookmark(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
+        assert 'session.run_lockout' in method_body, (
             'goto_bookmark() must check the exclusive-activity lock (F7)'
         )
 
@@ -2474,7 +2474,7 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def home(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
+        assert 'session.run_lockout' in method_body, (
             'XY home() must check the exclusive-activity lock before homing (F7)'
         )
 

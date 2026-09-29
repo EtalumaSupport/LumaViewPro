@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Full-lockout contract: one derived lock, bound at the containers.
+"""Lockout contract: two derived locks, bound at the containers.
 
-While an exclusive activity runs (protocol run OR live manual
-recording), the whole control surface locks except the record/stop
-toggle. The design is ONE derived App property (``controls_locked``)
-that kv bindings and the gesture-motion funnel read -- never a second
-per-site flag. kv is declarative source with no headless seam, so the
+While a run or a diagnostic holds the scope, the whole control surface
+locks except the record/stop toggle (``run_lockout``). While a manual
+recording holds it, only what the recording refuses at the API locks --
+the frame size, binning, image mode, turret, objective and plate
+(``configuration_locked``, a superset of ``run_lockout``); moves, LED,
+gain and exposure stay live. kv bindings and the gesture-motion funnel
+read these App mirrors -- never a second per-site flag. kv is declarative source with no headless seam, so the
 binding topology is pinned on the source text (established precedent);
 the gesture funnel is pinned behaviorally.
 """
@@ -64,30 +66,30 @@ class TestDerivedLockProperty:
     def test_recording_mirror_property_exists(self):
         assert 'recording_active = BooleanProperty(False)' in APP_SRC
 
-    def test_controls_locked_is_listener_published(self):
+    def test_configuration_locked_is_listener_published(self):
         # The derivation lives on the session; the App property is a
         # plain mirror the one run-state listener writes. An
         # AliasProperty here would re-derive from the OTHER mirrors and
         # drift from session truth in the drain windows.
-        assert 'controls_locked = BooleanProperty(False)' in APP_SRC
+        assert 'configuration_locked = BooleanProperty(False)' in APP_SRC
         assert 'AliasProperty' not in APP_SRC
         assert 'def publish_run_state' in APP_SRC
 
     def test_publish_order_is_fail_safe(self):
         # Kivy dispatches bindings synchronously inside each setattr; a
         # torn observer must see OVER-locked, never under-locked: the
-        # tightening property (controls_locked) writes first on lock
+        # tightening property (configuration_locked) writes first on lock
         # and last on unlock.
         body = APP_SRC[APP_SRC.index('def publish_run_state') :]
         body = body[: body.index('def on_start')]
         lock_branch = body[body.index('if locked:') : body.index('else:')]
         unlock_branch = body[body.index('else:') :]
-        assert lock_branch.index('controls_locked') < lock_branch.index('run_lockout'), (
-            'locking must write controls_locked first'
+        assert lock_branch.index('configuration_locked') < lock_branch.index('run_lockout'), (
+            'locking must write configuration_locked first'
         )
         assert unlock_branch.index('run_lockout') < unlock_branch.index(
-            'controls_locked = False'
-        ), 'unlocking must write controls_locked last'
+            'configuration_locked = False'
+        ), 'unlocking must write configuration_locked last'
 
     def test_main_display_republishes_the_mirror(self):
         # The live->drain flip has no claim transition of its own, so
@@ -105,7 +107,7 @@ class TestKvBindingTopology:
         # bind -- it holds no stop-capable toggle.
         image_idx = KV_SRC.find('id: accordion_id')
         assert image_idx > 0
-        assert 'disabled: app.controls_locked' in KV_SRC[image_idx : image_idx + 120]
+        assert 'disabled: app.run_lockout' in KV_SRC[image_idx : image_idx + 120]
 
     def test_motion_accordion_carries_no_lock(self):
         # The motion sidebar holds the run/stop toggles; an accordion-level
@@ -115,7 +117,7 @@ class TestKvBindingTopology:
         motion_idx = KV_SRC.find('id: motionsettings_accordion_id')
         assert motion_idx > 0
         snippet = KV_SRC[motion_idx : motion_idx + 120]
-        assert 'controls_locked' not in snippet, (
+        assert 'disabled:' not in snippet, (
             'motion accordion must not lock: it strands every stop toggle'
         )
 
@@ -126,8 +128,8 @@ class TestKvBindingTopology:
         for marker in ('<MicroscopeSettings>:', '<PostProcessingAccordion>:'):
             idx = KV_SRC.find(marker)
             assert idx > 0, marker
-            assert 'disabled: app.controls_locked' in KV_SRC[idx : idx + 200], (
-                f'{marker} must lock at its root during any exclusive activity'
+            assert 'disabled: app.run_lockout' in KV_SRC[idx : idx + 200], (
+                f'{marker} must lock at its root during a run or a diagnostic'
             )
 
     def test_camera_bar_buttons_take_the_derived_lock(self):
@@ -140,18 +142,48 @@ class TestKvBindingTopology:
             idx = KV_SRC.find(f'id: {btn}')
             assert idx > 0, btn
             snippet = KV_SRC[idx : idx + 120]
-            assert 'disabled: app.controls_locked' in snippet, (
-                f'{btn} must lock during any exclusive activity'
+            assert 'disabled: app.run_lockout' in snippet, (
+                f'{btn} must lock during a run or a diagnostic'
             )
+
+    def test_what_a_recording_refuses_takes_the_configuration_lock(self):
+        # The API refuses these while a recording holds the scope; the
+        # display greys exactly them, from the same Session answer.
+        for widget in (
+            'frame_width_id',
+            'frame_height_id',
+            'image_mode_spinner',
+            'binning_spinner',
+            'labware_spinner',
+            'turret_btn_box',
+            'objective_spinner2',
+            'reset_turret_objective_btn',
+        ):
+            idx = KV_SRC.find(f'id: {widget}')
+            assert idx > 0, widget
+            # Its own bind, or the one on the container holding it.
+            region = KV_SRC[max(0, idx - 200) : idx + 200]
+            assert 'app.configuration_locked' in region, (
+                f'{widget} must lock while a recording holds the scope'
+            )
+
+    def test_only_the_refused_controls_take_the_configuration_lock(self):
+        # Moves, LED, gain and exposure stay live during a recording: every
+        # other lock in the kv file is run_lockout, so a stray configuration
+        # bind on a container would grey an open control.
+        assert KV_SRC.count('app.configuration_locked') == 9, (
+            'a new configuration_locked bind: is its control one a recording refuses?'
+        )
+        assert 'app.controls_locked' not in KV_SRC
 
     def test_record_button_stays_actionable_during_recording(self):
         # record_btn doubles as Stop: it locks for protocol runs only,
-        # never on the derived lock (which includes recording).
+        # never on the configuration lock (which includes recording).
         idx = KV_SRC.find('id: record_btn')
         assert idx > 0
         snippet = KV_SRC[idx : idx + 120]
         assert 'disabled: app.run_lockout' in snippet
-        assert 'controls_locked' not in snippet
+        assert 'configuration_locked' not in snippet
 
 
 class TestNoCallerSideRunStateCommit:
@@ -271,7 +303,7 @@ class TestGestureMotionFunnel:
     def _locked_app(self, locked):
         app_cls = sys.modules['kivy.app'].App
         stub = mock.Mock()
-        stub.controls_locked = locked
+        stub.run_lockout = locked
         app_cls.get_running_app = mock.Mock(return_value=stub)
         return app_cls
 

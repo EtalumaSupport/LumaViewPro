@@ -194,7 +194,7 @@
 
         FolderChooseBTN:
             id: live_folder_btn
-            disabled: app.controls_locked
+            disabled: app.run_lockout
 			tooltip_text: 'Set destination folder for image & video files'
             border: 0, 0, 0, 0
             size_hint: None, None
@@ -214,7 +214,7 @@
 
         ToggleButton:
             id: live_btn
-            disabled: app.controls_locked
+            disabled: app.run_lockout
 			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -226,7 +226,7 @@
 
         Button:
             id: capture_btn
-            disabled: app.controls_locked
+            disabled: app.run_lockout
 			tooltip_text: 'Snap live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
@@ -393,7 +393,7 @@
 		orientation: 'horizontal'
 		size_hint_y: None
 		height: '170dp'
-		disabled: app.controls_locked
+		disabled: app.run_lockout
 
 		BoxLayout:
 		    orientation: 'vertical'
@@ -554,7 +554,7 @@
 		size_hint_y: None
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
-		disabled: (not self.visible) or app.controls_locked
+		disabled: (not self.visible) or app.configuration_locked
 		visible: True
 
 		RoundedToggleButton:
@@ -582,7 +582,7 @@
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
-        disabled: app.controls_locked
+        disabled: app.configuration_locked
         Label:
             text: 'Objective'
             size_hint_x: None
@@ -609,7 +609,7 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		disabled: app.controls_locked
+		disabled: app.configuration_locked
 		on_release: root.reset_turret_objective()
             
 	ZStack:
@@ -651,7 +651,7 @@
 		    size_hint_y: None
 		    height: '30dp'
 			spacing: '5dp'
-			disabled: app.controls_locked
+			disabled: app.run_lockout
 
 			TextInput:
 				id: zstack_stepsize_id
@@ -701,7 +701,7 @@
 			font_size: '12sp'
 			option_cls: "SpinnerOption0"
 			text_autoupdate: True
-			disabled: app.controls_locked
+			disabled: app.run_lockout
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 			on_text: root.set_position()
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
@@ -722,7 +722,7 @@
 	orientation: 'vertical'
 	padding: '5dp'
 	spacing: '5dp'
-	disabled: app.controls_locked
+	disabled: app.run_lockout
 
     canvas:
         Color:
@@ -968,7 +968,7 @@
 		# The whole editing surface locks during any exclusive activity;
 		# the run/stop toggles live OUTSIDE this subtree (footer below)
 		# so their abort clicks survive the lock.
-		disabled: app.controls_locked
+		disabled: app.run_lockout
 
 		BoxLayout:
 			pos_hint: {'top': 1.0}
@@ -1051,7 +1051,7 @@
 			# Select Labware
 			Spinner:
 				id: labware_spinner
-				disabled: app.run_lockout
+				disabled: app.configuration_locked
 				tooltip_text: 'Select Labware to be used in the Protocol'
 				sync_height: True
 				visible: True
@@ -1091,7 +1091,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					disabled: app.run_lockout
+					disabled: app.configuration_locked
 					on_release: self.choose('load_protocol')
 
 				RoundedButton:
@@ -1906,7 +1906,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
-    disabled: app.controls_locked
+    disabled: app.run_lockout
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2124,7 +2124,7 @@
     Accordion:
         orientation: 'vertical'
         id: accordion_id
-        disabled: app.controls_locked
+        disabled: app.run_lockout
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
@@ -2156,7 +2156,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
-    disabled: app.controls_locked
+    disabled: app.run_lockout
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2206,7 +2206,7 @@
 
 				TextInput:
 					id: frame_width_id
-					disabled: app.run_lockout
+					disabled: app.configuration_locked
 					multiline: False
 					padding: ['2dp', (self.height-self.line_height)/2]
 					halign: 'center'
@@ -2223,7 +2223,7 @@
 					halign: 'center'
 				TextInput:
 					id: frame_height_id
-					disabled: app.run_lockout
+					disabled: app.configuration_locked
 					multiline: False
 					padding: ['5dp', (self.height-self.line_height)/2]
 					halign: 'center'
@@ -2396,7 +2396,7 @@
 					text_size: self.size
 				Spinner:
 					id: image_mode_spinner
-					disabled: app.run_lockout
+					disabled: app.configuration_locked
 					sync_height: True
 					text: 'Select'
 					font_size: '12sp'
@@ -2434,7 +2434,7 @@
 					font_size: '12sp'
 				Spinner:
 					id: binning_spinner
-					disabled: app.run_lockout
+					disabled: app.configuration_locked
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'

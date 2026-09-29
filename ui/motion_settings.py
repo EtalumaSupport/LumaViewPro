@@ -418,7 +418,7 @@ class XYStageControl(BoxLayout):
             coarse: True for coarse step, False for fine step.
         """
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
+        if ctx.session.run_lockout:
             return
         dir_names = {('X', 1): 'RIGHT', ('X', -1): 'LEFT', ('Y', 1): 'FWD', ('Y', -1): 'BACK'}
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
@@ -464,7 +464,7 @@ class XYStageControl(BoxLayout):
 
     def set_xposition(self, x_pos):
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
+        if ctx.session.run_lockout:
             return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         try:
@@ -485,7 +485,7 @@ class XYStageControl(BoxLayout):
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
+        if ctx.session.run_lockout:
             return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
 
@@ -586,7 +586,7 @@ class XYStageControl(BoxLayout):
     def home(self):
         gui_logger.button('HOME_XY')
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
+        if ctx.session.run_lockout:
             return
         logger.info('[LVP Main  ] XYStageControl.home()')
 

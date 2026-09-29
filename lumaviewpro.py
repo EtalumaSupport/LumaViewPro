@@ -453,12 +453,13 @@ class LumaViewProApp(TooltipMixin, App):
     # the ONE run-state listener below (worker-side truth lives on the
     # session; a kv binding cannot read it directly). run_lockout
     # carries the session derivation of the same name (a run or its
-    # post-run file drain); recording_active carries a LIVE manual
-    # recording; controls_locked is the full-surface lock. Never add a
-    # second per-site flag -- bind to these.
+    # post-run file drain) and locks the whole surface; recording_active
+    # carries a LIVE manual recording; configuration_locked is the lock on
+    # what a recording refuses (frame, binning, image mode, turret,
+    # objective, plate). Never add a second per-site flag -- bind to these.
     run_lockout = BooleanProperty(False)
     recording_active = BooleanProperty(False)
-    controls_locked = BooleanProperty(False)
+    configuration_locked = BooleanProperty(False)
 
     # The in-flight drain-close poller, or None when no close is running.
     # Declared here so the close handler can read it before any close has
@@ -480,15 +481,15 @@ class LumaViewProApp(TooltipMixin, App):
         recording = (
             session.exclusive_activity == 'recording' and session.manual_recording.is_recording
         )
-        locked = session.controls_locked
+        locked = session.configuration_locked
         if locked:
-            self.controls_locked = True
+            self.configuration_locked = True
             self.run_lockout = run_lockout
             self.recording_active = recording
         else:
             self.run_lockout = run_lockout
             self.recording_active = recording
-            self.controls_locked = False
+            self.configuration_locked = False
         self._draw_run_controls()
 
     def _draw_run_controls(self) -> None:
@@ -1147,9 +1148,9 @@ class LumaViewProApp(TooltipMixin, App):
                     # toggles' abort clicks); runtime-mounted items inherit
                     # the lock explicitly so plugin tabs grey out like the
                     # built-in regions.
-                    plugin_item.disabled = bool(self.controls_locked)
+                    plugin_item.disabled = bool(self.run_lockout)
                     self.bind(
-                        controls_locked=lambda _app, value, item=plugin_item: setattr(
+                        run_lockout=lambda _app, value, item=plugin_item: setattr(
                             item, 'disabled', value
                         )
                     )

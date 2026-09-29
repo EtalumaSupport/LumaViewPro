@@ -102,7 +102,7 @@ def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
-        SimpleNamespace(scope=session.scope, session=SimpleNamespace(controls_locked=False)),
+        SimpleNamespace(scope=session.scope, session=SimpleNamespace(run_lockout=False)),
     )
     monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
     # Slot 3 has no objective assigned, so the step cannot be sized.

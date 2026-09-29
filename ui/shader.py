@@ -145,7 +145,7 @@ void main (void) {
             # event, so there is nothing to go stale.
             if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single move
-                if ctx.session.controls_locked:
+                if ctx.session.run_lockout:
                     return
 
                 # The tick records only the gesture: its direction, how fast

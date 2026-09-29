@@ -612,6 +612,8 @@ Rate and duration come from the run's settings snapshot at start: `video.max_fps
 
 Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape -- its `str()` is the sentence written for a person -- with machine-readable `reason` codes `recording_active` (another recording is live, or still finishing), `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim), `camera_inactive`, `camera_exposure_unknown`, `insufficient_disk` and `capture_location_unusable`. Nothing is started when it raises.
 
+While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: `imaging.set_frame_size`, `set_binning_size` and `set_pixel_format` (and the Session's `set_frame_size`, `set_binning_size` and `set_image_mode`, before either store is written), `motion.move_turret`, a home that moves the turret (`'T'`, or `'ALL'` on a scope with one), the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. X/Y/Z moves, a single-axis home, LED, gain and exposure stay open; a recording's feed-death bound follows an exposure raised mid-recording. `session.configuration_locked` reads True for exactly as long.
+
 Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'` or `'diagnostic'` for the exclusive-activity owner, `'autofocus'` for a sweep in flight, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
@@ -634,7 +636,8 @@ session.protocol_files_pending   # how many of those writes are left (0 when not
 session.protocol_files_stalled   # the drain's write in flight has stopped progressing, judged by the
                                  # same threshold that refuses a new run (files_writing_stalled)
 session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic'
-session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
+session.configuration_locked     # the frame, binning, image mode, turret, objective and plate refuse a
+                                 # change: any run lockout, or a recording holding the claim (drain included)
 session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
@@ -664,10 +667,10 @@ except DiagnosticRefusedError as e:    # a run, a recording or another diagnosti
 
 While the diagnostic holds the claim it counts as holding the whole scope:
 `exclusive_activity` reads `'diagnostic'`, `run_lockout` and
-`controls_locked` read True, a run start is refused
+`configuration_locked` read True, a run start is refused
 (`ProtocolRunRefusedError`, `exclusive_activity_running`), a recording start
 is refused (`RecordingRefusedError`, `holder='diagnostic'`), and an objective
-change raises `HardwareCommandRefusedError`. `is_protocol_running` stays
+or labware change raises `HardwareCommandRefusedError`. `is_protocol_running` stays
 False: a diagnostic is not a run.
 
 A diagnostic that needs autofocus runs the public one under its own claim,

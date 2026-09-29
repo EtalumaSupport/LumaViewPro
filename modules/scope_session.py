@@ -491,13 +491,19 @@ class ScopeSession:
         return self.activity_claim.owner in SCOPE_HOLDING_KINDS or self.protocol_files_draining
 
     @property
-    def controls_locked(self) -> bool:
-        """True while the full control surface locks: any run lockout,
-        or a LIVE manual recording (a draining recording frees the
-        controls while its claim still refuses new runs)."""
-        return self.run_lockout or (
-            self.activity_claim.owner == 'recording' and self.manual_recording.is_recording
-        )
+    def configuration_locked(self) -> bool:
+        """True while the scope's configuration refuses a change: any run
+        lockout, or a manual recording holding the claim, its drain
+        included.
+
+        What a recording refuses is what would falsify its file -- the
+        frame size, binning, image mode, turret, objective and plate -- and
+        it refuses them for as long as it holds the claim, so a display
+        greying those controls on this reads the same answer the API gives.
+        Everything else stays open during a recording; ``run_lockout`` is
+        the lock for the rest of the surface.
+        """
+        return self.run_lockout or self.activity_claim.owner == 'recording'
 
     @property
     def motion_enabled(self) -> bool:

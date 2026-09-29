@@ -8,13 +8,15 @@ truth is a synchronous derivation over them:
 
     is_protocol_running = owner == 'protocol'
     run_lockout         = owner == 'protocol' or protocol_files_draining
-    controls_locked     = run_lockout or (owner == 'recording' and manual_recording.is_recording)
+    configuration_locked = run_lockout or owner == 'recording'
     motion_enabled      = capabilities.has_xy_stage and not run_lockout
 
-The drain terms encode today's documented asymmetry: a draining
-recording HOLDS its claim while the controls free; a finished protocol
+The drain terms encode the documented asymmetry: a finished protocol
 FREES its claim while the controls stay locked until the file queue
-empties. Transitions notify level-read listeners (they re-read the
+empties; a recording, live or draining, holds its claim, and the
+configuration it refuses (frame, binning, image mode, turret, objective,
+plate) stays locked for exactly that long, while the rest of the surface
+stays open. Transitions notify level-read listeners (they re-read the
 derivations when they fire, so out-of-order delivery degrades to
 bounded staleness, never a permanently wrong publish).
 """
@@ -52,14 +54,14 @@ class TestDerivations:
         assert session.exclusive_activity is None
         assert session.is_protocol_running is False
         assert session.run_lockout is False
-        assert session.controls_locked is False
+        assert session.configuration_locked is False
         assert session.motion_enabled is True
 
     def test_protocol_claim_locks_everything(self):
         session = _make_session(_file_executor(active=False))
         assert session.activity_claim.try_claim('protocol')
         assert session.run_lockout is True
-        assert session.controls_locked is True
+        assert session.configuration_locked is True
         assert session.motion_enabled is False
 
     def test_protocol_drain_holds_lockout_after_claim_release(self):
@@ -68,10 +70,10 @@ class TestDerivations:
         session = _make_session(_file_executor(active=True))
         assert session.exclusive_activity is None
         assert session.run_lockout is True
-        assert session.controls_locked is True
+        assert session.configuration_locked is True
         assert session.motion_enabled is False
 
-    def test_live_recording_locks_controls_but_not_run_lockout(self):
+    def test_live_recording_locks_configuration_but_not_run_lockout(self):
         session = _make_session(_file_executor(active=False))
         assert session.activity_claim.try_claim('recording')
         session.manual_recording._engine = MagicMock(is_recording=True)
@@ -79,16 +81,18 @@ class TestDerivations:
         assert session.run_lockout is False, (
             'a recording is not a run: run_lockout carries only runs and the protocol file drain'
         )
-        assert session.controls_locked is True
+        assert session.configuration_locked is True
 
-    def test_draining_recording_frees_controls_while_claim_refuses(self):
-        # The recording drain window: claim held (new runs refuse), but
-        # capturing is over so the control surface frees.
+    def test_draining_recording_keeps_configuration_locked_while_its_claim_refuses(self):
+        # The recording drain window: the claim is held, so the API still
+        # refuses what would falsify the file, and the display says so; the
+        # rest of the surface is free.
         session = _make_session(_file_executor(active=False))
         assert session.activity_claim.try_claim('recording')
         session.manual_recording._engine = MagicMock(is_recording=False, is_draining=True)
         assert session.exclusive_activity == 'recording'
-        assert session.controls_locked is False
+        assert session.run_lockout is False
+        assert session.configuration_locked is True
 
     def test_no_xystage_disables_motion_even_unlocked(self):
         session = _make_session(_file_executor(active=False), has_xy_stage=False)
