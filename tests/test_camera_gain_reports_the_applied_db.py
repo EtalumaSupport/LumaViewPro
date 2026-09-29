@@ -148,3 +148,20 @@ def test_the_ids_answer_is_the_written_factor_in_db():
     answer = cam.gain(30.0)
     written = cam.remote_nodemap.nodes['Gain'].value
     assert answer == pytest.approx(20.0 * math.log10(written))
+
+
+class TestSimulatedAutoGain:
+    """A real body's auto loop drives the gain node and cannot leave its
+    range, so the simulator's convergence stays inside the profile too."""
+
+    def test_bounds_past_the_ceiling_converge_inside_it(self):
+        cam = SimulatedCamera()
+        cam.active = True
+        cam.auto_gain(True, min_gain_db=0.0, max_gain_db=48.0)
+        assert cam.get_gain() <= cam.max_gain
+
+    def test_the_converged_gain_is_one_the_camera_accepts_back(self):
+        cam = SimulatedCamera()
+        cam.active = True
+        cam.auto_gain_once(True, min_gain_db=0.0, max_gain_db=48.0)
+        assert cam.gain(cam.get_gain()) is not False

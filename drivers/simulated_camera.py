@@ -1097,6 +1097,20 @@ class SimulatedCamera(Camera):
                 self._auto_gain_max = max_gain
         return True
 
+    def _converged_gain(self) -> float:
+        """Return the gain the simulated auto-gain loop settles on.
+
+        The midpoint of the auto-gain bounds, held inside the range the
+        gain node declares: a real body's auto loop drives the same node a
+        manual write does and cannot leave its range, so a caller whose
+        bounds reach past the profile (a ``current.json`` carried over from
+        a body with a higher ceiling) still gets a gain this camera accepts
+        when it writes it back.
+        """
+        midpoint = (self._auto_gain_min + self._auto_gain_max) / 2.0
+        low = self.min_gain if self.min_gain is not None else midpoint
+        return min(max(midpoint, low), self.max_gain)
+
     def auto_gain(
         self,
         state: bool = True,
@@ -1129,8 +1143,7 @@ class SimulatedCamera(Camera):
                     self._auto_gain_min = min_gain_db
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
-                # Simulate convergence: set gain to mid-range
-                self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
+                self._gain = self._converged_gain()
             if _cam_log is not None:
                 _cam_log.info(
                     f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
@@ -1147,7 +1160,8 @@ class SimulatedCamera(Camera):
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 
-        Converges by setting gain to the midpoint of [min_gain_db, max_gain_db].
+        Converges on the midpoint of [min_gain_db, max_gain_db], held inside
+        the gain node's range (see ``_converged_gain``).
 
         Args:
             state: True to run, False to no-op.
@@ -1165,8 +1179,7 @@ class SimulatedCamera(Camera):
                     self._auto_gain_min = min_gain_db
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
-                # One-shot: converge gain toward target
-                self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
+                self._gain = self._converged_gain()
         return True
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool:
