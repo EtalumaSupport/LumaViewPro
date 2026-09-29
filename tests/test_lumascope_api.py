@@ -211,7 +211,7 @@ class TestLumascopeHome:
         base = scope.motion._MOTION_WAIT_BASE_S
         settle = scope.motion._MOTION_SETTLE_TIMEOUT_S
 
-        def record(impl, name, timeout_s):
+        def record(impl, name, timeout_s, **_kwargs):
             timeouts[len(timeouts)] = timeout_s
             return True
 
