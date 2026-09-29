@@ -1242,17 +1242,10 @@ class SequencedCaptureRunner:
             return None
         self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+        # No target brightness is written here: every step that arms
+        # auto-gain, and every one-shot, hands the camera its target in the
+        # same write.
         self._take_auto_gain_arm_for_run()
-        try:
-            self._scope.imaging.update_auto_gain_target_brightness(
-                self._autogain_settings['target_brightness']
-            )
-        except CameraSettingRejected as rejected:
-            # A step that arms auto-gain converges on the camera's previous
-            # target; the refusal ends its flight here.
-            from modules.notification_center import notifications
-
-            notifications.report_outcome(rejected, solicited=False, category='Camera')
         return None
 
     def start(self, plan: RunPlan) -> 'PendingRunOutcome':

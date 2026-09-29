@@ -127,7 +127,11 @@ def test_the_runs_arm_take_reports_a_refused_disarm(reported):
     assert [exc for exc, _kw in reported] == [refusal]
 
 
-def test_the_runs_camera_take_reports_a_refused_target_brightness(reported):
+def test_the_runs_camera_take_writes_no_target_brightness(reported):
+    # Every step that arms auto-gain, and every one-shot, hands the camera
+    # its target in the same write; a run-start target write only re-drove a
+    # loop the take had just disarmed, and a camera without auto-gain
+    # refused it on every run.
     from tests.protocol_drives import bare_capture_runner
 
     runner = bare_capture_runner()
@@ -135,11 +139,10 @@ def test_the_runs_camera_take_reports_a_refused_target_brightness(reported):
     runner._saved_camera_state = {}
     runner._autogain_settings = {'target_brightness': 0.4}
     runner._scope.imaging.save_camera_state.return_value = {}
-    refusal = _refusal('auto_gain_target_brightness')
-    runner._scope.imaging.update_auto_gain_target_brightness.side_effect = refusal
 
     assert runner._take_camera() is None, 'the run still takes the camera'
-    assert [exc for exc, _kw in reported] == [refusal]
+    assert runner._scope.imaging.update_auto_gain_target_brightness.call_count == 0
+    assert reported == []
 
 
 def test_the_step_end_disarm_reports_a_refusal_and_goes_on(reported):

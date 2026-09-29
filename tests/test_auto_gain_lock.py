@@ -490,9 +490,10 @@ def test_run_start_owns_a_standing_live_arm():
     assert imaging._auto_gain_arm is not None
 
     # The seam: the run's camera takeover snapshots the camera, then takes
-    # the arm out of that snapshot, then writes the run's target -- in that
-    # order, after the wait for the lane, so the snapshot records the arm
-    # the lane's last command left and the take reads a real snapshot.
+    # the arm out of that snapshot -- in that order, after the wait for the
+    # lane, so the snapshot records the arm the lane's last command left and
+    # the take reads a real snapshot. It writes no target brightness: every
+    # arm and one-shot a step makes carries its own.
     takeover = ast_seams.find_def(
         'modules/sequenced_capture_runner.py', '_take_camera', class_name='SequencedCaptureRunner'
     )
@@ -505,10 +506,10 @@ def test_run_start_owns_a_standing_live_arm():
     order = (
         'save_camera_state',
         '_take_auto_gain_arm_for_run',
-        'update_auto_gain_target_brightness',
     )
     assert all(name in attrs for name in order), attrs
     assert [attrs.index(name) for name in order] == sorted(attrs.index(name) for name in order)
+    assert 'update_auto_gain_target_brightness' not in attrs, attrs
 
 
 class _ApiLogCollector(logging.Handler):

@@ -159,7 +159,7 @@ class TestARunThatAlreadyEnded:
 
         assert runner._take_camera() is None
         assert runner._scope.imaging.save_camera_state.call_count == 0
-        assert runner._scope.imaging.update_auto_gain_target_brightness.call_count == 0
+        assert runner._scope.imaging.set_auto_gain.call_count == 0
 
 
 class TestATakeoverWriteThatRaises:
@@ -168,9 +168,9 @@ class TestATakeoverWriteThatRaises:
         completions = []
 
         def _boom(*args, **kwargs):
-            raise RuntimeError('camera rejected target brightness')
+            raise RuntimeError('camera snapshot failed')
 
-        with patch.object(session.scope.imaging, '_update_auto_gain_target_brightness_impl', _boom):
+        with patch.object(session.scope.imaging, 'save_camera_state', _boom):
             outcome = runner.start_composite(
                 sequence_name='raises',
                 parent_dir=str(tmp_path),
