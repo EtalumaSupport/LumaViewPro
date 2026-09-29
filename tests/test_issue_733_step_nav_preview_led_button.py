@@ -147,7 +147,13 @@ def _run_manual_nav(env):
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
         step=MagicMock(return_value=_make_step()),
+        step_list_revision=0,
     )
+    # The panel shows this protocol: a completed move lands only on the
+    # protocol and step list it was sent for.
+    import modules.app_context as _app_ctx
+
+    _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
         step_idx=0,

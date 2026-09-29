@@ -248,6 +248,13 @@ class Protocol:
     # scope, e.g. for post-processing) and validate_steps checks format only.
     _led_max_ma: int | None = None
 
+    # Counts the changes to which steps this protocol holds and in what
+    # order: a step added or deleted, or the frame replaced. A change to a
+    # step's values does not count, since the step keeps its index. A step
+    # index means something only against the revision it was read at, so a
+    # caller holding one across a wait compares this before using it.
+    _step_list_revision: int = 0
+
     def __init__(
         self,
         tiling_configs_file_loc: pathlib.Path,
@@ -266,7 +273,7 @@ class Protocol:
         else:
             self._config = config
 
-        # Cache for num_steps() -- invalidated by _set_steps() and delete_step().
+        # Cache for num_steps() -- invalidated by _step_list_changed().
         # num_steps was called 35x per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
@@ -867,13 +874,21 @@ class Protocol:
             self._num_steps_cache = len(self._config['steps'])
         return self._num_steps_cache
 
+    @property
+    def step_list_revision(self) -> int:
+        return self._step_list_revision
+
+    def _step_list_changed(self) -> None:
+        self._num_steps_cache = None
+        self._step_list_revision += 1
+
     def _set_steps(self, df: pd.DataFrame) -> None:
-        """Assign the steps DataFrame and invalidate the num_steps cache.
+        """Assign the steps DataFrame and record that the step list changed.
 
         All code paths that replace self._config['steps'] should go through
-        this helper so the cache stays consistent. In-place mutations (e.g.
-        delete_step's drop(inplace=True)) must set self._num_steps_cache = None
-        explicitly.
+        this helper so the cache and the revision stay consistent. In-place
+        row mutations (e.g. delete_step's drop(inplace=True)) must call
+        _step_list_changed() explicitly.
 
         A steps frame always carries the full column schema, at any row
         count. The expansions build their replacement with
@@ -902,7 +917,7 @@ class Protocol:
             if missing:
                 raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
         self._config['steps'] = df
-        self._num_steps_cache = None
+        self._step_list_changed()
 
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
@@ -1003,7 +1018,7 @@ class Protocol:
         for idx, _ in self._config['steps'].iterrows():
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
-    def delete_step(self, step_idx: int):
+    def delete_step(self, step_idx: int) -> None:
         num_steps = self.num_steps()
 
         if num_steps < 1:
@@ -1016,7 +1031,7 @@ class Protocol:
 
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
-        self._num_steps_cache = None
+        self._step_list_changed()
 
     def modify_labware(
         self,

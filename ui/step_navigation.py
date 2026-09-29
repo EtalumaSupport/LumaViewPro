@@ -58,6 +58,7 @@ def go_to_step(
         return
 
     step = protocol.step(idx=step_idx)
+    step_list_revision = protocol.step_list_revision
 
     # Above the pointer write, and that position is the whole point. The
     # pointer is what `modify_step_ex` and `insert_step_ex` address a step
@@ -155,6 +156,16 @@ def go_to_step(
             illumination.apply_transition(LedTransition.MANUAL_STEP, led_ctx)
 
     def on_moved():
+        # An edit to the step list (Delete, Add, a new or loaded protocol)
+        # can land while the stage moves, and it places the pointer itself.
+        # Against the changed list step_idx names another step or none, so
+        # writing it back would put the pointer on a step the panel does not
+        # show, or past the end of the list.
+        if (
+            protocol_settings._protocol is not protocol
+            or protocol.step_list_revision != step_list_revision
+        ):
+            return
         protocol_settings.curr_step = step_idx
         protocol_settings.generate_step_name_input()
         protocol_settings.update_step_ui()

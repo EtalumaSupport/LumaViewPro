@@ -85,7 +85,13 @@ def _run_nav(env, preview_on, step_changed=True):
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
         step=MagicMock(return_value=step),
+        step_list_revision=0,
     )
+    # The panel shows this protocol: a completed move lands only on the
+    # protocol and step list it was sent for.
+    import modules.app_context as _app_ctx
+
+    _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     env.ctx.scope.illumination.color2ch.return_value = 7
     env.ctx.scope.illumination.led_off = MagicMock()
     step_navigation.go_to_step(protocol, step_idx=0, include_move=True)
