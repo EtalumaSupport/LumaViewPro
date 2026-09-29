@@ -229,3 +229,34 @@ class TestTheSessionStores:
             call(sim_session)
         after = {k: sim_session.settings[k] for k in ('binning', 'frame', 'image_mode')}
         assert after == before
+
+
+class TestTheSessionConfiguration:
+    """The objective and the plate are the Session's two copies each; a held
+    scope refuses a change before either copy moves."""
+
+    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
+    def test_a_labware_change_is_refused_under_any_holder(self, sim_session, kind):
+        loader = sim_session.wellplate_loader
+        current = sim_session.settings['protocol']['labware']
+        other = next(name for name in loader.get_plate_list() if name != current)
+        plate_before = sim_session.scope.runtime_state.get_labware()
+        held = sim_session.activity_claim.try_claim(kind, run_trigger_source='test')
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                sim_session.select_labware(other)
+        finally:
+            held.release()
+        assert refused.value.holder == kind
+        assert sim_session.settings['protocol']['labware'] == current
+        assert sim_session.scope.runtime_state.get_labware() is plate_before
+
+    def test_an_objective_change_is_refused_under_a_recording(self, sim_session, recording):
+        current = sim_session.scope.runtime_state.get_current_objective_id()
+        other = next(o for o in sim_session.objective_helper.get_objectives_list() if o != current)
+        turret_before = copy.deepcopy(sim_session.settings['turret_objectives'])
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            sim_session.select_objective(other)
+        assert refused.value.holder == 'recording'
+        assert sim_session.scope.runtime_state.get_current_objective_id() == current
+        assert sim_session.settings['turret_objectives'] == turret_before

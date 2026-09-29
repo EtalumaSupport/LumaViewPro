@@ -1486,7 +1486,8 @@ class ScopeSession:
                 any write.
             ObjectiveUnknownError: On a turreted scope, the slot in the
                 light path is unknown, so there is no slot to assign.
-            HardwareCommandRefusedError: A run holds the scope
+            HardwareCommandRefusedError: A run, a diagnostic or a recording
+                holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
         self._require_objective_catalogue()
@@ -1494,7 +1495,7 @@ class ScopeSession:
             return False
         # Refuses an id that is not a catalogue key, before any write.
         self.objective_helper.get_objective_info(objective_id=objective_id)
-        self._refuse_objective_change_during_run('select_objective')
+        self._refuse_configuration_change_while_held('select_objective')
         if self.scope.runtime_state.is_turreted():
             slot = self.scope.motion.get_turret_slot()
             if slot is None:
@@ -1540,6 +1541,10 @@ class ScopeSession:
                 that half-lands leaves the settings store and the runtime
                 state describing different plates, and every well
                 position computed from the wrong one is silently wrong.
+            HardwareCommandRefusedError: A run, a diagnostic or a recording
+                holds the scope (``exclusive_activity_running``): each states
+                its positions against the plate it started with. Nothing is
+                written.
         """
         self._require_wellplate_loader()
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
@@ -1556,6 +1561,7 @@ class ScopeSession:
                 'settings have no usable protocol block; the labware selection '
                 f'has nowhere to live (found {type(protocol_settings).__name__})'
             )
+        self._refuse_configuration_change_while_held('select_labware')
         changed = labware_name != protocol_settings.get('labware')
         # Both stores are written even when the settings key already reads
         # the new name, because that key is not evidence about the scope.
@@ -1580,7 +1586,8 @@ class ScopeSession:
         Raises:
             ValueError: ``position`` is not a slot number 1-4.
             ConfigError: ``objective_id`` is not exactly a catalogue key.
-            HardwareCommandRefusedError: A run holds the scope
+            HardwareCommandRefusedError: A run, a diagnostic or a recording
+                holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
         self._require_objective_catalogue()
@@ -1589,7 +1596,7 @@ class ScopeSession:
             raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
         if self.settings['turret_objectives'].get(position) == objective_id:
             return
-        self._refuse_objective_change_during_run('assign_turret_objective')
+        self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = objective_id
         self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
@@ -1603,13 +1610,14 @@ class ScopeSession:
 
         Raises:
             ValueError: ``position`` is not a slot number 1-4.
-            HardwareCommandRefusedError: A run holds the scope and the slot
+            HardwareCommandRefusedError: A run, a diagnostic or a recording
+                holds the scope and the slot
                 has an assignment (``exclusive_activity_running``). Nothing
                 is written.
         """
         self._check_turret_slot(position)
         if self.settings['turret_objectives'].get(position) is not None:
-            self._refuse_objective_change_during_run('clear_turret_objective')
+            self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = None
         self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
@@ -1629,7 +1637,8 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: The slot in the light path is unknown,
                 so there is no slot to clear (``slot_unknown``).
-            HardwareCommandRefusedError: A run holds the scope and the slot
+            HardwareCommandRefusedError: A run, a diagnostic or a recording
+                holds the scope and the slot
                 has an assignment (``exclusive_activity_running``). Nothing
                 is written.
         """
@@ -1638,14 +1647,16 @@ class ScopeSession:
             raise ObjectiveUnknownError('slot_unknown')
         self.clear_turret_objective(slot)
 
-    def _refuse_objective_change_during_run(self, member: str) -> None:
+    def _refuse_configuration_change_while_held(self, member: str) -> None:
         # A run reads the active objective at every capture, so a change
         # mid-run would stamp a different scale into the rest of the run's
         # files than the objective its steps were built for. A diagnostic
         # holds the scope the same way: its measurements are taken against
-        # the objective it started under.
+        # the objective it started under. A recording states every frame at
+        # the pixel size and in the plate frame it started with, so a new
+        # objective or plate would leave the scope disagreeing with its file.
         holder = self.activity_claim.owner
-        if holder in SCOPE_HOLDING_KINDS:
+        if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
     @staticmethod
