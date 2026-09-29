@@ -14,6 +14,7 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
+from tests.scope_fakes import answer_auto_gain_like_the_api
 
 
 class _FakeStream:
@@ -298,6 +299,7 @@ class TestProtocolVideoDropNotification:
 
         listeners = {}
         scope = MagicMock()
+        answer_auto_gain_like_the_api(scope.imaging)
         # The frames leg reads the scope's tracked state per frame; a
         # MagicMock answers a MagicMock, which is not a position.
         scope.motion.axis_positions = lambda: {}

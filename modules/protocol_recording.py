@@ -431,7 +431,9 @@ class ProtocolVideoStep:
                 arrivals += 1
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
-        if step['Auto_Gain']:
+        # A camera without hardware auto-gain records the step manual, as
+        # its layer apply did.
+        if scope.imaging.applied_auto_gain_for(step['Auto_Gain']).applied:
             try:
                 scope.imaging.set_auto_gain(False, self._autogain_settings)
             except CameraSettingRejected as rejected:

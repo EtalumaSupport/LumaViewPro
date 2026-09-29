@@ -19,6 +19,7 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
+from tests.scope_fakes import answer_auto_gain_like_the_api
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -58,6 +59,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
     monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
 
     scope = MagicMock()
+    answer_auto_gain_like_the_api(scope.imaging)
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.imaging.camera_identity = {

@@ -268,6 +268,20 @@ class ImageHandlerBase:
         return self._failed_grabs >= self.MAX_CONSECUTIVE_FAILURES
 
 
+def no_hardware_auto_mode(driver: str, member: str, mode: str) -> NotImplementedError:
+    """The error an auto-mode member raises on a camera with no such mode.
+
+    Its profile declares the mode absent and the API reads the profile
+    before any auto-mode call, so reaching one of these members is a caller
+    that skipped that read. An answer here would be a lie: nothing was
+    written, and there is no loop to report on.
+    """
+    return NotImplementedError(
+        f'{driver} {member}: this camera has no hardware {mode}; '
+        'the API reads the camera profile and never asks'
+    )
+
+
 class Camera(ABC):
     # Color + native bit depth contract surfaced through scope.capabilities.
     # Drivers override as needed: True for true color cameras (Bayer / 3-channel

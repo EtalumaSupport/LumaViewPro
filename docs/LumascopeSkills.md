@@ -1077,6 +1077,15 @@ scope.imaging.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_
 scope.imaging.auto_gain_once(True, target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
 scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak while auto-gain runs
 
+# A camera without the mode (caps.camera_supports_auto_gain /
+# _auto_exposure False: the IDS U3-34L family, the LS620's FX2) is never asked.
+# Turning the mode on, or setting its target, raises
+# CameraSettingUnsupportedError (reason 'auto_gain_unsupported',
+# 'auto_exposure_unsupported' or 'auto_gain_target_brightness_unsupported');
+# turning it off is that camera's state already, so it returns without a write.
+# apply_layer_camera_settings with auto_gain=True applies it as manual there --
+# see applied_auto_gain_for below.
+
 # Camera-model-specific tuning knobs. Probe support first:
 # scope.capabilities.camera_supports_conversion_gain_mode / _line_noise_reduction.
 scope.imaging.set_conversion_gain_mode('High')     # True when applied; False when unsupported / no camera
@@ -1160,7 +1169,13 @@ applied.applied                                       # what this camera is give
 applied.capped                                        # True when the body is holding it down
 ```
 
-Both return an `AppliedCameraSetting`. An unknown cap (no camera, or a driver that publishes none) narrows nothing, so `applied == stored` and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends `applied` to the driver, so the value a caller reads back is what the sensor is actually at.
+The same holds for a stored auto-gain preference. A camera without hardware auto-gain runs manual whatever the layer stored, and the preference is kept for a camera that has the mode:
+
+```python
+applied = scope.imaging.applied_auto_gain_for(True)   # IDS: stored=True applied=False capped=True
+```
+
+All three return an `AppliedCameraSetting`. For gain and exposure, an unknown cap (no camera, or a driver that publishes none) narrows nothing, so `applied == stored` and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends `applied` to the driver, so the value a caller reads back is what the sensor is actually at.
 
 Note the difference from `set_gain_db`, `set_exposure_ms` and `set_frame_size`, which are **explicit requests** and raise `CameraSettingOutOfRangeError` for a value outside the camera's range, the same on every camera. Capping belongs to re-applying something already stored; a direct request for an out-of-range value is an error, not something to silently narrow.
 

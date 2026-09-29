@@ -38,6 +38,7 @@ from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
+from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_validate_steps import (
     _DEFAULT_AXIS_LIMITS,
     _STAGE_OFFSET,
@@ -472,6 +473,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
 
     listeners = {}
     scope = MagicMock()
+    answer_auto_gain_like_the_api(scope.imaging)
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = True
     scope.imaging.camera_identity = {

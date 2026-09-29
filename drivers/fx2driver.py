@@ -71,7 +71,7 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any
+from typing import Any, NoReturn
 from collections import deque
 from datetime import datetime
 
@@ -86,7 +86,7 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import Camera, ImageHandlerBase, no_hardware_auto_mode
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -2166,8 +2166,8 @@ class FX2Camera(Camera):
     def get_exposure_t(self):
         return max(0.0, self._exposure_rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS)
 
-    def auto_exposure_t(self, state=True):
-        pass  # MT9P031 has no hardware auto-exposure
+    def auto_exposure_t(self, state: bool = True) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_exposure_t', 'auto-exposure')
 
     # -- Gain --------------------------------------------------------------
 
@@ -2201,29 +2201,31 @@ class FX2Camera(Camera):
 
     def auto_gain(
         self,
-        state=True,
-        target_brightness=0.5,
-        min_gain_db=None,
-        max_gain_db=None,
-        ae_max_exposure_ms=None,
-    ):
-        pass  # no hardware auto-gain
+        state: bool = True,
+        target_brightness: float = 0.5,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_gain', 'auto-gain')
 
     def auto_gain_once(
         self,
-        state=True,
-        target_brightness=0.5,
-        min_gain_db=None,
-        max_gain_db=None,
-        ae_max_exposure_ms=None,
-    ):
-        pass
+        state: bool = True,
+        target_brightness: float = 0.5,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_gain_once', 'auto-gain')
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        pass
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'update_auto_gain_target_brightness', 'auto-gain')
 
-    def update_auto_gain_min_max(self, min_gain_db=None, max_gain_db=None):
-        pass
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None = None, max_gain_db: float | None = None
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'update_auto_gain_min_max', 'auto-gain')
 
     # -- Misc (no-op or trivial) ------------------------------------------
 

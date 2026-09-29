@@ -617,16 +617,27 @@ class TestFX2CameraProfile:
         cam = fx2driver.FX2Camera()
         assert cam.get_binning_size() == 1
 
-    def test_auto_features_are_noops(self, fake_fx2_conn):
-        """MT9P031 has no hardware AE/AG -- these should all be silent
-        no-ops rather than raising NotImplementedError.
+    @pytest.mark.parametrize(
+        'call',
+        [
+            lambda cam: cam.auto_exposure_t(True),
+            lambda cam: cam.auto_gain(True),
+            lambda cam: cam.auto_gain_once(True),
+            lambda cam: cam.update_auto_gain_target_brightness(0.5),
+            lambda cam: cam.update_auto_gain_min_max(0.0, 30.0),
+        ],
+    )
+    def test_auto_features_raise_rather_than_answer(self, fake_fx2_conn, call):
+        """MT9P031 has no hardware AE/AG, and its profile says so; the API
+        reads the profile and never asks. An answer here would claim a write
+        that never happened, so a caller that skipped that read fails loudly.
         """
         cam = fx2driver.FX2Camera()
-        cam.auto_exposure_t(True)
-        cam.auto_gain(True)
-        cam.auto_gain_once(True)
-        cam.update_auto_gain_target_brightness(0.5)
-        cam.update_auto_gain_min_max(0.0, 30.0)
+        with pytest.raises(NotImplementedError, match='no hardware auto-'):
+            call(cam)
+
+    def test_features_without_hardware_are_noops(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
         cam.set_test_pattern(True, 'Black')
         cam.set_max_acquisition_frame_rate(True, 4.5)
         assert cam.get_all_temperatures() == {}

@@ -5,7 +5,7 @@ import math
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
 # core binding and the ipl-extension bridge resolve against. The stack is
@@ -25,7 +25,7 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import Camera, ImageHandlerBase, no_hardware_auto_mode
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 
@@ -2777,12 +2777,8 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_exposure_t failed: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True):
-        try:
-            return self.remote_nodemap.HasNode('ExposureAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_exposure_t failed: {e}')
-            return False
+    def auto_exposure_t(self, state: bool = True) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_exposure_t', 'auto-exposure')
 
     def get_sdk_info(self) -> dict:
         """IDS peak SDK provenance (name + version) for diagnostics.
@@ -3127,19 +3123,13 @@ class IDSCamera(Camera):
             return False, None, None
         return self.grab()
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] update_auto_gain_target_brightness failed: {e}')
-            return False
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'update_auto_gain_target_brightness', 'auto-gain')
 
-    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] update_auto_gain_min_max failed: {e}')
-            return False
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None = None, max_gain_db: float | None = None
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'update_auto_gain_min_max', 'auto-gain')
 
     def get_gain(self):
         """Return gain in dB. The IDS Gain node is a linear factor; convert via
@@ -3217,31 +3207,23 @@ class IDSCamera(Camera):
 
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_gain failed: {e}')
-            return False
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_gain', 'auto-gain')
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_gain_once failed: {e}')
-            return False
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_gain_once', 'auto-gain')
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> bool:
         """Apply the IDS TestPattern node: 'Off' when disabled, else the named

@@ -27,6 +27,7 @@ import modules.image_utils as image_utils
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
+    CameraSettingUnsupportedError,
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
 )
@@ -143,8 +144,8 @@ class AppliedCameraSetting:
     second answerer this type exists to prevent.
     """
 
-    stored: float
-    applied: float
+    stored: float | bool
+    applied: float | bool
     capped: bool
 
     def __post_init__(self) -> None:
@@ -212,6 +213,23 @@ def _mode_rejection(setting: str, requested: object, what: str) -> CameraSetting
     """The typed refusal of an auto-mode change, in its one set of words."""
     title, message = _rejected_mode_words(what)
     return CameraSettingRejected(setting, requested, title=title, message=message)
+
+
+def _absent_mode_refusal(
+    setting: str, requested: object, what: str
+) -> CameraSettingUnsupportedError:
+    """The refusal of an auto mode the attached camera does not have.
+
+    Nothing reached the camera: its profile declares no such mode, so the
+    only thing it offers is to stay in manual.
+    """
+    return CameraSettingUnsupportedError(
+        setting,
+        requested,
+        offered=(False,),
+        title='Not Available on This Camera',
+        message=(f'This camera has no {what}. The gain and exposure stay as they are set.'),
+    )
 
 
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
@@ -1264,6 +1282,8 @@ class ImagingAPI:
         Raises:
             CameraSettingRejected: The camera refused the change. Nothing
                 was recorded, and nothing is shown here.
+            CameraSettingUnsupportedError: Turning auto-gain on for a camera
+                without it.
         """
         result = self._dispatch_camera(
             self._set_auto_gain_impl,
@@ -1297,11 +1317,25 @@ class ImagingAPI:
 
         Returns:
             bool | None: The driver's answer (see ``Camera.gain`` for the
-                three cases); ``None`` when no camera is active.
+                three cases); ``None`` when no camera is active. ``True``,
+                with nothing written, for turning off a mode a camera
+                without hardware auto-gain never had.
+
+        Raises:
+            CameraSettingUnsupportedError: Turning auto-gain on for a camera
+                without it. Nothing reaches the camera.
         """
 
         if not self._driver or not self._driver.active:
             return None
+        if not self._camera_has_auto_gain():
+            # Such a camera is already manual, so off is its state rather
+            # than a write: no validity invalidation, no target clear, no
+            # cache resync. Its driver answers no auto-mode call truthfully,
+            # so it is never asked.
+            if state:
+                raise _absent_mode_refusal('auto_gain', state, 'automatic gain')
+            return True
 
         def _write_auto_gain():
             return self._driver.auto_gain(
@@ -1316,12 +1350,9 @@ class ImagingAPI:
         # target (chunk-match falls back to skip-frames calibration). Arming
         # hardware continuous AG needs the camera several frames to settle
         # against the lit scene, so invalidate 'auto_gain' to hold capture for
-        # the settle count -- gated on the camera actually having hardware AG
-        # (cameras without it reach correct exposure through a future software-AG
-        # loop that reuses the gain/exposure settle sources, not this one). The
-        # mode flip leaves the gain value node unchanged, so these are forced,
-        # not gated on a value delta.
-        arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
+        # the settle count. The mode flip leaves the gain value node
+        # unchanged, so these are forced, not gated on a value delta.
+        arm_settle = state
         if arm_settle:
             self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
         result = self._camera_write(
@@ -1538,6 +1569,8 @@ class ImagingAPI:
         Raises:
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.
+            CameraSettingUnsupportedError: Turning auto-exposure on for a
+                camera without it.
         """
         result = self._dispatch_camera(
             self._set_auto_exposure_time_impl,
@@ -1558,11 +1591,21 @@ class ImagingAPI:
         Returns:
             bool | None: The driver's answer; ``False`` when it refused, and
                 then the cache is not resynced. ``None`` when no camera is
-                active.
+                active. ``True``, with nothing written, for turning off a mode
+                a camera without hardware auto-exposure never had.
+
+        Raises:
+            CameraSettingUnsupportedError: Turning auto-exposure on for a
+                camera without it. Nothing reaches the camera.
         """
 
         if not self._driver or not self._driver.active:
             return None
+        if not self._camera_has_auto_exposure():
+            # See _set_auto_gain_impl: off is such a camera's state, not a write.
+            if state:
+                raise _absent_mode_refusal('auto_exposure', state, 'automatic exposure')
+            return True
         # Auto-exposure dynamically adjusts the value, so clear the manual
         # exposure target (chunk-match falls back to skip-frames calibration).
         # The mode flip leaves the exposure value node unchanged, so the
@@ -3779,6 +3822,30 @@ class ImagingAPI:
         """
         return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
 
+    def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:
+        """What a stored auto-gain preference becomes on the attached camera.
+
+        See ``applied_gain_db_for``; the same contract for the mode. A camera
+        without hardware auto-gain runs manual whatever the layer stored, and
+        the stored preference is left alone so a camera that has the mode
+        takes it again.
+        """
+        stored = bool(stored_auto_gain)
+        applied = stored and self._camera_has_auto_gain()
+        return AppliedCameraSetting(stored=stored, applied=applied, capped=applied != stored)
+
+    def _camera_has_auto_gain(self) -> bool:
+        """Whether the attached camera's profile declares hardware auto-gain.
+
+        The one place the API reads it. The IDS and FX2 drivers have no
+        auto-gain to drive, so nothing may ask them to change it.
+        """
+        return bool(self._driver and getattr(self._driver.profile, 'has_auto_gain', False))
+
+    def _camera_has_auto_exposure(self) -> bool:
+        """Whether the attached camera's profile declares hardware auto-exposure."""
+        return bool(self._driver and getattr(self._driver.profile, 'has_auto_exposure', False))
+
     @property
     def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
@@ -4006,7 +4073,9 @@ class ImagingAPI:
                 keyword-only: two layers sharing a gain and an exposure
                 otherwise write identical log lines, and one apply becomes
                 indistinguishable from two. Every caller already holds it.
-            auto_gain: Whether auto-gain is enabled for this layer.
+            auto_gain: The layer's stored auto-gain preference. A camera
+                without hardware auto-gain applies it as manual
+                (``applied_auto_gain_for``); the store keeps it.
             auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db
                                (required if auto_gain is True).
 
@@ -4034,12 +4103,13 @@ class ImagingAPI:
         # divergence is why the cap cannot be left to the driver.
         gain = self.applied_gain_db_for(gain_db)
         exposure = self.applied_exposure_ms_for(exposure_ms)
+        auto = self.applied_auto_gain_for(auto_gain)
         gain_result = self._set_gain_db_impl(gain.applied)
         exposure_result = self._set_exposure_ms_impl(exposure.applied)
         auto_gain_result = None
         if auto_gain_settings is not None:
             auto_gain_result = self._set_auto_gain_impl(
-                auto_gain, settings=auto_gain_settings, resume_after_capture=resume_after_capture
+                auto.applied, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
         # Both numbers when the camera held one down, so a bundle shows the
         # intent that was stored next to the value the sensor took; one
@@ -4047,9 +4117,11 @@ class ImagingAPI:
         capped_note = ''
         if gain.capped or exposure.capped:
             capped_note = f' capped(stored gain={gain.stored}dB exp={exposure.stored}ms)'
+        if auto.capped:
+            capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
         _api_log.info(
             f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
-            f'exp={exposure.applied}ms auto_gain={auto_gain}{capped_note}'
+            f'exp={exposure.applied}ms auto_gain={auto.applied}{capped_note}'
         )
         refused = []
         if gain_result is False:
@@ -4057,7 +4129,7 @@ class ImagingAPI:
         if exposure_result is False:
             refused.append(_value_rejection('exposure_ms', exposure.applied))
         if auto_gain_result is False:
-            refused.append(_mode_rejection('auto_gain', auto_gain, 'auto-gain'))
+            refused.append(_mode_rejection('auto_gain', auto.applied, 'auto-gain'))
         if len(refused) == 1:
             raise refused[0]
         if refused:
@@ -4079,6 +4151,8 @@ class ImagingAPI:
         Raises:
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.
+            CameraSettingUnsupportedError: The camera has no hardware
+                auto-gain, so there is no target to set.
         """
         result = self._dispatch_camera(
             self._update_auto_gain_target_brightness_impl,
@@ -4104,18 +4178,19 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return None
+        if not self._camera_has_auto_gain():
+            raise _absent_mode_refusal(
+                'auto_gain_target_brightness', target_brightness, 'automatic gain'
+            )
         # Changing the target re-drives the auto-gain loop: gain (and, under
         # auto-exposure, exposure) converge to a new operating point, so a frame
         # grabbed before they resettle is captured at the old brightness. Route
         # through the sanctioned write path and mark the settle sources RED so
         # capture waits for the convergence -- the same sources set_auto_gain
-        # arms, since this is the same convergence. The auto_gain settle source
-        # applies only when the camera has hardware auto-gain (others settle via
-        # the gain source alone).
-        arm_settle = getattr(self._driver.profile, 'has_auto_gain', False)
+        # arms, since this is the same convergence.
         return self._camera_write(
             lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
-            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
+            force_invalidate=('gain', 'auto_gain'),
         )
 
     def auto_gain_once(
@@ -4130,6 +4205,10 @@ class ImagingAPI:
 
         See ``_auto_gain_once_impl`` for the settle contract; this adds
         only the dispatch described on ``_dispatch_camera``.
+
+        Raises:
+            CameraSettingUnsupportedError: The camera has no hardware
+                auto-gain.
         """
         return self._dispatch_camera(
             self._auto_gain_once_impl,
@@ -4158,6 +4237,10 @@ class ImagingAPI:
                 on the exposure auto-exposure may drive to.
         """
         if not self._driver or not self._driver.active:
+            return
+        if not self._camera_has_auto_gain():
+            if state:
+                raise _absent_mode_refusal('auto_gain', state, 'automatic gain')
             return
         # One-shot AG changes both gain and exposure on the camera from a single
         # driver call; the pipeline still needs frames to flush the converged

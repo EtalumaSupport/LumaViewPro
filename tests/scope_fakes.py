@@ -276,3 +276,17 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     # a known stage, since the run moves every step itself.
     record_turret_answer(scope)
     home_sim_scope(scope)
+
+
+def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> None:
+    """Give a fake imaging surface the API's own ``applied_auto_gain_for``.
+
+    A bare MagicMock answers a MagicMock, which is truthy, so a caller asking
+    whether a step's auto-gain applies would always hear yes. This wires the
+    real member over a camera that does or does not have hardware auto-gain,
+    so the fake gives the API's decision rather than one of its own.
+    """
+    from modules.lumascope_api.imaging import ImagingAPI
+
+    imaging._camera_has_auto_gain = lambda: has_auto_gain
+    imaging.applied_auto_gain_for = ImagingAPI.applied_auto_gain_for.__get__(imaging)
