@@ -92,7 +92,7 @@ Install scripts are provided in the `scripts/` folder. They check your Python ve
 | macOS | `scripts/install_mac.sh` | `bash scripts/install_mac.sh` |
 | Linux | `scripts/install_linux.sh` | `bash scripts/install_linux.sh` |
 
-Add `--venv` to install in a virtual environment instead of system Python (e.g. `bash scripts/install_mac.sh --venv`).
+The macOS and Linux scripts always install into a virtual environment (`venv/`). On Windows, add `--venv` to install in a virtual environment instead of system Python (`scripts\install_windows.bat --venv`).
 
 **Note:** Camera SDK (Basler Pylon) must still be installed separately -- see platform instructions below.
 
