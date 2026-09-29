@@ -414,10 +414,16 @@ class SimulatedCamera(Camera):
         self._pump_thread.start()
 
     def _stop_callback_pump(self) -> None:
-        """Signal the pump to exit and join with a short timeout."""
+        """Signal the pump to exit and join with a short timeout.
+
+        A listener that removes itself from inside its own callback (the
+        budget enforcer's auto-remove) calls this on the pump thread, which
+        cannot join itself; the stop flag alone ends the loop once the
+        callback returns.
+        """
         self._pump_stop.set()
         t = self._pump_thread
-        if t is not None:
+        if t is not None and t is not threading.current_thread():
             t.join(timeout=2.0)
         self._pump_thread = None
 
