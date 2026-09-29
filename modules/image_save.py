@@ -31,8 +31,7 @@ import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
-from modules.exceptions import CaptureError, ConfigError
-from modules.notification_center import notifications
+from modules.exceptions import CaptureError, ConfigError, ImageSaveError
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -758,14 +757,11 @@ def save_image(
             )
 
         logger.debug(f'[SCOPE API ] Saving Image to {file_loc}')
-    except Exception:
-        logger.exception('[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?')
-        notifications.error(
-            'FileIO',
-            'Image Save Failed',
-            f'Failed to save image to {file_loc}. Check disk space and permissions.',
-        )
-        raise
+    except OSError as ex:
+        # Only the write's own failure is the disk's; an encoding or metadata
+        # error before it propagates as itself, in its own words. Reported
+        # once, by whoever ends the flight.
+        raise ImageSaveError(file_loc) from ex
 
     # Handle-leak tracking; zero overhead when disabled. Enable via the
     # profiling.handle_trace_enabled setting.

@@ -337,6 +337,28 @@ class HyperstackRefusedError(CaptureError):
         self.message = message
 
 
+class ImageSaveError(CaptureError):
+    """An image could not be written to disk.
+
+    Raised by ``save_image`` from the ``OSError`` of the write -- a missing
+    or read-only folder, a full disk, a denied permission -- so the words
+    point at the disk. A failure before the write (encoding, metadata)
+    is not this and propagates as itself.
+
+    Attributes:
+        file_loc: The path the image was to be written to.
+    """
+
+    title = 'Image Save Failed'
+
+    def __init__(self, file_loc):
+        super().__init__(
+            f'Failed to save image to {file_loc}. Check disk space and permissions.',
+            'image_save_failed',
+        )
+        self.file_loc = file_loc
+
+
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, or the lane is closed.
 
