@@ -1282,13 +1282,16 @@ class ScopeSession:
         (``motion.get_turret_slot``), so an answer names the glass that is
         actually in the light path.
 
-        Two conditions withhold an owed question, each leaving one log
+        Three conditions withhold an owed question, each leaving one log
         line per call so a bundle can say why nothing was asked: with no
         hardware there is nothing in the light path and no capture to
         stamp; while settings are provisional every write is refused, so
         an answer given now would be lost -- the host re-asks when they
-        resolve. No line is logged for a returned question: the renderer
-        logs its own show, and a polled read must not log per poll.
+        resolve; while an activity holds the scope the answer is refused
+        too (``confirm_objective``), so asking would only ask again after
+        each refusal -- the host re-asks when the hold ends. No line is
+        logged for a returned question: the renderer logs its own show,
+        and a polled read must not log per poll.
 
         Raises:
             ConfigError: the catalogue is unavailable or empty, or the
@@ -1317,6 +1320,13 @@ class ScopeSession:
             logger.info(
                 '[Session  ] objective question deferred -- settings are provisional and '
                 'the answer could not be kept'
+            )
+            return None
+        holder = self.activity_claim.owner
+        if holder is not None:
+            logger.info(
+                f'[Session  ] objective question deferred -- a {holder} holds the scope and '
+                'would refuse the answer'
             )
             return None
         if has_turret and position is None:

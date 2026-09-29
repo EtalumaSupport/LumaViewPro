@@ -133,6 +133,9 @@ class _FakeRuntimeState:
     def get_current_objective(self):
         return self._objective
 
+    def resolve_current_objective(self):
+        return 'fake', self._objective
+
     def stage_to_plate(self, sx, sy):
         # A stand-in transform, distinct from the identity so a stage number
         # recorded as a plate one shows.

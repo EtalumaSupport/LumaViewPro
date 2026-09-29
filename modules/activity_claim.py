@@ -16,6 +16,16 @@ SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
 _acting = threading.local()
 
 
+class FalsifyingChangeInFlightError(Exception):
+    """A recording was asked for while a write that would falsify it runs.
+
+    Raised by ``try_claim('recording')``. A recording writes nothing to a
+    lane, so unlike a run it does not queue behind a turret or frame change
+    already under way: started then, its first frames would record the
+    change and its file would claim the settings it read before it.
+    """
+
+
 def current_taking() -> 'Taking | None':
     """The taking this thread is acting under, or None."""
     return getattr(_acting, 'taking', None)
@@ -206,6 +216,11 @@ class ActivityClaim:
         self._holder: ActivityHolder | None = None
         self._held: HeldClaim | None = None
         self._on_transition = on_transition
+        # The writes that would falsify a recording, running now. Counted
+        # where each one runs -- a lane's worker, or inline inside another
+        # task on it -- and under this lock, so a recording and such a
+        # write can never both be admitted.
+        self._falsifying = 0
 
     @property
     def holder(self) -> ActivityHolder | None:
@@ -245,8 +260,14 @@ class ActivityClaim:
         Returns:
             The HeldClaim that alone can release this taking, or None
             when another activity holds the claim.
+
+        Raises:
+            FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
+                write that would falsify it is running.
         """
         with self._lock:
+            if owner == 'recording' and self._falsifying:
+                raise FalsifyingChangeInFlightError()
             if self._holder is not None:
                 return None
             held = HeldClaim(self)
@@ -271,7 +292,35 @@ class ActivityClaim:
         format, the turret), whoever makes it -- the recording itself never
         does. Everything else stays open to anyone during one.
         """
-        holder = self._holder
+        return self._refusing(self._holder, taking, falsifies_recording)
+
+    def enter_falsifying_change(self, taking: Taking | None) -> ActivityHolder | None:
+        """Admit a write that would falsify a recording, counted while it runs.
+
+        The refusal ``refusing_holder`` gives it, decided under the lock that
+        a recording's taking holds, so a recording is either refused because
+        this write runs or holds before it and refuses the write. Every
+        admission is paired with ``leave_falsifying_change`` when the write
+        returns.
+
+        Returns:
+            The holder that refuses the write, or None when it is admitted
+            and counted.
+        """
+        with self._lock:
+            holder = self._refusing(self._holder, taking, True)
+            if holder is None:
+                self._falsifying += 1
+            return holder
+
+    def leave_falsifying_change(self) -> None:
+        """A write admitted by ``enter_falsifying_change`` has returned."""
+        with self._lock:
+            self._falsifying -= 1
+
+    def _refusing(
+        self, holder: ActivityHolder | None, taking: Taking | None, falsifies_recording: bool
+    ) -> ActivityHolder | None:
         if holder is None:
             return None
         if holder.kind == 'recording':

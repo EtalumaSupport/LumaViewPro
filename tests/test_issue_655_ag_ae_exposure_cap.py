@@ -290,6 +290,7 @@ def _video_session_autogain_call(autogain_settings):
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',

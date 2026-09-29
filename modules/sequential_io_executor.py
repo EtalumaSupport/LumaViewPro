@@ -747,6 +747,31 @@ class SequentialIOExecutor:
         kind = holder.kind if holder is not None else None
         return HardwareCommandRefusedError('exclusive_activity_running', who, kind)
 
+    def _admit(self, task: IOTask) -> tuple[HardwareCommandRefusedError | None, bool]:
+        """Ask the claim whether ``task`` may run now, as it is about to run.
+
+        A write that would falsify a recording is admitted through the
+        claim's count, where it runs -- the worker, or inline inside another
+        task -- because the task a lane reports running may be only the one
+        that called it, and a recording must not start while it runs.
+
+        Returns:
+            (the refusal or None, whether the claim counted the task; a
+            counted task is paired with ``leave_falsifying_change``).
+        """
+        refusal = self._claim_refusal(task)
+        if refusal is not None or not task.falsifies_recording or task.override:
+            return refusal, False
+        if self._claim is None:
+            return None, False
+        holder = self._claim.enter_falsifying_change(task.taking)
+        if holder is not None:
+            who = getattr(task.action, '__name__', None) or repr(task.action)
+            return HardwareCommandRefusedError(
+                'exclusive_activity_running', who, holder.kind
+            ), False
+        return None, True
+
     def _is_protocol_door_holder(self) -> bool:
         """Whether this thread acts under the taking that raised protocol mode."""
         return (
@@ -814,10 +839,14 @@ class SequentialIOExecutor:
         worker = getattr(_lane_worker, 'executor', None)
         if worker is self:
             self._stamp(task, override)
-            refusal = self._claim_refusal(task)
+            refusal, counted = self._admit(task)
             if refusal is not None:
                 raise refusal
-            return task.action(*task.args, **task.kwargs)
+            try:
+                return task.action(*task.args, **task.kwargs)
+            finally:
+                if counted:
+                    self._claim.leave_falsifying_change()
         if worker is not None:
             raise RuntimeError(
                 f'{member}: a blocking dispatch from the {worker.executor_name} lane worker '
@@ -1495,7 +1524,7 @@ class SequentialIOExecutor:
                 # Asked again as it leaves the queue: a hold can begin while
                 # the task waits, and the holder's restore must not be run
                 # over by work queued before it.
-                refusal = self._claim_refusal(task)
+                refusal, counted = self._admit(task)
                 if refusal is not None:
                     logger.warning(
                         f'[{self.executor_name}] REFUSED {refusal.member} at dequeue -- {refusal}'
@@ -1510,6 +1539,9 @@ class SequentialIOExecutor:
                         run_result = task.run()
                 except BaseException as e:
                     run_exc = e
+                finally:
+                    if counted:
+                        self._claim.leave_falsifying_change()
 
                 if self._worker_generation != my_generation:
                     # Abandoned by wedge recovery while stuck inside this

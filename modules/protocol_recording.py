@@ -330,7 +330,7 @@ class ProtocolVideoStep:
             clock=self._clock,
             notify=notifications,
         )
-        engine.start(config)
+        engine.start(lambda: config)
         try:
             self._engine = engine
             scope.imaging.add_frame_listener(

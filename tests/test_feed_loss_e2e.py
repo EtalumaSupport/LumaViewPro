@@ -27,6 +27,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )
+    sim_scope.runtime_state.set_objective('4x Oly')
     settings = {
         'live_folder': str(tmp_path),
         'video_as_frames': True,

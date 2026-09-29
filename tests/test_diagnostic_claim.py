@@ -117,7 +117,7 @@ class TestTheDiagnosticHoldsTheScope:
             write_frame=MagicMock(), claim=session.activity_claim, clock=lambda: 0.0
         )
         with session.diagnostic_claim(), pytest.raises(RecordingRefusedError) as excinfo:
-            engine.start(MagicMock())
+            engine.start(lambda: MagicMock())
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert excinfo.value.holder == 'diagnostic'
 

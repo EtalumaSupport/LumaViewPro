@@ -47,7 +47,7 @@ from typing import Any
 
 from lib import profile_trace
 from lvp_logger import logger
-from modules.activity_claim import ActivityClaim, BorrowedClaim
+from modules.activity_claim import ActivityClaim, BorrowedClaim, FalsifyingChangeInFlightError
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -263,16 +263,21 @@ class VideoRecordingEngine:
         """Frames the cadence selector has kept so far."""
         return self._frames_selected
 
-    def start(self, config: RecordingConfig) -> None:
+    def start(self, make_config: Callable[[], RecordingConfig]) -> None:
         """Open selection for one recording.
 
         Atomically acquires the exclusivity claim; exactly one of two
-        concurrent starts can win.
+        concurrent starts can win. ``make_config`` is called once the claim
+        is held: what the file will claim -- frame size, binning, pixel
+        size, objective -- is read only when no write that would change it
+        can start or still be running.
 
         Raises:
             RecordingRefusedError: When an exclusive activity (protocol
-                run or another recording) already holds the claim, or
-                this engine is already recording or draining.
+                run or another recording) already holds the claim, a write
+                that would falsify the recording is running, or this engine
+                is already recording or draining.
+            Anything ``make_config`` raises, with the claim released.
         """
         with self._lock:
             if self._recording or not self._drained.is_set():
@@ -281,7 +286,17 @@ class VideoRecordingEngine:
                     title='Recording Active',
                     message='A recording is already in progress. Stop it, then record again.',
                 )
-            held = self._claim.try_claim('recording')
+            try:
+                held = self._claim.try_claim('recording')
+            except FalsifyingChangeInFlightError:
+                raise RecordingRefusedError(
+                    reason='falsifying_change_in_flight',
+                    title='Microscope Changing',
+                    message=(
+                        'The microscope is changing the objective or the camera frame. '
+                        'Start the recording when it finishes.'
+                    ),
+                ) from None
             if held is None:
                 # Busy-with-what comes off the claim this just failed to
                 # take: the activity that holds it names itself and, when
@@ -299,6 +314,7 @@ class VideoRecordingEngine:
                 )
             self._held_claim = held
             try:
+                config = make_config()
                 self._config = config
                 start_ts = self._clock()
                 self._selector = CadenceSelector(

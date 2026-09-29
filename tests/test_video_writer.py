@@ -300,6 +300,10 @@ class TestProtocolVideoDropNotification:
         listeners = {}
         scope = MagicMock()
         answer_auto_gain_like_the_api(scope.imaging)
+        scope.runtime_state.resolve_current_objective.return_value = (
+            '4x Oly',
+            {'focal_length': 45.0},
+        )
         # The frames leg reads the scope's tracked state per frame; a
         # MagicMock answers a MagicMock, which is not a position.
         scope.motion.axis_positions = lambda: {}

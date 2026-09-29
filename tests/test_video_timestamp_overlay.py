@@ -62,6 +62,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
     answer_auto_gain_like_the_api(scope.imaging)
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',

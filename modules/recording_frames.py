@@ -18,8 +18,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
-from lvp_logger import logger
-
 import modules.common_utils as common_utils
 import modules.image_save as image_save
 import modules.image_utils as image_utils
@@ -184,17 +182,14 @@ def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
 
     Args:
         scope: The Lumascope instance the recording is running against.
+
+    Raises:
+        ObjectiveUnknownError: No one can say which objective is in the light
+            path. A recording is refused there as a capture is: a file with
+            no objective would carry no scale while the scope went on with
+            one the person had not confirmed.
     """
-    # Through the accessor, which reports "no objective selected yet" as None.
-    # Subscripting the store directly raises instead, and a recording must not
-    # die because the scope cannot yet say how big a pixel is.
-    objective = scope.runtime_state.get_current_objective()
-    if objective is None:
-        logger.warning(
-            'Recording is starting with no objective selected; its frames '
-            'will carry no um/pixel scale claim.'
-        )
-        return None
+    _, objective = scope.runtime_state.resolve_current_objective()
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
         binning_size=scope.imaging._binning_size,

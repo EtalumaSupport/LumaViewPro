@@ -236,9 +236,13 @@ class ManualRecordingController:
         Raises:
             RecordingRefusedError: The start cannot proceed -- a previous
                 recording is still recording, draining or finishing,
-                another exclusive activity is running, the camera is
-                inactive or has no known exposure, or free disk is below
-                the floor. Nothing is committed when this raises.
+                another exclusive activity is running, a turret or frame
+                change is under way, the camera is inactive or has no known
+                exposure, or free disk is below the floor. Nothing is
+                committed when this raises.
+            ObjectiveUnknownError: No one can say which objective is in the
+                light path, so the recording's frames would carry no scale.
+                Nothing is committed.
         """
         # Exclusivity has to span the finish, not just the drain. The
         # engine frees its claim before the finish thread stops reading
@@ -363,7 +367,6 @@ class ManualRecordingController:
 
         resolved_layer = resolve_channel_identity(scope.illumination, layer)
 
-        frame_size = scope.imaging.frame_size_cached
         manifest_extra = {
             # RENDERING, not identity: the video builder reads this back to
             # decide whether to false-color a rebuild, so a mono recording
@@ -380,59 +383,42 @@ class ManualRecordingController:
                 'software': {'lvp_version': lvp_version},
             },
         }
-        config = RecordingConfig(
-            fps=effective_fps,
-            duration_s=duration_s,
-            width=frame_size['width'],
-            height=frame_size['height'],
-            bit_depth=capture_config.capture_depth,
-            output_dir=save_folder,
-            filename_template=manual_frame_filename_template(),
-            timestamp_overlay=video_settings.get('timestamp_overlay', True),
-            manifest_extra=manifest_extra,
-            # The MP4 leg's artifacts share the flat Manual folder, so its
-            # manifest is named after the video the writer actually wrote --
-            # the writer renames itself on collision, so two recordings
-            # inside one second write two videos, and a manifest named from
-            # the start timestamp would describe whichever one it did not
-            # measure. The frames leg owns a per-recording folder and keeps
-            # the default name.
-            manifest_filename=('recording_manifest.json' if video_as_frames else None),
-        )
-
         hyperstack = (
             video_as_frames
             and capture_config.output_format_sequenced == image_mode.OUTPUT_FORMAT_HYPERSTACK
         )
-        plan = _RecordingPlan(
-            video_as_frames=video_as_frames,
-            save_folder=save_folder,
-            layer=resolved_layer,
-            false_color_on=false_color_on,
-            save_encoding=capture_config.save_encoding,
-            capture_depth=capture_config.capture_depth,
-            tick_freq_hz=identity['timestamp_tick_frequency_hz'],
-            hyperstack=hyperstack,
-            pixel_size_um=resolve_recording_pixel_size(scope),
-            to_plate=(scope.runtime_state.plate_transform() if video_as_frames else None),
-        )
-        if video_as_frames:
-            _say_what_the_frames_cannot_record(scope, plan.to_plate)
+        # What the file will claim of the scope -- its frame size, and the
+        # pixel size its objective and binning give -- is read by the engine
+        # once it holds the claim: a turret or frame change can neither start
+        # then nor still be running, so the file cannot claim the scope as it
+        # was an instant before one.
+        claimed = {}
 
-        writer = None
-        if not video_as_frames:
-            save_folder.mkdir(exist_ok=True, parents=True)
-            writer = VideoWriter(
-                output_path=save_folder / f'Video_{start_time_str}.mp4',
+        def _make_config() -> RecordingConfig:
+            frame_size = scope.imaging.frame_size_cached
+            claimed['frame_size'] = frame_size
+            claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
+            claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
+            claimed['config'] = RecordingConfig(
                 fps=effective_fps,
+                duration_s=duration_s,
                 width=frame_size['width'],
                 height=frame_size['height'],
-                # Rendering: a null here keeps the encoder gray, which is
-                # what a recording with the toggle off must produce.
-                color=resolved_layer if false_color_on else None,
-                include_timestamp_overlay=config.timestamp_overlay,
-                vfr=True,
+                bit_depth=capture_config.capture_depth,
+                output_dir=save_folder,
+                filename_template=manual_frame_filename_template(),
+                timestamp_overlay=video_settings.get('timestamp_overlay', True),
+                manifest_extra=manifest_extra,
+                # The MP4 leg's artifacts share the flat Manual folder, so its
+                # manifest is named after the video the writer actually wrote --
+                # the writer renames itself on collision, so two recordings
+                # inside one second write two videos, and a manifest named from
+                # the start timestamp would describe whichever one it did not
+                # measure. The frames leg owns a per-recording folder and keeps
+                # the default name.
+                manifest_filename=('recording_manifest.json' if video_as_frames else None),
             )
+            return claimed['config']
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
@@ -447,11 +433,40 @@ class ManualRecordingController:
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
         try:
-            engine.start(config)
+            engine.start(_make_config)
         except BaseException:
             _discard_if_empty(frames_folder)
             raise
+        writer = None
         try:
+            config = claimed['config']
+            plan = _RecordingPlan(
+                video_as_frames=video_as_frames,
+                save_folder=save_folder,
+                layer=resolved_layer,
+                false_color_on=false_color_on,
+                save_encoding=capture_config.save_encoding,
+                capture_depth=capture_config.capture_depth,
+                tick_freq_hz=identity['timestamp_tick_frequency_hz'],
+                hyperstack=hyperstack,
+                pixel_size_um=claimed['pixel_size_um'],
+                to_plate=claimed['to_plate'],
+            )
+            if video_as_frames:
+                _say_what_the_frames_cannot_record(scope, plan.to_plate)
+            else:
+                save_folder.mkdir(exist_ok=True, parents=True)
+                writer = VideoWriter(
+                    output_path=save_folder / f'Video_{start_time_str}.mp4',
+                    fps=effective_fps,
+                    width=claimed['frame_size']['width'],
+                    height=claimed['frame_size']['height'],
+                    # Rendering: a null here keeps the encoder gray, which is
+                    # what a recording with the toggle off must produce.
+                    color=resolved_layer if false_color_on else None,
+                    include_timestamp_overlay=config.timestamp_overlay,
+                    vfr=True,
+                )
             with self._state_lock:
                 self._engine = engine
                 self._config = config

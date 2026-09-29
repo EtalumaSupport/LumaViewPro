@@ -282,9 +282,10 @@ class VerticalControl(BoxLayout):
 
         Args:
             prompt: Ask the objective question when the objective is
-                unknown, unless a run holds the scope -- a prompt must
-                never interrupt an unattended run. The Session decides
-                whether a question is owed at all.
+                unknown. The Session decides whether a question is owed,
+                and owes none while an activity holds the scope: a prompt
+                must never interrupt an unattended run, and a recording
+                would refuse the answer.
         """
         ctx = _app_ctx.ctx
         slot = ctx.scope.motion.get_turret_slot()
@@ -307,7 +308,7 @@ class VerticalControl(BoxLayout):
         objective_id = ctx.scope.runtime_state.get_current_objective_id()
         self.ids['objective_spinner2'].text = objective_id or 'Unknown'
         ctx.motion_settings.ids['microscope_settings_id'].refresh_fov_labels()
-        if objective_id is None and prompt and not ctx.session.is_protocol_running:
+        if objective_id is None and prompt:
             # Scheduled, never opened from here: the startup home's display
             # runs before the event loop, and a popup opened then is painted
             # under the app root -- open, and invisible. On the Clock it

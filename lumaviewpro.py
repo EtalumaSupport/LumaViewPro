@@ -490,6 +490,10 @@ class LumaViewProApp(TooltipMixin, App):
             self.recording_active = recording
             self.controls_locked = False
         self._draw_run_controls()
+        # The objective question is withheld while an activity holds the
+        # scope; this edge is the one that fires when the hold ends, so the
+        # question is asked again here rather than at the next turret move.
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
     def _draw_run_controls(self) -> None:
         """Redraw each run control from its own run, on the same edge.

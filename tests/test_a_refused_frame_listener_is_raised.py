@@ -53,6 +53,8 @@ def sim_scope():
     from modules.lumascope_api import Lumascope
 
     scope = Lumascope(simulate=True)
+    scope.runtime_state.set_turreted(False)
+    scope.runtime_state.set_objective('4x Oly')
     yield scope
     scope.imaging.stop_streaming()
     scope.disconnect()

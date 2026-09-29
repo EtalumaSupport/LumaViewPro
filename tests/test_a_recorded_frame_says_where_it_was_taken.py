@@ -47,7 +47,7 @@ class TestTheFactRidesWithItsFrame:
         clock = FakeClock(1000.0)
         writer = WriterStub(tmp_path, blocked=True)
         engine = _engine(writer, clock)
-        engine.start(_config(tmp_path))
+        engine.start(lambda: _config(tmp_path))
         feed = FrameFeed()
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         engine.ingest_frame(image, ts, chunk, fact=A_FACT)
@@ -62,7 +62,7 @@ class TestTheFactRidesWithItsFrame:
         clock = FakeClock(1000.0)
         writer = WriterStub(tmp_path)
         engine = _engine(writer, clock)
-        engine.start(_config(tmp_path))
+        engine.start(lambda: _config(tmp_path))
         feed = FrameFeed()
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         with pytest.raises(TypeError):
