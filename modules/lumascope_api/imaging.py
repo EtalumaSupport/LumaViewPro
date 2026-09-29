@@ -2023,20 +2023,7 @@ class ImagingAPI:
                 f'{type(self._driver).__name__} does not implement this method'
             )
             return False
-        try:
-            return bool(self._driver.set_acquisition_stop_mode(mode=mode))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting acquisition_stop_mode: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'BslAcquisitionStopMode change failed',
-                f'Could not set acquisition_stop_mode to {mode!r}. '
-                f'Camera may still be at the previous stop-mode setting. '
-                f'See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_acquisition_stop_mode(mode=mode))
 
     def _set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """Set BandwidthReserveMode (GigE-only Pylon node).
@@ -2065,18 +2052,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_bandwidth_reserve_mode'):
             return False
-        try:
-            return bool(self._driver.set_bandwidth_reserve_mode(mode=mode))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting BandwidthReserveMode: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'BandwidthReserveMode change failed',
-                f'Could not set BandwidthReserveMode to {mode!r}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_bandwidth_reserve_mode(mode=mode))
 
     def _set_device_link_throughput_limit(
         self,
@@ -2130,25 +2106,12 @@ class ImagingAPI:
                 f'{type(self._driver).__name__} does not implement this method'
             )
             return False
-        try:
-            return bool(
-                self._driver.set_device_link_throughput_limit(
-                    mode=mode,
-                    value_bps=value_bps,
-                )
+        return bool(
+            self._driver.set_device_link_throughput_limit(
+                mode=mode,
+                value_bps=value_bps,
             )
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting DLTL: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'DeviceLinkThroughputLimit change failed',
-                f'Could not set DLTL to mode={mode}, value_bps={value_bps}. '
-                f'Camera may still be at the previous DLTL setting. '
-                f'See the log for details.',
-            )
-            raise
+        )
 
     def _set_max_transfer_size(self, value_bytes: int) -> bool:
         """Set Pylon StreamGrabber MaxTransferSize (USB3 only).
@@ -2178,18 +2141,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_max_transfer_size'):
             return False
-        try:
-            return bool(self._driver.set_max_transfer_size(value_bytes=value_bytes))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting MaxTransferSize: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'MaxTransferSize change failed',
-                f'Could not set MaxTransferSize to {value_bytes}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_max_transfer_size(value_bytes=value_bytes))
 
     def _set_num_max_queued_urbs(self, value: int) -> bool:
         """Set Pylon StreamGrabber NumMaxQueuedUrbs (USB3 only).
@@ -2219,18 +2171,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_num_max_queued_urbs'):
             return False
-        try:
-            return bool(self._driver.set_num_max_queued_urbs(value=value))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting NumMaxQueuedUrbs: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'NumMaxQueuedUrbs change failed',
-                f'Could not set NumMaxQueuedUrbs to {value}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_num_max_queued_urbs(value=value))
 
     def _set_max_num_buffer(self, value: int) -> bool:
         """Set Pylon InstantCamera MaxNumBuffer.
@@ -2263,18 +2204,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_max_num_buffer'):
             return False
-        try:
-            return bool(self._driver.set_max_num_buffer(value=int(value)))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting MaxNumBuffer: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'MaxNumBuffer change failed',
-                f'Could not set MaxNumBuffer to {value}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_max_num_buffer(value=int(value)))
 
     def _set_grab_strategy(self, name: str) -> bool:
         """Set the Pylon GrabStrategy used by the next start_grabbing().
@@ -2332,18 +2262,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_gev_packet_size'):
             return False
-        try:
-            return bool(self._driver.set_gev_packet_size(size_bytes=size_bytes))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting GevSCPSPacketSize: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'GevSCPSPacketSize change failed',
-                f'Could not set GevSCPSPacketSize to {size_bytes}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_gev_packet_size(size_bytes=size_bytes))
 
     def _set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
         """Set GevSCPD (GigE inter-packet delay, in clock ticks).
@@ -2371,18 +2290,7 @@ class ImagingAPI:
             return False
         if not hasattr(self._driver, 'set_gev_inter_packet_delay'):
             return False
-        try:
-            return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting GevSCPD: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'GevSCPD change failed',
-                f'Could not set GevSCPD to {delay_ticks}. See the log for details.',
-            )
-            raise
+        return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
 
     def _live_validated_read(
         self,
