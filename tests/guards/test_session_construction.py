@@ -225,14 +225,29 @@ class TestTheLanesAreTheScopes:
         # Each lane asks one claim for its life: a second session would
         # re-point the lanes at its own claim, and the first session's run
         # and diagnostic fences would stop being enforced, silently.
+        import threading
+        import time
+
         from tests.scope_fakes import build_scope
+
+        def factory_threads():
+            return {
+                t for t in threading.enumerate() if t.name in ('FILE_WORKER', 'WORKER_POOL_WORKER')
+            }
 
         scope = build_scope(simulate=True, warn_pre_release=False)
         first = ScopeSession.create(settings=complete_settings(), scope=scope)
         try:
+            before = factory_threads()
             with pytest.raises(RuntimeError, match='already asks an activity claim'):
                 ScopeSession.create(settings=complete_settings(), scope=scope)
             assert scope.io_lane()._claim is first.activity_claim
+            # The refused factory stops what it started: no session exists
+            # for anyone to shut down.
+            deadline = time.monotonic() + 2.0
+            while factory_threads() - before and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not factory_threads() - before, 'the refused create left its threads running'
         finally:
             first.shutdown()
 

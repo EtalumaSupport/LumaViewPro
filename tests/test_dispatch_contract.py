@@ -335,3 +335,33 @@ def test_no_public_imaging_member_writes_the_camera_inline():
         'public ImagingAPI members must dispatch camera-state writes, never '
         f'execute them inline in their own body; inline writers found: {offenders}'
     )
+
+
+def test_no_dispatcher_has_a_lane_less_branch():
+    """Every scope builds its lanes, so a branch for a missing one is dead --
+    and a dead branch that runs the body on the calling thread is the
+    unserialized, unfenceable path this contract exists to close. AST walk,
+    so a respelling of the test cannot hide one."""
+    import ast
+
+    import tests.ast_seams as ast_seams
+
+    lane_names = {'ex', 'executor', '_io_executor', '_camera_executor'}
+    offenders = []
+    for path in (
+        'modules/lumascope_api/illumination.py',
+        'modules/lumascope_api/imaging.py',
+        'modules/lumascope_api/motion.py',
+        'modules/lumascope_api/_lumascope.py',
+    ):
+        for node in ast.walk(ast_seams.parse_module(path)):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = [node.left, *node.comparators]
+            if not any(isinstance(x, ast.Constant) and x.value is None for x in sides):
+                continue
+            for side in sides:
+                name = side.attr if isinstance(side, ast.Attribute) else getattr(side, 'id', None)
+                if name in lane_names:
+                    offenders.append(f'{path}:{node.lineno}')
+    assert not offenders, f'a dispatcher tests for a missing lane: {offenders}'
