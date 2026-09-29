@@ -67,7 +67,7 @@ class TestPylon(unittest.TestCase):
 
     def test_grab_frame(self):
         time.sleep(0.5)  # Allow grabbing to settle
-        result, timestamp = self.camera.grab()
+        result, timestamp, _seq = self.camera.grab()
         self.assertTrue(result)
         self.assertIsNotNone(timestamp)
         self.assertIsNotNone(self.camera.array)
@@ -81,7 +81,7 @@ class TestPylon(unittest.TestCase):
         reads them per frame, ImageHandlerBase.last_chunks exposes them.
         """
         time.sleep(0.5)  # let streaming settle
-        result, _ts = self.camera.grab()
+        result, _ts, _seq = self.camera.grab()
         self.assertTrue(result, 'grab failed -- chunks check requires successful frame')
 
         chunks = self.camera.cam_image_handler.get_last_chunks()

@@ -56,7 +56,7 @@ class TestFX2(unittest.TestCase):
         self.assertEqual(delivered, {'width': 800, 'height': 600})
         self.camera.start_grabbing()
         time.sleep(1.0)  # let the ISO stream + frame parser resync
-        result, _timestamp = self.camera.grab()
+        result, _timestamp, _seq = self.camera.grab()
         self.assertTrue(result)
         self.assertIsNotNone(self.camera.array)
         self.assertEqual(self.camera.array.shape[0], 600)

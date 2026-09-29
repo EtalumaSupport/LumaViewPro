@@ -118,7 +118,7 @@ class TestIDS(unittest.TestCase):
 
     def test_grab_frame(self):
         time.sleep(1)  # Allow time for the camera to start grabbing
-        result, timestamp = self.camera.grab()
+        result, timestamp, _seq = self.camera.grab()
         self.assertTrue(result)
         # The grabbed array's row count must match the delivered frame height
         # (assert against the configured size, not a hard-coded resolution that
@@ -316,7 +316,7 @@ class TestIDS(unittest.TestCase):
         self.assertTrue(self.camera.set_pixel_format(native12), f'could not set {native12}')
 
         time.sleep(1)  # let the grab loop store a native-depth frame post-reconfigure
-        result, timestamp = self.camera.grab()
+        result, timestamp, _seq = self.camera.grab()
         self.assertTrue(result)
         self.assertIsNotNone(timestamp)
 
