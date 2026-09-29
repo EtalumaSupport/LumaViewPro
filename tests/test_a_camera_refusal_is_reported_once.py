@@ -222,3 +222,76 @@ class TestTheRunReportsAndCarriesOn:
         assert [exc for exc, _kw in reported] == [refusal]
         assert reported[0][1]['solicited'] is False
         assert runner._auto_gain_armed_step == 0, 'the arm is recorded, so the step goes on'
+
+
+AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+
+
+class TestTheApiReportsTheWritesNoCallerHears:
+    """The lock's write-back, the ceiling clamp, the live-view re-arm and the
+    restore carry on with the camera as it is, so no caller hears a refusal;
+    each reports it once, unsolicited, where its flight ends."""
+
+    def test_the_locks_refused_write_back_is_reported(self, sim_imaging, reported, monkeypatch):
+        imaging, cam = sim_imaging
+        imaging.set_auto_gain(True, AG_SETTINGS)
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+
+        lock = imaging.lock_auto_gain()
+
+        assert [exc.setting for exc, _kw in reported] == ['gain_db']
+        assert reported[0][1]['solicited'] is False
+        assert lock.state is not None, 'the camera holds the achieved values; the lock stands'
+
+    def test_a_refused_ceiling_clamp_is_reported_and_the_arm_goes_on(
+        self, sim_imaging, reported, monkeypatch
+    ):
+        imaging, cam = sim_imaging
+        imaging.set_exposure_ms(100.0)
+        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+
+        imaging.set_auto_gain(True, {**AG_SETTINGS, 'max_exposure_ms': 10.0})
+
+        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('exposure_ms', 10.0)]
+        assert imaging._auto_gain_arm is not None
+
+    def test_a_refused_live_view_re_arm_is_reported(self, sim_imaging, reported, monkeypatch):
+        imaging, cam = sim_imaging
+        imaging.set_auto_gain(True, AG_SETTINGS, resume_after_capture=True)
+        lock = imaging.lock_auto_gain()
+        monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
+
+        imaging._resume_auto_gain_impl(lock)
+
+        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('auto_gain', True)]
+
+    def test_a_refused_restore_reports_each_write(self, sim_imaging, reported, monkeypatch):
+        imaging, cam = sim_imaging
+        snapshot = imaging.save_camera_state('test')
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+
+        imaging.restore_camera_state(snapshot)
+
+        assert sorted(exc.setting for exc, _kw in reported) == ['exposure_ms', 'gain_db']
+
+    def test_a_refused_restore_re_arm_is_reported(self, sim_imaging, reported, monkeypatch):
+        imaging, cam = sim_imaging
+        imaging.set_auto_gain(True, AG_SETTINGS)
+        snapshot = imaging.save_camera_state('test')
+        imaging.set_auto_gain(False, AG_SETTINGS)
+        monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
+
+        imaging.restore_camera_state(snapshot)
+
+        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('auto_gain', True)]
+
+
+def test_a_driver_answering_a_bare_true_leaves_the_request_recorded(sim_imaging, monkeypatch):
+    """``bool`` is an ``int``: a driver that answers ``True`` for applied is
+    not saying it applied 1 dB."""
+    imaging, cam = sim_imaging
+    monkeypatch.setattr(cam, 'gain', lambda v: True)
+
+    assert imaging.set_gain_db(12.5) == pytest.approx(12.5)
+    assert imaging.gain_db_cached == pytest.approx(12.5)

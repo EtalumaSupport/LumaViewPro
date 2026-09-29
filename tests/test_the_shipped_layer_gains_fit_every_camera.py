@@ -35,3 +35,10 @@ def test_the_layer_gain_fits_the_smallest_camera(layer):
     assert 0.0 <= gain <= _smallest_declared_ceiling(), (
         f'{layer} ships at {gain} dB, outside the smallest declared camera range'
     )
+
+
+@pytest.mark.parametrize('layer', ('Green', 'Red', 'Lumi'))
+def test_the_fluorescence_layers_ship_at_10_db(layer):
+    """The fit alone admits Green at 20 dB, at the smallest ceiling; the
+    template ships the three at 10 dB, well inside every camera's range."""
+    assert json.loads(SETTINGS.read_text())[layer]['gain_db'] == 10.0
