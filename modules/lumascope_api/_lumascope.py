@@ -49,7 +49,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, MotorStopFailedError
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
@@ -1097,8 +1097,12 @@ class Lumascope:
         # don't leave a stage/turret moving against an end-stop after
         # the host stops responding to status polls. Defense in depth --
         # every disconnect path benefits without relying on the caller
-        # to remember.
-        self.motion.stop_motion()
+        # to remember. A STOP that failed is reported once and the
+        # teardown carries on: the port still has to close.
+        try:
+            self.motion.stop_motion()
+        except MotorStopFailedError as e:
+            notifications.report_outcome(e, solicited=False, category='Motion')
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets

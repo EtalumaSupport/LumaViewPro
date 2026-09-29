@@ -788,6 +788,8 @@ scope.motion.get_actual_position('Z')            # hardware position via serial 
 
 # Stop + tuning
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
+# A STOP the board did not take raises MotorStopFailedError (title 'Motor Stop
+# Failed', chained from the driver's error): the stage may still be moving.
 scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max
 scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 
@@ -797,6 +799,14 @@ scope.motion.move_absolute('X', 60000, wait_until_complete=True)
 
 # Relative moves (µm)
 scope.motion.move_relative('Z', 100)
+
+# A move that does not complete raises MoveNotCompletedError, one object with
+# .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
+# 'stopped'): 'driver_failed' (the board did not take the command; chained
+# from the driver's error), 'stalled' / 'board_lost' (the motion monitor gave
+# the axis up; a waited move raises the very object the monitor reported),
+# 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
+# else during the wait), 'stopped' (stop_motion landed on it).
 
 # Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
 # ObjectiveUnknownError when the objective is unknown -- no step is guessed

@@ -743,6 +743,24 @@ class MoveNotCompletedError(Exception):
         self.title = self._TITLES.get(reason, 'Move Did Not Complete')
 
 
+class MotorStopFailedError(Exception):
+    """The motor STOP command failed, so the stage may still be moving.
+
+    Raised by ``stop_motion`` when the board did not take the STOP, chained
+    from the driver's error. A failure, not a refusal: the STOP was sent
+    and nothing vouches that it landed. The stop generation has already
+    moved, so no waited move reads itself as arrived.
+    """
+
+    title = 'Motor Stop Failed'
+
+    def __init__(self):
+        super().__init__(
+            'The motor STOP command failed. If the stage is still moving, '
+            'power-cycle the microscope.'
+        )
+
+
 class HomingFailedError(Exception):
     """A home was driven and did not establish a reference position.
 

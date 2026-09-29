@@ -2331,6 +2331,42 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'left in flight while the protocol errors out.'
         )
 
+    def test_a_failed_stop_is_folded_into_the_one_fatal_popup(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        """A STOP that fails on a motion timeout does not cost the run its
+        ERROR ending: the run still ends, with one fatal popup that carries
+        the power-cycle advice, and nothing else says it again."""
+        import modules.notification_center as nc
+        from drivers.exceptions import HardwareError
+
+        centre = nc.NotificationCenter()
+        shown = []
+        centre.add_listener(shown.append, min_severity=nc.Severity.INFO)
+        monkeypatch.setattr(nc, 'notifications', centre)
+
+        def _dead_stop():
+            raise HardwareError('no response from motor board')
+
+        executor.MOTION_TIMEOUT_SECONDS = 0.3
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
+        monkeypatch.setattr(scope._motion_driver, 'motor_stop', _dead_stop)
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(
+            executor,
+            protocol,
+            tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=3,
+        )
+
+        assert completed, 'the run did not end after a motion timeout whose STOP failed'
+        fatal = [n for n in shown if n.title == 'Protocol Error -- Motion Timeout']
+        assert len(fatal) == 1
+        assert 'motor STOP command failed' in fatal[0].message
+        assert not [n for n in shown if 'Stop' in n.title or 'stop' in n.title]
+
 
 class TestSaveFailureRecordsRow:
     """A disk-write failure must still leave a row in the execution

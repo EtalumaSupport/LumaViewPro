@@ -29,6 +29,7 @@ from modules.exceptions import (
     AxisStateUnknownError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
+    MotorStopFailedError,
 )
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
@@ -180,8 +181,17 @@ class ProtocolStepRunner:
                 # The timed-out move is still in flight. Halt the motor before
                 # erroring out so it stops driving toward the unreachable target
                 # rather than latching against a limit. Idempotent + no-ops on
-                # field firmware without a STOP command.
-                p._scope.motion.stop_motion()
+                # field firmware without a STOP command. A STOP that failed is
+                # logged once and folded into the run's one fatal popup: the
+                # power-cycle advice has to reach the person, and the run
+                # must still reach ERROR.
+                try:
+                    p._scope.motion.stop_motion()
+                except MotorStopFailedError as e:
+                    notifications.report_outcome(
+                        e, solicited=False, category='Protocol', log_only=True
+                    )
+                    timeout_msg = f'{timeout_msg} {e}'
 
                 p._scan_in_progress.clear()
                 try:

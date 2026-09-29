@@ -41,6 +41,7 @@ from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     HomingFailedError,
+    MotorStopFailedError,
     MoveNotCompletedError,
     PositionOutOfRangeError,
 )
@@ -478,18 +479,21 @@ class MotionAPI:
     # ------------------------------------------------------------------
 
     def stop_motion(self) -> None:
-        """Stop all in-flight motor moves (LVP-A-1).
+        """Stop all in-flight motor moves.
 
         Idempotent + safe-when-disconnected -- no-ops when the motor
-        board isn't connected. Uses the firmware-side
-        ``STOP`` command which the motor controller implements as
-        ``motorstop`` (target=actual on all axes); same wire command the
-        UI emergency-stop already uses, just routed through the API
-        instead of an inline ``motion.exchange_command('STOP')``.
+        board isn't connected. Uses the firmware-side ``STOP`` command,
+        which the motor controller implements as ``motorstop``
+        (target=actual on all axes).
 
-        Called as the first step of ``disconnect()`` so every disconnect
-        path (App on_stop, REST shutdown, test teardown, future CLI
-        tools) stops motors before tearing down the serial port.
+        ``disconnect()`` calls it before tearing down the serial port, so
+        every disconnect path (App on_stop, REST shutdown, test teardown,
+        CLI tools) stops motors first.
+
+        Raises:
+            MotorStopFailedError: the board did not take the STOP, so the
+                stage may still be moving. Chained from the driver's
+                error. The stop generation has moved regardless.
         """
         if not self._scope.motor_connected:
             return
@@ -520,20 +524,7 @@ class MotionAPI:
             # The exchange may have failed after the board took the STOP,
             # so a move in flight cannot be vouched for as arrived.
             self._stop_generation += 1
-            # Log + notify, but don't re-raise: stop_motion is called
-            # from shutdown paths where the caller can't meaningfully
-            # recover and a raised exception would leave disconnect()
-            # half-done.
-            logger.warning(f'[SCOPE API ] stop_motion failed: {type(e).__name__}: {e}')
-            try:
-                notifications.warning(
-                    'Motion',
-                    'Motor stop failed',
-                    'The motor STOP command failed during shutdown. '
-                    'If the stage is still moving, power-cycle the microscope.',
-                )
-            except Exception:
-                pass
+            raise MotorStopFailedError() from e
 
     def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
         """The turret slot to use for an objective, or None when no slot carries it.

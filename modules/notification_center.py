@@ -34,6 +34,7 @@ from modules.exceptions import (
     CaptureError,
     ConfigError,
     HomingFailedError,
+    MotorStopFailedError,
     MoveNotCompletedError,
     ProtocolError,
     Quiet,
@@ -56,6 +57,7 @@ _TYPED_FAULTS = (
     ConfigError,
     HardwareError,
     HomingFailedError,
+    MotorStopFailedError,
     MoveNotCompletedError,
 )
 
