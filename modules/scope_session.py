@@ -1542,9 +1542,9 @@ class ScopeSession:
                 state describing different plates, and every well
                 position computed from the wrong one is silently wrong.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope (``exclusive_activity_running``): each states
-                its positions against the plate it started with. Nothing is
-                written.
+                holds the scope and ``labware_name`` is not the plate in place
+                (``exclusive_activity_running``): each states its positions
+                against the plate it started with. Nothing is written.
         """
         self._require_wellplate_loader()
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
@@ -1561,7 +1561,6 @@ class ScopeSession:
                 'settings have no usable protocol block; the labware selection '
                 f'has nowhere to live (found {type(protocol_settings).__name__})'
             )
-        self._refuse_configuration_change_while_held('select_labware')
         changed = labware_name != protocol_settings.get('labware')
         # Both stores are written even when the settings key already reads
         # the new name, because that key is not evidence about the scope.
@@ -1571,6 +1570,12 @@ class ScopeSession:
         # finished and leave the runtime state on the previous plate. The
         # writes are idempotent; only the report of a change is not.
         labware = self.wellplate_loader.get_plate(plate_key=labware_name)
+        # A holder is refused only a different plate: the GUI re-selects the
+        # current one whenever its panels redraw, under any hold, and that
+        # moves neither store.
+        installed = self.scope.runtime_state.get_labware()
+        if changed or installed is None or installed.config != labware.config:
+            self._refuse_configuration_change_while_held('select_labware')
         self.scope.runtime_state.set_labware(labware=labware)
         with self.settings_lock:
             protocol_settings['labware'] = labware_name

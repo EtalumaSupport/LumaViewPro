@@ -279,3 +279,19 @@ class TestTheLongestExposure:
         assert imaging.longest_exposure_ms == 150.0
         imaging.set_auto_gain(False, dict(_AUTO_GAIN))
         assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
+
+
+class TestReselectingThePlateInPlace:
+    """The left panel's toggle re-selects the current plate on every press,
+    and the toggle is live under every hold; that re-selection changes
+    nothing and must not raise out of the GUI's handler."""
+
+    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
+    def test_the_plate_in_place_is_admitted_under_any_holder(self, sim_session, kind):
+        current = sim_session.settings['protocol']['labware']
+        held = sim_session.activity_claim.try_claim(kind, run_trigger_source='test')
+        try:
+            assert sim_session.select_labware(current) is False
+        finally:
+            held.release()
+        assert sim_session.settings['protocol']['labware'] == current
