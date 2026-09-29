@@ -669,6 +669,9 @@ def save_image(
         CaptureError: If ``array`` is None (camera silent-stuck or
             grab-timeout). Surfaces to IOTask popup with a user-friendly
             message instead of a raw AttributeError downstream.
+        ImageSaveError: The file could not be written (a missing or
+            read-only folder, a full disk), chained from the ``OSError``.
+            Any other failure propagates as itself.
     """
     # Camera silent-stuck or grab-timeout produces None; raise typed
     # exception so the IOTask popup carries a user-friendly message
