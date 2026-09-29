@@ -106,25 +106,6 @@ class TestTheInlineForm:
         assert ran == []
         assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:T')]
 
-    def test_a_waited_motion_call_fails_by_name_and_is_never_submitted(self, shown):
-        from modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        try:
-            ran = []
-            run_reported(
-                lambda: session.scope.motion._submit_motion(
-                    lambda: ran.append(1), 'move_absolute', wait_timeout=5.0
-                ),
-                None,
-                'T',
-            )
-            assert ran == []
-            assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:T')]
-        finally:
-            session.shutdown()
-
     def test_the_mark_does_not_outlive_the_call(self, shown, lane):
         run_reported(_fail, None, 'T')
         run_reported(lambda: run_reported(lambda: None, None, 'INNER'), None, 'OUTER')

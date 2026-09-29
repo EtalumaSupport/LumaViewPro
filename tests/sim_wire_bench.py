@@ -44,6 +44,16 @@ def replayed(record) -> bool:
     return record.get('rep', 0) == 0
 
 
+def _homed(motion, axis) -> bool:
+    """The recorded reply of a home: True when it homed.
+
+    The record was taken when ``home`` answered a bool. It now returns
+    when it homed and raises when it did not, so its True is a return.
+    """
+    motion.home(axis)
+    return True
+
+
 def _call(scope, record):
     """The API call the characterization tool made for this record."""
     if record['board'] == 'led':
@@ -57,7 +67,7 @@ def _call(scope, record):
             'motor', command, timeout_s=_MULTILINE_TIMEOUT_S, end_markers=_MULTILINE_END_MARKERS
         )
     if kind == 'home':
-        return functools.partial(motion.home, _AXIS_ARG.search(command).group(1))
+        return functools.partial(_homed, motion, _AXIS_ARG.search(command).group(1))
     if kind in ('position', 'move', 'stop_move_start'):
         axis, target = _TARGET.fullmatch(command).groups()
         return functools.partial(

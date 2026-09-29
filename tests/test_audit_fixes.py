@@ -25,7 +25,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import PositionOutOfRangeError
+from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 
 
 # ---------------------------------------------------------------------------
@@ -2019,25 +2019,26 @@ def homing_boards():
         board.disconnect()
 
 
-class TestHomeReturnsBool:
-    """The blocking home(axis=) member must propagate the driver's bool
-    for every axis selector, and MotorBoard / SimulatedMotorBoard must
-    raise HardwareError instead of returning False on no-response /
+class TestHomeRaises:
+    """The blocking home(axis=) member returns when the driver homed and
+    raises HomingFailedError when it did not, for every axis selector,
+    posting nothing itself; MotorBoard / SimulatedMotorBoard must raise
+    HardwareError instead of returning False on no-response /
     firmware-error paths.
 
     Pairs with the existing `--run-homing` opt-in test set; this class
-    pins the mechanical contract (annotations + return propagation +
-    typed exceptions) so a future regression can't silently revert it.
+    pins the mechanical contract (annotations + raised failures + typed
+    exceptions) so a future regression can't silently revert it.
     """
 
-    def test_lumascope_home_has_bool_return_annotation(self):
+    def test_lumascope_home_has_none_return_annotation(self):
         from tests.ast_seams import assert_def
 
         assert_def(
             'modules/lumascope_api/motion.py',
             'home',
-            returns='bool',
-            msg='MotionAPI.home must declare `-> bool` (Rule 37)',
+            returns='None',
+            msg='MotionAPI.home returns nothing and raises its failures (Rule 37)',
         )
 
     @staticmethod
@@ -2052,72 +2053,67 @@ class TestHomeReturnsBool:
     def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
-        assert sim_scope.motion.home(axis='Z') is True
+        sim_scope.motion.home(axis='Z')
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_zhome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
+    def test_zhome_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
-        assert sim_scope.motion.home(axis='Z') is False
-        assert any('Homing Failed' in e for e in errors), (
-            f'driver False must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(HomingFailedError):
+            sim_scope.motion.home(axis='Z')
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_zhome_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
+    def test_zhome_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
 
         def boom():
             raise HardwareError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
-        assert sim_scope.motion.home(axis='Z') is False
-        assert any('Homing Error' in e for e in errors), (
-            f'driver raise must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(HomingFailedError):
+            sim_scope.motion.home(axis='Z')
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_home_propagates_driver_true(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
-        assert sim_scope.motion.home() is True
+        sim_scope.motion.home()
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_home_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
+    def test_home_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
-        assert sim_scope.motion.home() is False
-        assert any('Homing Failed' in e for e in errors), (
-            f'driver False must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(HomingFailedError):
+            sim_scope.motion.home()
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_home_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
+    def test_home_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
 
         def boom():
             raise HardwareError('firmware error')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'home', boom)
-        assert sim_scope.motion.home() is False
-        assert any('Homing Error' in e for e in errors), (
-            f'driver raise must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(HomingFailedError):
+            sim_scope.motion.home()
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_thome_propagates_driver_true(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
-        assert sim_scope.motion.home(axis='T') is True
+        sim_scope.motion.home(axis='T')
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_thome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
+    def test_thome_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        assert sim_scope.motion.home(axis='T') is False
-        assert any('Turret' in ' '.join(e) for e in errors), (
-            f'turret-homing failure must name the turret (Rule 14/20); got {errors}'
-        )
+        with pytest.raises(HomingFailedError, match='Turret homing'):
+            sim_scope.motion.home(axis='T')
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_thome_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
+    def test_thome_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
 
@@ -2125,10 +2121,9 @@ class TestHomeReturnsBool:
             raise HardwareError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
-        assert sim_scope.motion.home(axis='T') is False
-        assert any('Turret' in ' '.join(e) for e in errors), (
-            f'turret-homing raise must notify naming the turret; got {errors}'
-        )
+        with pytest.raises(HomingFailedError, match='Turret homing'):
+            sim_scope.motion.home(axis='T')
+        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_thome_failure_sets_turret_arrival_event(self, sim_scope, monkeypatch):
         """A failed turret home must leave T's arrival event set so the
@@ -2137,17 +2132,18 @@ class TestHomeReturnsBool:
         sim_scope._motion_driver.set_timing_mode('instant')
         self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        assert sim_scope.motion.home(axis='T') is False
+        with pytest.raises(HomingFailedError):
+            sim_scope.motion.home(axis='T')
         assert sim_scope.motion._arrival_events['T'].is_set()
 
-    def test_homing_docstrings_document_returns(self):
-        """Each homing method's docstring documents the bool contract
+    def test_homing_docstrings_document_raises(self):
+        """Each homing method's docstring documents what it raises
         (Rule 38) -- runtime introspection, not a source pin."""
         from modules.lumascope_api.motion import MotionAPI
 
         for method in (MotionAPI.home,):
-            assert 'Returns:' in (method.__doc__ or ''), (
-                f'{method.__name__} docstring must have a Returns: section'
+            assert 'HomingFailedError' in (method.__doc__ or ''), (
+                f'{method.__name__} docstring must name HomingFailedError in its Raises: section'
             )
 
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])

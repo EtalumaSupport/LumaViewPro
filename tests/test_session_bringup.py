@@ -167,7 +167,7 @@ class TestDisableHomingIsNoStartupMotion:
 
         session.start_application_session(
             disable_homing=True,
-            home_fn=lambda axis: attempts.append(('home', axis)) or True,
+            home_fn=lambda axis: attempts.append(('home', axis)),
             turret_fn=lambda position: attempts.append(('turret', position)),
         )
 

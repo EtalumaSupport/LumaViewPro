@@ -388,29 +388,34 @@ def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:
         vertical_control.show_turret_state()
 
 
-def move_home(axis: str, wait: bool = False):
-    """Home an axis. Returns whether it succeeded when ``wait`` is set.
+def move_home(axis: str):
+    """Home an axis from a Home button, without blocking the UI thread.
 
-    The UI buttons leave ``wait`` off: they run on the UI thread, and
-    blocking it for the length of a home would freeze the window. The
-    startup orchestration passes it, because it has to know whether the
-    reference frame is good before it drives anything else.
+    The home runs on the io lane; blocking the UI thread for the length
+    of a home would freeze the window.
     """
     if _user_motion_locked(axis):
-        return False
+        return
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text('Homing, please wait...')
-    if not wait:
-        submit_reported(
-            lambda: ctx.scope.motion.home(axis),
-            lambda: move_home_cb(axis),
-            f'HOME_{axis}',
-            lane=ctx.io_executor,
-        )
-        return None
+    submit_reported(
+        lambda: ctx.scope.motion.home(axis),
+        lambda: move_home_cb(axis),
+        f'HOME_{axis}',
+        lane=ctx.io_executor,
+    )
+
+
+def startup_home(axis: str) -> None:
+    """The startup home: waits for the home and raises as it does.
+
+    The window title says the scope is homing for its length, and the
+    axis is redrawn however the home ended.
+    """
+    set_title_event_text('Homing, please wait...')
     try:
-        return ctx.scope.motion.move_home_and_wait(axis)
+        _app_ctx.ctx.scope.motion.home(axis)
     finally:
         move_home_cb(axis)
 

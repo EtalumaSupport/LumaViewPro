@@ -524,7 +524,7 @@ class TestT10TurretPosition:
         session = sessions(**_turret_settings(turret_position=2))
         session.start_application_session(
             disable_homing=False,
-            home_fn=lambda axis: True,
+            home_fn=lambda axis: None,
             turret_fn=lambda position: None,
         )
         assert session.settings['turret_position'] == 2

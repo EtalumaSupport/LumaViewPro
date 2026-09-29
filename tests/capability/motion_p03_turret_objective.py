@@ -34,7 +34,13 @@ def main():
             check('the objective is unknown before any turret command', True, e.reason)
 
         m.home('ALL')
-        check('turret homes', m.home('T') is True)
+        from modules.exceptions import HomingFailedError
+
+        try:
+            m.home('T')
+            check('turret homes', True)
+        except HomingFailedError as e:
+            check('turret homes', False, str(e))
         check('turret position known after home', m.position_is_known('T'))
         m.move_turret(1, restore_z=True)
 

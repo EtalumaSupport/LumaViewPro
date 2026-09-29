@@ -33,6 +33,7 @@ from typing import ClassVar
 
 import pytest
 
+from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
 from drivers.null_motorboard import NullMotionBoard
@@ -84,99 +85,49 @@ class TestLumascopeHome:
         )
         return received
 
-    def test_home_with_null_motion_board_notifies_motor_not_connected(self):
-        """home() on a scope with NullMotionBoard must surface a clear
-        Rule 14 'Motor Not Connected' notification.
+    def test_home_with_null_motion_board_refuses_as_not_connected(self):
+        """home() on a scope with NullMotionBoard must tell its caller the
+        motor controller is not connected.
 
-        Contract change 2026-04-25 (issue #632 cluster): the prior
-        contract was "silent no-op when motor is null." That left the
-        user in the dark when Thonny held the motor port -- they'd click
-        Home and either nothing visible happened or, worse, they got
-        "Homing Failed" implying a homing-mechanics issue rather than
-        the actual cause (motor disconnected). The structural fix is to
-        short-circuit at the API layer with the right diagnostic, per
-        the hardware-absent audit
-        (`docs/AUDIT_HARDWARE_ABSENT_STRUCTURAL_2026-04-24.md`).
+        Contract change 2026-04-25: the prior contract was "silent no-op
+        when motor is null." That left the user in the dark when Thonny
+        held the motor port -- they'd click Home and either nothing
+        visible happened or, worse, they got "Homing Failed" implying a
+        homing-mechanics issue rather than the actual cause (motor
+        disconnected). The API short-circuits with the right cause, now
+        raised as the not-connected refusal.
         """
-        received = self._capture_errors()
         scope = build_scope(simulate=True)
         scope._motion_driver = NullMotionBoard()
 
-        scope.motion.home()
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.motion.home()
 
-        assert received, (
-            "home() on NullMotionBoard must notify 'Motor Not Connected' "
-            'rather than silently no-op. User needs to know why nothing '
-            'happened so they can fix the cause (port held, USB unplugged, etc.).'
-        )
-        assert any('Motor Not Connected' in n.title for n in received), (
-            f"expected 'Motor Not Connected' notification, got: {[n.title for n in received]}"
-        )
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.title == 'Not Connected'
 
-    def test_home_short_circuits_on_disconnected_motor(self):
+    @pytest.mark.parametrize('axis', ['ALL', 'T', 'Z'])
+    def test_home_short_circuits_on_disconnected_motor(self, axis):
         """home() must return immediately when motor is not connected --
         no 30-second exchange_command timeout, no auto-reconnect retry
-        burning the IO_WORKER. Issue #632 'spinning beachball' -- user
-        had to force-quit the app while home() was blocked."""
+        burning the IO_WORKER (the 'spinning beachball': the user had to
+        force-quit the app while home() was blocked). Every selector: the
+        Z body historically lacked this short-circuit."""
         import time
 
-        received = self._capture_errors()
         scope = build_scope(simulate=True)
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
-        scope.motion.home()
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.motion.home(axis=axis)
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
-            f'home() on disconnected motor took {elapsed:.2f}s -- must be '
+            f'home({axis!r}) on disconnected motor took {elapsed:.2f}s -- must be '
             f'< 0.5s. Beachball regression.'
         )
-        assert received, 'home() short-circuit must still fire the Rule 14 notification.'
-
-    def test_home_axis_t_short_circuits_on_disconnected_motor(self):
-        """Same contract as home() -- home(axis='T') must fail-fast with a clear
-        notification rather than letting exchange_command burn its
-        15s timeout."""
-        import time
-
-        received = self._capture_errors()
-        scope = build_scope(simulate=True)
-        scope._motion_driver = NullMotionBoard()
-
-        t0 = time.monotonic()
-        scope.motion.home(axis='T')
-        elapsed = time.monotonic() - t0
-
-        assert elapsed < 0.5, (
-            f"home(axis='T') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
-        )
-        assert any('Motor Not Connected' in n.title for n in received), (
-            f"home(axis='T') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
-        )
-
-    def test_home_axis_z_short_circuits_on_disconnected_motor(self):
-        """home(axis='Z') fails fast with the Motor Not Connected
-        notification, like its full-home and turret siblings. The Z body
-        historically lacked this short-circuit, so a disconnected motor
-        burned the driver's auto-reconnect timeout (the beachball shape)."""
-        import time
-
-        received = self._capture_errors()
-        scope = build_scope(simulate=True)
-        scope._motion_driver = NullMotionBoard()
-
-        t0 = time.monotonic()
-        result = scope.motion.home(axis='Z')
-        elapsed = time.monotonic() - t0
-
-        assert result is False
-        assert elapsed < 0.5, (
-            f"home(axis='Z') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
-        )
-        assert any('Motor Not Connected' in n.title for n in received), (
-            f"home(axis='Z') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
-        )
+        assert refused.value.reason == 'not_connected'
 
     def test_home_unknown_axis_raises_valueerror(self):
         """A blocking bool member must not turn a typo'd axis into a
@@ -191,16 +142,16 @@ class TestLumascopeHome:
 
     def test_home_axis_vocabulary_selects_the_right_body(self):
         """'Z' | 'T' | 'ALL' route to the Z / turret / full-home bodies
-        (the same selector vocabulary as move_home_and_wait, less 'XY')."""
+        (the legacy 'XY' alias is not accepted)."""
         scope = build_scope(simulate=True)
         ran = []
         scope.motion._zhome_impl = lambda: ran.append('Z') or True
         scope.motion._home_turret_impl = lambda: ran.append('T') or True
         scope.motion._home_impl = lambda: ran.append('ALL') or True
 
-        assert scope.motion.home(axis='Z') is True
-        assert scope.motion.home(axis='T') is True
-        assert scope.motion.home() is True
+        scope.motion.home(axis='Z')
+        scope.motion.home(axis='T')
+        scope.motion.home()
         assert ran == ['Z', 'T', 'ALL']
 
     def test_home_axis_t_waits_three_settle_windows(self):
@@ -256,20 +207,18 @@ class TestLumascopeHome:
             f'Z must be marked IDLE on success, got {scope.motion.get_axis_state("Z")}'
         )
 
-    def test_home_real_failure_DOES_notify(self):
-        """Negative test: when motion.home() returns False, that means a
+    def test_home_real_failure_DOES_raise(self):
+        """Negative test: when the driver's home returns False, that means a
         REAL failure (no response, hardware error, partial home aborted
-        by Z/T error). The API must raise the Homing Failed popup."""
-        received = self._capture_errors()
+        by Z/T error). The API must raise the Homing Failed fault."""
         scope = build_scope(simulate=True)
 
         scope._motion_driver.home = lambda *a, **k: False
 
-        scope.motion.home()
+        with pytest.raises(HomingFailedError) as failed:
+            scope.motion.home()
 
-        assert received, (
-            'Real homing failure (driver returned False) must raise the Homing Failed notification'
-        )
+        assert failed.value.title == 'Homing Failed'
         for ax in scope.capabilities.axes:
             assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN, (
                 f'{ax} must be UNKNOWN after real homing failure'

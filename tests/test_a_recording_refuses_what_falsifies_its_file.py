@@ -109,7 +109,7 @@ def sim_session(tmp_path):
 @pytest.fixture
 def recording(sim_session):
     # Homed first, while nothing holds: a move needs a known position.
-    assert sim_session.scope.motion.home('ALL') is True
+    sim_session.scope.motion.home('ALL')
     held = sim_session.activity_claim.try_claim('recording')
     try:
         yield held
@@ -140,18 +140,6 @@ _FALSIFIERS = [
     ('move_turret', 'motion', '_move_turret_impl', lambda sc: sc.motion.move_turret(2)),
     ('home T', 'motion', '_home_turret_impl', lambda sc: sc.motion.home('T')),
     ('home ALL', 'motion', '_home_impl', lambda sc: sc.motion.home('ALL')),
-    (
-        'move_home_and_wait ALL',
-        'motion',
-        '_home_impl',
-        lambda sc: sc.motion.move_home_and_wait('ALL'),
-    ),
-    (
-        'move_home_and_wait T',
-        'motion',
-        '_home_turret_impl',
-        lambda sc: sc.motion.move_home_and_wait('T'),
-    ),
 ]
 
 _OPEN = [
@@ -196,13 +184,12 @@ class TestTheMembers:
 
         def _home_body():
             calls.append(1)
-            return True
 
         with (
             patch.object(scope, 'capabilities', no_turret),
             patch.object(motion, '_home_impl', _home_body),
         ):
-            assert motion.home('ALL') is True
+            motion.home('ALL')
         assert calls == [1]
 
 

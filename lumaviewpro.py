@@ -678,11 +678,11 @@ class LumaViewProApp(TooltipMixin, App):
         # call, the same one a headless caller gets; the turret display then
         # shows where the API says the turret is, including nowhere known
         # when homing was skipped or failed.
-        from ui.ui_helpers import move_home
+        from ui.ui_helpers import startup_home
 
         ctx.session.start_application_session(
             disable_homing=disable_homing,
-            home_fn=lambda axis: move_home(axis, wait=True),
+            home_fn=startup_home,
         )
         ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 

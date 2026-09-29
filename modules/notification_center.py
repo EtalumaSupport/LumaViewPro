@@ -33,6 +33,7 @@ from modules.exceptions import (
     CameraSettingRejected,
     CaptureError,
     ConfigError,
+    HomingFailedError,
     MoveNotCompletedError,
     ProtocolError,
     Quiet,
@@ -54,6 +55,7 @@ _TYPED_FAULTS = (
     ProtocolError,
     ConfigError,
     HardwareError,
+    HomingFailedError,
     MoveNotCompletedError,
 )
 

@@ -183,8 +183,8 @@ def home_sim_scope(scope):
     prior_timing = driver._timing_mode
     driver.set_timing_mode('instant')
     try:
-        if not scope.motion._home_impl():
-            raise AssertionError('the simulated scope failed to home')
+        # A home that fails raises HomingFailedError, naming why.
+        scope.motion._home_impl()
     finally:
         driver.set_timing_mode(prior_timing)
     return scope

@@ -9,7 +9,7 @@ XY coarse/fine jog (motion_settings.py:452-480).
 
 from harness import check, run
 
-from modules.exceptions import PositionOutOfRangeError, AxisStateUnknownError
+from modules.exceptions import HomingFailedError, PositionOutOfRangeError, AxisStateUnknownError
 
 
 def body(s):
@@ -23,10 +23,18 @@ def body(s):
         check('un-homed move raises AxisStateUnknownError', True, str(e)[:70])
 
     # --- HOME (the Home XY button and the Home Z button) ---
-    check('home ALL returns True', m.home('ALL') is True)
+    try:
+        m.home('ALL')
+        check('home ALL returns', True)
+    except HomingFailedError as e:
+        check('home ALL returns', False, str(e))
     check('Z position known after home', m.position_is_known('Z'))
     check('X position known after home', m.position_is_known('X'))
-    check('home Z alone returns True', m.home('Z') is True)
+    try:
+        m.home('Z')
+        check('home Z alone returns', True)
+    except HomingFailedError as e:
+        check('home Z alone returns', False, str(e))
 
     # --- Z absolute (slider / text box commit) ---
     m.move_absolute('Z', 2500.0, wait_until_complete=True)

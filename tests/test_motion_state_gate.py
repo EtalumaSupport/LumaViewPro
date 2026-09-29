@@ -40,7 +40,7 @@ import pytest
 
 from drivers.exceptions import HardwareError
 from drivers.sim_wire.mp import tmc5072
-from modules.exceptions import AxisStateUnknownError
+from modules.exceptions import AxisStateUnknownError, HomingFailedError
 from modules.lumascope_api import AxisState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -109,11 +109,12 @@ def _fail_home(scope):
 def _home_and_fail(scope):
     """Run the production home body against an injected failure.
 
-    Returns the home result so a caller can assert on the bool the
-    orchestrator is supposed to honor.
+    The home raises the homing fault, which is what the orchestrator
+    honors.
     """
     _fail_home(scope)
-    return scope.motion._home_impl()
+    with pytest.raises(HomingFailedError):
+        scope.motion._home_impl()
 
 
 # ---------------------------------------------------------------------------
@@ -123,14 +124,14 @@ def _home_and_fail(scope):
 
 
 def test_failed_home_marks_every_axis_unknown(scope):
-    assert _home_and_fail(scope) is False, 'a failed home must report False'
+    _home_and_fail(scope)
     for axis in scope.capabilities.axes:
         assert scope.motion._axis_state[axis] == AxisState.UNKNOWN, (
             f'{axis} must be UNKNOWN after a failed home'
         )
     assert scope.motion.has_homed() is False
-    assert len(scope.notifications_seen) == 1, (
-        f'exactly one home-failure notification expected, got {scope.notifications_seen}'
+    assert scope.notifications_seen == [], (
+        f'the home raises and posts nothing; its caller reports it, got {scope.notifications_seen}'
     )
 
 
@@ -175,7 +176,7 @@ def test_turret_move_refuses_before_lowering_z(scope):
 
 def test_absolute_move_still_works_on_a_known_axis(scope):
     """The gate must refuse UNKNOWN only. A homed axis moves as before."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     scope.motion._move_absolute_impl('Z', position=1000)
     assert scope.motion._axis_state['Z'] in (AxisState.MOVING, AxisState.IDLE)
 
@@ -204,9 +205,8 @@ def test_turret_home_recovers_from_unknown_z(scope):
     """
     _home_and_fail(scope)
     _board(scope).clear('X', tmc5072.STALL)
-    assert scope.motion._home_turret_impl() is True, (
-        'turret homing must survive an UNKNOWN Z -- it is the recovery path'
-    )
+    # Turret homing must survive an UNKNOWN Z -- it is the recovery path.
+    scope.motion._home_turret_impl()
     assert scope.motion._axis_state['T'] == AxisState.IDLE
 
 
@@ -225,7 +225,7 @@ def test_turret_fault_revokes_homed_state(scope):
     behind: the board answered the home, then the move faulted. The
     driver flag alone cannot see that.
     """
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     assert scope.motion.position_is_known('T') is True, 'precondition: a good home homes the turret'
 
     scope.motion._set_axis_state('T', AxisState.UNKNOWN)
@@ -240,7 +240,7 @@ def test_turret_fault_revokes_homed_state(scope):
 
 def test_stage_fault_revokes_homed_state(scope):
     """Same defect on the stage half: has_homed() must follow the state."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     assert scope.motion.has_homed() is True
 
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
@@ -276,7 +276,7 @@ def _startup_hooks(scope):
     # is observable when startup decides on the turret move.
     def _home_fn(axis):
         attempts.append(('home', axis))
-        return scope.motion._home_impl()
+        scope.motion._home_impl()
 
     def _turret_fn(position):
         attempts.append(('move', 'T', position))
@@ -334,7 +334,7 @@ def _pull_the_cable(scope):
 def test_driver_move_raises_when_target_write_is_unanswered(scope):
     """``move()`` warned and returned None -- a jog invisible to every
     layer above it (#709 Half B)."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     _pull_the_cable(scope)
 
     with pytest.raises(HardwareError):
@@ -351,7 +351,7 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope):
     except path is where the state has to be set; the order itself must
     not change.
     """
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     _pull_the_cable(scope)
 
     with pytest.raises(HardwareError):
@@ -368,7 +368,7 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope):
 def test_a_failed_move_then_refuses_the_next_one(scope):
     """The two halves compose: a dead-board move poisons the axis, and
     the gate then refuses the follow-up instead of driving blind again."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     _pull_the_cable(scope)
     with pytest.raises(HardwareError):
         scope.motion._move_absolute_impl('Z', position=1000)

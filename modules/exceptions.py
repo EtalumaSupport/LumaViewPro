@@ -5,6 +5,7 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+from collections.abc import Iterable
 from typing import ClassVar
 
 
@@ -421,7 +422,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
 
 
 class HardwareCommandRefusedError(Refusal, Exception):
-    """A hardware command was refused: something else has the scope, or the lane is closed.
+    """A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
     Raised to whoever made the command -- a public hardware member (LED,
     camera and motion commands), a raw task on a lane, the Session's
@@ -436,6 +437,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state.
 
+    A home with no motor controller connected raises it as well
+    (``'not_connected'``): nothing was driven, and the person's remedy is
+    the cable, not a retry.
+
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
     traceback. The message is written for the person at the scope and
@@ -447,15 +452,20 @@ class HardwareCommandRefusedError(Refusal, Exception):
         reason: Machine-readable refusal code.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
+        title: The heading shown with the sentence, which follows the reason:
+            nothing connected is not a busy microscope.
     """
-
-    title = 'Microscope Busy'
 
     def __init__(self, reason: str, member: str, holder: str | None = None):
         super().__init__(_command_refused_sentence(reason, holder))
         self.reason = reason
         self.member = member
         self.holder = holder
+        self.title = (
+            'Not Connected'
+            if reason in ('not_connected', 'scope_disconnected')
+            else 'Microscope Busy'
+        )
 
 
 _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
@@ -468,6 +478,11 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
+    if reason == 'not_connected':
+        return (
+            'The motor controller is not connected. Check the USB cable and that '
+            'no other program is holding the port.'
+        )
     who = _HOLDER_NOUNS.get(holder, 'Another activity')
     return f'{who} is using the microscope. Try again when it ends.'
 
@@ -702,6 +717,47 @@ class MoveNotCompletedError(Exception):
         )
         self.axis = axis
         self.reason = reason
+
+
+class HomingFailedError(Exception):
+    """A home was driven and did not establish a reference position.
+
+    The driver answered that the home failed, the driver raised, or the
+    home finished and a homed axis's position could not be read. Each
+    leaves the axes UNKNOWN, so no caller may take the scope as knowing
+    where it is. A failure, not a refusal: the motors may have moved.
+    Chained from the driver's exception when there is one.
+
+    Attributes:
+        home: What was homed: ``'ALL'``, ``'Z'`` or ``'T'``.
+        reason: ``'failed'`` -- the driver answered False; ``'error'`` --
+            the home raised; ``'unread'`` -- homed, but ``axes`` could not
+            be read.
+        axes: The axes left without a known position.
+    """
+
+    title = 'Homing Failed'
+
+    _SUBJECTS: ClassVar[dict[str, str]] = {
+        'ALL': 'Homing',
+        'Z': 'Z axis homing',
+        'T': 'Turret homing',
+    }
+
+    def __init__(self, home: str, reason: str, axes: Iterable[str]):
+        self.home = home
+        self.reason = reason
+        self.axes = tuple(axes)
+        if reason == 'unread':
+            sentence = (
+                f'Homing finished but the position of {", ".join(self.axes)} '
+                'could not be read. Position is unknown.'
+            )
+        elif reason == 'failed':
+            sentence = f'{self._SUBJECTS[home]} failed. Position is unknown.'
+        else:
+            sentence = f'{self._SUBJECTS[home]} encountered an error. Position is unknown.'
+        super().__init__(sentence)
 
 
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional

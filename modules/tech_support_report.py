@@ -53,7 +53,11 @@ import platformdirs
 
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
-from modules.exceptions import DiagnosticRefusedError
+from modules.exceptions import (
+    DiagnosticRefusedError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
+)
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1354,7 +1358,15 @@ class FirmwareDiagnostics:
         motion = self._scope.motion
 
         def _home(axis):
-            return 'OK' if motion.move_home_and_wait(axis) else 'Error: home failed'
+            try:
+                motion.home(axis)
+            except HomingFailedError as e:
+                return f'Error: {e}'
+            except HardwareCommandRefusedError as e:
+                if e.reason != 'not_connected':
+                    raise
+                return f'Error: {e}'
+            return 'OK'
 
         # Home Z first (safety -- move Z up before XY)
         zhome_resp = _home('Z')

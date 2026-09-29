@@ -39,11 +39,13 @@ from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
     AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
     MoveNotCompletedError,
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
-from modules.sequential_io_executor import IOTask, refuse_blocking_inline, slow_task_budget
+from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
 # class-body time and cannot reach a class attribute defined further down.
@@ -472,30 +474,6 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
-    def _submit_motion(self, action, name, *, wait_timeout, falsifies_recording=False):
-        """Run one motion body on the io lane and wait up to ``wait_timeout`` seconds.
-
-        Never called from the io worker itself: it would wait on the thread
-        that has to run the work.
-
-        Returns:
-            What the body returned, so a caller that must branch on the
-            outcome -- startup deciding whether the reference frame is good
-            enough to keep going -- can. None when the executor declined the
-            task, which the caller reads as "did not run".
-        """
-        task = IOTask(action=action, falsifies_recording=falsifies_recording)
-        ex = self._scope._io_executor
-        refuse_blocking_inline(name)
-        waiter = ex.put(task, return_future=True)
-        if waiter is None:
-            logger.warning(
-                f'[SCOPE API ] {name} dropped: the io executor is not accepting '
-                f'work (disabled, or fenced by a running protocol)'
-            )
-            return None
-        return waiter.result(timeout=wait_timeout)
-
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves (LVP-A-1).
 
@@ -626,7 +604,7 @@ class MotionAPI:
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
-    def _home_impl(self) -> bool:
+    def _home_impl(self) -> None:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
@@ -636,35 +614,22 @@ class MotionAPI:
         all three. The driver returns True for both cases (full and
         partial), raises HardwareError on real failure.
 
-        Returns:
-            bool: True on full or partial success. False if the motor
-                is not connected, the driver returned False, or the
-                driver raised (HardwareError or other). The user is
-                notified on failure; programmatic callers can branch on
-                the bool.
+        Returns only when every homed axis has a known position.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller is connected; nothing was driven.
+            HomingFailedError: the driver answered False or raised, or a
+                homed axis's position could not be read.
         """
         # Short-circuit on disconnected motor -- without this, home()
         # dispatches into the driver where exchange_command tries to
-        # auto-reconnect and burns its full timeout (~10 s). That was
-        # the user-perceived "spinning beachball" in #632. Fire ONE
-        # clean notification with the right cause, instead of the
-        # misleading "Homing Failed. Position is unknown" that implies
-        # a homing-mechanics problem.
+        # auto-reconnect and burns its full timeout (~10 s), and the
+        # person sees a hang, then a "Homing Failed" that implies a
+        # homing-mechanics problem instead of the cable.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] home() called with motor not connected')
-            # Suppress the per-component popup when the scope is in
-            # no_hardware mode -- lumaviewpro.on_start fires a single
-            # consolidated "No hardware detected" popup that covers
-            # the missing motor.
-            if not getattr(self._scope, 'no_hardware', False):
-                notifications.error(
-                    'Motion',
-                    'Motor Not Connected',
-                    'Cannot home -- motor controller is not connected. '
-                    'Check the USB cable and that no other program '
-                    '(Thonny, mpremote, etc.) is holding the port.',
-                )
-            return False
+            raise HardwareCommandRefusedError('not_connected', 'home')
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
         for ax in present_axes:
@@ -683,13 +648,9 @@ class MotionAPI:
             with self._reference_position_logger():
                 result = self._driver.home()
             if result is False:
-                logger.error('[SCOPE API ] Homing failed')
-                notifications.error(
-                    'Motion', 'Homing Failed', 'Homing failed. Position is unknown.'
-                )
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
-                return False
+                raise HomingFailedError('ALL', 'failed', present_axes)
             # The position is read BEFORE an axis says IDLE: a reader that
             # samples at frame rate would otherwise pair "known" with the
             # pre-home number for the length of the serial round-trips.
@@ -697,8 +658,7 @@ class MotionAPI:
             for ax in present_axes:
                 if ax in read:
                     self._set_axis_state(ax, AxisState.IDLE)
-            if not self._report_unread_axes(present_axes, read):
-                return False
+            self._raise_unread_axes('ALL', present_axes, read)
             # The firmware homes the turret to slot 1. Recording it also lets
             # a following move_turret(1) -- e.g. the startup select-slot-1 --
             # recognise the turret is already there instead of running a
@@ -706,15 +666,12 @@ class MotionAPI:
             # home the stop cut short did not reach slot 1.
             if 'T' in present_axes and not self._stopped_since(stop_generation):
                 self._last_turret_position = 1
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Homing exception')
+        except HomingFailedError:
+            raise
+        except Exception as e:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-            notifications.error(
-                'Motion', 'Homing Error', 'Homing encountered an error. Position is unknown.'
-            )
-            return False
+            raise HomingFailedError('ALL', 'error', present_axes) from e
         finally:
             self._is_homing = False
             _api_log.info('home DONE')
@@ -771,32 +728,25 @@ class MotionAPI:
                 )
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
-    def _home_turret_impl(self) -> bool:
+    def _home_turret_impl(self) -> None:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
-        Returns:
-            bool: True on successful turret homing (or when the board
-                reports the turret is not present). False if the motor
-                is not connected, the driver returned False, or the
-                driver raised (HardwareError or other). The user is
-                notified on failure; programmatic callers can branch on
-                the bool.
+        Returns when the turret is homed (or the board reports the turret
+        is not present).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller is connected; nothing was driven.
+            HomingFailedError: the driver answered False, the home or its
+                Z park raised, or the turret's position could not be read.
         """
         # Short-circuit on disconnected motor -- same rationale as
         # home() above. Without this, the turret home dispatches into the driver
         # where exchange_command burns its 15s timeout doing failed
-        # auto-reconnect attempts. Fire one clean notification.
+        # auto-reconnect attempts.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] turret home requested with motor not connected')
-            if not getattr(self._scope, 'no_hardware', False):
-                notifications.error(
-                    'Motion',
-                    'Motor Not Connected',
-                    'Cannot home turret -- motor controller is not connected. '
-                    'Check the USB cable and that no other program is '
-                    'holding the port.',
-                )
-            return False
+            raise HardwareCommandRefusedError('not_connected', 'home')
 
         # Move turret -- set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
@@ -825,28 +775,20 @@ class MotionAPI:
                     # the axis actually moving.
                     self._set_axis_state('T', AxisState.IDLE if result else AxisState.UNKNOWN)
             if result is False:
-                logger.error('[SCOPE API ] Turret homing failed')
-                notifications.error(
-                    'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
-                )
-                return False
+                raise HomingFailedError('T', 'failed', ('T',))
             read = self._refresh_position_cache()
-            if not self._report_unread_axes(('T',), read):
-                return False
+            self._raise_unread_axes('T', ('T',), read)
             # Turret homes to slot 1 (see home() for why it is recorded). A
             # home a stop cut short did not reach it.
             if not self._stopped_since(stop_generation):
                 self._last_turret_position = 1
-            _api_log.info('T home DONE')
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Turret homing exception')
+        except HomingFailedError:
+            raise
+        except Exception as e:
             self._set_axis_state('T', AxisState.UNKNOWN)
-            notifications.error(
-                'Motion', 'Homing Error', 'Turret homing encountered an error. Position is unknown.'
-            )
+            raise HomingFailedError('T', 'error', ('T',)) from e
+        finally:
             _api_log.info('T home DONE')
-            return False
 
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
@@ -1191,22 +1133,6 @@ class MotionAPI:
         else:
             self._turreting_event.clear()
 
-    def _home_action_for(self, axis):
-        """Resolve the home body an axis selector names, or None.
-
-        The selector vocabulary ('Z', 'T', 'ALL', legacy 'XY') of
-        ``move_home_and_wait``, in one place.
-        """
-        a = axis.upper()
-        if a == 'Z':
-            return self._zhome_impl
-        if a in ('ALL', 'XY'):
-            return self._home_impl
-        if a == 'T':
-            return self._home_turret_impl
-        logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
-        return None
-
     def _home_moves_turret(self, action) -> bool:
         """Whether the home body ``action`` moves the turret.
 
@@ -1216,48 +1142,6 @@ class MotionAPI:
         if action == self._home_turret_impl:
             return True
         return action == self._home_impl and self._scope.capabilities.has_turret
-
-    def move_home_and_wait(self, axis: str, *, timeout: float | None = None) -> bool:
-        """Home an axis (or the whole scope) and report whether it worked.
-
-        For a caller that must know -- startup deciding whether to keep
-        driving the stage. Without the answer the failure is discarded and
-        the next commanded move runs against a reference frame the home
-        just failed to establish.
-
-        Must not be called from the io worker: it waits on the thread
-        that would run the work.
-
-        Args:
-            axis: 'Z' or 'T' homes that single axis; 'ALL' (or legacy 'XY')
-                homes everything the board has.
-            timeout: Seconds to wait. Defaults to the published motion
-                settle bound.
-
-        Returns:
-            bool: True only if the home actually ran and succeeded. An
-                unknown axis selector, a refused submit, and a failed
-                home are all False -- the caller's question is "can I
-                trust the reference frame", and the answer to all three
-                is no.
-
-        Raises:
-            HardwareCommandRefusedError: the lane refused the home: a run
-                or a diagnostic holds the scope, or a recording does and
-                this home moves the turret.
-        """
-        action = self._home_action_for(axis)
-        if action is None:
-            return False
-        return (
-            self._submit_motion(
-                action,
-                'move_home_and_wait',
-                wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
-                falsifies_recording=self._home_moves_turret(action),
-            )
-            is True
-        )
 
     def get_axis_state(self, axis: str) -> str:
         """Get the current state of an axis.
@@ -1340,31 +1224,25 @@ class MotionAPI:
         return self._driver.get_axis_limits(axis=axis)
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
-    def _zhome_impl(self) -> bool:
+    def _zhome_impl(self) -> None:
         """Home the Z axis (focus).
 
-        Returns:
-            bool: True on successful Z homing. False if the motor is not
-                connected, the driver returned False, or the driver
-                raised (e.g. HardwareError on no-response /
-                firmware-error). The user is notified on failure;
-                programmatic callers can branch on the bool.
+        Returns when Z is homed and its position read.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller is connected; nothing was driven.
+            HomingFailedError: the driver answered False or raised (e.g.
+                HardwareError on no-response / firmware-error), or Z's
+                position could not be read.
         """
         # Short-circuit on disconnected motor -- same rationale as the
         # full-home body: without this, the driver's exchange_command
         # burns its auto-reconnect timeout and the user sees a hang
-        # instead of the actual cause. Fire one clean notification.
+        # instead of the actual cause.
         if not self._scope.motor_connected:
             logger.warning('[SCOPE API ] Z home requested with motor not connected')
-            if not getattr(self._scope, 'no_hardware', False):
-                notifications.error(
-                    'Motion',
-                    'Motor Not Connected',
-                    'Cannot home Z -- motor controller is not connected. '
-                    'Check the USB cable and that no other program '
-                    '(Thonny, mpremote, etc.) is holding the port.',
-                )
-            return False
+            raise HardwareCommandRefusedError('not_connected', 'home')
         _api_log.info('Z home START')
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
@@ -1372,27 +1250,19 @@ class MotionAPI:
             with self._reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
-                logger.error('[SCOPE API ] Z homing failed')
-                notifications.error(
-                    'Motion', 'Homing Failed', 'Z axis homing failed. Position is unknown.'
-                )
                 self._set_axis_state('Z', AxisState.UNKNOWN)
-                return False
+                raise HomingFailedError('Z', 'failed', ('Z',))
             read = self._refresh_position_cache()
             if 'Z' in read:
                 self._set_axis_state('Z', AxisState.IDLE)
-            if not self._report_unread_axes(('Z',), read):
-                return False
-            _api_log.info('Z home DONE')
-            return True
-        except Exception:
-            logger.exception('[SCOPE API ] Z homing exception')
+            self._raise_unread_axes('Z', ('Z',), read)
+        except HomingFailedError:
+            raise
+        except Exception as e:
             self._set_axis_state('Z', AxisState.UNKNOWN)
-            notifications.error(
-                'Motion', 'Homing Error', 'Z axis homing encountered an error. Position is unknown.'
-            )
+            raise HomingFailedError('Z', 'error', ('Z',)) from e
+        finally:
             _api_log.info('Z home DONE')
-            return False
 
     def has_homed(self) -> bool:
         """Whether the stage / focus axes have a known reference position.
@@ -1472,28 +1342,23 @@ class MotionAPI:
             for ax, state in states.items()
         }
 
-    def _report_unread_axes(self, homed: tuple | list, read: set[str]) -> bool:
-        """After a home: say which homed axes could not be read, if any.
+    def _raise_unread_axes(self, home: str, homed: tuple | list, read: set[str]) -> None:
+        """After a home: raise when a homed axis could not be read.
 
         A home whose mechanics succeeded but whose position could not be
         read has not established a reference: the axis is already UNKNOWN
-        (the refresh set it) and the caller must hear False, not a True
-        that every consumer reads as "the scope knows where it is".
+        (the refresh set it) and the caller must hear a failure, not a
+        return that every consumer reads as "the scope knows where it is".
+        Only an axis the board has is read, so an absent one (a turret
+        home on a scope with no turret) is never counted unread.
 
-        Returns:
-            bool: True when every homed axis was read.
+        Raises:
+            HomingFailedError: ``'unread'``, naming the unread axes.
         """
-        unread = [ax for ax in homed if ax not in read]
-        if not unread:
-            return True
-        axes = ', '.join(unread)
-        logger.error(f'[SCOPE API ] Homed, but the position of {axes} could not be read')
-        notifications.error(
-            'Motion',
-            'Homing Failed',
-            f'Homing finished but the position of {axes} could not be read. Position is unknown.',
-        )
-        return False
+        present = self._scope.capabilities.axes
+        unread = [ax for ax in homed if ax in present and ax not in read]
+        if unread:
+            raise HomingFailedError(home, 'unread', unread)
 
     def _refresh_position_cache(self) -> set[str]:
         """Read every axis's position from the hardware into the cache.
@@ -2171,8 +2036,12 @@ class MotionAPI:
             + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
         )
 
-    def home(self, axis: str = 'ALL') -> bool:
+    def home(self, axis: str = 'ALL') -> None:
         """Home the given axis set, and wait for it.
+
+        Returns only when the home established a reference: every homed
+        axis has a known position (for ``'ALL'``, the axes the board has;
+        a no-turret board is success for ``'T'``).
 
         Args:
             axis: ``'Z'`` homes the Z axis only. ``'T'`` homes the turret
@@ -2180,25 +2049,18 @@ class MotionAPI:
                 physically-waited motions, so its wait bound is three
                 settle windows). ``'ALL'`` (default) homes every axis the
                 board has; the firmware routine homes Z, then T, then X/Y.
-                Same vocabulary as ``move_home_and_wait``, minus its
-                legacy ``'XY'`` alias.
-
-        See the ``_home_impl`` / ``_zhome_impl`` / ``_home_turret_impl``
-        docstrings for the per-axis notify-on-failure contracts.
-
-        Returns:
-            bool: True on success (full or partial for ``'ALL'``; a
-                no-turret board is success for ``'T'``); False when the
-                motor is not connected, the driver reported failure, or
-                it raised.
 
         Raises:
-            ValueError: on an unknown axis. A blocking member returning
-                bool must not turn a typo'd axis into a falsy return
-                indistinguishable from a real homing failure.
-            HardwareCommandRefusedError: a recording holds the scope and
-                this home moves the turret (``'T'``, or ``'ALL'`` on a
+            ValueError: on an unknown axis.
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller is connected; or the lane refused the home: a
+                run or a diagnostic holds the scope, or a recording does
+                and this home moves the turret (``'T'``, or ``'ALL'`` on a
                 scope with one).
+            HomingFailedError: the home was driven and did not establish
+                a reference: the driver answered False or raised, or a
+                homed axis's position could not be read. The axes it
+                names are UNKNOWN.
         """
         a = axis.upper()
         if a == 'Z':
@@ -2209,7 +2071,7 @@ class MotionAPI:
             impl, settle_windows = self._home_impl, 1
         else:
             raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
-        return self._dispatch_motion(
+        self._dispatch_motion(
             impl,
             'home',
             timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,

@@ -19,28 +19,20 @@ the driver's real error handling runs.
 
 import pytest
 
+from modules.exceptions import HomingFailedError
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
-def scope(monkeypatch):
-    import modules.notification_center as nc
-
-    errors = []
-    monkeypatch.setattr(
-        nc.notifications,
-        'error',
-        lambda category, title, message, **k: errors.append((category, title, message)),
-    )
+def scope():
     scope = build_scope(simulate=True)
-    scope.notifications_seen = errors
     yield scope
     scope.motion._disconnect()
 
 
 def _home_and_park_x(scope, x_um=1500.0):
-    assert scope.motion.home() is True
+    scope.motion.home()
     scope.motion.move_absolute('X', x_um, wait_until_complete=True)
     assert scope.motion.get_current_position('X') == pytest.approx(x_um, abs=1.0)
 
@@ -55,7 +47,8 @@ class TestTheSnapshot:
     def test_an_unknown_axis_answers_no_position_while_the_cache_holds_one(self, scope):
         _home_and_park_x(scope)
         scope._motion_driver._fail_on.add('HOME')
-        assert scope.motion.home() is False
+        with pytest.raises(HomingFailedError):
+            scope.motion.home()
         x = scope.motion.axis_positions()['X']
         assert x.state == AxisState.UNKNOWN
         assert x.position is None
@@ -77,7 +70,7 @@ class TestAHomeReadsBeforeItSaysKnown:
             return real_target_pos(axis)
 
         driver.target_pos = spy
-        assert scope.motion.home() is True
+        scope.motion.home()
         assert seen, 'the home never read a position'
         assert {state for _, state in seen} == {AxisState.HOMING}
         assert all(
@@ -85,7 +78,7 @@ class TestAHomeReadsBeforeItSaysKnown:
         )
 
     def test_a_z_home_reads_z_while_it_is_still_homing(self, scope):
-        assert scope.motion.home() is True
+        scope.motion.home()
         driver = scope._motion_driver
         real_target_pos = driver.target_pos
         seen = []
@@ -95,7 +88,7 @@ class TestAHomeReadsBeforeItSaysKnown:
             return real_target_pos(axis)
 
         driver.target_pos = spy
-        assert scope.motion.home(axis='Z') is True
+        scope.motion.home(axis='Z')
         assert ('Z', AxisState.HOMING) in seen
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
 
@@ -105,7 +98,8 @@ class TestAFailedReadLeavesTheAxisUnknown:
         _home_and_park_x(scope)
         scope._motion_driver._fail_on.add('TARGET_RX')
 
-        assert scope.motion.home() is False
+        with pytest.raises(HomingFailedError, match='could not be read'):
+            scope.motion.home()
 
         assert scope.motion.get_axis_state('X') == AxisState.UNKNOWN
         assert scope.motion.axis_positions()['X'].position is None
@@ -113,22 +107,23 @@ class TestAFailedReadLeavesTheAxisUnknown:
         assert scope.motion.get_current_position('X') == pytest.approx(1500.0, abs=1.0)
         assert scope.motion.get_axis_state('Y') == AxisState.IDLE
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
-        assert any('could not be read' in message for _, _, message in scope.notifications_seen)
 
     def test_after_a_z_home(self, scope):
-        assert scope.motion.home() is True
+        scope.motion.home()
         scope._motion_driver._fail_on.add('TARGET_RZ')
 
-        assert scope.motion.home(axis='Z') is False
+        with pytest.raises(HomingFailedError):
+            scope.motion.home(axis='Z')
 
         assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
 
     def test_after_a_turret_home_no_slot_is_recorded(self, scope):
-        assert scope.motion.home() is True
+        scope.motion.home()
         scope._motion_driver._fail_on.add('TARGET_RT')
 
-        assert scope.motion.home(axis='T') is False
+        with pytest.raises(HomingFailedError):
+            scope.motion.home(axis='T')
 
         assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         assert scope.motion._last_turret_position is None

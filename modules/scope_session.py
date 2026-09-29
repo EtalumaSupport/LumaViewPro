@@ -38,6 +38,7 @@ from modules.exceptions import (
     ConfigError,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
+    HomingFailedError,
     ObjectiveUnknownError,
     SettingsSaveRefusedError,
 )
@@ -2003,8 +2004,8 @@ class ScopeSession:
 
         Args:
             disable_homing: If True, issue no startup motion at all.
-            home_fn: Callable taking an axis name and returning whether
-                the home succeeded. Defaults to the motion API.
+            home_fn: Callable taking an axis name that homes it and raises
+                as ``MotionAPI.home`` does. Defaults to the motion API.
             turret_fn: Callable taking a turret position. Defaults to
                 the motion API.
 
@@ -2025,7 +2026,7 @@ class ScopeSession:
             return
 
         if home_fn is None:
-            home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
+            home_fn = self.scope.motion.home
         if turret_fn is None:
             turret_fn = lambda position: self.scope.motion.move_turret(position)
 
@@ -2033,9 +2034,23 @@ class ScopeSession:
         # an absolute move against the reference frame the home was
         # supposed to establish; running it after a failed home is the
         # secondary cascade users report -- a second error on top of the
-        # home's own, for motion that could never have been correct. The
-        # home already notified, so this stays a log.
-        if not home_fn('ALL'):
+        # home's own, for motion that could never have been correct.
+        try:
+            home_fn('ALL')
+        except (HomingFailedError, HardwareCommandRefusedError) as e:
+            if isinstance(e, HardwareCommandRefusedError) and e.reason != 'not_connected':
+                raise
+            from modules.notification_center import notifications
+
+            # A scope with no hardware gets one consolidated popup that
+            # already covers the missing motor, so its home failure is
+            # logged, not shown a second time.
+            notifications.report_outcome(
+                e,
+                solicited=False,
+                category='Motion',
+                log_only=self.scope.no_hardware,
+            )
             logger.error(
                 'Homing did not succeed -- skipping startup turret '
                 'positioning; the stage reference is unknown'

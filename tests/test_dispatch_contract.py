@@ -156,16 +156,15 @@ def _install_probe(scope, family, member):
     return sub, threads
 
 
-def test_a_waited_home_runs_on_the_io_lane(sim_scope):
-    """The fourth dispatcher, the waited home's, runs on the lane too."""
+def test_a_home_runs_on_the_io_lane(sim_scope):
+    """The home, which the caller waits on, runs on the lane too."""
     threads: list[str] = []
 
     def _home():
         threads.append(threading.current_thread().name)
-        return True
 
-    with patch.object(sim_scope.motion, '_home_action_for', return_value=_home):
-        assert sim_scope.motion.move_home_and_wait('Z') is True
+    with patch.object(sim_scope.motion, '_zhome_impl', _home):
+        sim_scope.motion.home('Z')
 
     assert threads == [sim_scope.io_lane().executor_name]
 

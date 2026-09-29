@@ -122,7 +122,7 @@ def test_a_turret_move_sets_the_preference_and_a_home_does_not():
         assert scope.motion.get_preferred_turret_slot() is None
         scope.motion.move_turret(3)
         assert scope.motion.get_preferred_turret_slot() == 3
-        assert scope.motion._home_impl()
+        scope.motion._home_impl()
         assert scope.motion.get_turret_slot() == 1
         assert scope.motion.get_preferred_turret_slot() == 3
         # Asking for the slot the turret is already in moves nothing and is

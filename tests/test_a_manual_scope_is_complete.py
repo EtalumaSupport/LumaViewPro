@@ -95,7 +95,7 @@ def test_a_manual_scope_starts_without_a_home_and_is_admitted(model, tier, error
 
         homes = []
         session.start_application_session(
-            home_fn=lambda axis: homes.append(axis) or True,
+            home_fn=lambda axis: homes.append(axis),
             turret_fn=lambda position: homes.append(('T', position)),
         )
         assert homes == []

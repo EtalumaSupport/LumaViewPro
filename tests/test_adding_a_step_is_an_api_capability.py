@@ -56,7 +56,7 @@ def _add(scope, protocol, layer_configs, *, objective_id=OBJECTIVE, **kwargs):
 def turret_in_a_known_slot(scope):
     """A turreted scope knows its slot only after a turret command: home it,
     as bring-up does, so the add is judged on what these tests are about."""
-    assert scope.motion._home_turret_impl()
+    scope.motion._home_turret_impl()
     return scope
 
 
