@@ -137,6 +137,10 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 2. **Install camera SDK**
    - [Basler Pylon for macOS](https://docs.baslerweb.com/pylon-software-suite)
    - [IDS Peak for macOS](https://en.ids-imaging.com/ids-peak.html) (if using an IDS camera)
+   - For an LS560, LS620 or LS720, the native USB library (`scripts/install_mac.sh` does this for you):
+   ```bash
+   brew install libusb
+   ```
 
 3. **Download LumaViewPro**
    ```bash

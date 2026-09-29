@@ -243,6 +243,32 @@ if not _FX2_AVAILABLE:
         )
 
 
+def fx2_readiness() -> dict[str, bool | None]:
+    """Each term of the availability gate, as this process found it at import.
+
+    Keys name what an installer installs: ``pyusb``, ``libusb-1.0`` (the
+    native library pyusb loads) and ``libusb1`` (the binding that streams
+    frames off Windows). ``libusb1`` is ``None`` on Windows, where the gate
+    does not need it. The installers report these rather than probing on
+    their own, so what they print is what the driver will do.
+    """
+    return {
+        'pyusb': _HAS_USB,
+        'libusb-1.0': _HAS_USB_BACKEND,
+        'libusb1': None if sys.platform == 'win32' else _HAS_USB1,
+    }
+
+
+def fx2_readiness_line() -> str:
+    """One line for an installer: ready or not, and each gate term's state."""
+    terms = ', '.join(
+        f'{name} {"not needed" if present is None else "present" if present else "missing"}'
+        for name, present in fx2_readiness().items()
+    )
+    verdict = 'ready' if _FX2_AVAILABLE else 'NOT ready'
+    return f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
+
+
 def _register_if_fx2_available(registry, name, **kwargs):
     """Register the decorated class only if FX2 prerequisites are met.
 

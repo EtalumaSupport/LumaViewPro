@@ -12,6 +12,27 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
+# FX2 scopes (LS560/LS620/LS720) need the native libusb-1.0, which pip
+# cannot install. The driver's own availability gate decides whether it
+# is loadable and reports the result, so the installer never guesses.
+fx2_driver_py() {
+    (cd "$PROJECT_DIR" && "$VENV_DIR/bin/python" -c "$1")
+}
+
+setup_fx2_usb() {
+    echo ""
+    echo "Checking USB support for FX2 scopes (LS560/LS620/LS720)..."
+    if ! fx2_driver_py 'import sys; from drivers.fx2driver import fx2_readiness; sys.exit(0 if fx2_readiness()["libusb-1.0"] else 1)'; then
+        if command -v brew &>/dev/null; then
+            echo "Installing the native libusb through Homebrew..."
+            brew install libusb || echo "Warning: 'brew install libusb' failed; FX2 scopes will not connect until it is installed."
+        else
+            echo "Homebrew not found. To use an FX2 scope, install Homebrew (https://brew.sh), then run: brew install libusb"
+        fi
+    fi
+    fx2_driver_py 'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
+}
+
 echo "========================================="
 echo " LumaViewPro Installer"
 echo "========================================="
@@ -104,6 +125,7 @@ if [ -f "$VENV_DIR/bin/python" ]; then
         echo "Updating existing virtual environment..."
         "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
         "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+        setup_fx2_usb
         echo ""
         echo "Update complete!"
         exit 0
@@ -124,6 +146,8 @@ echo "Installing dependencies..."
 echo ""
 echo "Verifying core packages..."
 "$VENV_DIR/bin/python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
+
+setup_fx2_usb
 
 # --- Create run script ---
 cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'
