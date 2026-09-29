@@ -67,7 +67,9 @@ def test_disconnect_reports_a_failed_stop_once_and_finishes(scope, centre, monke
 
     scope.disconnect()
 
-    assert [(n.severity, n.title) for n in centre.shown] == [(Severity.ERROR, 'Motor Stop Failed')]
+    assert [(n.severity, n.title, n.message) for n in centre.shown] == [
+        (Severity.ERROR, 'Motor Stop Failed', str(MotorStopFailedError()))
+    ]
     assert scope.motor_connected is False
     assert all(
         scope.motion.get_axis_state(ax) == AxisState.UNKNOWN for ax in scope.motion._axis_state
