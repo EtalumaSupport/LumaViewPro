@@ -72,3 +72,32 @@ def test_a_refused_bundled_library_says_why(monkeypatch):
     line = fx2driver.fx2_readiness_line()
     assert 'libusb-package missing' in line
     assert line.endswith(f'({reason})')
+
+
+def test_requirements_pin_the_bundled_libusb_on_exactly_the_hosts_it_has_wheels_for():
+    # The pin is the FX2 driver's only source of libusb; the marker keeps
+    # `pip install -r requirements.txt` working on hosts the wheel does not
+    # cover (32-bit ARM Linux, Windows on ARM), where the gate reports why.
+    from pathlib import Path
+
+    # packaging is pytest's own dependency, so it is present wherever this runs.
+    from packaging.requirements import Requirement
+
+    lines = (
+        Path(fx2driver.__file__).resolve().parent.parent.joinpath('requirements.txt').read_text()
+    )
+    (line,) = [raw for raw in lines.splitlines() if raw.startswith('libusb-package')]
+    requirement = Requirement(line)
+    assert str(requirement.specifier) == '==1.0.30.0'
+    covered = [
+        ('darwin', 'arm64'),
+        ('darwin', 'x86_64'),
+        ('linux', 'x86_64'),
+        ('linux', 'aarch64'),
+        ('win32', 'AMD64'),
+        ('win32', 'x86'),
+    ]
+    uncovered = [('linux', 'armv7l'), ('win32', 'ARM64')]
+    for sys_platform, machine in covered + uncovered:
+        env = {'sys_platform': sys_platform, 'platform_machine': machine}
+        assert requirement.marker.evaluate(env) is ((sys_platform, machine) in covered), env
