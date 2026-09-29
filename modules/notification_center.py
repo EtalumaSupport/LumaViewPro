@@ -187,8 +187,11 @@ class NotificationCenter:
         operation_key: str = '',
         solicited: bool = False,
         reason: str = '',
-    ) -> None:
+    ) -> bool:
         """Post a notification.  Thread-safe.  Always logs.
+
+        Returns whether it was delivered to the listeners: False when shutdown,
+        an unattended run's mute or the dedup window suppressed it.
 
         ``fatal`` notifications reach listeners even while a protocol
         suppresses non-fatal popups (set via ``set_unattended_run``).
@@ -292,7 +295,7 @@ class NotificationCenter:
                     ],
                     recording_id=profile_trace.NO_RECORDING,
                 )
-            return
+            return False
 
         n = Notification(
             severity=severity,
@@ -311,6 +314,7 @@ class NotificationCenter:
                     cb(n)
                 except Exception as ex:
                     logger.debug(f'notification listener error: {ex}')
+        return True
 
     def report_outcome(
         self,
@@ -341,7 +345,9 @@ class NotificationCenter:
         ``fault_title``. A quiet outcome is never shown.
 
         Each half happens once per exception object, whoever reports it and
-        from whichever thread.
+        from whichever thread. Shown once means delivered once: a post that
+        shutdown, an unattended run's mute or the dedup window suppressed
+        leaves the object unshown, for a later report to show.
         """
         refusal = isinstance(exception, Refusal)
         quiet = isinstance(exception, (Quiet, CancelledError))
@@ -371,7 +377,7 @@ class NotificationCenter:
         if not do_show:
             return
         if refusal:
-            self.warning(
+            delivered = self.warning(
                 category,
                 exception.title,
                 str(exception),
@@ -379,36 +385,41 @@ class NotificationCenter:
                 operation_key=REFUSAL_OPERATION_KEY,
                 reason=getattr(exception, 'reason', None) or '',
             )
-            return
-        body = (
-            str(exception)
-            if isinstance(exception, _TYPED_FAULTS) and str(exception)
-            else _UNTYPED_FAULT_BODY
-        )
-        title = getattr(exception, 'title', None) or fault_title
-        self.error(category, title, body, solicited=solicited)
+        else:
+            body = (
+                str(exception)
+                if isinstance(exception, _TYPED_FAULTS) and str(exception)
+                else _UNTYPED_FAULT_BODY
+            )
+            title = getattr(exception, 'title', None) or fault_title
+            delivered = self.error(category, title, body, solicited=solicited)
+        if not delivered:
+            # A suppressed post was never seen, so it has not spent the one
+            # show: the person's own later request for this outcome shows it.
+            with self._lock:
+                setattr(exception, _SHOWN_MARK, False)
 
     # Convenience methods
-    def debug(self, category: str, title: str, message: str, **kw) -> None:
-        self.notify(Severity.DEBUG, category, title, message, **kw)
+    def debug(self, category: str, title: str, message: str, **kw) -> bool:
+        return self.notify(Severity.DEBUG, category, title, message, **kw)
 
-    def info(self, category: str, title: str, message: str, **kw) -> None:
-        self.notify(Severity.INFO, category, title, message, **kw)
+    def info(self, category: str, title: str, message: str, **kw) -> bool:
+        return self.notify(Severity.INFO, category, title, message, **kw)
 
-    def notice(self, category: str, title: str, message: str, **kw) -> None:
-        self.notify(Severity.NOTICE, category, title, message, **kw)
+    def notice(self, category: str, title: str, message: str, **kw) -> bool:
+        return self.notify(Severity.NOTICE, category, title, message, **kw)
 
-    def warning(self, category: str, title: str, message: str, **kw) -> None:
-        self.notify(Severity.WARNING, category, title, message, **kw)
+    def warning(self, category: str, title: str, message: str, **kw) -> bool:
+        return self.notify(Severity.WARNING, category, title, message, **kw)
 
-    def error(self, category: str, title: str, message: str, **kw) -> None:
-        self.notify(Severity.ERROR, category, title, message, **kw)
+    def error(self, category: str, title: str, message: str, **kw) -> bool:
+        return self.notify(Severity.ERROR, category, title, message, **kw)
 
-    def critical(self, category: str, title: str, message: str, **kw) -> None:
+    def critical(self, category: str, title: str, message: str, **kw) -> bool:
         # App-level failures are fatal: they reach listeners even while a
         # protocol suppresses non-fatal popups, unless a caller overrides.
         kw.setdefault('fatal', True)
-        self.notify(Severity.CRITICAL, category, title, message, **kw)
+        return self.notify(Severity.CRITICAL, category, title, message, **kw)
 
     # ------------------------------------------------------------------
     # Consumer API
