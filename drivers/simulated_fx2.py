@@ -293,6 +293,15 @@ class SimulatedFX2Device:
             self._thread = threading.Thread(target=self._stream_loop, daemon=True)
             self._thread.start()
 
+    def halt(self) -> None:
+        """The stream stops delivering, with no word to the host: no STOP, no error.
+
+        What the bench saw at an unplug. The frame thread ends on its own; the
+        sink stays attached, as the host's pipe does.
+        """
+        self._streaming.clear()
+        self._stop.set()
+
     def stop(self) -> None:
         """Stop the frame clock; the device stays on the bus."""
         with self._lock:
@@ -357,6 +366,8 @@ class SimulatedFX2Transport:
 
     def __init__(self, device: SimulatedFX2Device):
         self.device = device
+        self._on_error: Callable[[], None] | None = None
+        self._on_gone: Callable[[], None] | None = None
 
     def find(self, pid: int) -> SimulatedFX2Device | None:
         return self.device if self.device.pid == pid else None
@@ -375,15 +386,47 @@ class SimulatedFX2Transport:
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         return self.device.vendor_out(request, value, index, data)
 
-    def start_stream(self, stream: _ByteStream, on_error: Callable[[], None]) -> None:
-        # No transfer ever fails here: a fault model arrives with the work
-        # that consumes it, so on_error is not called.
+    def start_stream(
+        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
+    ) -> None:
+        # A transfer fails here only through the faults below.
+        self._on_error = on_error
+        self._on_gone = on_gone
         self.device.attach(stream.append)
         self.device.vendor_out(VR_START_STREAMING, 0, 0, b'')
 
     def stop_stream(self) -> None:
-        self.device.vendor_out(VR_STOP_STREAMING, 0, 0, b'')
+        # The real transports send STOP best-effort: a device that has gone
+        # cannot take it, and the stop still releases the host's side.
+        try:
+            self.device.vendor_out(VR_STOP_STREAMING, 0, 0, b'')
+        except RuntimeError:
+            self.device.stop()
         self.device.detach()
+        self._on_error = None
+        self._on_gone = None
+
+    # -- faults --------------------------------------------------------------
+
+    def unplug(self, *, resubmit_failures: int = 0) -> None:
+        """The cable is pulled while the device streams.
+
+        The bytes stop with no error and the device leaves the bus, as the
+        bench's unplugs did. ``resubmit_failures`` transfers first fail and
+        cannot be resubmitted because the device is gone -- the four the B8
+        bench unplug logged; the earlier Stage 0 unplug logged none.
+        """
+        self.device.halt()
+        self.device.pid = None
+        for _ in range(resubmit_failures):
+            if self._on_error is not None:
+                self._on_error()
+            if self._on_gone is not None:
+                self._on_gone()
+
+    def go_silent(self) -> None:
+        """The stream stops while the device stays on the bus."""
+        self.device.halt()
 
     def close(self) -> None:
         self.device.stop()

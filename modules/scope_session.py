@@ -1241,9 +1241,11 @@ class ScopeSession:
 
         if not force:
             scope = self.scope
-            had_hardware = bool(
-                scope and (scope.camera_connected or scope.motor_connected or scope.led_connected)
-            )
+            # Found at bring-up, not connected now: the sliders hold the
+            # user's real values once hardware configured them, and a scope
+            # unplugged since -- an FX2 scope has no board left to answer --
+            # still has a session worth saving.
+            had_hardware = bool(scope) and not scope.no_hardware
             if not had_hardware:
                 logger.info(
                     '[Session  ] save_settings: refused -- no hardware was '

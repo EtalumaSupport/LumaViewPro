@@ -124,10 +124,12 @@ class TestFX2:
         _, expected = fx2driver._register_to_gain_db(fx2driver._gain_db_to_register(42.1))
         assert cam.gain(60.0) == pytest.approx(expected)
 
-    def test_an_inactive_camera_attempts_no_gain(self, cam):
+    def test_an_inactive_camera_refuses_a_gain(self, cam):
+        """Refused, as its exposure is: a ``None`` would read to the API as
+        applied and record a gain the camera never received."""
         cam._active = None
         cam._fx2.sensor_reg_write.reset_mock()
-        assert cam.gain(6.0) is None
+        assert cam.gain(6.0) is False
         cam._fx2.sensor_reg_write.assert_not_called()
 
     def test_an_inactive_camera_refuses_an_exposure(self, cam):

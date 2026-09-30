@@ -729,12 +729,26 @@ class _ByteStream:
         self._lock = threading.Lock()
         self._buf = bytearray()
         self._arrived = 0
+        # When bytes last arrived: an unplug stops them without any error,
+        # so the silence is how the driver hears it.
+        self._last_arrival = time.monotonic()
+        # Whether anything arrived since the grab loop last put its unparsed
+        # tail back. Without new bytes that tail holds no delimiter it did not
+        # already look for, and taking it again only spins the loop.
+        self._fresh = False
 
     def append(self, data: bytes | bytearray) -> None:
         """Add bytes that arrived from the device."""
         with self._lock:
             self._buf.extend(data)
             self._arrived += len(data)
+            self._last_arrival = time.monotonic()
+            self._fresh = True
+
+    def seconds_since_arrival(self, now: float) -> float:
+        """How long, at ``now`` (``time.monotonic()``), since a byte last arrived."""
+        with self._lock:
+            return now - self._last_arrival
 
     def take_arrived_count(self) -> int:
         """How many bytes arrived since the last call.
@@ -748,12 +762,14 @@ class _ByteStream:
             return arrived
 
     def take(self, at_least: int) -> bytearray | None:
-        """Everything buffered, or None while fewer than ``at_least`` bytes are."""
+        """Everything buffered, or None while fewer than ``at_least`` bytes are
+        or nothing has arrived since the last ``put_back``."""
         with self._lock:
-            if len(self._buf) < at_least:
+            if len(self._buf) < at_least or not self._fresh:
                 return None
             taken = self._buf
             self._buf = bytearray()
+            self._fresh = False
             return taken
 
     def put_back(self, data: bytes | bytearray, *, limit: int, keep: int) -> None:
@@ -761,6 +777,7 @@ class _ByteStream:
 
         Past ``limit`` bytes only the newest ``keep`` are kept. One lock
         acquisition covers both, so the reader cannot append between them.
+        Bytes that arrived since the take keep the buffer due another take.
         """
         with self._lock:
             self._buf[:0] = data
@@ -771,12 +788,19 @@ class _ByteStream:
         """Drop everything buffered. What arrived stays counted: it did arrive."""
         with self._lock:
             self._buf.clear()
+            self._fresh = False
 
     def restart(self) -> None:
-        """A new stream: nothing buffered and nothing counted from the last one."""
+        """A new stream: nothing buffered and nothing counted from the last one.
+
+        The silence is timed from here, so a stream is not heard as silent
+        before its first bytes have had time to come.
+        """
         with self._lock:
             self._buf.clear()
             self._arrived = 0
+            self._last_arrival = time.monotonic()
+            self._fresh = False
 
 
 # ---------------------------------------------------------------------------
@@ -872,14 +896,21 @@ class _LibusbTransport(_PyusbTransport):
         self._streaming = False
         self._stream: _ByteStream | None = None
         self._on_error = None
+        self._on_gone = None
 
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         if self._handle is not None:
             return self._handle.controlWrite(0x40, request, value, index, data, timeout=timeout)
         return super().control_out(request, value, index, data, timeout)
 
-    def start_stream(self, stream: _ByteStream, on_error: Callable[[], None]) -> None:
-        """Stream ISO data into ``stream``; ``on_error`` is called per failed transfer or packet."""
+    def start_stream(
+        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
+    ) -> None:
+        """Stream ISO data into ``stream``.
+
+        ``on_error`` is called per failed transfer or packet; ``on_gone`` when a
+        transfer cannot be resubmitted because the device has left the bus.
+        """
         self._release_idle()
 
         # Explicit open: usb1's lazy auto-open on first use is deprecated
@@ -903,6 +934,7 @@ class _LibusbTransport(_PyusbTransport):
         self._handle = handle
         self._stream = stream
         self._on_error = on_error
+        self._on_gone = on_gone
         self._streaming = True
 
         # Submit ISO transfers BEFORE sending VR_START_STREAMING. Transfers
@@ -980,6 +1012,7 @@ class _LibusbTransport(_PyusbTransport):
         self._handle = None
         self._stream = None
         self._on_error = None
+        self._on_gone = None
 
         self._reopen_idle()
 
@@ -1024,6 +1057,11 @@ class _LibusbTransport(_PyusbTransport):
                     type(e).__name__,
                     e,
                 )
+                # Unplugged, the resubmit is refused at once: the fastest
+                # word the driver gets that the device is gone, and the one
+                # LumaView Classic stopped its stream on.
+                if isinstance(e, (usb1.USBErrorNoDevice, usb1.USBErrorNotFound)):
+                    self._on_gone()
 
     def _usb_event_loop(self):
         """Pump libusb1 events in a dedicated thread.
@@ -1052,8 +1090,14 @@ class _WinUsbTransport(_PyusbTransport):
             return self._reader.device.control_transfer(0x40, request, value, index, data=data)
         return super().control_out(request, value, index, data, timeout)
 
-    def start_stream(self, stream: _ByteStream, on_error: Callable[[], None]) -> None:
-        """Stream ISO data into ``stream``; ``on_error`` is called per failed read or packet."""
+    def start_stream(
+        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
+    ) -> None:
+        """Stream ISO data into ``stream``; ``on_error`` is called per failed read or packet.
+
+        ``on_gone`` is not called: the WinUSB reader reports no removal of its
+        own, so an unplug is heard as the stream's silence.
+        """
         from drivers.winusb_iso import WinUsbIsoReader
 
         # Release the pyusb handle -- WinUSB needs exclusive device access.
@@ -1200,6 +1244,17 @@ class _FX2Connection:
         # switch.
         self._lock = threading.Lock()
         self.stream = _ByteStream()
+        # Whether the stream is running, decided under _lock: the removal's
+        # teardown and the application's own shutdown can both stop it, and
+        # a transport stopped twice fails on state its first stop released.
+        self._streaming = False
+        # The device has left the bus. Written once, by the camera's grab
+        # loop when it concludes an unplug; read by the LED, which shares
+        # the device. Never cleared: a replugged scope is a new process.
+        self.removed = False
+        # Set from the transport's event thread when a transfer finds the
+        # device gone; taken by the grab loop, which confirms it on the bus.
+        self._gone_reported = threading.Event()
 
         try:
             self._connect()
@@ -1453,12 +1508,39 @@ class _FX2Connection:
         """
         with self._lock:
             self.stream.restart()
-            self._transport.start_stream(self.stream, on_error)
+            self._gone_reported.clear()
+            # Marked before the transport starts: a start that raises part
+            # way leaves what it opened for stop_stream to release.
+            self._streaming = True
+            self._transport.start_stream(self.stream, on_error, self._gone_reported.set)
 
     def stop_stream(self) -> None:
-        """Stop the stream; control returns to the idle handle."""
+        """Stop the stream; control returns to the idle handle. Does nothing when stopped."""
         with self._lock:
+            if not self._streaming:
+                return
+            self._streaming = False
             self._transport.stop_stream()
+
+    # -- presence -----------------------------------------------------------
+
+    def take_gone_report(self) -> bool:
+        """Whether a transfer found the device gone since the last call."""
+        reported = self._gone_reported.is_set()
+        self._gone_reported.clear()
+        return reported
+
+    def device_present(self) -> bool | None:
+        """Whether the device is enumerated on the bus; None when the bus could not be read.
+
+        Enumeration only: nothing is opened, so this is safe while the stream
+        runs on its own handle.
+        """
+        try:
+            return self._transport.find(PID_APP) is not None
+        except Exception as e:
+            logger.warning('[FX2 Conn  ] bus enumeration failed: %s: %s', type(e).__name__, e)
+            return None
 
     # -- teardown ----------------------------------------------------------
 
@@ -1486,9 +1568,78 @@ class _FX2ImageHandler(ImageHandlerBase):
     so ``ImageHandlerBase`` is always available and its behavior is what
     the rest of the camera stack expects.
 
-    No overrides needed; the base class already implements
-    ``_store_frame`` / ``get_last_image`` / ``_record_failure`` / ``reset``.
+    The base class implements ``_store_frame`` / ``get_last_image`` /
+    ``_record_failure`` / ``reset``; this handler only says when its camera
+    has been removed, so a frame buffered before an unplug is not handed out
+    as current.
     """
+
+    def __init__(self, camera: FX2Camera):
+        super().__init__()
+        self._camera = camera
+
+    def _detached(self) -> bool:
+        return self._camera._device_removed
+
+
+# ---------------------------------------------------------------------------
+# _UnplugWatch -- hearing an unplug in a stream that sends no error
+# ---------------------------------------------------------------------------
+
+
+class _UnplugWatch:
+    """Decides, from the grab loop, when the FX2 has been unplugged.
+
+    An unplug sends the driver no error: the bytes stop. Two things raise a
+    suspicion -- no byte for ``SILENCE_S``, or a transfer that found the
+    device gone -- and the bus decides it: absent on two probes
+    ``CONFIRM_GAP_S`` apart is an unplug. A device still enumerated is
+    probed at most every ``PROBE_INTERVAL_S`` while the silence lasts, and a
+    stream silent for ``CEILING_S`` is dead whatever the bus says, since an
+    enumeration can keep listing a device that has gone.
+
+    Silence, not missing frames: a device whose frames all misalign stores
+    none but keeps sending bytes, and it is not unplugged.
+    """
+
+    # Every gap a working stream shows is well under this: the first frame
+    # arrives 0.3-0.5 s after a start, and a window change drops buffered
+    # bytes without stopping their arrival.
+    SILENCE_S = 2.0
+    CONFIRM_GAP_S = 0.5
+    PROBE_INTERVAL_S = 1.0
+    CEILING_S = 30.0
+
+    def __init__(self, connection: _FX2Connection):
+        self._connection = connection
+        self._suspected = False
+        self._absences = 0
+        self._last_probe: float | None = None
+
+    def verdict(self, now: float) -> str | None:
+        """Why the device is judged unplugged at ``now``, or None."""
+        silent_s = self._connection.stream.seconds_since_arrival(now)
+        if self._connection.take_gone_report():
+            self._suspected = True
+        if silent_s >= self.SILENCE_S:
+            self._suspected = True
+        if not self._suspected:
+            return None
+        if silent_s >= self.CEILING_S:
+            return f'no byte for {silent_s:.0f} s'
+        wait_s = self.CONFIRM_GAP_S if self._absences else self.PROBE_INTERVAL_S
+        if self._last_probe is not None and now - self._last_probe < wait_s:
+            return None
+        self._last_probe = now
+        present = self._connection.device_present()
+        if present is False:
+            self._absences += 1
+            if self._absences >= 2:
+                return f'off the bus on two probes, {silent_s:.1f} s after the last byte'
+        elif present is True:
+            self._absences = 0
+            self._suspected = silent_s >= self.SILENCE_S
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1633,7 +1784,7 @@ class FX2Camera(Camera):
         """
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
-        self.cam_image_handler = _FX2ImageHandler()
+        self.cam_image_handler = _FX2ImageHandler(self)
         # Fresh handler starts with an empty dispatch list; re-push any durable
         # listeners so a reconnect keeps delivering frames to recording / plugins.
         self._reapply_frame_callbacks()
@@ -1654,7 +1805,7 @@ class FX2Camera(Camera):
         return True
 
     def is_connected(self) -> bool:
-        return self._active is not None and bool(self._active)
+        return self._active is not None and bool(self._active) and not self._device_removed
 
     def _query_dynamic_capabilities(self):
         """Populate profile's dynamic gain / exposure fields.
@@ -1850,8 +2001,14 @@ class FX2Camera(Camera):
         last_stats_log = time.monotonic()
         first_frame_logged = False
         local_buf: bytearray | None = None  # explicit init
+        watch = _UnplugWatch(self._fx2)
 
         while self._grabbing:
+            unplugged = watch.verdict(time.monotonic())
+            if unplugged is not None:
+                self._on_unplugged(unplugged)
+                return
+
             # Re-read dimensions every iteration -- the UI can call
             # set_frame_size() between frames.
             w = self._width
@@ -1959,6 +2116,22 @@ class FX2Camera(Camera):
                     s['throughput_MBps'],
                     s['usb_errors'],
                 )
+
+    def _on_unplugged(self, reason: str) -> None:
+        """The device has left the bus: record it where it is read, then tear down.
+
+        Runs on the grab loop, which returns right after. The teardown runs
+        on the base Camera's thread, because stopping the stream joins this
+        one; the connection's record is what the LED, on the same device,
+        reads.
+        """
+        self._fx2.removed = True
+        self._mark_disconnected()
+        logger.warning(
+            '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
+            reason,
+        )
+        self._schedule_async_teardown()
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
@@ -2150,10 +2323,13 @@ class FX2Camera(Camera):
         quantization step and by the clamp.
 
         Returns:
-            float | bool | None: See ``Camera.gain``. None while disconnected.
+            float | bool | None: See ``Camera.gain``. False while disconnected:
+            refused, nothing written, as ``exposure_t`` answers -- a None there
+            reads to the API as applied, and it would record a gain the camera
+            never received.
         """
         if not self.is_connected():
-            return None
+            return False
         db = max(0.0, min(42.1, float(g)))
         reg = _gain_db_to_register(db)
         self._gain_reg = reg
@@ -2468,7 +2644,9 @@ class FX2LEDController:
         pass
 
     def is_connected(self) -> bool:
-        return self._fx2 is not None
+        # The LED is on the camera's USB device: when the camera's grab loop
+        # finds the device unplugged, the LED is gone with it.
+        return self._fx2 is not None and not self._fx2.removed
 
     # -- Diagnostics / protocol completeness ------------------------------
 

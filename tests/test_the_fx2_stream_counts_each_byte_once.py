@@ -34,7 +34,9 @@ def test_a_stream_counts_the_bytes_that_arrived_not_the_bytes_taken():
 def test_the_grab_loop_counts_a_frame_it_waited_on_once():
     stream = fx2driver._ByteStream()
     cam = object.__new__(fx2driver.FX2Camera)
-    cam._fx2 = SimpleNamespace(stream=stream)
+    cam._fx2 = SimpleNamespace(
+        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+    )
     cam._grabbing = True
     cam._width, cam._height = W, H
     cam.stream_stats = fx2driver.StreamStats()
@@ -69,7 +71,7 @@ def test_a_new_stream_counts_nothing_from_the_last_one():
     stream.append(b'left over from the last stream')
     stream.restart()
     assert stream.take_arrived_count() == 0
-    assert bytes(stream.take(0)) == b''
+    assert stream.take(0) is None  # nothing buffered, nothing new to parse
 
 
 def test_a_stop_counts_what_arrived_after_the_grab_loops_last_take():

@@ -325,7 +325,8 @@ def _with_hardware(session, monkeypatch):
 
 
 def _without_hardware(session, monkeypatch):
-    _set_connected(session, monkeypatch, False)
+    # Nothing found at bring-up: the gate's question, not what is connected now.
+    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
 
 
 def _make_provisional(monkeypatch, tmp_path):

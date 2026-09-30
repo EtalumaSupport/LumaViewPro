@@ -37,7 +37,9 @@ _FRAME = fx2driver.FRAME_DELIM + bytes(_NEEDED + _STRIDE)  # one well-formed fra
 def test_the_grab_loop_stores_every_frame_a_reader_appends_after_its_first_take():
     stream = fx2driver._ByteStream()
     cam = object.__new__(fx2driver.FX2Camera)
-    cam._fx2 = SimpleNamespace(stream=stream)
+    cam._fx2 = SimpleNamespace(
+        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+    )
     cam._grabbing = True
     cam._width, cam._height = W, H
     cam.stream_stats = fx2driver.StreamStats()
@@ -270,7 +272,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     )
     transport = fx2driver._WinUsbTransport()
     try:
-        transport.start_stream(fx2driver._ByteStream(), on_error=lambda: None)
+        transport.start_stream(fx2driver._ByteStream(), on_error=lambda: None, on_gone=lambda: None)
     except RuntimeError:
         pass
     transport.stop_stream()

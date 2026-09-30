@@ -38,10 +38,9 @@ def session(tmp_path, monkeypatch):
 
 
 def _disconnect(session, monkeypatch):
-    # The real scope with its connection flags down, so the save still reads
-    # the live runtime state it records the turret slot from.
-    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
-        monkeypatch.setattr(type(session.scope), flag, property(lambda self: False))
+    # The real scope with no hardware found at its bring-up, so the save
+    # still reads the live runtime state it records the turret slot from.
+    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
 
 
 def test_a_deliberate_save_reaches_disk(session, tmp_path):
