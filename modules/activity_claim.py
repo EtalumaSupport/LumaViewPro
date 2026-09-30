@@ -399,7 +399,6 @@ class ActivityClaim:
                 )
             self._held = None
             self._holder = None
-            self._lent_run = None
         self.announce()
 
     def announce(self) -> None:

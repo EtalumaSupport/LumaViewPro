@@ -469,8 +469,12 @@ class ScopeSession:
     @property
     def recording_active(self) -> bool:
         """True while a manual recording is LIVE; its drain reads False, with
-        its claim still held and still refusing new runs."""
-        return self.activity_claim.owner == 'recording' and self.manual_recording.is_recording
+        its claim still held and still refusing new runs.
+
+        Live implies it holds the claim: the engine takes the claim before
+        it goes live and releases it only after selection has closed.
+        """
+        return self.manual_recording.is_recording
 
     @property
     def controls_locked(self) -> bool:
