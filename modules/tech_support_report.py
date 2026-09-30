@@ -35,6 +35,7 @@ Recent protocols list (reusable from GUI):
 
 import contextlib
 import datetime
+import enum
 import json
 import logging
 import os
@@ -849,6 +850,19 @@ class CameraBandwidthTest:
 # ---------------------------------------------------------------------------
 
 
+class MotorBoardPresence(enum.Enum):
+    """What the report can say about the motor board; the value is what it writes.
+
+    "Not connected" and "this model has none" read the same at the driver
+    (both are the null board), and a report that says the first about an
+    LS620 sends support after a cable that does not exist.
+    """
+
+    CONNECTED = 'Motor board connected'
+    MISSING = 'Motor board not connected'
+    NOT_ON_THIS_MODEL = 'No motor board on this model'
+
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -919,22 +933,34 @@ class FirmwareDiagnostics:
         drv = getattr(self._scope, '_led_driver', None)
         return drv is not None and getattr(drv, 'found', False)
 
-    def _motor_ok(self) -> bool:
-        """True when a real motor board is connected to this scope.
+    def motor_board_presence(self) -> MotorBoardPresence:
+        """Whether this scope's motor board is connected, missing, or never fitted.
 
-        Mirrors ``_led_ok`` -- the live ``motor_connected`` property is
-        the post-Wave-7 truthy probe. The sub-API namespace
-        ``scope.motion`` does not have a ``.found`` attribute, so the
-        pre-Wave-7 ``getattr(scope.motion, 'found', False)`` shape
-        always returned False after the rename.
+        The scope's ``motion_expected`` tells a manual scope from one whose
+        board did not come up. The command-line report's scope is built
+        without a model, so it always expects a board and can only answer
+        connected or missing.
         """
-        if not self._scope:
-            return False
-        live = getattr(self._scope, 'motor_connected', None)
-        if isinstance(live, bool):
-            return live
-        drv = getattr(self._scope, '_motion_driver', None)
-        return drv is not None and getattr(drv, 'found', False)
+        if self._scope is None:
+            return MotorBoardPresence.MISSING
+        if self._scope.motor_connected:
+            return MotorBoardPresence.CONNECTED
+        if not self._scope.motion_expected:
+            return MotorBoardPresence.NOT_ON_THIS_MODEL
+        return MotorBoardPresence.MISSING
+
+    def _unread_motor_board(self) -> dict | None:
+        """None when the motor board can be read; else the entry saying why it was not.
+
+        A missing board is an ``error``; a model with none is
+        ``not_applicable``, which the report writes as a statement.
+        """
+        presence = self.motor_board_presence()
+        if presence is MotorBoardPresence.CONNECTED:
+            return None
+        if presence is MotorBoardPresence.NOT_ON_THIS_MODEL:
+            return {'not_applicable': presence.value}
+        return {'error': presence.value}
 
     def _enter_engineering(self):
         """Enter LED engineering mode via the diagnostics sub-API.
@@ -1208,14 +1234,15 @@ class FirmwareDiagnostics:
             'timings_ms': [round(t, 2) for t in timings],
         }
 
-    def read_tmc5072_registers(self):
+    def read_tmc5072_registers(self) -> dict:
         """Read key TMC5072 diagnostic registers via raw SPI commands.
 
         Returns dict per chip (XY, ZT) with register values.
         Uses the firmware's SPI<axis>0x<addr><payload> command.
         """
-        if not self._motor_ok():
-            return {'error': 'Motor board not connected'}
+        unread = self._unread_motor_board()
+        if unread is not None:
+            return unread
         results = {}
         # XY chip: use axis X (motor 0 = X, motor 1 = Y)
         # ZT chip: use axis Z (motor 0 = Z, motor 1 = T)
@@ -1277,19 +1304,16 @@ class FirmwareDiagnostics:
 
         return results
 
-    def verify_fan_tachometer(self):
+    def verify_fan_tachometer(self) -> dict:
         """Set fan to known duty, wait, read tachometer.
 
         Informational test only -- many units lack a tachometer wire,
         so RPM=0 is not a fault. Returns ``supported=False`` (with no
         readings) when firmware does not implement FAN: / FANSPEED.
         """
-        if not self._motor_ok():
-            return {
-                'supported': False,
-                'message': 'Motor board not connected',
-                'tests': [],
-            }
+        unread = self._unread_motor_board()
+        if unread is not None:
+            return {'supported': False, 'tests': [], **unread}
 
         # Probe first: if the driver rejects FAN:0 (always a safe
         # baseline) the firmware doesn't implement fan duty control,
@@ -1342,14 +1366,21 @@ class FirmwareDiagnostics:
         return results
 
     def run_homing_test(self) -> dict:
-        """Home all axes and verify positions match expected.
+        """Home the axes this scope has and verify positions match expected.
 
         Returns dict with per-axis results including final position
-        and whether homing completed successfully.
+        and whether homing completed successfully. An axis the scope does
+        not have gets no row: a row there would pass a check that was
+        never run.
         """
-        if not self._motor_ok():
-            return {'error': 'Motor board not connected'}
+        unread = self._unread_motor_board()
+        if unread is not None:
+            return unread
 
+        caps = self._scope.capabilities
+        if not caps.axes:
+            # With no rows the verdict would be a PASS for nothing homed.
+            return {'error': 'The motor board is connected but reports no axes to home'}
         results = {'axes': {}, 'passed': True}
 
         # The homes go through the motion API, never as raw commands: a raw
@@ -1369,30 +1400,25 @@ class FirmwareDiagnostics:
                 return f'Error: {e}'
             return 'OK'
 
-        # Home Z first (safety -- move Z up before XY)
-        zhome_resp = _home('Z')
-        results['axes']['Z'] = {
-            'home_response': zhome_resp,
-            'actual_after': self._cmd(self.motor_board, 'ACTUAL_RZ'),
-            'target_after': self._cmd(self.motor_board, 'TARGET_RZ'),
-        }
+        def _record(axis, home_response):
+            results['axes'][axis] = {
+                'home_response': home_response,
+                'actual_after': self._cmd(self.motor_board, f'ACTUAL_R{axis}'),
+                'target_after': self._cmd(self.motor_board, f'TARGET_R{axis}'),
+            }
 
-        # Home turret
-        thome_resp = _home('T')
-        results['axes']['T'] = {
-            'home_response': thome_resp,
-            'actual_after': self._cmd(self.motor_board, 'ACTUAL_RT'),
-            'target_after': self._cmd(self.motor_board, 'TARGET_RT'),
-        }
+        # Home Z first (safety -- move Z up before XY)
+        if caps.has_focus:
+            _record('Z', _home('Z'))
+
+        if caps.has_turret:
+            _record('T', _home('T'))
 
         # Home XY (the firmware's full home, as the raw HOME was)
-        home_resp = _home('ALL')
-        for ax in 'XY':
-            results['axes'][ax] = {
-                'home_response': home_resp,
-                'actual_after': self._cmd(self.motor_board, f'ACTUAL_R{ax}'),
-                'target_after': self._cmd(self.motor_board, f'TARGET_R{ax}'),
-            }
+        if caps.has_xy_stage:
+            home_resp = _home('ALL')
+            for ax in 'XY':
+                _record(ax, home_resp)
 
         # Check for errors in responses
         for _ax, data in results['axes'].items():
@@ -1637,29 +1663,33 @@ class TechSupportReport:
         d.mkdir()
 
         led_info = self.diag.get_led_info()
-        motor_info = self.diag.get_motor_info()
-        fullinfo = self.diag.get_motor_fullinfo()
-        sn = self.diag.get_serial_number()
-
         with open(d / 'led_info.txt', 'w') as f:
             f.write(f'LED Board INFO:\n{led_info}\n')
 
-        with open(d / 'motor_info.txt', 'w') as f:
-            f.write(f'Motor Board INFO:\n{motor_info}\n\n')
-            f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
-            f.write(f'Serial Number: {sn}\n')
+        if self._no_motor_board_on_this_model():
+            motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
+            sn = 'UNKNOWN'
+            self._write_no_motor_board(d, sn)
+        else:
+            motor_info = self.diag.get_motor_info()
+            fullinfo = self.diag.get_motor_fullinfo()
+            sn = self.diag.get_serial_number()
+            with open(d / 'motor_info.txt', 'w') as f:
+                f.write(f'Motor Board INFO:\n{motor_info}\n\n')
+                f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
+                f.write(f'Serial Number: {sn}\n')
 
-        positions = self.diag.get_motor_positions_all()
-        drvstat = self.diag.get_driver_status_all()
-        with open(d / 'motor_status.txt', 'w') as f:
-            f.write('Motor Positions:\n')
-            for ax, data in positions.items():
-                f.write(f'  {ax}: {json.dumps(data)}\n')
-            f.write('\nTMC5072 Driver Status:\n')
-            for ax, st in drvstat.items():
-                f.write(f'  {ax}: {st}\n')
+            positions = self.diag.get_motor_positions_all()
+            drvstat = self.diag.get_driver_status_all()
+            with open(d / 'motor_status.txt', 'w') as f:
+                f.write('Motor Positions:\n')
+                for ax, data in positions.items():
+                    f.write(f'  {ax}: {json.dumps(data)}\n')
+                f.write('\nTMC5072 Driver Status:\n')
+                for ax, st in drvstat.items():
+                    f.write(f'  {ax}: {st}\n')
+            fan = self.diag.get_fan_status()
 
-        fan = self.diag.get_fan_status()
         i2c = self.diag.get_i2c_scan()
         led_readings = self.diag.get_led_readings()
         with open(d / 'peripherals.txt', 'w') as f:
@@ -1683,26 +1713,32 @@ class TechSupportReport:
         d = tmp / 'firmware_info'
         d.mkdir()
         led_info = self.scope.diagnostics.get_led_info()
-        motor_info = self.scope.diagnostics.get_motor_info()
-        sn = motor_info.get('serial_number') or 'UNKNOWN'
         skipped = (
             f'SKIPPED board queries: {refusal.message}\n'
             'The microscope was in use; these are the values cached at connect.\n'
         )
         with open(d / 'led_info.txt', 'w') as f:
             f.write(f'LED Board (cached at connect):\n{led_info}\n\n{skipped}')
-        with open(d / 'motor_info.txt', 'w') as f:
-            f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
-            f.write(f'Serial Number: {sn}\n\n{skipped}')
-        drvstat = self.diag.get_driver_status_all()
-        with open(d / 'motor_status.txt', 'w') as f:
-            f.write('Motor Positions: not read.\n')
-            f.write(skipped)
-            f.write('\nTMC5072 Driver Status:\n')
-            for ax, st in drvstat.items():
-                f.write(f'  {ax}: {st}\n')
+        if self._no_motor_board_on_this_model():
+            motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
+            sn = 'UNKNOWN'
+            self._write_no_motor_board(d, sn)
+        else:
+            motor_info = self.scope.diagnostics.get_motor_info()
+            sn = motor_info.get('serial_number') or 'UNKNOWN'
+            with open(d / 'motor_info.txt', 'w') as f:
+                f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
+                f.write(f'Serial Number: {sn}\n\n{skipped}')
+            drvstat = self.diag.get_driver_status_all()
+            with open(d / 'motor_status.txt', 'w') as f:
+                f.write('Motor Positions: not read.\n')
+                f.write(skipped)
+                f.write('\nTMC5072 Driver Status:\n')
+                for ax, st in drvstat.items():
+                    f.write(f'  {ax}: {st}\n')
+            fan = self.diag.get_fan_status()
         with open(d / 'peripherals.txt', 'w') as f:
-            f.write(f'Fan: {self.diag.get_fan_status()}\n\n')
+            f.write(f'Fan: {fan}\n\n')
             f.write('I2C Scan and LED Readings: not read.\n')
             f.write(skipped)
         self._meta['serial_number'] = sn
@@ -1715,7 +1751,13 @@ class TechSupportReport:
         d = tmp / 'firmware_configs'
         d.mkdir()
 
-        for board, label in [(self.diag.led_board, 'led'), (self.diag.motor_board, 'motor')]:
+        boards = [(self.diag.led_board, 'led')]
+        if self._no_motor_board_on_this_model():
+            (d / 'motor_config.txt').write_text(f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n')
+        else:
+            boards.append((self.diag.motor_board, 'motor'))
+
+        for board, label in boards:
             files = self.diag.read_config_files(board, label)
             if files is None:
                 with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
@@ -1871,6 +1913,18 @@ class TechSupportReport:
             f.write(f'SKIPPED: {refusal.message}\n')
             f.write('The microscope was in use, so this step did not drive the hardware.\n')
 
+    def _no_motor_board_on_this_model(self) -> bool:
+        return self.diag.motor_board_presence() is MotorBoardPresence.NOT_ON_THIS_MODEL
+
+    @staticmethod
+    def _write_no_motor_board(directory, sn):
+        """The motor files of a scope built without a motor board: one statement each."""
+        absent = f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n'
+        with open(directory / 'motor_info.txt', 'w') as f:
+            f.write(f'{absent}\nSerial Number: {sn}\n')
+        with open(directory / 'motor_status.txt', 'w') as f:
+            f.write(absent)
+
     def _step_firmware_tests(self, tmp):
         d = tmp / 'firmware_tests'
         d.mkdir()
@@ -1912,7 +1966,9 @@ class TechSupportReport:
         regs = self.diag.read_tmc5072_registers()
         with open(d / 'tmc5072_registers.txt', 'w') as f:
             f.write('TMC5072 Register Dump\n' + '=' * 40 + '\n\n')
-            if 'error' in regs:
+            if 'not_applicable' in regs:
+                f.write(f'{regs["not_applicable"]}.\n')
+            elif 'error' in regs:
                 f.write(f'Error: {regs["error"]}\n')
             else:
                 for chip, registers in regs.items():
@@ -1943,8 +1999,10 @@ class TechSupportReport:
             f.write('Note: Many units in the field do not have a tachometer\n')
             f.write('wire installed. Zero RPM does not necessarily mean the\n')
             f.write('fan is broken.\n\n')
-            if not fan.get('supported', True):
-                msg = fan.get('message', 'Fan diagnostic not available.')
+            if 'not_applicable' in fan:
+                f.write(f'{fan["not_applicable"]}.\n')
+            elif not fan.get('supported', True):
+                msg = fan.get('message') or fan.get('error') or 'Fan diagnostic not available.'
                 f.write(f'INCONCLUSIVE: {msg}\n')
             else:
                 tach = fan.get('tachometer_present', False)
@@ -1960,15 +2018,18 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         # Run latency test once per board, write both text and JSON from same data
-        results = {}
-        for board, label in [(self.diag.led_board, 'LED'), (self.diag.motor_board, 'Motor')]:
-            results[label] = self.diag.measure_serial_latency(board, 'INFO')
+        results = {'LED': self.diag.measure_serial_latency(self.diag.led_board, 'INFO')}
+        results['Motor'] = self.diag._unread_motor_board() or self.diag.measure_serial_latency(
+            self.diag.motor_board, 'INFO'
+        )
 
         with open(d / 'serial_latency.txt', 'w') as f:
             f.write('Serial Round-Trip Latency\n' + '=' * 40 + '\n\n')
             for label, latency in results.items():
                 f.write(f'--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
-                if 'error' in latency:
+                if 'not_applicable' in latency:
+                    f.write(f'  {latency["not_applicable"]}.\n\n')
+                elif 'error' in latency:
                     f.write(f'  Error: {latency["error"]}\n\n')
                 else:
                     f.write(f'  Min:     {latency["min_ms"]:7.2f} ms\n')
@@ -2003,7 +2064,9 @@ class TechSupportReport:
         homing = self.diag.run_homing_test()
         with open(d / 'homing_test.txt', 'w') as f:
             f.write('Homing Test\n' + '=' * 40 + '\n\n')
-            if 'error' in homing:
+            if 'not_applicable' in homing:
+                f.write(f'{homing["not_applicable"]}.\n')
+            elif 'error' in homing:
                 f.write(f'Error: {homing["error"]}\n')
             else:
                 f.write(f'Overall: {"PASS" if homing["passed"] else "FAIL"}\n\n')
@@ -2714,109 +2777,22 @@ class _Cancelled(Exception):  # noqa: N818 -- module-private cancellation sentin
 
 
 # ---------------------------------------------------------------------------
-# Kivy GUI Integration
-# ---------------------------------------------------------------------------
-
-KV_SNIPPET = """\
-# Add inside the microscope settings panel in lumaviewpro.kv:
-#
-# BoxLayout:
-#     size_hint_y: None
-#     height: dp(48)
-#     padding: dp(8)
-#     RoundedButton:
-#         id: btn_support_report
-#         text: 'Generate Support Report'
-#         on_release: app.generate_support_report()
-"""
-
-PYTHON_INTEGRATION = '''\
-# --- Add these methods to the LumaViewPro App class in lumaviewpro.py ---
-
-def generate_support_report(self):
-    """Called when user clicks 'Generate Support Report'."""
-    from ui.notification_popup import NotificationPopup
-
-    popup = NotificationPopup(
-        title='Tech Support Report',
-        message=(
-            'This will create a diagnostic report to send to\\n'
-            'Etaluma Tech Support.\\n\\n'
-            'The stage will be homed and moved during testing.\\n'
-            'Please remove any samples from the stage.\\n\\n'
-            'This may take a few minutes -- please wait.'
-        ),
-        confirm_text='Generate',
-        cancel_text='Cancel',
-        on_confirm=self._start_support_report,
-    )
-    popup.open()
-
-def _start_support_report(self):
-    from ui.progress_popup import ProgressPopup
-    from modules.tech_support_report import TechSupportReport
-    import threading
-
-    self._report_progress = ProgressPopup(
-        title='Generating Support Report...', auto_dismiss=False)
-    self._report_progress.open()
-
-    def run():
-        from modules.kivy_utils import schedule_ui as _schedule_ui
-        report = TechSupportReport(scope=self.scope)
-
-        def progress(pct, msg):
-            _schedule_ui(
-                lambda dt: self._update_report_progress(pct, msg), 0)
-
-        path = report.generate(callback=progress, include_bandwidth_test=False)
-        _schedule_ui(lambda dt: self._report_done(path), 0)
-
-    threading.Thread(target=run, daemon=True).start()
-
-def _update_report_progress(self, pct, msg):
-    if hasattr(self, '_report_progress') and self._report_progress:
-        self._report_progress.progress = pct
-        self._report_progress.message = msg
-
-def _report_done(self, zip_path):
-    if hasattr(self, '_report_progress') and self._report_progress:
-        self._report_progress.dismiss()
-
-    from ui.notification_popup import NotificationPopup
-    if zip_path:
-        popup = NotificationPopup(
-            title='Report Complete',
-            message=(
-                f'Saved to Desktop:\\n{zip_path.name}\\n\\n'
-                f'Please email this file to:\\n'
-                f'techsupport@etaluma.com'
-            ),
-        )
-    else:
-        popup = NotificationPopup(
-            title='Report Failed',
-            message=(
-                'Could not generate the report.\\n'
-                'Check the log file for details and contact\\n'
-                'techsupport@etaluma.com directly.'
-            ),
-        )
-    popup.open()
-'''
-
-
-# ---------------------------------------------------------------------------
 # Standalone CLI
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> int:
     """Run diagnostics from command line without LumaViewPro."""
     import argparse
 
     parser = argparse.ArgumentParser(
         description='Etaluma LumaViewPro -- Tech Support Diagnostic Report',
+        epilog=(
+            'The command-line report does not know the scope model, so it cannot tell '
+            'a scope built without a motor board (LS560, LS620) from one whose board '
+            'is not connected: both read "Motor board not connected". The report '
+            'generated from LumaViewPro tells them apart.'
+        ),
     )
     parser.add_argument(
         '--output', '-o', type=str, default=None, help='Output directory (default: Desktop)'
@@ -2848,7 +2824,7 @@ def main():
         logger.info('Connecting to hardware...')
         report.diag.connect_standalone()
         led_ok = report.diag._led_ok()
-        mot_ok = report.diag._motor_ok()
+        mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
         logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
         logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
 
@@ -2870,7 +2846,7 @@ def main():
                 logger.info('  Retrying...')
                 report.diag.connect_standalone()
                 led_ok = report.diag._led_ok()
-                mot_ok = report.diag._motor_ok()
+                mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
                 logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
                 logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
                 if not led_ok and not mot_ok:

@@ -938,13 +938,20 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.button('GENERATE_SUPPORT_REPORT')
         from ui.notification_popup import show_confirmation_popup
 
+        # The report homes only the axes the scope has, so a scope with
+        # none is not told its stage will move.
+        moves = (
+            'The stage will be homed and moved during testing.\n'
+            'Please remove any samples from the stage.\n\n'
+            if _app_ctx.ctx.scope.capabilities.axes
+            else ''
+        )
         show_confirmation_popup(
             title='Tech Support Report',
             message=(
                 'This will create a diagnostic report to send to\n'
                 'Etaluma Tech Support.\n\n'
-                'The stage will be homed and moved during testing.\n'
-                'Please remove any samples from the stage.\n\n'
+                f'{moves}'
                 'This may take a few minutes.'
             ),
             confirm_text='Generate',
