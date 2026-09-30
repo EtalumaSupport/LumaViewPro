@@ -23,11 +23,9 @@ Three objects live in this file:
 
 3. ``FX2LEDController`` -- registered as ``@led_registry.register('fx2', ...)``.
    Satisfies LEDBoardProtocol. Thin command translator: no state tracking,
-   no ``led_ma`` dict, no ``is_led_on`` bookkeeping. Source of truth for
-   LED state is ``IlluminationAPI._led_state`` (post-B3 / Stage 2 architecture).
-   The class exists only to convert LVP's (channel, mA) calls into FX2
-   I2C byte sequences. State-query protocol methods return sentinel
-   defaults (-1 / False / dict-of-False) -- matching NullLEDBoard.
+   no ``led_ma`` dict, no state queries. Source of truth for LED state is
+   ``IlluminationAPI._led_state``. The class exists only to convert LVP's
+   (channel, mA) calls into FX2 I2C byte sequences.
 
 The camera and LED objects both hold a reference to the same
 ``_FX2Connection._instance`` -- proven viable by
@@ -46,11 +44,13 @@ Dependencies
 Import-time safety
 ------------------
 
-All USB / libusb1 imports are wrapped in try/except. If neither library is
-installed, the module still imports and registers with the camera and LED
-registries -- but ``_FX2Connection.__init__`` raises ``ImportError`` on
-first use, so the registry's auto-detect fallthrough handles it cleanly
-without breaking non-FX2 scopes on dev machines without pyusb.
+All USB / libusb1 imports are wrapped in try/except. When a prerequisite is
+missing the module still imports, logs which one, and registers neither
+driver, so auto-detect never offers an FX2 that cannot run and non-FX2
+scopes on dev machines without pyusb are unaffected.
+
+The driver reads no application settings: the one runtime toggle, the LED
+wire trace, arrives as the ``debug_wire`` constructor argument.
 
 References
 ----------
@@ -376,10 +376,10 @@ _VR_NAMES.update(
     }
 )
 
-# Vendor requests that the i2c_write / i2c_read wrappers route through
-# control_transfer_*. Logged at the i2c_* layer (with addr/data); the
+# Vendor requests that the i2c_write wrapper routes through
+# control_transfer_*. Logged at the i2c_write layer (with addr/data); the
 # control_transfer_* layer skips them to avoid double-emission.
-_I2C_VR_REQUESTS = frozenset({VR_I2C_READ, VR_I2C_WRITE})
+_I2C_VR_REQUESTS = frozenset({VR_I2C_WRITE})
 
 # I2C addresses
 I2C_SENSOR = 0x5D  # MT9P031 image sensor
@@ -579,7 +579,6 @@ class StreamStats:
             self._good_count = 0
             self._total_bytes = 0
             self._usb_errors = 0
-            self._usb_timeouts = 0
             self._start_time = time.monotonic()
             self._delimiters_seen = 0
 
@@ -635,11 +634,6 @@ class StreamStats:
         with self._lock:
             self._usb_errors += 1
 
-    def record_usb_timeout(self) -> None:
-        """Increment the USB timeout counter. Thread-safe."""
-        with self._lock:
-            self._usb_timeouts += 1
-
     def get_fps(self) -> tuple[float, float]:
         """Return ``(current_fps, avg_fps)``. Current = last 2 seconds.
 
@@ -662,7 +656,7 @@ class StreamStats:
             dict: Keys include ``elapsed_s``, ``good_frames``,
                 ``partial_frames``, ``shifted_frames``, ``total_MB``,
                 ``throughput_MBps``, ``fps_current``, ``fps_average``,
-                ``usb_errors``, ``usb_timeouts``.
+                ``usb_errors``.
         """
         with self._lock:
             now = time.monotonic()
@@ -685,7 +679,6 @@ class StreamStats:
             'fps_current': round(cur_fps, 1),
             'fps_average': round(avg_fps, 2),
             'usb_errors': self._usb_errors,
-            'usb_timeouts': self._usb_timeouts,
         }
 
 
@@ -1090,36 +1083,6 @@ class _FX2Connection:
         )
         return result
 
-    def i2c_read(self, addr: int, length: int) -> bytes:
-        """Read bytes from the I2C bus via vendor request 0xB2.
-
-        Args:
-            addr: I2C device address (used as ``wIndex``).
-            length: Number of bytes to read.
-
-        Returns:
-            bytes: Bytes returned by the device.
-        """
-        t_start = time.monotonic()
-        try:
-            result = self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
-        except Exception as e:
-            elapsed_ms = (time.monotonic() - t_start) * 1000
-            _serial_log.error(
-                f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
-                f'EXCEPTION: {type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
-            )
-            raise
-        elapsed_ms = (time.monotonic() - t_start) * 1000
-        result_repr = repr(bytes(result)) if result is not None else 'None'
-        if len(result_repr) > 200:
-            result_repr = result_repr[:200] + '...'
-        _serial_log.info(
-            f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
-            f'{result_repr} ({elapsed_ms:.1f}ms)'
-        )
-        return result
-
     def sensor_reg_write(self, reg: int, value: int) -> None:
         """Write 16-bit value to an MT9P031 register via VR_I2C_WRITE (0xB3).
 
@@ -1150,39 +1113,6 @@ class _FX2Connection:
         data = bytes([reg, high, low])
         self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
 
-    def sensor_reg_read(self, reg: int) -> int:
-        """Read 16-bit value from MT9P031 register via vendor request 0xB4.
-
-        The FX2 firmware processes this asynchronously: it sets a flag in the
-        vendor request handler, the main loop does the I2C read, then sends
-        the data back on EP0 IN. A generous 5s timeout covers the async gap.
-
-        Args:
-            reg: MT9P031 register address (used as ``wValue``).
-
-        Returns:
-            int: 16-bit register contents (high byte first).
-        """
-        result = self.control_transfer_in(
-            VR_I2C_MT9P031_READ,
-            value=reg,
-            index=I2C_SENSOR,
-            length=2,
-            timeout=5000,
-        )
-        return (result[0] << 8) | result[1]
-
-    def init_gpif(self) -> None:
-        """Initialize GPIF. Required after pixel clock changes via VR_INIT_GPIF.
-
-        WARNING: do NOT call this from ``FX2Camera._init_sensor`` after the
-        PLL config write. The firmware's TD_Init() / Init_GPIF() /
-        SetISOInterface() path disrupts the EP2 configuration. The clock-
-        managed write (0xBA) already handles IFCLK switching without a
-        separate init_gpif call.
-        """
-        self.control_transfer_out(VR_INIT_GPIF)
-
     def start_streaming(self) -> None:
         """Send vendor request to start image data output."""
         self.control_transfer_out(VR_START_STREAMING)
@@ -1190,15 +1120,6 @@ class _FX2Connection:
     def stop_streaming(self) -> None:
         """Send vendor request to stop image data output."""
         self.control_transfer_out(VR_STOP_STREAMING)
-
-    def get_firmware_version(self) -> int:
-        """Read 2-byte firmware version register.
-
-        Returns:
-            int: Firmware version (high byte first, then low byte).
-        """
-        result = self.control_transfer_in(VR_CODE_VERSION, length=2)
-        return (result[0] << 8) | result[1]
 
     # -- bulk / alt-interface / low-level ----------------------------------
 
@@ -1505,12 +1426,12 @@ class FX2Camera(Camera):
         but this matches the LVC reference that hardware-validated at
         63/63 frames.
 
-        WARNING: do NOT call ``self._fx2.init_gpif()`` here. Per the
-        firmware disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
+        WARNING: do NOT send VR_INIT_GPIF here. Per the firmware
+        disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
         sec.3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
-        internally, which resets EP2 configuration. The clock-managed
-        write (0xBA) already handles IFCLK switching without calling
-        init_gpif.
+        internally, which resets EP2 configuration. The sensor writes here
+        go through plain VR_I2C_WRITE, which never touches IFCLK, so no
+        GPIF re-init is needed.
         """
         fx2 = self._fx2
 
@@ -1549,7 +1470,7 @@ class FX2Camera(Camera):
         # PLL activate
         fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
         time.sleep(0.2)  # datasheet requires 1ms for VCO lock; 200ms is defensive
-        # Do NOT call init_gpif() here -- see docstring warning.
+        # Do NOT send VR_INIT_GPIF here -- see docstring warning.
 
         # Blue-strip fix per MT9P031 developer guide (DG_A page 7).
         # Prevents a blue strip artifact when bright light hits the top
@@ -2054,7 +1975,7 @@ class FX2Camera(Camera):
                 logger.info(
                     '[FX2 Cam   ] stream: %.1f fps (avg %.2f), '
                     '%d good / %d partial / %d shifted, '
-                    '%.1f MB/s, %d errors, %d timeouts',
+                    '%.1f MB/s, %d errors',
                     s['fps_current'],
                     s['fps_average'],
                     s['good_frames'],
@@ -2062,7 +1983,6 @@ class FX2Camera(Camera):
                     s['shifted_frames'],
                     s['throughput_MBps'],
                     s['usb_errors'],
-                    s['usb_timeouts'],
                 )
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
@@ -2331,40 +2251,15 @@ class FX2Camera(Camera):
 # ---------------------------------------------------------------------------
 
 
-def _read_fx2_wire_setting() -> bool:
-    """Read fx2_debug_wire_enabled from settings.json at module import.
-
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    Falls back to False on any read failure so the driver remains
-    shippable without runtime config.
-    """
-    from modules.settings_init import load_fx2_debug_wire_setting
-
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_fx2_debug_wire_setting(base_dir)
-
-
-_FX2_WIRE_SETTING = _read_fx2_wire_setting()
-
-
 @_register_if_fx2_available(led_registry, 'fx2', priority=80)
 class FX2LEDController:
     """LED controller for Lumascope Classic via FX2 I2C at address 0x2A.
 
     **Thin command translator.** The LVC reference carried a ``led_ma``
-    dict and client-side state tracking (``get_led_ma`` / ``is_led_on`` /
-    etc. read back from the dict). That existed because the pre-4.1 GUI
-    owned LED state. In 4.1 the API owns state via
+    dict and client-side state tracking read back from it. That existed
+    because the pre-4.1 GUI owned LED state. In 4.1 the API owns state via
     ``IlluminationAPI._led_state`` / ``save_led_state`` / ``restore_led_state``,
-    so this driver drops all state bookkeeping. The LEDBoardProtocol
-    state-query methods still exist (the protocol requires them) but
-    return sentinel defaults matching NullLEDBoard -- the real truth
-    lives above the driver layer.
+    so this driver keeps no LED state and answers no state queries.
 
     **LED channel -> I2C ASCII byte mapping** lives in this class only:
     LVP integer channels 0/1/2/3 -> ASCII bytes 0x43/0x42/0x41/0x44
@@ -2414,20 +2309,21 @@ class FX2LEDController:
     # Companion gates live in modules/lumascope_api/illumination.py
     # (cache-equality check) and ui/layer_control.py (slider vs text entry
     # points). Toggle by either:
-    #   * set fx2_debug_wire_enabled: true in data/settings.json
+    #   * set fx2_debug_wire_enabled: true in the settings, which the
+    #     session passes in as ``debug_wire``
     #   * flip _FX2_DEBUG_WIRE = True  below
     # ------------------------------------------------------------------
     _FX2_DEBUG_WIRE = False
 
-    @classmethod
-    def _wire_debug_enabled(cls) -> bool:
-        return cls._FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
+    def _wire_debug_enabled(self) -> bool:
+        return self._FX2_DEBUG_WIRE or self._debug_wire
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, debug_wire: bool = False):
         # Grab the singleton -- raises if no FX2 hardware, registry
         # fallthrough handles that case cleanly.
         self._fx2 = _FX2Connection.get()
         self._enabled = True
+        self._debug_wire = debug_wire
 
         # Attributes the Lumascope API / SerialBoard pattern expects to
         # be able to read directly without method calls. ``driver`` is
@@ -2588,24 +2484,6 @@ class FX2LEDController:
 
     def leds_off_fast(self):
         self.leds_off()
-
-    # -- State queries (sentinel defaults -- real state is in API) ---------
-    # These methods exist because LEDBoardProtocol requires them. The
-    # driver has no idea what's currently lit -- that's owned by
-    # IlluminationAPI._led_state. Callers should read state through the API
-    # (scope.get_led_state(color)), never by reaching into the driver.
-
-    def get_led_ma(self, color: str) -> int:
-        return -1
-
-    def is_led_on(self, color: str) -> bool:
-        return False
-
-    def get_led_state(self, color: str) -> dict:
-        return {'enabled': False, 'illumination_ma': -1}
-
-    def get_led_states(self) -> dict:
-        return {c: {'enabled': False, 'illumination_ma': -1} for c in self._COLOR_TO_CH}
 
     # -- Connection no-ops (USB owned by _FX2Connection) ------------------
 

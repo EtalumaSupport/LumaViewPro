@@ -543,6 +543,7 @@ class ScopeSession:
                 configured_model=settings.get('microscope'),
                 sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
                 ui_dispatcher=ui_dispatcher,
+                fx2_debug_wire=settings['fx2_debug_wire_enabled'],
             )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import enum
 import logging as _logging
-import os
 import threading
 import typing
 from dataclasses import dataclass
@@ -31,24 +30,6 @@ if TYPE_CHECKING:
 
 _api_log = _logging.getLogger('LVP.api')
 
-
-def _read_fx2_wire_setting() -> bool:
-    """Read fx2_debug_wire_enabled from settings.json at module import.
-
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    """
-    from modules.settings_init import load_fx2_debug_wire_setting
-
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return load_fx2_debug_wire_setting(base_dir)
-
-
-_FX2_WIRE_SETTING = _read_fx2_wire_setting()
 
 # How long a dispatched LED write waits on the io worker before giving up.
 # An LED command is a short serial write behind at most one other queued
@@ -618,10 +599,9 @@ class IlluminationAPI:
         if color_name:
             current_ma = self.get_led_state(color_name)['illumination_ma']
             # _led_state cache-equality trace for the slider > ~150 mA
-            # silent-fail bench investigation. Gated by
-            # fx2_debug_wire_enabled in settings.json to match
-            # drivers/fx2driver.py.
-            if _FX2_WIRE_SETTING:
+            # silent-fail bench investigation. Gated by the scope's
+            # fx2_debug_wire, the same flag the FX2 LED driver traces with.
+            if self._scope._fx2_debug_wire:
                 cached_entry = self._led_state.get(color_name)
                 is_enabled = self.get_led_state(color_name)['enabled']
                 try:

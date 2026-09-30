@@ -71,6 +71,8 @@ def headless_settings(
     # hand-built dict says so itself, on the fast tier like the rest of
     # the suite.
     settings['simulator_tier'] = 'fast'
+    # Likewise the FX2 wire trace, which the session reads for every scope.
+    settings['fx2_debug_wire_enabled'] = False
     # The slots a brought-up scope carries. Empty is not the neutral
     # value it looks like: bring-up pushes these into the runtime store
     # (and skips the push entirely when the dict is falsy), and a turret

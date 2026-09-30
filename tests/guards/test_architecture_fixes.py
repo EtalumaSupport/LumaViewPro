@@ -619,7 +619,6 @@ _UI_EXCEPT_PIN = {
     ('ui/histogram.py', 'AttributeError, KeyError'): 1,
     ('ui/image_settings.py', 'Exception'): 1,
     ('ui/image_settings.py', 'KeyError'): 1,
-    ('ui/layer_control.py', 'AttributeError, ImportError'): 1,
     ('ui/layer_control.py', 'Exception'): 7,
     ('ui/layer_control.py', 'ProtocolError'): 1,
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,

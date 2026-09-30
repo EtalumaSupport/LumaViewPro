@@ -329,10 +329,9 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     # entry above this one once characterized.
     ('U3-34Lx', _U3_34L0XCP_M),
     ('SimulatedCamera', _simulated),
-    ('MT9P031', _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
-    ('LS620', _MT9P031_LS620),  # explicit model-name match
-    ('LS560', _MT9P031_LS620),  # same sensor, same profile
-    ('LS720', _MT9P031_LS620),  # same sensor, same profile
+    # FX2Camera sets model_name='MT9P031-LS620' on every Classic model (LS560,
+    # LS620, LS720 share the sensor), so the sensor name is the one key.
+    ('MT9P031', _MT9P031_LS620),
 ]
 
 # Default profile for unknown cameras

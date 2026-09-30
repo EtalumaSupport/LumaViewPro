@@ -164,6 +164,6 @@ def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
         register_atexit=False,
     )
     try:
-        assert asked == [('auto', {})]
+        assert asked == [('auto', {'debug_wire': False})]
     finally:
         scope.disconnect()

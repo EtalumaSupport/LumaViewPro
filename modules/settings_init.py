@@ -774,23 +774,3 @@ def load_memory_profile_setting(directory: str) -> dict:
         'enabled': bool(temp_settings.get('memory_profile_enabled', False)),
         'interval_s': float(temp_settings.get('memory_profile_interval_s', 5.0)),
     }
-
-
-def load_fx2_debug_wire_setting(directory: str) -> bool:
-    """Read fx2_debug_wire_enabled from settings.
-
-    Returns bool. Missing or unreadable settings file resolves to False
-    so the caller never has to guard for absence; the FX2 wire-protocol
-    debug trace defaults OFF (it is an L4 diagnostic surface).
-
-    Called from drivers/fx2driver.py, ui/layer_control.py, and
-    modules/lumascope_api/illumination.py at module-import time.
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return False
-
-    return bool(temp_settings.get('fx2_debug_wire_enabled', False))

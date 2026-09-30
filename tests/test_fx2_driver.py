@@ -387,10 +387,6 @@ class TestFX2LEDProtocolConformance:
             'leds_off_fast',
             'leds_enable',
             'leds_disable',
-            'get_led_ma',
-            'is_led_on',
-            'get_led_state',
-            'get_led_states',
             'color2ch',
             'ch2color',
             'available_channels',
@@ -419,25 +415,17 @@ class TestFX2LEDThinTranslator:
     state via ``Lumascope._led_owners``. These tests prove the new
     driver has no state bookkeeping:
 
-    1. State-query methods return sentinel defaults matching NullLEDBoard.
-    2. Calling ``led_on`` does NOT change what state-query methods return.
-    3. The driver has no ``led_ma`` attribute (symbol-level regression guard).
+    1. ``led_on`` writes the command and the driver answers no state query.
+    2. The driver has no ``led_ma`` attribute (symbol-level regression guard).
     """
-
-    def test_initial_state_query_returns_sentinel(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        assert led.get_led_ma('Blue') == -1
-        assert led.is_led_on('Blue') is False
-        assert led.get_led_state('Blue') == {'enabled': False, 'illumination_ma': -1}
 
     def test_led_on_does_not_update_state_query(self, fake_fx2_conn):
         """The critical regression guard.
 
-        Calling ``led_on(0, 100)`` must send I2C commands but must NOT
-        update any internal state that ``get_led_ma`` / ``is_led_on``
-        would read back. If someone re-adds ``self.led_ma`` and this
-        test starts failing in the direction of "get_led_ma returns
-        100", that's the regression we're preventing.
+        Calling ``led_on(0, 100)`` must send I2C commands, and the driver
+        must offer no state query to read back what it just did. If someone
+        re-adds ``get_led_ma`` / ``is_led_on`` / ``get_led_state(s)``, a
+        second store of LED state is back beside the API's.
         """
         led = fx2driver.FX2LEDController()
         led.led_on(0, 100)
@@ -447,25 +435,9 @@ class TestFX2LEDThinTranslator:
             'led_on should issue I2C writes through the FX2 connection'
         )
 
-        # But the state queries must STILL return sentinel defaults --
-        # the driver does not remember what it just did.
-        assert led.get_led_ma('Blue') == -1
-        assert led.is_led_on('Blue') is False
-
-    def test_led_off_also_leaves_state_sentinel(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        led.led_on(0, 100)
-        led.led_off(0)
-        assert led.get_led_ma('Blue') == -1
-
-    def test_get_led_states_returns_all_false(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        led.led_on(0, 100)
-        led.led_on(1, 50)
-        states = led.get_led_states()
-        for color, state in states.items():
-            assert state == {'enabled': False, 'illumination_ma': -1}, (
-                f'{color} leaked state from led_on'
+        for name in ('get_led_ma', 'is_led_on', 'get_led_state', 'get_led_states'):
+            assert not hasattr(led, name), (
+                f'the driver answers {name}; LED state belongs to the API'
             )
 
     def test_no_led_ma_attribute(self, fake_fx2_conn):
@@ -649,8 +621,9 @@ class TestFX2CameraProfile:
 
 
 class TestCameraProfileRegistration:
-    """The MT9P031 profile must be discoverable via the four substring
-    keys registered in camera_profiles.py: MT9P031, LS620, LS560, LS720.
+    """The MT9P031 profile must be discoverable by the sensor name, the
+    one key camera_profiles.py registers for it: FX2Camera sets the same
+    model_name on every Classic model.
     """
 
     @pytest.mark.parametrize(
@@ -658,9 +631,6 @@ class TestCameraProfileRegistration:
         [
             'MT9P031',
             'MT9P031-LS620',  # what FX2Camera sets model_name to
-            'LS620',
-            'LS560',
-            'LS720',
         ],
     )
     def test_profile_found_by_substring(self, lookup_key):
@@ -678,7 +648,7 @@ class TestCameraProfileRegistration:
         (The driver narrows this to 178 ms at connect time -- see
         FX2Camera._query_dynamic_capabilities.)
         """
-        profile = lookup_profile('LS620')
+        profile = lookup_profile('MT9P031-LS620')
         driver_max_us = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS * 1000
         # Allow 10,000 us (10 ms) tolerance for rounding
         assert abs(profile.exposure_max_us - driver_max_us) <= 10_000

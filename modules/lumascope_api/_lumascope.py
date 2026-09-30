@@ -412,6 +412,7 @@ class Lumascope:
         configured_model: str | None = None,
         sim_tier: str = 'fast',
         ui_dispatcher=None,
+        fx2_debug_wire: bool = False,
     ):
         """Initialize Microscope.
 
@@ -472,9 +473,14 @@ class Lumascope:
                 scope's IO and CAMERA lanes hand a finished command's
                 callback to it, so a GUI host gets its callbacks on its UI
                 thread. None (default) runs them on the lane's worker.
+            fx2_debug_wire: Log every byte of each LED command an FX2
+                (Classic) LED board sends, and the illumination cache check
+                in front of it -- a bench diagnostic, off by default. The
+                session passes the ``fx2_debug_wire_enabled`` setting.
         """
         if warn_pre_release:
             _fire_pre_release_warning()
+        self._fx2_debug_wire = fx2_debug_wire
 
         # Read before anything is started, so a missing install file stops
         # the bring-up with nothing to tear down. It is read on every model:
@@ -549,7 +555,7 @@ class Lumascope:
         if simulate:
             self._led_driver: LEDBoardProtocol = self._build_simulated_led_board(model, sim_tier)
         else:
-            self._led_driver = led_registry.create('auto')
+            self._led_driver = led_registry.create('auto', debug_wire=fx2_debug_wire)
 
         # ----- Camera -----
         # Driver selection via camera_registry. `camera_type` accepts:
@@ -1370,6 +1376,7 @@ class Lumascope:
         # That is the honest answer for a support tool: it must never
         # invent an identity for a unit it is diagnosing.
         instance._configured_model = None
+        instance._fx2_debug_wire = False
         instance.layer_identity = instance._resolve_layer_identity()
 
         # Build capabilities -- diagnostic instances still need this so

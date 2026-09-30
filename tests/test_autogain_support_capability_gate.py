@@ -139,7 +139,7 @@ class TestCapabilityMapping:
         assert caps.camera_supports_auto_exposure is False
 
     def test_fx2_ls620_reports_no_hardware_autogain(self):
-        caps = self._caps_for('LS620')
+        caps = self._caps_for('MT9P031-LS620')  # the name FX2Camera sets
         assert caps.camera_supports_auto_gain is False
         assert caps.camera_supports_auto_exposure is False
 

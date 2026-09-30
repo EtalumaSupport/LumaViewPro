@@ -2,7 +2,6 @@
 import copy
 import functools
 import logging
-import os
 
 import numpy as np
 
@@ -49,33 +48,14 @@ _LAYER_VALUE_WIDGETS = (
 # in drivers/fx2driver.py (byte-level wire trace) and
 # modules/lumascope_api/illumination.py (cache-equality check).
 # Toggle by either:
-#   * set fx2_debug_wire_enabled: true in data/settings.json
+#   * set fx2_debug_wire_enabled: true in the settings
 #   * flip _FX2_DEBUG_WIRE = True  below
 # ------------------------------------------------------------------
 _FX2_DEBUG_WIRE = False
 
 
-def _read_fx2_wire_setting() -> bool:
-    """Read fx2_debug_wire_enabled from settings.json at module import.
-
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    """
-    from modules.settings_init import load_fx2_debug_wire_setting
-
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_fx2_debug_wire_setting(base_dir)
-
-
-_FX2_WIRE_SETTING = _read_fx2_wire_setting()
-
-
-def _fx2_wire_debug_enabled() -> bool:
-    return _FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
+def _fx2_wire_debug_enabled(settings: dict) -> bool:
+    return _FX2_DEBUG_WIRE or settings['fx2_debug_wire_enabled']
 
 
 class LayerControl(BoxLayout):
@@ -349,7 +329,7 @@ class LayerControl(BoxLayout):
         # fail bench investigation. See _FX2_DEBUG_WIRE block at top
         # of this file. INFO level -- this is a key divergence point
         # (int from slider vs float from text).
-        if _fx2_wire_debug_enabled():
+        if _fx2_wire_debug_enabled(settings):
             logger.info(
                 '[FX2 LED diag] ill_slider ENTRY layer=%s raw_value=%r '
                 'raw_type=%s -> illumination=%r type=%s source=slider',
@@ -405,7 +385,7 @@ class LayerControl(BoxLayout):
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence
         # point (float from text vs int from slider).
-        if _fx2_wire_debug_enabled():
+        if _fx2_wire_debug_enabled(settings):
             logger.info(
                 '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
                 'parsed_val=%r -> illumination=%r type=%s source=text',
