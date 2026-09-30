@@ -302,7 +302,7 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
 
         assert abandoned == 1, 'recovery must count the write it gave up on'
         assert not batch.draining, 'recovery must clear the lockout gate'
-        assert outcomes == ['abandoned'], "the run's files must end abandoned, never written"
+        assert outcomes == ['incomplete'], "the run's files must end incomplete, never written"
         assert queued_ran.wait(2), 'recovery must not discard work queued behind the stuck write'
 
         ran = threading.Event()
@@ -318,10 +318,10 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
         assert not any('task failed' in n.title for n in fired), (
             f'abandoned worker fired a stale task-failure popup: {fired}'
         )
-        assert batch.pending == 0 and batch.outcome == 'abandoned', (
+        assert batch.pending == 0 and batch.outcome == 'incomplete', (
             'the abandoned write counted again when its stuck call returned'
         )
-        assert outcomes == ['abandoned'], 'the batch completed twice'
+        assert outcomes == ['incomplete'], 'the batch completed twice'
     finally:
         release.set()
         notifications.remove_listener(listener)
@@ -461,7 +461,7 @@ def test_session_recover_file_writer_passthrough():
 
     assert session.recover_file_writer() == 1
     bundle.file_io_executor.replace_stuck_worker.assert_called_once()
-    assert stuck.outcome == 'abandoned'
+    assert stuck.outcome == 'incomplete'
 
 
 def test_blank_labware_has_no_wells_and_fabricates_no_index():

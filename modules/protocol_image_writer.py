@@ -111,12 +111,12 @@ class RunWriteBatch:
     answer drifts across runs. The batch is the run's own account: created
     with the run, closed by the run's cleanup, and complete once closed with
     nothing outstanding. Completion happens once, with its outcome --
-    ``written``, or ``abandoned`` when a recovery or a shutdown gave up on
-    outstanding writes or a stuck writer refused one -- and runs the
-    actions the run's cleanup handed to ``close``.
+    ``written``, or ``incomplete`` when a recovery or a shutdown gave up on
+    outstanding writes, a stuck writer refused one, or a save failed -- and
+    runs the actions the run's cleanup handed to ``close``.
 
     Nothing is ever discarded while completion is reported: a write handed
-    over either runs or is counted as abandoned.
+    over either lands or is counted not written.
     """
 
     def __init__(self, file_io_executor: SequentialIOExecutor):
@@ -147,7 +147,7 @@ class RunWriteBatch:
 
     @property
     def outcome(self) -> str | None:
-        """``'written'`` or ``'abandoned'`` once complete; None before."""
+        """``'written'`` or ``'incomplete'`` once complete; None before."""
         return self._outcome
 
     @property
@@ -207,7 +207,7 @@ class RunWriteBatch:
             The write's waiter when ``return_future``, else the lane's
             enqueued sentinel; ``WRITER_WEDGED`` when a paced submit found
             the writer stuck -- the write was not taken, and it counts as
-            abandoned.
+            not written.
 
         Raises:
             RunWriteRefusedError: the run's writes have ended (closed or
@@ -254,9 +254,7 @@ class RunWriteBatch:
         result = self._executor.put(task, return_future=return_future)
         if result is None:
             # The lane refused it -- shut down or disabled. It will never run.
-            with self._cond:
-                self._not_taken = True
-            self._settle(write, lost=True)
+            self._settle(write, lost='not_taken')
             raise RunWriteRefusedError('writer_shut_down', what)
         return result
 
@@ -281,7 +279,7 @@ class RunWriteBatch:
 
         Each is counted now and never again: one still stuck in flight that
         returns later counts nothing, and one not yet started skips when its
-        turn comes. The batch completes ``abandoned`` once closed. A batch
+        turn comes. The batch completes ``incomplete`` once closed. A batch
         already complete abandons nothing.
         """
         with self._cond:
@@ -317,14 +315,19 @@ class RunWriteBatch:
                 expired first; ``write_batch_abandoned`` when a recovery or a
                 shutdown gave up on some writes; ``write_batch_not_taken``
                 when the writer never took some -- stuck, or no longer
-                taking work.
+                taking work; ``write_batch_save_failed`` when a save ran and
+                failed. A run with more than one names the first of these.
         """
         if not self._completed.wait(timeout=timeout_s):
             raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
         if self._outcome != 'written':
-            raise RunFilesNotWrittenError(
-                'write_batch_abandoned' if self._abandoned else 'write_batch_not_taken'
-            )
+            if self._abandoned:
+                reason = 'write_batch_abandoned'
+            elif self._not_taken:
+                reason = 'write_batch_not_taken'
+            else:
+                reason = 'write_batch_save_failed'
+            raise RunFilesNotWrittenError(reason)
 
     def _refuse_if_ended(self, what: str) -> None:
         if self._abandoned:
@@ -341,25 +344,35 @@ class RunWriteBatch:
                 # Abandoned before its turn came.
                 return None
             try:
-                return action(*args, **kwargs)
-            finally:
-                self._settle(write)
+                result = action(*args, **kwargs)
+            except BaseException:
+                self._settle(write, lost='save_failed')
+                raise
+            self._settle(write)
+            return result
 
         return _run
 
-    def _settle(self, write: _Write, *, lost: bool = False) -> None:
+    def _settle(self, write: _Write, *, lost: str | None = None) -> None:
+        """Take one write off the run's account.
+
+        ``lost`` is why its image is not on disk -- ``'not_taken'`` or
+        ``'save_failed'`` -- or None when it landed.
+        """
         with self._cond:
             already = write.settled
             if not already:
                 write.settled = True
                 self._outstanding.discard(write)
-                if lost:
+                if lost is not None:
                     self._lost += 1
+                    if lost == 'not_taken':
+                        self._not_taken = True
                 self._cond.notify_all()
             due = None if already else self._take_completion_locked()
-        # A lost write that was already given up on never ran, and the
+        # A lost write that was already given up on is not on disk, and the
         # abandon has counted and logged it.
-        if already and not lost:
+        if already and lost is None:
             logger.warning(
                 '[Protocol-Writer] A write finished after its run gave up on it; '
                 'it is not counted, and its file may be on disk'
@@ -370,7 +383,7 @@ class RunWriteBatch:
     def _take_completion_locked(self):
         if not self._closed or self._outstanding or self._outcome is not None:
             return None
-        self._outcome = 'abandoned' if (self._abandoned or self._lost) else 'written'
+        self._outcome = 'incomplete' if (self._abandoned or self._lost) else 'written'
         return self._on_complete, self._outcome
 
     def _complete(self, on_complete, outcome: str) -> None:

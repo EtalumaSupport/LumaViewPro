@@ -83,7 +83,7 @@ class TestRecoveringAStuckWriter:
             deadline = time.monotonic() + WAIT_S
             while not files and time.monotonic() < deadline:
                 time.sleep(0.02)
-            assert files == ['abandoned']
+            assert files == ['incomplete']
 
             monkeypatch.setattr(protocol_image_writer, 'save_image', real_save)
             _finish_one_run(runner, run_parent, 'C2')
@@ -94,7 +94,7 @@ class TestRecoveringAStuckWriter:
 
             release.set()
             time.sleep(0.3)
-            assert files == ['abandoned'], 'the stuck write returning counted again'
+            assert files == ['incomplete'], 'the stuck write returning counted again'
 
     def test_it_is_refused_while_the_writer_is_making_progress(self, tmp_path, monkeypatch):
         release, started, _real_save = _hold_saves(monkeypatch)
@@ -129,7 +129,7 @@ class TestShuttingDownWithImagesStillWriting:
             session.shutdown()
             took = time.monotonic() - began
 
-            assert batch.outcome == 'abandoned'
+            assert batch.outcome == 'incomplete'
             assert any("Session shutdown: 1 of the run's write(s) abandoned" in m for m in warned)
             assert took < 10.0, f'shutdown waited {took:.1f} s on a stuck write'
             release.set()
@@ -171,7 +171,7 @@ class TestShuttingDownWithImagesStillWriting:
             took = time.monotonic() - began
 
             release.set()
-            assert batch.outcome == 'abandoned'
+            assert batch.outcome == 'incomplete'
             assert took < 3.0, f'shutdown waited {took:.1f} s on a run that could not finish'
 
 
@@ -212,7 +212,7 @@ class TestNothingBuildsFromAFolderMissingImages:
         ctx.plugins.post_processing.handlers.return_value = [(spec, processor)]
 
         run_protocol_complete_processors(
-            ctx, input_dir='run', manifest={}, output_dir='run', files='abandoned'
+            ctx, input_dir='run', manifest={}, output_dir='run', files='incomplete'
         )
 
         processor.assert_not_called()

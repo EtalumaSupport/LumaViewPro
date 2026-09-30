@@ -1913,7 +1913,7 @@ class SequencedCaptureRunner:
         stack build and the composite merge -- so one place is responsible
         for the daemon flag and the thread name a stall report prints. Each
         build begins by waiting for its run's images to land, inside its own
-        outcome handling, so a wait that expires or finds images abandoned
+        outcome handling, so a wait that expires or finds images not written
         is reported in that build's words.
         """
         thread = threading.Thread(target=build_fn, name=name, daemon=True)

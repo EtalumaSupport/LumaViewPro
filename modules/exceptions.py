@@ -650,6 +650,8 @@ class RunFilesNotWrittenError(CaptureError):
         ``write_batch_not_taken``: some of the run's images never reached
             the file writer -- it was stuck, or had stopped taking work,
             when they were handed over.
+        ``write_batch_save_failed``: saving some of the run's images failed
+            on disk.
     """
 
     title = 'Run Images Not Written'
@@ -671,6 +673,12 @@ class RunFilesNotWrittenError(CaptureError):
                 "Some of the run's images never reached the file writer -- it was "
                 'stuck, or had stopped taking work, when they were handed over -- '
                 'so nothing was built from the incomplete folder.'
+            )
+        elif reason == 'write_batch_save_failed':
+            message = (
+                "Some of the run's images failed to save to disk, so nothing "
+                'was built from the incomplete folder. Check that the save '
+                'drive is connected and has space.'
             )
         else:
             raise ValueError(f'unknown reason {reason!r}')

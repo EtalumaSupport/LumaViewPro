@@ -87,8 +87,10 @@ class TestCompletion:
 
     @pytest.mark.parametrize('raising', ['the write', 'its failure report'])
     def test_a_write_that_raises_still_leaves_the_count(self, lane, raising):
-        """A raise anywhere in a write's task still brings the count down:
-        a count that stayed up held every later build and run open."""
+        """A raise anywhere in a write's task still brings the count down, and
+        counts the write not written: a count that stayed up held every later
+        build and run open, and a failed save counted written let a build read
+        a folder missing its image."""
 
         def _write():
             if raising == 'the write':
@@ -103,7 +105,7 @@ class TestCompletion:
         seen, done = _close(batch)
 
         assert done.wait(HELD_S), 'a raising write left the batch owing it'
-        assert seen == ['written']
+        assert seen == ['incomplete']
 
     def test_completion_happens_once(self, lane):
         batch = RunWriteBatch(lane)
@@ -210,7 +212,7 @@ class TestPacing:
         stuck.release.set()
         seen, done = _close(batch)
         assert done.wait(HELD_S)
-        assert seen == ['abandoned'], 'a frame the stuck writer refused was not counted'
+        assert seen == ['incomplete'], 'a frame the stuck writer refused was not counted'
 
 
 class TestAbandon:
@@ -228,11 +230,11 @@ class TestAbandon:
 
         assert abandoned == 2
         assert done.is_set(), 'an abandoned, closed batch did not complete'
-        assert seen == ['abandoned']
+        assert seen == ['incomplete']
         stuck.release.set()
         time.sleep(0.2)
         assert not queued.ran, 'a write given up on still ran when its turn came'
-        assert seen == ['abandoned'], 'the stuck write returning counted again'
+        assert seen == ['incomplete'], 'the stuck write returning counted again'
 
     def test_a_complete_batch_abandons_nothing(self, lane):
         batch = RunWriteBatch(lane)

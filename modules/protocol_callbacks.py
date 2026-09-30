@@ -32,8 +32,8 @@ class ProtocolCallbacks:
     run_scan_pre: Callable | None = None  # () -> None
     scan_iterate_post: Callable | None = None  # () -> None
     run_complete: Callable | None = None  # (protocol, status, ending, run_dir) -> None
-    # files is the run's write outcome: 'written', or 'abandoned' when some
-    # of its images never reached the disk.
+    # files is the run's write outcome: 'written', or 'incomplete' when some
+    # of its images are not on disk.
     files_complete: Callable | None = None  # (protocol, run_dir, files) -> None
 
     # --- Autofocus ---

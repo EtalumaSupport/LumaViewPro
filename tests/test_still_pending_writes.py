@@ -170,7 +170,7 @@ class TestStillPendingWrites:
         if refusal == 'wedged':
             _close(writer)
         assert writer._write_batch.wait_complete(timeout_s=0.1) is True
-        assert writer._write_batch.outcome == ('abandoned' if refusal == 'wedged' else 'written')
+        assert writer._write_batch.outcome == ('incomplete' if refusal == 'wedged' else 'written')
 
     def test_each_run_counts_only_its_own_writes(self):
         executor = MagicMock()

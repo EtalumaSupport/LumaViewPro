@@ -172,8 +172,8 @@ def schedule_files_complete(
 ) -> None:
     """Schedule the run's one ``files_complete``, after its cleanup summary.
 
-    ``files`` is the run's write outcome: ``'written'``, or ``'abandoned'``
-    when some of its images never reached the disk.
+    ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
+    when some of its images are not on disk.
     """
     if not callbacks.files_complete:
         return

@@ -896,8 +896,8 @@ def run_protocol_complete_processors(
     PluginSpec.auto_run_on_protocol_complete=True.
 
     Called once per protocol run after all output files are written
-    to disk. ``files`` is the run's write outcome; on ``'abandoned'`` --
-    some images never reached the disk -- nothing runs, since a plugin
+    to disk. ``files`` is the run's write outcome; on ``'incomplete'`` --
+    some images are not on disk -- nothing runs, since a plugin
     reading the folder as whole would build from a partial one. Each plugin's processor runs in turn; per-plugin
     exceptions are caught and logged so one failure does not block
     others or the rest of the completion handler. ProcessorResult is

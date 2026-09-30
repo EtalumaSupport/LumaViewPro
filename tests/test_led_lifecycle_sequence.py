@@ -906,8 +906,8 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
     # abandoned once the unparked filler lands.
     batch = runner.write_batch()
     assert batch.wait_complete(10), "the run's write batch never completed"
-    assert batch.outcome == 'abandoned', (
-        'a frame refused by a wedged writer must be counted abandoned, never silently dropped'
+    assert batch.outcome == 'incomplete', (
+        'a frame refused by a wedged writer must be counted not written, never silently dropped'
     )
     stall_notes = [n for n in fired if n.title == 'File Writer Stalled']
     assert len(stall_notes) == 1, f'expected one fatal stall notification, saw {fired}'

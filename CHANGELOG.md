@@ -2,6 +2,11 @@
 
 ## 4.0.0 (in development)
 
+- **A run with a failed image save ends `incomplete` (SDK, breaking)**: `files_complete`'s
+  `files` is now `'written'` or `'incomplete'` (was `'abandoned'`). A save that failed on
+  disk used to count as written, so the composite merge, the hyperstack build and the
+  post-processing auto-run read a folder missing an image; they now refuse it, with
+  `RunFilesNotWrittenError` reason `write_batch_save_failed`.
 - **One labware and objective catalogue per scope (SDK)**: `Lumascope(..., source_path=None)`
   reads `data/labware.json` and `data/objectives.json` once, from `source_path` (the
   installation's own folder when none is given), and exposes `scope.source_path`,

@@ -101,7 +101,7 @@ def test_back_to_back_runs_each_dispatch_their_own_auto_run(dispatched):
     )
 
 
-@pytest.mark.parametrize('files', ['written', 'abandoned'])
+@pytest.mark.parametrize('files', ['written', 'incomplete'])
 def test_the_runs_files_outcome_reaches_the_plugins_as_the_batch_gave_it(dispatched, files):
     """The plugins decide from the outcome whether the folder is whole; the
     panel passes on what the run's write batch reported, never a value of
