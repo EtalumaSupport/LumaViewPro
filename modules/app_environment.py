@@ -48,7 +48,7 @@ def init_environment(main_file: str) -> AppEnvironment:
     windows_machine = os.name == 'nt'
 
     # Read version and build timestamp via shared reader
-    from modules.path_utils import read_version
+    from modules.path_utils import data_folder_name, read_version
 
     version, build_timestamp = read_version(pathlib.Path(script_path))
 
@@ -83,7 +83,7 @@ def init_environment(main_file: str) -> AppEnvironment:
         documents_folder = platformdirs.user_documents_dir()
         # Use base version (without hash) for folder name
         # version is already path-safe (no timestamp, no parens)
-        lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
+        lvp_appdata = os.path.join(documents_folder, data_folder_name(version))
 
         if not os.path.exists(lvp_appdata):
             os.mkdir(lvp_appdata)

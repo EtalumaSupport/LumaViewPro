@@ -120,24 +120,41 @@ def get_script_root() -> pathlib.Path:
 
 
 def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
-    """Read version and build timestamp from version.txt.
+    """Read version and build timestamp from version.txt -- the one reader of it.
 
     Returns (version, build_timestamp). Either may be empty string on error.
     Line 1 = version string (path-safe, e.g., "4.0.0-beta2")
     Line 2 = build timestamp (display only, e.g., "2026-03-27 18:52")
+
+    Read as utf-8-sig: a byte-order mark is not whitespace, so ``strip``
+    would leave it on line 1. The version names the per-user data folder
+    and is stamped into the TIFF Software tag of every saved image, where
+    a non-ASCII character raises "TIFF strings must be 7-bit ASCII" and no
+    image can be saved at all.
     """
     if script_root is None:
         script_root = get_script_root()
-    version_file = script_root / 'version.txt'
+    version_file = pathlib.Path(script_root) / 'version.txt'
     try:
-        lines = version_file.read_text().splitlines()
+        lines = version_file.read_text(encoding='utf-8-sig').splitlines()
         version = lines[0].strip() if len(lines) > 0 else ''
         build_timestamp = lines[1].strip() if len(lines) > 1 else ''
         return version, build_timestamp
     except FileNotFoundError:
         return '', ''
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return '', ''
+
+
+def data_folder_name(version: str) -> str:
+    """The name of an installed build's per-user data folder, in Documents.
+
+    One derivation for every reader of that folder: the logger, which
+    writes the logs there, the GUI's environment, which copies the shipped
+    data into it on first launch, and ``get_source_root``, which every
+    installation file is read from. Each composes its own root.
+    """
+    return f'LumaViewPro {version}'
 
 
 def _read_version(script_root: pathlib.Path) -> str:
@@ -164,7 +181,7 @@ def get_source_root(
     import platformdirs
 
     documents_dir = pathlib.Path(platformdirs.user_documents_dir())
-    return documents_dir / f'LumaViewPro {version}'
+    return documents_dir / data_folder_name(version)
 
 
 def resolve_data_file(

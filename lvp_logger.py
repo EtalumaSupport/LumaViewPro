@@ -6,6 +6,7 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 """
 
 import os
+import pathlib
 
 # Suppress Kivy's own file/console logging before any Kivy import can fire.
 # LVP routes the `kivy` logger into its file_handler / error_handler below,
@@ -46,24 +47,15 @@ script_path = abspath[: -len(basename)]
 #   Line 1: version string (e.g., "4.0.0-beta2") - used in folder names, must be path-safe
 #   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
 #
-# utf-8-sig, not the default: a byte-order mark is NOT whitespace, so
-# .strip() leaves it on line 1 and it becomes part of the version string.
-# That string is not cosmetic -- it names the Documents data folder below
-# and is stamped into the TIFF Software tag of every saved image, where a
-# non-ASCII byte raises "TIFF strings must be 7-bit ASCII" and no image
-# can be saved at all. utf-8-sig strips a BOM if present and is a no-op
-# if absent, so the app survives any writer that leaves one.
-version = ''
-build_timestamp = ''
-try:
-    with open(os.path.join(script_path, 'version.txt'), encoding='utf-8-sig') as f:
-        lines = f.readlines()
-        version = lines[0].strip() if len(lines) > 0 else ''
-        build_timestamp = lines[1].strip() if len(lines) > 1 else ''
-except FileNotFoundError:
-    pass  # Expected when running from source without version.txt
-except Exception as e:
-    print(f'[lvp_logger] WARNING: Failed to read version.txt: {e}', file=sys.stderr)
+# Read through the application's one reader of the file, which strips a
+# byte-order mark: the version names the Documents data folder below and
+# is stamped into the TIFF Software tag of every saved image, so a second
+# reader with a different policy is how the two drifted apart before.
+# path_utils imports only the standard library and modules.exceptions, so
+# this import cannot reach back into the logger.
+from modules.path_utils import data_folder_name, read_version
+
+version, build_timestamp = read_version(pathlib.Path(script_path))
 
 # Under PyInstaller (sys.frozen=True), this module's __file__ points
 # into the bundle's extract dir -- _MEI<random> (onefile mode) or
@@ -89,7 +81,7 @@ except Exception as e:
 
 if windows_machine and lvp_installed:
     documents_folder = platformdirs.user_documents_dir()
-    lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
+    lvp_appdata = os.path.join(documents_folder, data_folder_name(version))
 
     # Do NOT os.chdir() here -- it changes global CWD as a side effect of import.
     # Use absolute paths instead.
@@ -625,7 +617,9 @@ def collect_installed_packages() -> dict:
     return _collect_installed_packages()
 
 
-def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines: list[str]):
+def log_environment_banner(
+    install_path: str, version_str: str, camera_sdk_lines: list[str]
+) -> None:
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
@@ -636,8 +630,8 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     ``camera_sdk_lines`` is the output of
     ``modules.app_environment.camera_sdk_probe()`` -- required (not
     defaulted, not imported here) so no entry point can silently drop the
-    camera-SDK fingerprint, while this foundational module keeps zero
-    dependency on modules/.
+    camera-SDK fingerprint, while importing this module never imports the
+    camera bindings the probe imports.
 
     Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
     and the camera-SDK lines. Every entry point that ships should call
@@ -792,8 +786,8 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     # probes by IMPORT: frozen builds bundle the modules with almost no
     # dist metadata, so the metadata read that used to live here claimed
     # "not installed" for importable bindings and hid the reason when one
-    # truly could not import. Passed in rather than imported so this
-    # foundational module keeps zero dependency on modules/.
+    # truly could not import. Passed in rather than imported so importing
+    # this module never imports the camera bindings.
     for _sdk_line in camera_sdk_lines:
         logger.info(f'[LVP Main  ] {_sdk_line}')
 
