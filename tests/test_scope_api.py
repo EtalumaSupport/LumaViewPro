@@ -71,7 +71,7 @@ def _make_settings(layers=None, with_stim=False):
             'max_duration_seconds': 30,
             'target_mean': 128,
         },
-        'labware': 'test_plate',
+        'labware': '96 well microplate',
     }
     settings['objective_id'] = '4x Oly'
     settings['stage_offset'] = {'x': 0, 'y': 0}
@@ -354,10 +354,30 @@ class TestFocusLog:
 
 
 class TestGetCurrentPlatePosition:
-    def test_returns_zeros_when_no_driver(self):
+    def test_an_expected_motor_board_that_is_absent_is_refused(self):
+        # The model has a motor controller and none answers: there is no
+        # position, and the origin would be recorded as if it were one.
+        from modules.exceptions import HardwareCommandRefusedError
+
         scope = MagicMock()
-        scope._motion_driver = None  # No motor board connected
         type(scope).motor_connected = PropertyMock(return_value=False)
+        type(scope).motion_expected = PropertyMock(return_value=True)
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            config_helpers.get_current_plate_position(
+                scope,
+                _make_settings(),
+                MagicMock(),
+                MagicMock(),
+            )
+        assert refused.value.reason == 'not_connected'
+
+    def test_a_manual_scope_still_answers_the_origin(self):
+        # A scope with no motor controller by design: what its steps record
+        # in place of a position is decided elsewhere, and until then this
+        # answer is unchanged.
+        scope = MagicMock()
+        type(scope).motor_connected = PropertyMock(return_value=False)
+        type(scope).motion_expected = PropertyMock(return_value=False)
         result = config_helpers.get_current_plate_position(
             scope,
             _make_settings(),
@@ -366,18 +386,21 @@ class TestGetCurrentPlatePosition:
         )
         assert result == {'x': 0, 'y': 0, 'z': 0}
 
-    def test_falls_back_on_labware_error(self):
-        scope = _make_mock_scope()
-        loader = MagicMock()
-        loader.get_plate.side_effect = Exception('not found')
-        result = config_helpers.get_current_plate_position(
-            scope,
-            _make_settings(),
-            MagicMock(),
-            loader,
-        )
-        # Should return rounded stage positions
-        assert result['z'] != 0  # Z=500 from mock
+    def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self):
+        from modules.exceptions import ConfigError
+        from modules.labware_loader import WellPlateLoader
+
+        settings = _make_settings()
+        settings['protocol'] = {'labware': 'nonexistent'}
+        transformer = MagicMock()
+        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
+            config_helpers.get_current_plate_position(
+                _make_mock_scope(),
+                settings,
+                transformer,
+                WellPlateLoader(),
+            )
+        transformer.stage_to_plate.assert_not_called()
 
     def test_zonly_scope_missing_xy_does_not_raise(self):
         # A scope with no XY stage reports position without X/Y keys; the

@@ -3,12 +3,10 @@
 Tests for UI-dependent config getters in modules/config_ui_getters.py.
 
 Headless equivalents in modules/config_helpers.py are tested in
-tests/test_headless_config.py. Per Eric's 2026-04-25 directive,
-get_selected_labware() ALWAYS returns a valid (labware_id, plate) tuple
--- never None -- by falling back to the shipped default labware and then
-to the first available plate. Issue #634/#632 cluster: removing None
-from the contract retires the cluster of latent crash sites that
-consumed it without None-checking.
+tests/test_headless_config.py. get_selected_labware() answers the stored
+plate as a (labware_id, plate) tuple, never None, or raises ConfigError
+naming a plate the catalogue does not have. It never substitutes a
+different plate.
 """
 
 import datetime
@@ -35,7 +33,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 
 
 class TestGetSelectedLabware:
-    """UI variant -- always returns a valid (labware_id, plate) tuple."""
+    """UI variant -- the stored plate, or ConfigError; never another plate."""
 
     def test_settings_is_the_single_store(self, monkeypatch):
         # Settings owns the selection: the spinner writes through on
@@ -45,6 +43,7 @@ class TestGetSelectedLabware:
         # open between the GUI and headless paths.
         loader = MagicMock()
         plate = MagicMock()
+        loader.resolve_plate_key.side_effect = lambda name: name
         loader.get_plate.return_value = plate
         _patch_ctx(
             monkeypatch,
@@ -62,6 +61,7 @@ class TestGetSelectedLabware:
     def test_spinner_empty_falls_back_to_settings(self, monkeypatch):
         loader = MagicMock()
         plate = MagicMock()
+        loader.resolve_plate_key.side_effect = lambda name: name
         loader.get_plate.return_value = plate
         _patch_ctx(
             monkeypatch,
@@ -76,57 +76,41 @@ class TestGetSelectedLabware:
         assert labware_id == '96 well microplate'
         assert obj is plate
 
-    def test_invalid_stored_labware_falls_back_to_default(self, monkeypatch):
-        # Issue #634's class: an invalid stored labware key ('New' was
-        # the old KV spinner default that leaked into settings) falls
-        # back cleanly to DEFAULT_LABWARE_ID rather than returning None.
-        loader = MagicMock()
-        default_plate = MagicMock()
+    def test_invalid_stored_labware_is_refused_by_name(self, monkeypatch):
+        # 'New' was the old KV spinner default that leaked into settings.
+        # A plate the catalogue does not have is refused, never replaced
+        # by the default: the default's geometry would move every well.
+        from modules.exceptions import ConfigError
+        from modules.labware_loader import WellPlateLoader
 
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'New':
-                raise KeyError('New')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
         _patch_ctx(
             monkeypatch,
             spinner_text='New',
             settings={'protocol': {'labware': 'New'}},
-            loader=loader,
+            loader=WellPlateLoader(),
         )
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        # Falls back to '96 well microplate' (DEFAULT_LABWARE_ID).
-        assert labware_id == '96 well microplate'
-        assert obj is default_plate
+        with pytest.raises(ConfigError, match="unknown labware 'New'"):
+            get_selected_labware()
 
-    def test_spinner_empty_and_settings_missing_uses_default(self, monkeypatch):
-        loader = MagicMock()
-        default_plate = MagicMock()
-        loader.get_plate.return_value = default_plate
-        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=loader)
+    def test_spinner_empty_and_settings_missing_is_refused(self, monkeypatch):
+        from modules.exceptions import ConfigError
+        from modules.labware_loader import WellPlateLoader
+
+        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=WellPlateLoader())
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        assert labware_id == '96 well microplate'
-        assert obj is default_plate
+        with pytest.raises(ConfigError):
+            get_selected_labware()
 
-    def test_loader_keyerror_falls_back_to_first_available(self, monkeypatch):
-        # Both requested AND default missing -> fall back to first plate
-        # in loader.get_plate_list().
+    def test_no_first_available_plate_is_substituted(self, monkeypatch):
+        from modules.exceptions import ConfigError
+
         loader = MagicMock()
-        first_plate = MagicMock()
-
-        def fake_get_plate(plate_key=None):
-            if plate_key in ('nonexistent plate', '96 well microplate'):
-                raise KeyError('not found')
-            return first_plate
-
-        loader.get_plate.side_effect = fake_get_plate
+        loader.resolve_plate_key.side_effect = ConfigError("unknown labware 'nonexistent plate'")
         loader.get_plate_list.return_value = ['some-other-plate']
         _patch_ctx(
             monkeypatch,
@@ -137,35 +121,28 @@ class TestGetSelectedLabware:
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        assert labware_id == 'some-other-plate'
-        assert obj is first_plate
+        with pytest.raises(ConfigError, match='nonexistent plate'):
+            get_selected_labware()
+        loader.get_plate.assert_not_called()
 
-    def test_caller_tuple_unpack_does_not_crash_on_any_input(self, monkeypatch):
-        # The original #634 crash chain was `labware_id, _ = get_selected_labware()`
-        # blowing up on TypeError. With the always-valid contract, this
-        # path is impossible -- labware_id is always a non-None string.
-        loader = MagicMock()
-        default_plate = MagicMock()
+    def test_caller_tuple_unpack_gets_a_string_or_a_raise(self, monkeypatch):
+        # The original crash chain was `labware_id, _ = get_selected_labware()`
+        # blowing up on TypeError from a None. The answer is a non-empty
+        # string or a ConfigError the caller can report -- never None.
+        from modules.labware_loader import WellPlateLoader
 
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'New':
-                raise KeyError('New')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
         _patch_ctx(
             monkeypatch,
-            spinner_text='New',
-            settings={'protocol': {'labware': 'New'}},
-            loader=loader,
+            spinner_text='',
+            settings={'protocol': {'labware': '6 well microplate'}},
+            loader=WellPlateLoader(),
         )
 
         from modules.config_ui_getters import get_selected_labware
 
         labware_id, _ = get_selected_labware()
         assert isinstance(labware_id, str)
-        assert labware_id  # non-empty
+        assert labware_id == '6 well microplate'
 
 
 class TestTimingAndBinningParseNotifies:

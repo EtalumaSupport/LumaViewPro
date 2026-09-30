@@ -20,7 +20,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, HardwareCommandRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -29,6 +29,8 @@ from modules.tiling_config import TilingConfig
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
+    from modules.coord_transformations import CoordinateTransformer
+    from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
@@ -376,52 +378,40 @@ def model_has_turret(scopes: dict, model: str | None) -> bool:
 
 
 def get_current_plate_position(
-    scope,
+    scope: 'Lumascope',
     settings: dict,
-    coordinate_transformer,
-    wellplate_loader,
+    coordinate_transformer: 'CoordinateTransformer',
+    wellplate_loader: WellPlateLoader,
 ) -> dict:
     """Get current plate position in plate coordinates.
 
     Returns:
         dict with keys 'x', 'y', 'z' in plate coordinates (um).
+
+    Raises:
+        HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
+            model has a motor controller and none is connected, so there is
+            no position to read. A step or a run recorded at a made-up
+            position would image the wrong place under the right name.
+        ConfigError: The stored labware is not a plate the catalogue has.
+            Converting through a different plate would put every position
+            in the wrong frame.
     """
     if not scope.motor_connected:
+        if scope.motion_expected:
+            raise HardwareCommandRefusedError('not_connected', 'get_current_plate_position')
+        # A manual scope has no motor controller by design. What its steps
+        # record in place of a position is not decided here; until it is,
+        # the origin stands in, and is logged as the stand-in it is.
         logger.error('Cannot retrieve current plate position')
         return {'x': 0, 'y': 0, 'z': 0}
 
     pos = scope.motion.get_current_position(axis=None)
-
-    labware_id = settings.get('protocol', {}).get('labware', '')
-    try:
-        labware = wellplate_loader.get_plate(plate_key=labware_id)
-    except Exception as e:
-        # Fallback returns stage coords in plate-coord field positions --
-        # data-misleading by design (callers expect plate coords). Notify
-        # so the user knows the protocol/z-stack about to be saved has the
-        # wrong coordinate frame, instead of silently writing bad data.
-        logger.error(
-            f"Could not load labware '{labware_id}' for position conversion: {e}",
-            exc_info=True,
-        )
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'Position',
-            'Labware not found',
-            f"Labware '{labware_id}' could not be loaded. "
-            f'Returning stage coordinates instead of plate coordinates. '
-            f'Check that the labware is defined in data/labware.json.',
-        )
-        return {
-            'x': round(pos.get('X', 0), common_utils.max_decimal_precision('x')),
-            'y': round(pos.get('Y', 0), common_utils.max_decimal_precision('y')),
-            'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
-        }
+    _labware_id, labware = get_selected_labware_from_settings(settings, wellplate_loader)
 
     # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
-    # missing axes the same way the labware-fallback branch above does, so
-    # adding/modifying a step (and z-stack capture) does not raise on them.
+    # missing axes so adding/modifying a step (and z-stack capture) does not
+    # raise on them.
     px, py = coordinate_transformer.stage_to_plate(
         labware=labware,
         stage_offset=settings['stage_offset'],
@@ -1201,66 +1191,26 @@ def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCa
     )
 
 
-DEFAULT_LABWARE_ID = '96 well microplate'
-
-
 def get_selected_labware_from_settings(
     settings: dict,
-    wellplate_loader,
+    wellplate_loader: WellPlateLoader,
 ) -> tuple[str, object]:
-    """Read selected labware from settings dict (no UI needed).
+    """The selected plate, as ``(labware_id, wellplate_object)``; never None.
 
-    Always returns a valid (labware_id, wellplate_object) tuple. Per
-    Eric's 2026-04-25 directive: callers shouldn't have to deal with
-    None. If settings has no labware, or the requested labware doesn't
-    exist in the loader, fall back to the shipped default
-    (DEFAULT_LABWARE_ID) and finally to the first available plate.
-    Issue #634/#632 cluster: every site that consumed this return
-    treated None as a crash, so removing None from the contract retires
-    the cluster by construction.
+    The id is the catalogue's key for the stored name, so a plate renamed
+    since the settings named it is found under its old spelling.
 
-    The only way this raises is if the wellplate loader is empty (broken
-    install / labware.json missing) -- that's a genuine fatal that the
-    caller cannot reasonably recover from.
+    Raises:
+        ConfigError: The settings name no plate, or a plate the catalogue
+            does not have; for the latter the message names it and the
+            plates available. No other plate is substituted: a different plate's geometry puts
+            every well position in the wrong place while the protocol reads
+            as if it ran normally. Bring-up configures the scope through
+            this call, so an unusable stored plate is refused there, before
+            anything else reads it.
     """
-    labware_id = settings.get('protocol', {}).get('labware', '') or DEFAULT_LABWARE_ID
-    try:
-        labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
-        return labware_id, labware_obj
-    except Exception:
-        logger.warning(
-            f"Could not load labware '{labware_id}', falling back to default '{DEFAULT_LABWARE_ID}'"
-        )
-        # The substituted plate has different geometry, so every well
-        # position the protocol computes will be wrong. Tell the user --
-        # a silent substitution looks like the protocol ran normally.
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'Labware',
-            'Labware Unavailable',
-            f"The selected labware '{labware_id}' is unavailable; using the default "
-            'plate instead. Well positions will be wrong -- pick an installed plate.',
-        )
-    # First fallback: the shipped default.
-    if labware_id != DEFAULT_LABWARE_ID:
-        try:
-            labware_obj = wellplate_loader.get_plate(plate_key=DEFAULT_LABWARE_ID)
-            return DEFAULT_LABWARE_ID, labware_obj
-        except Exception:
-            logger.warning(
-                f"Default labware '{DEFAULT_LABWARE_ID}' also missing; "
-                f'falling back to first available plate'
-            )
-    # Second fallback: anything in the loader. If the loader is empty,
-    # the install is broken (labware.json missing or unreadable).
-    available = wellplate_loader.get_plate_list()
-    if not available:
-        raise ConfigError(
-            'wellplate_loader has no plates registered -- labware.json is missing or unreadable'
-        )
-    fallback_id = available[0]
-    return fallback_id, wellplate_loader.get_plate(plate_key=fallback_id)
+    labware_id = wellplate_loader.resolve_plate_key(settings.get('protocol', {}).get('labware'))
+    return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
@@ -1467,7 +1417,10 @@ def get_composite_capture_config_from_settings(
 
     return build_sequenced_capture_config(
         {
-            'labware_id': settings.get('protocol', {}).get('labware', ''),
+            # No default: bring-up and the settings writers admit only a
+            # plate the catalogue has, and an empty name would be saved into
+            # the run's record as its plate.
+            'labware_id': settings['protocol']['labware'],
             'objective_id': objective_id,
             'zstack_params': {},
             'use_zstacking': False,

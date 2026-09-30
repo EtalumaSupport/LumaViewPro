@@ -344,7 +344,7 @@ session.scope.imaging.start_streaming()
 
 Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. The stored plate (`settings['protocol']['labware']`) must be one the labware catalogue has, or `configure_scope()` raises `ConfigError` naming it and the plates available; no other plate is substituted, since a different plate's geometry would put every well position in the wrong place. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -405,6 +405,12 @@ than the host's own goes through `update_settings()`, which takes the
 lock — a write that skips it can tear a snapshot another thread is taking
 concurrently. Long-running work should take one `get_settings_snapshot()`
 at entry and read from that rather than the live dict.
+
+`update_settings('protocol', block)` holds the block's plate to the rule
+`select_labware` holds: a block that is not a mapping, or that names a
+plate the labware catalogue does not have, raises `ConfigError` and
+nothing is written; a retired plate name is stored under its catalogue
+key.
 
 `save_settings()` writes the dict to `data/current.json`. **A refused
 write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),
@@ -735,7 +741,9 @@ session.get_layer_configs()              # all layer settings
 session.scope.runtime_state.resolve_current_objective()  # (id, info) of the active objective; ObjectiveUnknownError when unknown
 session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
-session.get_current_plate_position()     # current XY in plate coords
+session.get_current_plate_position()     # current XY in plate coords; ConfigError when the stored plate is not in
+                                         # the catalogue; HardwareCommandRefusedError('not_connected') when this
+                                         # model has a motor controller and none is connected
 session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
 session.get_enabled_stim_configs()       # only the enabled ones

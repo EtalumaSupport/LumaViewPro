@@ -1018,7 +1018,26 @@ class ScopeSession:
         The write path for any caller that is not on the host's own
         thread. Reads may go straight to `settings`; a write that skips
         this can tear a snapshot being taken concurrently.
+
+        A ``'protocol'`` block names the selected plate, which every plate
+        position is converted through, so its plate is held to the rule
+        ``select_labware`` holds: the catalogue must have it, and it is
+        stored under the catalogue's spelling.
+
+        Raises:
+            ConfigError: A ``'protocol'`` value that is not a mapping, or
+                that names a plate the catalogue does not have. Nothing is
+                written.
         """
+        if key == 'protocol':
+            if not isinstance(value, dict):
+                raise ConfigError(
+                    f'the protocol settings must be a mapping, got {type(value).__name__}'
+                )
+            value = {
+                **value,
+                'labware': self.wellplate_loader.resolve_plate_key(value.get('labware')),
+            }
         with self.settings_lock:
             self.settings[key] = value
 

@@ -309,3 +309,18 @@ class TestCompositeOutputFormat:
         )
         assert config.image_mode == '8bit'
         assert config.capture_depth == 8
+
+
+def test_the_run_records_the_stored_plate():
+    config = _assemble(_settings(acquiring=('BF',)))
+    assert config['labware_id'] == '96 well microplate'
+
+
+def test_a_store_with_no_plate_is_not_recorded_as_an_empty_one():
+    # Bring-up and the settings writers admit only a plate the catalogue
+    # has, so a store without one is a defect upstream; the composite must
+    # not write an empty plate name into the run's record in its place.
+    settings = _settings(acquiring=('BF',))
+    del settings['protocol']['labware']
+    with pytest.raises(KeyError):
+        _assemble(settings)

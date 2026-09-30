@@ -71,14 +71,15 @@ def test_the_keys_the_builder_used_to_read_still_do_not_exist():
     assert 'use_zstacking' not in protocol
 
 
-def test_unloadable_labware_falls_back_instead_of_reaching_the_config_bare():
+def test_an_unknown_labware_is_refused_before_the_config_is_built():
     """The settings lane resolves labware the way the GUI lane does.
 
     It used to read protocol['labware'] raw, so a missing or unknown
-    plate reached the protocol as '' -- skipping the shipped-default
-    fallback and the warning the user gets on the GUI lane.
+    plate reached the protocol as ''. Both lanes now refuse a plate the
+    catalogue does not have, naming it; neither substitutes another plate,
+    whose geometry would put every well position in the wrong place.
     """
-    config = _build(_settings(protocol={'labware': 'a plate that does not exist'}))
+    from modules.exceptions import ConfigError
 
-    assert config['labware_id'] != ''
-    assert config['labware_id'] != 'a plate that does not exist'
+    with pytest.raises(ConfigError, match="unknown labware 'a plate that does not exist'"):
+        _build(_settings(protocol={'labware': 'a plate that does not exist'}))

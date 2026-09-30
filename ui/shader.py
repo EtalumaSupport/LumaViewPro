@@ -282,24 +282,28 @@ void main (void) {
                 # single-owner pattern dropped them. (#638)
                 if self._mouse_over_image:
                     title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
-                    try:
-                        from modules.config_ui_getters import (
-                            get_binning_from_ui,
-                            get_selected_labware,
-                        )
+                    from modules.config_ui_getters import (
+                        get_binning_from_ui,
+                        get_selected_labware,
+                    )
 
-                        _, objective = (
-                            _app_ctx.ctx.session.scope.runtime_state.resolve_current_objective()
-                        )
+                    # The plate (um) readout converts a cursor offset into a
+                    # stage distance; it needs a connected XY stage, a known
+                    # objective and a known pixel size. Without any of them,
+                    # the pixel readout above stands alone -- never an
+                    # invented distance. Anything that fails beyond these is
+                    # a fault, and is not hidden here.
+                    objective = _app_ctx.ctx.session.scope.runtime_state.get_current_objective()
+                    if (
+                        ctx.lumaview.scope.capabilities.has_xy_stage
+                        and ctx.lumaview.scope.motor_connected
+                        and objective is not None
+                    ):
                         pixel_size_um = config_ui_getters.get_pixel_size(
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),
                         )
-                        # The plate (um) readout converts a cursor offset into a
-                        # stage distance; it needs both a connected motor and a
-                        # known pixel size. Without either, the pixel readout
-                        # above stands alone -- never an invented distance.
-                        if ctx.lumaview.scope.motor_connected and pixel_size_um is not None:
+                        if pixel_size_um is not None:
                             # _mouse_pixel_* are sensor-pixel coords (full frame);
                             # center on the full-resolution frame, not the
                             # downscaled preview texture.
@@ -315,8 +319,6 @@ void main (void) {
                                 sy=pos['Y'] - dy_um,
                             )
                             title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
-                    except Exception:
-                        pass
 
                 event_text = get_title_event_text()
                 if event_text:

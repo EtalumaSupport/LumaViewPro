@@ -537,11 +537,7 @@ class ProtocolSettings(FloatLayout):
             # the scope did not take.
             run_reported(lambda: ctx.session.select_labware(selected), None, 'LABWARE')
 
-        labware_id, labware_obj = get_selected_labware()
-
-        if labware_obj is None:
-            logger.error('Labware could not be loaded')
-            return
+        labware_id, _labware_obj = get_selected_labware()
 
         if self._protocol is not None:
             self._protocol.modify_labware(labware_id=labware_id)

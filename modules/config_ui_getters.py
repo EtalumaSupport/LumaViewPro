@@ -255,7 +255,7 @@ def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
 # ---------------------------------------------------------------------------
 
 
-def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
+def get_selected_labware() -> tuple[str, labware.WellPlate]:
     """The currently-selected labware, read from SETTINGS.
 
     Settings is the single labware store: the spinner writes through on
@@ -264,9 +264,8 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
     settings write that bypassed the spinner (protocol load) used to
     make the GUI and headless paths answer differently.
 
-    Returns (labware_id, wellplate_obj); the lookup falls back to the
-    shipped default or first available plate and only raises
-    ConfigError if the wellplate loader is completely empty.
+    Returns (labware_id, wellplate_obj). A stored plate the catalogue
+    does not have raises ConfigError; no other plate is substituted.
     """
     return config_helpers.get_selected_labware_from_settings(
         _app_ctx.ctx.settings,
