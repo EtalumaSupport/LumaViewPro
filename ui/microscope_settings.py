@@ -739,7 +739,7 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_turret_control_visibility(visible=caps.has_turret)
         motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
         motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
-        motion_settings.set_objective_control_visibility(visible=caps.has_focus)
+        motion_settings.set_focus_control_visibility(visible=caps.has_focus)
 
         image_settings = ctx.image_settings
         # Which layers exist comes from the scope's resolved identity --
@@ -758,9 +758,11 @@ class MicroscopeSettings(BoxLayout):
             )
         image_settings.set_phasecontrast_layer_control_visibility(visible='PC' in present)
         image_settings.apply_layer_titles(identity.layers)
+        image_settings.set_layer_focus_visibility(visible=caps.has_focus)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=caps.has_xy_stage)
+        protocol_settings.set_focus_control_visibility(visible=caps.has_focus)
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'

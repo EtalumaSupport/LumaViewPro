@@ -562,6 +562,15 @@ class ProtocolSettings(FloatLayout):
 
         ctx.stage.full_redraw()
 
+    def set_focus_control_visibility(self, visible: bool) -> None:
+        for focus_id in (
+            'step_focus_row_id',
+            'protocol_zstacking_box_layout_id',
+            'protocol_acquire_zstack_box_id',
+            'run_autofocus_btn',
+        ):
+            self.ids[focus_id].visible = visible
+
     def set_labware_selection_visibility(self, visible):
         labware_spinner = self.ids['labware_spinner']
         labware_spinner.visible = visible

@@ -382,18 +382,25 @@
 			size: self.size
 			pos: self.pos
 	Label:
+		id: adjust_focus_label
 		text:'Adjust Focus'
 		font_size: '16sp'
 		size_hint_y: None
-		height: '30dp'
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 		spacing: '5dp'
 		color: [51/255, 181/255, 229/255, 1]
 
 	BoxLayout:
+		id: focus_block
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '170dp'
-		disabled: app.controls_locked
+		height: '170dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: (not self.visible) or app.controls_locked
+		visible: True
 
 		BoxLayout:
 		    orientation: 'vertical'
@@ -530,10 +537,12 @@
 		id: autofocus_id
 		tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
 		size_hint_y: None
-		height: '30dp'
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
 		font_size: '12sp'
 		text: 'Autofocus'
-		disabled: app.recording_active or root.autofocus_pending
+		disabled: (not self.visible) or app.recording_active or root.autofocus_pending
+		visible: True
 		on_release: root.run_autofocus_from_ui()
 
 	Label:
@@ -614,6 +623,9 @@
             
 	ZStack:
 		id: zstack_id
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 
 
 # Z-Stack Settings
@@ -1288,9 +1300,13 @@
 					on_release: root.next_step()
 			
 			BoxLayout:
+				id: step_focus_row_id
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '20dp'
+				height: '20dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '3dp'
 				Label:
 					text: 'Focus'
@@ -1391,8 +1407,10 @@
 				orientation: 'horizontal'
 				id: protocol_zstacking_box_layout_id
 				size_hint_y: None
-				height: '30dp'
-				opacity: 1
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 			
 				Label:
@@ -1421,9 +1439,13 @@
 								
 			# Z-stack
 			BoxLayout:
+				id: protocol_acquire_zstack_box_id
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 							
 				CheckBox:
@@ -1576,9 +1598,11 @@
 			text: 'Autofocus All Steps'
 			tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 			size_hint_y: None
-			height: '30dp'
+			height: '30dp' if self.visible else 0
+			opacity: 1 if self.visible else 0
 			font_size: '12sp'
-			disabled: app.recording_active or root.autofocus_scan_pending or root.files_draining
+			disabled: (not self.visible) or app.recording_active or root.autofocus_scan_pending or root.files_draining
+			visible: True
 			on_release: root.run_autofocus_scan_from_ui()
 
 		Label:
@@ -3208,7 +3232,7 @@
 
 			# Focus
 			Label:
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -3232,7 +3256,7 @@
 				spacing: '5dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 
 				RoundedButton:
 					size_hint_y: None
@@ -3261,7 +3285,7 @@
 			
 			# Protocol Settings
 			Label:
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -3284,7 +3308,7 @@
 				spacing: '5dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 
 				CheckBox:
 					id: autofocus

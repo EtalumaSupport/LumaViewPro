@@ -337,4 +337,7 @@ def test_the_button_is_disabled_while_its_request_is_in_flight_in_the_kv():
     kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
     idx = kv.find('id: autofocus_id')
     assert idx > 0
-    assert 'disabled: app.recording_active or root.autofocus_pending' in kv[idx : idx + 400]
+    window = kv[idx : idx + 500].splitlines()
+    disabled = [line for line in window if line.strip().startswith('disabled:')]
+    assert disabled, 'the Autofocus button has no disabled binding'
+    assert 'app.recording_active or root.autofocus_pending' in disabled[0]

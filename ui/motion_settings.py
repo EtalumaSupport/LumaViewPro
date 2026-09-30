@@ -50,14 +50,6 @@ class MotionSettings(BoxLayout):
         logger.debug('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
-        # Objective Control accordion is defined inline in lumaviewpro.kv
-        # (wrapping VerticalControl); its widget ref lives in self.ids and
-        # is resolved lazily on first show/hide. Visible-by-default here
-        # matches the kv starting state; set_objective_control_visibility
-        # hides it for scopes that declare Focus=false (LS560/LS620 -- no
-        # motorised Z axis).
-        self._accordion_item_objective_control = None
-        self._accordion_item_objective_control_visible = True
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
@@ -154,46 +146,6 @@ class MotionSettings(BoxLayout):
                 self._accordion_item_xystagecontrol
             )
 
-    def set_objective_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_objective_control()
-        else:
-            self._hide_objective_control()
-
-    def _resolve_objective_accordion(self):
-        """Return the Objective Control accordion widget, resolving from
-        self.ids on first use. `set_ui_features_for_scope()` runs during
-        load_settings; lazy resolution keeps the initial hide working
-        before any eager ref could be captured.
-
-        The cached ref must be the REAL widget (`.__self__`), never the
-        WeakProxy `self.ids` hands out: on scopes that hide this item,
-        remove_widget drops the tree's only strong reference, and a
-        proxy-cached item is garbage-collected -- taking VerticalControl
-        with it, so every later ids['verticalcontrol_id'] deref raises
-        ReferenceError. The other removable accordion items survive
-        hiding because their Python-constructed instance attributes ARE
-        strong references; this cache must give the same guarantee.
-        """
-        if self._accordion_item_objective_control is None:
-            proxy = self.ids.get('objective_control_accordion_id')
-            self._accordion_item_objective_control = proxy.__self__ if proxy is not None else None
-        return self._accordion_item_objective_control
-
-    def _show_objective_control(self):
-        widget = self._resolve_objective_accordion()
-        if widget is not None and not self._accordion_item_objective_control_visible:
-            self._accordion_item_objective_control_visible = True
-            self.ids['motionsettings_accordion_id'].add_widget(widget)
-            self._resort_accordion()
-
-    def _hide_objective_control(self):
-        widget = self._resolve_objective_accordion()
-        if widget is not None and self._accordion_item_objective_control_visible:
-            widget.collapse = True
-            self._accordion_item_objective_control_visible = False
-            self.ids['motionsettings_accordion_id'].remove_widget(widget)
-
     def _resort_accordion(self):
         """Rebuild the left-side accordion children list in canonical order.
 
@@ -201,8 +153,8 @@ class MotionSettings(BoxLayout):
         scope-model transitions (LS850 <-> LS620 <-> LS820) re-add
         previously hidden accordion items via add_widget -- and after
         multiple switches the children list ends up out of canonical
-        order (e.g. Objective Control re-shown ends up at the bottom
-        instead of below Microscope Settings). Called from every
+        order (e.g. XY Stage Control re-shown ends up at the bottom
+        instead of below Objective Control). Called from every
         ``_show_*`` path after the add_widget call. Walks
         ``_LAYER_DISPLAY_ORDER`` forward -- Kivy renders children[0]
         last (= bottom), so the first canonical layer added ends up
@@ -214,14 +166,14 @@ class MotionSettings(BoxLayout):
 
         widget_for_layer = {
             'microscope': self.ids.get('motionsettings_microscope_accordion_id'),
-            'objective': self._resolve_objective_accordion(),
+            'objective': self.ids.get('objective_control_accordion_id'),
             'xystage': self._accordion_item_xystagecontrol,
             'protocol': self.ids.get('motionsettings_protocol_accordion_id'),
             'postproc': self.ids.get('motionsettings_postprocessing_accordion_id'),
         }
         visible_for_layer = {
             'microscope': True,  # always visible (kv-defined)
-            'objective': self._accordion_item_objective_control_visible,
+            'objective': True,  # always visible (kv-defined)
             'xystage': self._accordion_item_xystagecontrol_visible,
             'protocol': True,  # always visible (kv-defined)
             'postproc': True,  # always visible (kv-defined)
@@ -300,6 +252,11 @@ class MotionSettings(BoxLayout):
 
         vert_control.ids['reset_turret_objective_btn'].disabled = not visible
         vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
+
+    def set_focus_control_visibility(self, visible: bool) -> None:
+        vert_control = self.ids['verticalcontrol_id']
+        for focus_id in ('adjust_focus_label', 'focus_block', 'autofocus_id', 'zstack_id'):
+            vert_control.ids[focus_id].visible = visible
 
     def set_tiling_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['protocol_settings_id']

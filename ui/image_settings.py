@@ -315,6 +315,10 @@ class ImageSettings(BoxLayout):
                 continue
             item.title = layer_title(record)
 
+    def set_layer_focus_visibility(self, visible: bool) -> None:
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).focus_support = visible
+
     def set_fluorescence_layer_control_visibility(self, layer: str, visible: bool) -> None:
         if layer not in self._fluorescence_control_visible:
             raise ValueError(f'{layer!r} is not a fluorescence layer')

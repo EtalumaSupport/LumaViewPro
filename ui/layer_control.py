@@ -92,6 +92,9 @@ class LayerControl(BoxLayout):
     # scope-change; AND-ed with the per-layer static autogain_support in the kv.
     camera_autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
+    # Hides the focus and autofocus rows on a scope with no Z axis; set from
+    # scope.capabilities.has_focus when the scope's features are applied.
+    focus_support = BooleanProperty(True)
     show_camera_controls = BooleanProperty(True)
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
