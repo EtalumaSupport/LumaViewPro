@@ -138,7 +138,9 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
         register_atexit=False,
     )
     try:
-        assert asked == [('auto', {'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS})]
+        assert asked == [
+            ('auto', {'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS, 'absence_expected': False})
+        ]
     finally:
         scope.disconnect()
 

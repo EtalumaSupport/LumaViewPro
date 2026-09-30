@@ -483,6 +483,17 @@ class Lumascope:
         motorconfig_defaults = load_motorconfig_defaults(
             resolve_data_file('motorconfig_defaults.json')
         )
+        # Whether the selected model is a manual scope, so a probe that finds
+        # no motor board says so as expected rather than warning on every
+        # start. The probe still runs: a board it finds corrects a wrongly
+        # selected model. Read here, before anything is started, for the same
+        # reason as the defaults.
+        if not simulate:
+            from modules.layer_record import entry_expects_motion, load_scope_models
+
+            motor_absence_expected = not entry_expects_motion(
+                load_scope_models().get(configured_model)
+            )
 
         # Shared state-slot init (audit #35) -- transformers, locks,
         # camera cache, objective/turret state, the scope's lanes.
@@ -514,7 +525,9 @@ class Lumascope:
             )
         else:
             self._motion_driver = motor_registry.create(
-                'auto', motorconfig_defaults=motorconfig_defaults
+                'auto',
+                absence_expected=motor_absence_expected,
+                motorconfig_defaults=motorconfig_defaults,
             )
 
         # ----- MotionAPI -----

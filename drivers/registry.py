@@ -202,7 +202,14 @@ class DriverRegistry:
             )
         return entry.cls
 
-    def create(self, name: str = 'auto', *, simulate: bool = False, **kwargs) -> Any:
+    def create(
+        self,
+        name: str = 'auto',
+        *,
+        simulate: bool = False,
+        absence_expected: bool = False,
+        **kwargs,
+    ) -> Any:
         """Construct a driver instance.
 
         Args:
@@ -213,6 +220,12 @@ class DriverRegistry:
             simulate: If True, only considers drivers with
                 `is_simulator=True`. If False, only considers real
                 drivers (`is_simulator=False`).
+            absence_expected: The caller knows this scope has no such
+                hardware (a manual scope has no motor board). When 'auto'
+                detects none, the fallback is then logged at INFO, not
+                WARNING. A driver that found hardware and could not use it
+                still warns: on such a scope that hardware is a surprise.
+                Not forwarded to the driver.
             **kwargs: Forwarded to the driver constructor. Callers can
                 pass driver-specific args like `model='LS850T'` for
                 SimulatedMotorBoard or `z_position_func=...` for
@@ -348,11 +361,13 @@ class DriverRegistry:
                     f'Falling back to {entry.cls.__name__}'
                 )
             elif found_false_names:
-                logger.warning(
+                logger.log(
+                    logging.INFO if absence_expected else logging.WARNING,
                     f'[registry] {self._kind}: all real drivers reported '
-                    f'found=False (no hardware detected). Tried: '
-                    f'{", ".join(found_false_names)}. '
-                    f'Falling back to {entry.cls.__name__}'
+                    f'found=False (no hardware detected'
+                    f'{"; none expected on this scope" if absence_expected else ""}). '
+                    f'Tried: {", ".join(found_false_names)}. '
+                    f'Falling back to {entry.cls.__name__}',
                 )
             else:
                 logger.info(

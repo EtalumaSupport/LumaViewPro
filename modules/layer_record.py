@@ -199,6 +199,16 @@ def entry_axes(entry: dict) -> frozenset[str]:
     return frozenset(axis for flag, axes in _AXES_BY_FLAG if entry.get(flag) for axis in axes)
 
 
+def entry_expects_motion(entry: dict | None) -> bool:
+    """Whether a scope with this catalogue entry has a motor board.
+
+    No entry expects one: only the catalogue can say a scope is manual,
+    and answering "manual" for a model it does not list would let a
+    motorized scope's missing board pass as expected.
+    """
+    return entry is None or bool(entry_axes(entry))
+
+
 def load_layer_catalogue(scopes_data: dict) -> tuple[str, ...]:
     """The release's layer vocabulary, in display order.
 

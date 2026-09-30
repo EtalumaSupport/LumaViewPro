@@ -134,10 +134,7 @@ class ScopeInitConfig:
         capture_depth = image_mode.resolve_image_mode(
             image_mode.resolve_settings_image_mode(settings)
         )['capture_depth']
-        if scope_config is None:
-            expects_motion = True
-        else:
-            expects_motion = bool(layer_record.entry_axes(scope_config))
+        expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')
         if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
             # A preference, not a position: a value that names no slot
