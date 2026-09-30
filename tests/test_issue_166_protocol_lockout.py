@@ -71,7 +71,9 @@ def test_mirror_is_listener_published_not_caller_pushed():
 def test_session_exposes_is_protocol_running_accessor():
     body = _def_source(_read('modules/scope_session.py'), 'is_protocol_running')
     assert body is not None, 'ScopeSession.is_protocol_running accessor missing'
-    assert "activity_claim.owner == 'protocol'" in body
+    # The claim's run: its holder when that is a run, or a run lent a
+    # diagnostic's claim -- a lent run is still a run in progress.
+    assert 'activity_claim.run_holder is not None' in body
 
 
 def test_postprocessing_funnel_blocks_during_protocol():

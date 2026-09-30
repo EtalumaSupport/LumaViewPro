@@ -48,7 +48,7 @@ from modules.exceptions import (
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
-from modules.run_outcome import RunEnding
+from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
@@ -362,14 +362,33 @@ class ScopeSession:
 
     @property
     def is_protocol_running(self) -> bool:
-        """True while a protocol-class run holds the exclusive claim.
+        """True while a protocol-class run holds the scope.
 
         Scans, full protocols, zstacks, and autofocus runs all hold the
-        'protocol' claim, so all read True here. The claim releases at
-        run-cleanup end; the post-run file drain is visible on
-        run_lockout / protocol_files_draining, not here.
+        'protocol' claim, so all read True here -- and so does a run acting
+        under a diagnostic's lent claim, whose holder stays the diagnostic.
+        The claim releases at run-cleanup end; the post-run file drain is
+        visible on run_lockout / protocol_files_draining, not here.
         """
-        return self.activity_claim.owner == 'protocol'
+        return self.activity_claim.run_holder is not None
+
+    @property
+    def run_in_progress(self) -> bool:
+        """True while the engine's run is in any phase, its teardown included.
+
+        Wider than is_protocol_running, which the claim answers: a run is in
+        progress from its start until its cleanup has finished, the moment
+        after its claim is handed back included.
+        """
+        return self.sequenced_capture_runner.run_in_progress()
+
+    def held_by_other(self, run: 'PendingRunOutcome | None') -> bool:
+        """Whether the scope is held by anything but *run*, a run start() returned.
+
+        What a run control greys on while leaving its own run's Stop live;
+        None asks whether anything holds the scope at all.
+        """
+        return self.sequenced_capture_runner.held_by_other(run)
 
     # ------------------------------------------------------------------
     # Run-state facts and derivations
@@ -448,13 +467,17 @@ class ScopeSession:
         return self.activity_claim.owner in SCOPE_HOLDING_KINDS or self.protocol_files_draining
 
     @property
+    def recording_active(self) -> bool:
+        """True while a manual recording is LIVE; its drain reads False, with
+        its claim still held and still refusing new runs."""
+        return self.activity_claim.owner == 'recording' and self.manual_recording.is_recording
+
+    @property
     def controls_locked(self) -> bool:
         """True while the full control surface locks: any run lockout,
-        or a LIVE manual recording (a draining recording frees the
+        or a live manual recording (a draining recording frees the
         controls while its claim still refuses new runs)."""
-        return self.run_lockout or (
-            self.activity_claim.owner == 'recording' and self.manual_recording.is_recording
-        )
+        return self.run_lockout or self.recording_active
 
     @property
     def motion_enabled(self) -> bool:

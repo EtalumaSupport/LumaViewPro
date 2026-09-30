@@ -1594,10 +1594,8 @@ class SequencedCaptureRunner:
         inside the run as the run's own parameter and by the file-drain
         refusals as the just-finished run's.
         """
-        holder = self._activity_claim.holder
-        if holder is None or holder.kind != 'protocol':
-            return None
-        return holder.run_trigger_source
+        run = self._activity_claim.run_holder
+        return run.run_trigger_source if run is not None else None
 
     def current_step_color(self) -> str | None:
         """Return the Color of the currently-executing protocol step.
@@ -1777,6 +1775,20 @@ class SequencedCaptureRunner:
                 return False
             ending = self._ending.get()
             return ending is not None and ending.status == 'aborted'
+
+    def held_by_other(self, run: 'PendingRunOutcome | None') -> bool:
+        """Whether the scope is held by anything but *run* -- the object a start() returned.
+
+        What a run control greys on: anything else holding the scope --
+        another run, a recording, a diagnostic -- greys it, and its own run
+        leaves it live as that run's Stop. None asks whether anything holds
+        it at all. Decided in one read under the run lock, so the
+        answer never pairs one run's liveness with another's hold.
+        """
+        with self._run_lock:
+            if self._activity_claim.holder is None:
+                return False
+            return not self._is_live_run_locked(run)
 
     def _is_live_run_locked(self, run: 'PendingRunOutcome | None') -> bool:
         return run is not None and run is self.run_outcome() and self._is_run_live()

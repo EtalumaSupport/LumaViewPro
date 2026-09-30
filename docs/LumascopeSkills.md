@@ -658,7 +658,7 @@ Both refusal errors say busy-with-what: `holder` carries what holds the microsco
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
-**Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
+**Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included -- and a run started inside `session.diagnostic_claim()`, whose holder stays `'diagnostic'` (so a refusal still names the diagnostic) while the run is live. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
 
 ### Run state and locks
 
@@ -669,7 +669,11 @@ the same derivations LVP's own GUI mirrors into kv properties
 
 ```python
 session.run_lockout              # True during a run, a diagnostic, OR a run's post-run file drain
-session.is_protocol_running      # True while a protocol-class run holds the claim
+session.is_protocol_running      # True while a protocol-class run holds the scope (a run lent a
+                                 # diagnostic's claim included)
+session.run_in_progress          # the engine's run in any phase, its teardown included
+session.held_by_other(run)       # the scope is held by anything but `run` (what start() returned);
+                                 # False for the run itself, so its Stop stays live; None: held at all
 session.protocol_files_draining  # run files still writing after a run finished
 session.protocol_files_pending   # how many of those writes are left (0 when not draining); poll it --
                                  # the count changes between transitions, the listener fires only on them
@@ -680,6 +684,7 @@ session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
+session.recording_active         # a manual recording holds the scope and is live (False in its drain)
 session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
 
 def on_run_state():              # called on EVERY run-state transition: an activity taking

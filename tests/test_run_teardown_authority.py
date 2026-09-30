@@ -337,6 +337,36 @@ class TestTheRunsEndIsAnnounced:
         assert self._heard_the_end(heard), f'the failed start was not announced: {heard}'
 
 
+class TestHeldByOther:
+    """A run control greys while the scope is held by anything but its run.
+
+    Its own run leaves it live as that run's Stop; the handle, not the
+    trigger, says which run is its own.
+    """
+
+    def test_the_live_run_is_not_other_to_itself(self, executor, tmp_path):
+        done = threading.Event()
+        live = _start_run(executor, tmp_path, done)
+        try:
+            assert executor.held_by_other(live) is False, (
+                'a run control is greyed by its own run, and cannot be its Stop'
+            )
+            assert executor.held_by_other(None) is True
+        finally:
+            executor.force_reset(reason='test cleanup')
+            assert executor.wait_for_run_idle(10.0)
+
+    def test_an_ended_run_is_other_to_the_live_one(self, executor, tmp_path):
+        stale = _an_ended_run(executor, tmp_path)
+        done = threading.Event()
+        _start_run(executor, tmp_path, done)
+        try:
+            assert executor.held_by_other(stale) is True
+        finally:
+            executor.force_reset(reason='test cleanup')
+            assert executor.wait_for_run_idle(10.0)
+
+
 def _start_run_and_let_it_fail(executor, tmp_path):
     """start() a run whose setup fails: the failed-at-start unwind runs inline."""
     protocol = _make_multi_step_protocol(_make_tile_grid_steps(rows=1, cols=1))

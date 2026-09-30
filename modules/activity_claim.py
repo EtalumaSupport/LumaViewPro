@@ -141,6 +141,7 @@ class _Borrowing:
     def release(self) -> None:
         """End this borrowing and everything lent from it; the lender keeps its claim."""
         self._ended = True
+        self.claim._returned(self)
 
     def lend(self) -> 'BorrowedClaim':
         """Lend this borrowing to work nested inside it."""
@@ -179,10 +180,12 @@ class BorrowedClaim:
         return self.holder
 
     def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
-        """Act under the lender's taking; None once the lender no longer holds."""
-        if not self._lender.holds:
-            return None
-        return _Borrowing(self._lender)
+        """Act under the lender's taking; None once the lender no longer holds.
+
+        A run that borrows is recorded on the claim as the run holding the
+        scope, with its trigger; the holder stays the lender.
+        """
+        return self._lender.claim._lend(self._lender, owner, run_trigger_source)
 
 
 # What a taker holds: its own taking, or a borrowing of someone else's.
@@ -217,6 +220,10 @@ class ActivityClaim:
         self._holder: ActivityHolder | None = None
         self._held: HeldClaim | None = None
         self._on_transition = on_transition
+        # A run acting under a lent claim -- a run inside a diagnostic -- and
+        # the borrowing it holds. The holder stays the lender, which is what
+        # a refusal names; this is what says a run is in progress, and which.
+        self._lent_run: tuple[_Borrowing, ActivityHolder] | None = None
         # The writes that would falsify a recording, running now. Counted
         # where each one runs -- a lane's worker, or inline inside another
         # task on it -- and under this lock, so a recording and such a
@@ -246,6 +253,22 @@ class ActivityClaim:
         """The current holder's kind, or None when unheld."""
         holder = self._holder
         return holder.kind if holder is not None else None
+
+    @property
+    def run_holder(self) -> ActivityHolder | None:
+        """The run holding the scope, or None when no run does.
+
+        The holder when it is a run; otherwise a run acting under the
+        holder's lent claim, for as long as that borrowing holds.
+        """
+        holder = self._holder
+        if holder is not None and holder.kind == 'protocol':
+            return holder
+        lent = self._lent_run
+        if lent is None:
+            return None
+        borrowing, run = lent
+        return run if borrowing.holds else None
 
     def try_claim(self, owner: str, run_trigger_source: str | None = None) -> HeldClaim | None:
         """Atomically claim for ``owner``; None when already held.
@@ -334,6 +357,38 @@ class ActivityClaim:
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held
 
+    def _lend(
+        self, lender: Taking, owner: str, run_trigger_source: str | None
+    ) -> _Borrowing | None:
+        """A borrowing of *lender*'s taking; a run's is recorded and announced.
+
+        Decided under the lock a release takes, so a run is never recorded
+        against a lender that has already released.
+        """
+        with self._lock:
+            if not lender.holds:
+                return None
+            borrowing = _Borrowing(lender)
+            is_run = owner == 'protocol'
+            if is_run:
+                self._lent_run = (
+                    borrowing,
+                    ActivityHolder(kind=owner, run_trigger_source=run_trigger_source),
+                )
+        if is_run:
+            self.announce()
+        return borrowing
+
+    def _returned(self, borrowing: _Borrowing) -> None:
+        """A borrowing ended; if it was the lent run, the run is over and announced."""
+        with self._lock:
+            lent = self._lent_run
+            was_the_run = lent is not None and lent[0] is borrowing
+            if was_the_run:
+                self._lent_run = None
+        if was_the_run:
+            self.announce()
+
     def _release(self, held: HeldClaim) -> None:
         with self._lock:
             if self._held is not held:
@@ -344,6 +399,7 @@ class ActivityClaim:
                 )
             self._held = None
             self._holder = None
+            self._lent_run = None
         self.announce()
 
     def announce(self) -> None:
