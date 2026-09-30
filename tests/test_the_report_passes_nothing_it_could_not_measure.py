@@ -100,6 +100,19 @@ def test_an_fx2_led_board_is_not_asked_for_text_commands(session, monkeypatch, f
         monkeypatch.undo()
 
 
+def test_an_fx2_led_boards_config_is_not_read_over_a_repl_it_does_not_have(
+    session, monkeypatch, fx2_led, tmp_path
+):
+    monkeypatch.setattr(session.scope, '_led_driver', fx2_led)
+    try:
+        TechSupportReport(scope=session.scope)._step_configbackup(tmp_path)
+        configs = tmp_path / 'firmware_configs'
+        assert not (configs / 'led_config_UNAVAILABLE.txt').exists()
+        assert (configs / 'led_config.txt').read_text().startswith(NOT_ON_THIS_BOARD)
+    finally:
+        monkeypatch.undo()
+
+
 def test_every_channel_read_and_dark_is_a_pass(session, tmp_path):
     TechSupportReport(scope=session.scope)._step_led_checks(tmp_path)
     text = (tmp_path / 'hardware_checks' / 'led_leakage.txt').read_text()

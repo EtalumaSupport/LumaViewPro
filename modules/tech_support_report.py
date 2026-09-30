@@ -1709,7 +1709,15 @@ class TechSupportReport:
         d = tmp / 'firmware_configs'
         d.mkdir()
 
-        boards = [(self.diag.led_board, 'led')]
+        # A board that cannot carry the question says so, as the report's
+        # other LED files do: an FX2 scope's LED peripheral has no REPL, and
+        # a read attempted there fails as if the board were stuck.
+        boards = []
+        unread_led = self.diag._unread_led(needs_v2=False)
+        if unread_led is not None and 'not_applicable' in unread_led:
+            (d / 'led_config.txt').write_text(f'{unread_led["not_applicable"]}.\n')
+        else:
+            boards.append((self.diag.led_board, 'led'))
         if self._no_motor_board_on_this_model():
             (d / 'motor_config.txt').write_text(f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n')
         else:
