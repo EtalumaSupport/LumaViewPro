@@ -24,12 +24,12 @@ import os
 import threading
 import time
 import typing
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
-from modules import binning, image_mode
+from modules import binning, common_utils, image_mode
 from lvp_logger import logger
 from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
@@ -829,10 +829,27 @@ class ScopeSession:
         self.file_io_executor.recover_wedged_protocol_queue()
         return True
 
-    def get_layer_configs(self, specific_layers=None) -> dict:
+    def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         import modules.config_helpers as config_helpers
 
-        return config_helpers.get_layer_configs(self.settings, specific_layers)
+        layer_configs = config_helpers.get_layer_configs(self.settings, specific_layers)
+        self._read_autofocus_as_off_without_z(layer_configs.values())
+        return layer_configs
+
+    def _read_autofocus_as_off_without_z(self, layer_entries: Iterable[dict]) -> None:
+        """Turn off the autofocus switch in copies read from a scope with no Z.
+
+        Autofocus moves Z, so a run that asks for it on this scope is
+        refused, and the GUI shows no autofocus control here. A switch
+        saved on from a scope with Z is then one the user can neither see
+        nor clear; read as it stands, every step and new protocol would
+        carry it and every run would be refused. The entries are copies;
+        this writes nothing back to the saved settings.
+        """
+        if self.scope.capabilities.has_focus:
+            return
+        for entry in layer_entries:
+            entry['autofocus'] = False
 
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
@@ -1261,6 +1278,9 @@ class ScopeSession:
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
         snapshot = self.get_settings_snapshot()
         snapshot['objective_id'] = objective_id
+        self._read_autofocus_as_off_without_z(
+            snapshot[layer] for layer in common_utils.get_layers()
+        )
         return snapshot
 
     def get_objective_info(self, objective_id: str) -> dict:
