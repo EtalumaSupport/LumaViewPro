@@ -190,8 +190,8 @@ class ManualCaptureController:
         well_label = scope.runtime_state.get_well_label()
         if well_label is None and scope.capabilities.has_xy_stage:
             # The image is real; only where it was taken is not known. It is
-            # saved, and says so once, here -- the label is read again by the
-            # save, so the read is not the place to say it. A scope with no
+            # saved, and says so once, here -- the save takes this label, so
+            # this is the one place it is known to be missing. A scope with no
             # XY stage has no well to know, and homing would not give it one.
             from modules.notification_center import notifications
 
@@ -242,6 +242,10 @@ class ManualCaptureController:
                 capture_failure_cause(scope.imaging.last_capture_info),
                 'no_frame_returned',
             )
+        # The instrument's account of this frame, taken with it; read before
+        # anything on this lane can capture again.
+        frame_record = scope.imaging.last_capture_info['frame_record']
+        labware = scope.runtime_state.get_labware()
         # The frame's own depth (8 for uint8, 16 for a summed container, else
         # the per-frame delivery stamp), taken now, before any later grab can
         # change what the camera reports.
@@ -261,6 +265,9 @@ class ManualCaptureController:
             jpeg_quality=capture_config.jpg_quality,
             save_encoding=capture_config.save_encoding,
             objective_id=objective_id,
+            frame_record=frame_record,
+            labware=labware,
+            well_label=well_label,
         )
         paths = [raw_path]
 
@@ -291,6 +298,9 @@ class ManualCaptureController:
                     jpeg_quality=capture_config.jpg_quality,
                     save_encoding=capture_config.save_encoding,
                     objective_id=objective_id,
+                    frame_record=frame_record,
+                    labware=labware,
+                    well_label=well_label,
                 )
             )
 

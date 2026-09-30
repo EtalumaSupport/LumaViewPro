@@ -27,6 +27,7 @@ is what runs.
 
 from __future__ import annotations
 
+import datetime
 import inspect
 import threading
 from types import SimpleNamespace
@@ -35,6 +36,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import frame_record, plate
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules import layer_record
@@ -552,6 +554,13 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     driver._scripts['get_gain'] = [RAISE]
     driver._scripts['get_exposure_t'] = [RAISE]
     scope = _metadata_scope_with_real_imaging(imaging, driver)
+    # The capture builds the frame's record beside the grab; the scripted
+    # driver has no chunks, so the record takes the live-confirmed surface.
+    driver.get_model_name = lambda: 'simcam'
+    imaging._scope = scope
+    record = imaging._build_frame_record(
+        chunks={}, lit=frozenset(), captured_at=datetime.datetime.now(), frames_summed=1
+    )
 
     metadata = generate_image_metadata(
         scope,
@@ -560,6 +569,9 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
         plate_y_mm=0,
         stage_z_um=0,
         objective_id=scope.runtime_state.get_current_objective_id(),
+        frame_record=record,
+        labware=plate(),
+        well_label=None,
     )
 
     assert 'gain_db' not in metadata, (
@@ -666,6 +678,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         video_max_fps=0,
         engineering_mode=False,
         run_claim=lent_run_claim(),
+        labware=plate(),
     )
     recorded = []
     monkeypatch.setattr(
@@ -675,7 +688,11 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     writer.write_capture(
         enable_image_saving=True,
         captured_image=CapturedFrame(
-            image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12, objective_id='4x Oly'
+            image=np.zeros((4, 4), dtype=np.uint16),
+            significant_bits=12,
+            objective_id='4x Oly',
+            record=frame_record(),
+            stage_z_um=None,
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',

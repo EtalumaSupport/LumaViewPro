@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import plate
 import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
@@ -58,6 +59,7 @@ def _writer(callbacks):
         video_max_fps=0,
         engineering_mode=False,
         run_claim=lent_run_claim(),
+        labware=plate(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

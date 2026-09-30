@@ -32,6 +32,7 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import frame_record, plate
 from modules.run_outcome import EndingLatch
 
 
@@ -87,6 +88,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         video_max_fps=0,
         engineering_mode=False,
         run_claim=lent_run_claim(),
+        labware=plate(),
     )
     recorded = []
     monkeypatch.setattr(
@@ -96,7 +98,11 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     writer.write_capture(
         enable_image_saving=True,
         captured_image=CapturedFrame(
-            image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
+            image=np.zeros((4, 4), dtype=np.uint8),
+            significant_bits=8,
+            objective_id='4x Oly',
+            record=frame_record(),
+            stage_z_um=None,
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',

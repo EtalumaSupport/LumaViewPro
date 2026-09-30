@@ -1437,6 +1437,7 @@ class SequencedCaptureRunner:
                 video_max_fps=self._video_max_fps,
                 engineering_mode=self._engineering_mode,
                 run_claim=self._held_claim.lend(),
+                labware=self._wellplate_loader.get_plate(plate_key=self._protocol.labware()),
             )
 
             # From here each lane serves only the run's queue, and only work

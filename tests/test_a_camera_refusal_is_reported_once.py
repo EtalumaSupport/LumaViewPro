@@ -25,6 +25,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from tests.frame_records import plate
 from tests.scope_fakes import give_stub_lanes, spec_scope
 
 
@@ -172,6 +173,7 @@ class TestTheRunReportsAndCarriesOn:
             video_max_fps=0,
             engineering_mode=False,
             run_claim=lent_run_claim(),
+            labware=plate(),
         )
         scope = writer._scope
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})

@@ -23,6 +23,7 @@ import pytest
 
 import modules.image_save as image_save
 from modules.labware_loader import WellPlateLoader
+from tests.frame_records import frame_record, plate
 
 PLATE_X_MM = 15.38
 PLATE_Y_MM = 11.24
@@ -56,6 +57,9 @@ class TestThePlatePositionSurvivesTheSave:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['plate_pos_mm']['x'] == pytest.approx(PLATE_X_MM), (
@@ -76,6 +80,9 @@ class TestThePlatePositionSurvivesTheSave:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(STAGE_Z_UM)
@@ -91,6 +98,9 @@ class TestThePlatePositionSurvivesTheSave:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
         far = image_save.generate_image_metadata(
             positioned_scope,
@@ -99,6 +109,9 @@ class TestThePlatePositionSurvivesTheSave:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         delta = far['plate_pos_mm']['x'] - near['plate_pos_mm']['x']
@@ -114,6 +127,9 @@ class TestThePlatePositionSurvivesTheSave:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['x_pos'] == metadata['plate_pos_mm']['x']
@@ -142,6 +158,9 @@ class TestTheWholeSaveChainCarriesOneFrame:
             plate_y_mm=PLATE_Y_MM,
             stage_z_um=STAGE_Z_UM,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         plane = _read_plane(path)

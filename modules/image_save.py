@@ -19,7 +19,6 @@ chain existed only because it existed.
 
 from __future__ import annotations
 
-import datetime
 import os
 import pathlib
 from typing import TYPE_CHECKING
@@ -34,7 +33,9 @@ from lvp_logger import logger, version
 from modules.exceptions import CaptureError, ConfigError, ImageSaveError
 
 if TYPE_CHECKING:
+    from modules.labware import LabWare
     from modules.lumascope_api._lumascope import Lumascope
+    from modules.lumascope_api.frame_record import FrameRecord
 
 
 _NUM_SEQ_DIGITS = 6
@@ -287,6 +288,9 @@ def generate_image_metadata(
     stage_z_um: float | None,
     *,
     objective_id: str,
+    frame_record: FrameRecord,
+    labware: LabWare | None,
+    well_label: str | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
@@ -303,8 +307,10 @@ def generate_image_metadata(
     and every producer already holds it that way.
 
     Args:
-        scope: Read for objective / labware / stage-offset state,
-            current camera + LED settings, and pending camera chunk metadata.
+        scope: Read only for what does not change while a frame waits to be
+            written: the objective catalogue, the scope's identity and its
+            pixel-size capabilities, and the motor board's serial and
+            firmware.
         channel (str): Channel the frame was acquired on (e.g. "Blue", "BF").
         plate_x_mm (float): Plate X position in mm (or None).
         plate_y_mm (float): Plate Y position in mm (or None).
@@ -314,13 +320,24 @@ def generate_image_metadata(
             turret move for the next step may already have changed the live
             objective -- read then, the file would claim the wrong scale or
             none. The caller reads it when it takes the frame.
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``last_capture_info['frame_record']``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
 
     Returns:
         dict: Metadata including channel, positions, exposure, gain, pixel size.
 
     Raises:
-        ConfigError: If ``objective_id`` is not a catalogue key, or labware
-            or stage offset are not set.
+        ConfigError: If ``objective_id`` is not a catalogue key, or
+            ``labware`` is None.
         ValueError: If channel is not a known layer or 'Composite'.
     """
     # This is the last point that can tell a real channel from a placeholder,
@@ -338,20 +355,14 @@ def generate_image_metadata(
     if 'focal_length' not in objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
 
-    labware = scope.runtime_state.get_labware()
     if labware is None:
         raise ConfigError('[SCOPE API ] Labware not set')
-
-    if scope.runtime_state.get_stage_offset() is None:
-        raise ConfigError('[SCOPE API ] Stage offset not set')
-
-    well_label = scope.runtime_state.get_well_label()
 
     _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
-        binning_size=scope.imaging._binning_size,
+        binning_size=frame_record.binning_size,
         capabilities=scope.capabilities,
     )
     # A scope with no known pixel size writes no scale rather than an invented
@@ -364,7 +375,7 @@ def generate_image_metadata(
             common_utils.max_decimal_precision('pixel_size'),
         )
 
-    now_host = datetime.datetime.now()
+    captured_at = frame_record.captured_at
     # The model this scope runs as, from its identity -- the one the layers
     # and capabilities carry. The board's own report is None on a scope
     # with no motor board (every FX2 model), so it cannot name the scope.
@@ -377,66 +388,20 @@ def generate_image_metadata(
         motor_info = scope.diagnostics.get_motor_info()
     except Exception:
         motor_info = {'serial_number': None, 'firmware_version': None}
-    try:
-        camera_info = scope.diagnostics.get_camera_info()
-    except Exception:
-        camera_info = {'model': None}
     plate_config = getattr(labware, 'config', None) or {}
 
-    # Per-frame camera chunk metadata, captured at grab-time for THIS frame
-    # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
-    # Timestamp every frame). These are the same chunk values frame_validity
-    # checks the camera settled to, so they are the authoritative, race-free
-    # source for the frame's gain/exposure metadata. The live
-    # get_exposure_ms / get_gain_db calls are the fallback for cameras /
-    # frames without chunk data (IDS stores frames without chunks; also
-    # simulator and legacy). Both sources report what the hardware is
-    # ACTUALLY set to, never the requested value -- so even if a settings
-    # write silently failed, the recorded metadata stays truthful.
-    handler = getattr(scope._camera_driver, 'cam_image_handler', None)
-    chunks = handler.get_last_chunks() if handler is not None else None
-    chunks = chunks or {}
-
-    _chunk_exp_us = chunks.get('ExposureTime')
-    _chunk_gain_db = chunks.get('Gain')
-    # The live-confirmed surface, not get_gain_db()/get_exposure_ms(): the
-    # value getters answer last-known-good on a failed read, which is
-    # right for control flow but would record a gain/exposure this frame
-    # was not captured at. get_live_camera_settings omits a field whose
-    # read did not just succeed, so unknown stays unknown here.
-    if _chunk_exp_us is None or _chunk_gain_db is None:
-        _live_settings = scope.imaging.get_live_camera_settings()
-    else:
-        _live_settings = {}
-    exposure_ms_value = (
-        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else _live_settings.get('exposure_ms')
-    )
-    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else _live_settings.get('gain_db')
-
-    # A non-physical gain / exposure (negative failed-read sentinel, or the
-    # zero exposure an inactive camera reports) is not a real setting.
-    # Unknown stays unknown: omit the key from the saved metadata rather
-    # than record a value the hardware never had -- a -1.0 or 0.0 in
-    # OME/TIFF metadata reads downstream as a real acquisition setting.
+    # The frame's own exposure and gain, from its record: the capture took
+    # them from the frame's chunks, or beside the grab on a camera without
+    # chunks, and left out a value it could not read -- so an absent key
+    # here is an unknown setting, never a stand-in.
     _frame_settings = {}
-    if common_utils.is_valid_exposure_ms(exposure_ms_value):
+    if frame_record.exposure_ms is not None:
         _frame_settings['exposure_time_ms'] = round(
-            exposure_ms_value, common_utils.max_decimal_precision('exposure')
+            frame_record.exposure_ms, common_utils.max_decimal_precision('exposure')
         )
-    else:
-        logger.warning(
-            'Exposure time for this frame is unknown (no chunk data and the '
-            'live camera read failed or the camera is inactive); omitting '
-            'exposure_time_ms from saved metadata'
-        )
-    if common_utils.is_valid_gain_db(gain_db_value):
+    if frame_record.gain_db is not None:
         _frame_settings['gain_db'] = round(
-            gain_db_value, common_utils.max_decimal_precision('gain')
-        )
-    else:
-        logger.warning(
-            'Gain for this frame is unknown (no chunk data and the live '
-            'camera read failed); omitting gain_db from saved metadata'
+            frame_record.gain_db, common_utils.max_decimal_precision('gain')
         )
 
     # Spectral identity from the resolved layer record. Written whatever
@@ -463,34 +428,35 @@ def generate_image_metadata(
             else {}
         ),
         **({'filterset': identity.filterset} if identity.filterset else {}),
-        'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
-        'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
+        'datetime': captured_at.strftime('%Y:%m:%d %H:%M:%S'),
+        'sub_sec_time': f'{captured_at.microsecond // 1000:03d}',
         'objective': objective,
         'focal_length': objective['focal_length'],
         **_position_fields,
         **_frame_settings,
-        # An LED that is off, never set, or on an absent board has no
+        # An LED that was off for the grab, or on an absent board, has no
         # drive current -- a normal state for dark and luminescence
         # captures, so the key is simply absent (no warning, unlike the
-        # exposure/gain omissions above, which indicate a failed read).
+        # exposure/gain omissions, which indicate a failed read).
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
-            if (_ma := scope.illumination.get_led_state(channel)['illumination_ma']) is not None
+            if (_ma := frame_record.illumination_ma.get(channel)) is not None
             else {}
         ),
-        'binning_size': scope.imaging._binning_size,
+        'frames_summed': frame_record.frames_summed,
+        'binning_size': frame_record.binning_size,
         'pixel_size_um': pixel_size_um,
         # Zero-well labware (Blank) has no well: omit the key rather than
         # stamp an empty or fabricated label, mirroring the no-scale idiom
         # above -- a fake well is measured off the file forever.
         **({'well_label': well_label} if well_label else {}),
-        'timestamp_iso': now_host.isoformat(timespec='microseconds'),
+        'timestamp_iso': captured_at.isoformat(timespec='microseconds'),
         'instrument': {
             'manufacturer': 'Etaluma',
             'model': microscope_model,
             'serial_number': motor_info.get('serial_number'),
             'firmware_version': motor_info.get('firmware_version'),
-            'camera_model': camera_info.get('model'),
+            'camera_model': frame_record.camera_model,
         },
         'plate': {
             'name': microscope_model or 'Plate',
@@ -500,18 +466,14 @@ def generate_image_metadata(
         },
     }
 
-    # Camera-side timestamp + frame-id provenance from the same grab-time
-    # chunk read above (Pylon ace 2 / dart M / dart R carry ChunkTimestamp;
-    # IDS has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
-    ts_ticks = chunks.get('Timestamp')
-    if ts_ticks is not None:
-        metadata['timestamp_camera_ticks'] = int(ts_ticks)
-    tick_hz = getattr(scope._camera_driver, 'timestamp_tick_frequency_hz', None)
-    if tick_hz is not None:
-        metadata['timestamp_camera_tick_hz'] = int(tick_hz)
-    frame_id = chunks.get('FrameID')
-    if frame_id is not None:
-        metadata['frame_id'] = int(frame_id)
+    # Camera-side timestamp and frame id, where the camera stamps them
+    # (Pylon ace 2 / dart; IDS carries no chunk timestamp).
+    if frame_record.camera_timestamp_ticks is not None:
+        metadata['timestamp_camera_ticks'] = frame_record.camera_timestamp_ticks
+    if frame_record.camera_tick_hz is not None:
+        metadata['timestamp_camera_tick_hz'] = frame_record.camera_tick_hz
+    if frame_record.frame_id is not None:
+        metadata['frame_id'] = frame_record.frame_id
 
     return metadata
 
@@ -543,6 +505,9 @@ def prepare_image_for_saving(
     channel: str,
     significant_bits: int,
     objective_id: str,
+    frame_record: FrameRecord,
+    labware: LabWare | None,
+    well_label: str | None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -574,6 +539,17 @@ def prepare_image_for_saving(
             describe a newer format.
         objective_id: The objective in the light path when the frame was
             taken, for the same reason (see ``generate_image_metadata``).
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``last_capture_info['frame_record']``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
@@ -585,6 +561,9 @@ def prepare_image_for_saving(
         plate_y_mm=plate_y_mm,
         stage_z_um=stage_z_um,
         objective_id=objective_id,
+        frame_record=frame_record,
+        labware=labware,
+        well_label=well_label,
     )
 
     metadata['significant_bits'] = significant_bits
@@ -628,6 +607,9 @@ def save_image(
     jpeg_quality: int = 90,
     significant_bits: int,
     objective_id: str,
+    frame_record: FrameRecord,
+    labware: LabWare | None,
+    well_label: str | None,
 ) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
 
@@ -664,6 +646,17 @@ def save_image(
         objective_id: The objective in the light path when the frame was
             taken; recorded as the file's scale. Required: read by the
             caller when it takes the frame, never at save time.
+        frame_record: What the instrument reported about the frame, taken
+            by the capture with it (``last_capture_info['frame_record']``).
+            Required: the write runs later, on the file writer, when the
+            camera, the LED and the clock have moved on -- read then, the file
+            records the scope at the write, not the frame.
+        labware: The plate the frame was taken on, for the file's plate
+            block. For a run, the plate the protocol is written for, which is
+            the plate it moved against -- not the scope's current selection.
+        well_label: The well the frame was taken in, named by the caller at
+            capture; None or empty when there is none (a plate with no wells,
+            an unknown position), and the file then names none.
 
     Returns:
         pathlib.Path: Path to the saved file.
@@ -724,6 +717,9 @@ def save_image(
             stage_z_um=stage_z_um,
             significant_bits=significant_bits,
             objective_id=objective_id,
+            frame_record=frame_record,
+            labware=labware,
+            well_label=well_label,
         )
         image = image_data['image']
         metadata = image_data['metadata']

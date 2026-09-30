@@ -30,6 +30,7 @@ import pytest
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.labware_loader import WellPlateLoader
+from tests.frame_records import frame_record, plate
 
 POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
 
@@ -59,6 +60,9 @@ def _save(scope, folder, **position) -> str:
         save_encoding='8bit',
         significant_bits=8,
         **position,
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
 
 
@@ -73,6 +77,9 @@ class TestNoPositionMeansNoPositionKeys:
             plate_y_mm=None,
             stage_z_um=None,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         present = [k for k in POSITION_KEYS if k in metadata]
@@ -91,6 +98,9 @@ class TestNoPositionMeansNoPositionKeys:
             plate_y_mm=None,
             stage_z_um=None,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['channel'] == 'BF'
@@ -108,6 +118,9 @@ class TestNoPositionMeansNoPositionKeys:
             plate_y_mm=None,
             stage_z_um=4950.0,
             objective_id=positioned_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['z_pos_um'] == pytest.approx(4950.0)

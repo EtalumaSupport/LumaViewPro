@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import plate
 from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
@@ -129,6 +130,7 @@ class TestTheWriterIsHandedTheMode:
             'timestamp_overlay': True,
             'video_max_fps': 0,
             'run_claim': lent_run_claim(),
+            'labware': plate(),
         }
 
         with pytest.raises(TypeError, match='engineering_mode'):

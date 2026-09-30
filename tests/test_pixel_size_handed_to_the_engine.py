@@ -27,6 +27,7 @@ import modules.common_utils as common_utils
 import modules.image_save as image_save
 from modules.tiling_config import TilingConfig
 from tests.ast_seams import parse_module
+from tests.frame_records import frame_record, plate
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -62,6 +63,9 @@ class TestAHeadlessImageCarriesItsScale:
             plate_y_mm=0,
             stage_z_um=0,
             objective_id=sim_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
         assert metadata['pixel_size_um'] == pytest.approx(expected, abs=1e-4), metadata.get(

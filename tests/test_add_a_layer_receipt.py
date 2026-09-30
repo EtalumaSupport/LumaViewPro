@@ -22,6 +22,7 @@ import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules.image_save import generate_image_metadata
 from modules.protocol import Protocol
+from tests.frame_records import frame_record, plate
 
 EIGHT_KEYS = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi', 'NIR']
 
@@ -94,6 +95,9 @@ def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
         plate_y_mm=0,
         stage_z_um=0,
         objective_id=sim_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     assert metadata['channel'] == 'NIR'
 

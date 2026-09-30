@@ -20,6 +20,7 @@ from modules.exceptions import ConfigError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
+from tests.frame_records import frame_record, plate
 
 
 def _wait_for_thread_count(target, deadline_s=2.0):
@@ -71,6 +72,9 @@ class TestAFactorySessionIsConfigured:
             save_encoding='8bit',
             significant_bits=8,
             objective_id=session.scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
         assert path is not None
 

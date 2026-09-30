@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import frame_record, plate
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 
@@ -3196,6 +3197,7 @@ def _bare_protocol_writer(**overrides):
         'video_max_fps': 0,
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
+        'labware': plate(),
     }
     scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)
@@ -3337,7 +3339,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             image_save,
             'generate_image_metadata',
-            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id: {},
+            lambda scope, channel, plate_x_mm, plate_y_mm, stage_z_um, objective_id, frame_record, labware, well_label: {},
         )
         image_save.save_image(
             SimpleNamespace(
@@ -3353,6 +3355,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             save_encoding='rgb',
             significant_bits=8,
             objective_id='4x Oly',
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -3379,7 +3384,11 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
+                image=np.zeros((4, 4), dtype=np.uint8),
+                significant_bits=8,
+                objective_id='4x Oly',
+                record=frame_record(),
+                stage_z_um=None,
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3599,7 +3608,11 @@ class TestPIW2_DisksUsageDeduped:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8, objective_id='4x Oly'
+                image=np.zeros((4, 4), dtype=np.uint8),
+                significant_bits=8,
+                objective_id='4x Oly',
+                record=frame_record(),
+                stage_z_um=None,
             ),
             step=_protocol_step(),
             name='stepA_BF',

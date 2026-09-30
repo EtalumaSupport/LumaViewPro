@@ -5,6 +5,7 @@ import hashlib
 import traceback
 import numpy as np
 import harness
+from tests.frame_records import frame_record, plate
 
 s, live = harness.make_session('p6')
 scope = s.scope
@@ -37,6 +38,9 @@ try:
             output_format='TIFF',
             significant_bits=12,
             objective_id=scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
         outs[fc] = hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:16]
         import tifffile

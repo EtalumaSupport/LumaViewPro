@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import frame_record, plate
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
@@ -295,6 +296,7 @@ class TestOneRunOneEncoding:
             video_max_fps=0,
             engineering_mode=False,
             run_claim=lent_run_claim(),
+            labware=plate(),
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
@@ -316,7 +318,11 @@ class TestOneRunOneEncoding:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12, objective_id='4x Oly'
+                image=np.zeros((4, 4), dtype=np.uint16),
+                significant_bits=12,
+                objective_id='4x Oly',
+                record=frame_record(),
+                stage_z_um=None,
             ),
             step=step,
             name='A1_BF',

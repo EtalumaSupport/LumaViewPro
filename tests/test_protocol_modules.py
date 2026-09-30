@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import plate
 from modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
@@ -701,6 +702,7 @@ class TestProtocolImageWriterWriteCapture:
             video_max_fps=0,
             engineering_mode=False,
             run_claim=lent_run_claim(),
+            labware=plate(),
         )
         return writer
 

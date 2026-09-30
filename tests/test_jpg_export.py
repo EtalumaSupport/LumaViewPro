@@ -24,6 +24,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from modules import image_utils
+from tests.frame_records import frame_record, plate
 
 
 def _bright_mono(value: int = 200) -> np.ndarray:
@@ -108,6 +109,9 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         save_encoding='8bit',
         significant_bits=8,
         objective_id='4x Oly',
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'

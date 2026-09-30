@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import functools
 import logging
+import math
 import pathlib
 import threading
 import time
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from modules.image_mode import ImageCaptureConfig
+    from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.frame_record import FrameRecord
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
@@ -60,12 +63,17 @@ class CapturedFrame(NamedTuple):
     be at a different pixel format or unreadable, and the next step's
     turret move may already have changed the objective in the light path.
     Coupling them to the frame at capture makes handing over a frame
-    without them unrepresentable.
+    without them unrepresentable. The same holds for everything else the
+    file records: the instrument's own account of the frame (``record``),
+    and the height the stage was at when it was taken -- after an autofocus
+    sweep that is the focus it found, not the step's planned Z.
     """
 
     image: np.ndarray
     significant_bits: int
     objective_id: str
+    record: FrameRecord
+    stage_z_um: float | None
 
 
 class ProtocolImageWriter:
@@ -124,6 +132,10 @@ class ProtocolImageWriter:
         # The run's activity claim, lent to the work inside the run: a
         # video step records under it and cannot release it.
         run_claim: BorrowedClaim,
+        # The plate the protocol is written for -- the plate the run moves
+        # against. Its files name their wells and plate from it, not from
+        # the plate the scope has selected, which a headless run never sets.
+        labware: WellPlate,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -140,6 +152,7 @@ class ProtocolImageWriter:
         self._video_max_fps = video_max_fps
         self._engineering_mode = engineering_mode
         self._run_claim = run_claim
+        self._labware = labware
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -518,6 +531,20 @@ class ProtocolImageWriter:
         # the executor declining outside a session (tolerated, as before).
         return not (result is None and self._aborted.is_set())
 
+    def _well_label(self, step) -> str | None:
+        """The well a step's position lies in, on the plate the run moves against.
+
+        Named from the position, not the step's Well column: that column is
+        empty on an inserted step and keeps its old value when a step is
+        moved. None for a step with no plate position -- stored as None, or
+        as NaN once the step has been through the protocol's table, where a
+        missing float cannot be None.
+        """
+        x, y = step['X'], step['Y']
+        if x is None or y is None or math.isnan(x) or math.isnan(y):
+            return None
+        return self._labware.get_well_label(x=x, y=y)
+
     def _capture_evidence(self, image, significant_bits: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
         plus the chunk-verified exposure / gain and capture-hold timing.
@@ -858,6 +885,12 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
+                    # The height the frame is taken at, read with the stage
+                    # settled for the grab: after an autofocus sweep the
+                    # stage sits at the focus it found, which the step row
+                    # handed in here -- read before the sweep -- does not
+                    # carry. A scope without Z has no height to record.
+                    frame_stage_z_um = self._scope.motion.get_target_position().get('Z')
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
@@ -890,8 +923,18 @@ class ProtocolImageWriter:
                     # and the darkness is recorded on the row below, so a run
                     # whose illumination is genuinely broken cannot end with a
                     # clean manifest built from black frames.
-                    if not (self._scope.imaging.last_capture_info or {}).get('dark_saved'):
+                    capture_info = self._scope.imaging.last_capture_info or {}
+                    if not capture_info.get('dark_saved'):
                         self._consecutive_capture_failures = 0
+                    # The instrument's account of this frame, taken with it on
+                    # the camera lane; read here, on the thread that captured,
+                    # before anything can capture again.
+                    frame_record = capture_info.get('frame_record')
+                    if frame_record is None:
+                        raise RuntimeError(
+                            'the capture returned a frame without its record; the file '
+                            'would record the scope at write time, not the frame'
+                        )
 
                     # Depth travels with the frame so the evidence line's
                     # saturation threshold, the hold-display downconvert, AND
@@ -931,6 +974,8 @@ class ProtocolImageWriter:
                                 image=captured_image,
                                 significant_bits=frame_significant_bits,
                                 objective_id=frame_objective_id,
+                                record=frame_record,
+                                stage_z_um=frame_stage_z_um,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1099,10 +1144,13 @@ class ProtocolImageWriter:
                     # unconverted.
                     plate_x_mm=step['X'],
                     plate_y_mm=step['Y'],
-                    stage_z_um=step['Z'],
+                    stage_z_um=captured_image.stage_z_um,
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
                     objective_id=captured_image.objective_id,
+                    frame_record=captured_image.record,
+                    labware=self._labware,
+                    well_label=self._well_label(step),
                 )
             except Exception:
                 self._record_dropped_capture(

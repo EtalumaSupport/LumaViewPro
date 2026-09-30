@@ -20,6 +20,7 @@ from modules import layer_record
 from modules.exceptions import Refusal
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.frame_records import frame_record, plate
 
 
 def _resolve(**kwargs):
@@ -83,7 +84,15 @@ class TestTheRunningScopeHasOneModel:
         scope.runtime_state.set_labware(WellPlateLoader().get_plate('24 well microplate'))
         scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
         metadata = image_save.generate_image_metadata(
-            scope, 'BF', None, None, None, objective_id='20x Oly'
+            scope,
+            'BF',
+            None,
+            None,
+            None,
+            objective_id='20x Oly',
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
         assert metadata['microscope'] == 'LS620'
         assert metadata['microscope_model'] == 'LS620'

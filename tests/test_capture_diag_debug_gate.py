@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from tests.protocol_drives import lent_run_claim
+from tests.frame_records import plate
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
@@ -43,6 +44,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         video_max_fps=0,
         engineering_mode=False,
         run_claim=lent_run_claim(),
+        labware=plate(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

@@ -32,6 +32,7 @@ from modules.exceptions import (
     FrameListenerNotRegisteredError,
 )
 from modules.frame_validity import FrameValidity
+from modules.lumascope_api.frame_record import FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -2907,7 +2908,13 @@ class ImagingAPI:
             # value cannot drift from commanded state. A re-run of this
             # loop re-derives it, because the state change that dirtied
             # the window is exactly what makes the old derivation stale.
-            expected_lit = bool(live_lit_pairs(self._scope.illumination))
+            # The same read is the frame's LED record: an LED change during
+            # the grab dirties the window and re-runs this loop, so a frame
+            # that survives the compare below was lit exactly as read here.
+            # A read after the grab would not be -- an emergency LED-off can
+            # run on another thread at any moment.
+            lit = live_lit_pairs(self._scope.illumination)
+            expected_lit = bool(lit)
 
             with self._state_lock:
                 self._dark_saved = False
@@ -2923,6 +2930,7 @@ class ImagingAPI:
                 new_capture_timeout_s=grab_timeout_s,
                 verify_chunk_targets=True,
             )
+            grabbed_at = datetime.datetime.now()
 
             # Post-grab compare: a changed counter means the window was
             # dirtied and the frame (or failure) predates the state the
@@ -2964,6 +2972,10 @@ class ImagingAPI:
         with self._state_lock:
             if self._dark_saved:
                 extra['dark_saved'] = True
+        if image is not None:
+            extra['frame_record'] = self._build_frame_record(
+                chunks=chunks, lit=lit, captured_at=grabbed_at, frames_summed=sum_count
+            )
         _record_capture_info(
             chunk_exposure_us=chunks.get('ExposureTime'),
             chunk_gain_db=chunks.get('Gain'),
@@ -2972,6 +2984,70 @@ class ImagingAPI:
         if lock is not None:
             self._resume_auto_gain_impl(lock)
         return image
+
+    def _build_frame_record(
+        self,
+        *,
+        chunks: dict,
+        lit: frozenset[tuple[int, float]],
+        captured_at: datetime.datetime,
+        frames_summed: int,
+    ) -> FrameRecord:
+        """The instrument's account of the frame just grabbed, on the grab's lane.
+
+        Exposure and gain come from the frame's own chunk values where the
+        camera stamps them (Pylon ace 2 / dart), which are what frame
+        validity checked the frame against. A camera without chunks (IDS,
+        the simulator) answers from a live read here, beside the grab -- the
+        nearest the frame has to its own account, and nothing queued behind
+        the grab on this lane can reach it. The live-confirmed surface, not
+        the value getters: those answer last-known-good after a failed read,
+        which is right for control flow and wrong for a record.
+        """
+        exposure_us = chunks.get('ExposureTime')
+        gain_db = chunks.get('Gain')
+        if exposure_us is None or gain_db is None:
+            live = self.get_live_camera_settings()
+        else:
+            live = {}
+        exposure_ms = exposure_us / 1000.0 if exposure_us is not None else live.get('exposure_ms')
+        if gain_db is None:
+            gain_db = live.get('gain_db')
+
+        # A non-physical value -- a failed read's negative sentinel, or the
+        # zero exposure an inactive camera reports -- is not a setting the
+        # frame had; unknown stays unknown rather than being written into a
+        # file as a measurement.
+        if not common_utils.is_valid_exposure_ms(exposure_ms):
+            logger.warning(
+                '[SCOPE API ] Exposure for this frame is unknown (no chunk data and '
+                'the live camera read failed or the camera is inactive); its record '
+                'carries none'
+            )
+            exposure_ms = None
+        if not common_utils.is_valid_gain_db(gain_db):
+            logger.warning(
+                '[SCOPE API ] Gain for this frame is unknown (no chunk data and the '
+                'live camera read failed); its record carries none'
+            )
+            gain_db = None
+
+        illumination = self._scope.illumination
+        ticks = chunks.get('Timestamp')
+        frame_id = chunks.get('FrameID')
+        tick_hz = getattr(self._driver, 'timestamp_tick_frequency_hz', None)
+        return FrameRecord(
+            captured_at=captured_at,
+            exposure_ms=exposure_ms,
+            gain_db=gain_db,
+            illumination_ma={illumination.state_ch2color(ch): ma for ch, ma in lit},
+            frames_summed=frames_summed,
+            camera_timestamp_ticks=int(ticks) if ticks is not None else None,
+            camera_tick_hz=int(tick_hz) if tick_hz is not None else None,
+            frame_id=int(frame_id) if frame_id is not None else None,
+            binning_size=self._binning_size,
+            camera_model=self._driver.get_model_name(),
+        )
 
     def capture_and_wait(
         self,
@@ -4362,7 +4438,11 @@ class ImagingAPI:
                 AT_MINIMUM / FAILED), ``'auto_gain_exposure_ms'`` and
                 ``'auto_gain_gain_db'`` (the locked values, None on
                 FAILED). A capture the chunk gate rejected carries
-                ``'chunk_rejected'`` naming the source.
+                ``'chunk_rejected'`` naming the source. A capture that
+                returned a frame carries ``'frame_record'``, the
+                ``FrameRecord`` taken with it: read it on the thread that
+                captured, before capturing again, and hand it on with the
+                frame -- the next capture replaces it.
         """
         with self._state_lock:
             return dict(self._last_capture_info) if self._last_capture_info else None

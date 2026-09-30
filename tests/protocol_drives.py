@@ -184,6 +184,9 @@ def scr_run_kwargs(**overrides):
     protocol.period.return_value = datetime.timedelta(0)
     protocol.duration.return_value = datetime.timedelta(hours=1)
     protocol.copy_for_execution.return_value = protocol
+    # The run hands its writer the plate the protocol names, so the plate
+    # is a catalogue name, as a real protocol's is after validate_for_run.
+    protocol.labware.return_value = '96 well microplate'
     kwargs = {
         'protocol': protocol,
         'run_trigger_source': 'test',

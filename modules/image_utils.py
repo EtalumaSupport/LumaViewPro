@@ -913,6 +913,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
         flat['gain_db'] = plane['Gain']
+    if 'FramesSummed' in plane:
+        flat['frames_summed'] = plane['FramesSummed']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 
@@ -2233,11 +2235,15 @@ def generate_tiff_data(
     if 'gain_db' in metadata:
         plane['Gain'] = metadata['gain_db']
         plane['GainUnit'] = 'dB'
+    # ExposureTime is per frame; a summed image integrates this many of them,
+    # and without the count the file's exposure understates its integration.
+    if 'frames_summed' in metadata:
+        plane['FramesSummed'] = metadata['frames_summed']
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
     # them (older static metadata builders, Stage 2-pending paths) simply
     # omit the keys and the corresponding TIFF fields don't appear.
-    # timestamp_iso is host wall-clock at metadata-build time;
+    # timestamp_iso is host wall-clock when the frame was grabbed;
     # timestamp_camera_ticks is the camera-side ChunkTimestamp value;
     # timestamp_camera_tick_hz is the camera tick frequency for converting
     # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
