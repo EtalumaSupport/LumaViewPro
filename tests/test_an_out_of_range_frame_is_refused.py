@@ -99,3 +99,39 @@ class TestTheSession:
         except Exception:
             pass  # what the camera itself makes of it is the driver's answer
         assert writes, 'the request reaches the camera when no ceiling is declared'
+
+
+class TestBringUpStoresTheDeliveredFrame:
+    """Bring-up applies the stored frame to the camera directly, and the
+    camera snaps it to its grid and caps it at its sensor. The settings then
+    hold what the camera delivered, not the request -- the frame fields and
+    every reader of the store show the geometry the camera actually holds.
+    """
+
+    def _create(self, tmp_path, frame):
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        settings = complete_settings(live_folder=str(tmp_path), microscope='LS850')
+        settings['frame']['width'], settings['frame']['height'] = frame
+        return ScopeSession.create(settings, simulate=True)
+
+    def test_a_frame_the_camera_snaps_is_stored_as_delivered(self, tmp_path):
+        # The shipped template's 1900x1900 on the simulated 1920x1200 sensor.
+        s = self._create(tmp_path, (1900, 1900))
+        try:
+            delivered = s.scope.imaging.frame_size_cached
+            assert (delivered['width'], delivered['height']) != (1900, 1900)
+            frame = s.settings['frame']
+            assert {'width': frame['width'], 'height': frame['height']} == delivered
+        finally:
+            s.shutdown()
+
+    def test_a_frame_already_on_the_grid_is_unchanged(self, tmp_path):
+        s = self._create(tmp_path, (960, 600))
+        try:
+            frame = s.settings['frame']
+            assert (frame['width'], frame['height']) == (960, 600)
+            assert s.scope.imaging.frame_size_cached == {'width': 960, 'height': 600}
+        finally:
+            s.shutdown()

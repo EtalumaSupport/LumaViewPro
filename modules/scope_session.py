@@ -1147,6 +1147,7 @@ class ScopeSession:
             turreted=self.scope_has_turret(),
         )
         self.scope.initialize(config)
+        self._store_delivered_frame()
         # Read once so a session that changes nothing still records the
         # scale it starts with (the read records the optics). On a turreted
         # scope the slot is not known until the turret is homed, so the
@@ -1796,6 +1797,33 @@ class ScopeSession:
                 'height': max(target['height'], minimum['height']),
             }
         return target
+
+    def _store_delivered_frame(self) -> None:
+        """Store the frame bring-up's camera took, as ``_apply_frame`` does after an apply.
+
+        Bring-up applies the stored frame to the camera directly, and the
+        camera snaps it to its grid and caps it at its sensor, so what it
+        delivers can differ from what was stored. Storing the delivered size
+        keeps the settings, the frame fields and every reader of them on the
+        geometry the camera actually holds. The native region is left as
+        stored: it is the intent, and a small reading must not shrink it for
+        good. With no camera connected nothing was delivered, so nothing is
+        stored.
+        """
+        if not self.scope.camera_connected:
+            return
+        delivered = self.scope.imaging.frame_size_cached
+        with self.settings_lock:
+            frame = self.settings['frame']
+            stored = {'width': frame['width'], 'height': frame['height']}
+            if stored == delivered:
+                return
+            frame['width'] = int(delivered['width'])
+            frame['height'] = int(delivered['height'])
+        logger.info(
+            f'[Session  ] stored frame {stored["width"]}x{stored["height"]}; the camera '
+            f'delivers {delivered["width"]}x{delivered["height"]} -- the delivered size is stored'
+        )
 
     def _apply_frame(self, native: dict, target: dict) -> 'dict | None':
         """Apply the displayed ``target``, then store it and the ``native`` region it came from."""
