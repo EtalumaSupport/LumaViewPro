@@ -53,7 +53,9 @@ def test_status_bar_trigger_runs_at_at_least_10hz():
     src = _read('ui/shader.py')
     match = re.search(
         r'_status_bar_trigger\s*=\s*Clock\.create_trigger\('
-        r'\s*self\._update_status_bar\s*,\s*([0-9]*\.?[0-9]+)',
+        r'\s*(?:self\._update_status_bar'
+        r'|lambda dt: draw_unasked\(lambda: self\._update_status_bar\(dt\), \'STATUS_BAR\'\))'
+        r'\s*,\s*([0-9]*\.?[0-9]+)',
         src,
     )
     assert match is not None, (

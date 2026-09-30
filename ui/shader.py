@@ -11,6 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
+from ui.ui_helpers import draw_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -108,7 +109,14 @@ void main (void) {
         # was too sluggish for stage-position feedback during motion).
         # 10 Hz keeps cursor XY responsive without saturating
         # Window.set_title() on SDL2/Windows.
-        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 0.1, interval=True)
+        # Drawn through the GUI's boundary: nothing waits on the title, and a
+        # raise out of a clock callback closes the application, so a fault is
+        # reported where it stops and the next tick draws again.
+        self._status_bar_trigger = Clock.create_trigger(
+            lambda dt: draw_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR'),
+            0.1,
+            interval=True,
+        )
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
@@ -259,7 +267,7 @@ void main (void) {
             self._mouse_over_image = False
 
     def _update_status_bar(self, dt):
-        """Periodic status bar update (~5 Hz). SOLE owner of Window.set_title().
+        """Periodic status bar update (10 Hz). SOLE owner of Window.set_title().
 
         Composes: 'LumaViewPro {ver} -- Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
         [ | Pixel: (px, py) | Plate: (sx, sy) mm ]
@@ -267,72 +275,69 @@ void main (void) {
         ui_helpers.set_title_event_text() instead of writing the title directly,
         which prevents FPS clobbering and product-name spelling oscillation.
         """
-        try:
-            ctx = _app_ctx.ctx
-            if ctx is None:
-                return
+        ctx = _app_ctx.ctx
+        if ctx is None:
+            return
 
-            from kivy.core.window import Window
-            from ui.ui_helpers import get_title_event_text
+        from kivy.core.window import Window
+        from ui.ui_helpers import get_title_event_text
 
-            scope_display = self.ids.get('scope_display_id')
-            if scope_display:
-                capture_fps = scope_display._capture_fps_value
-                display_fps = scope_display._display_fps_value
-                title = f'LumaViewPro {ctx.version} -- Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
-                if ctx.engineering_mode:
-                    mbps = scope_display._camera_mbps
-                    title += f' | Camera: {mbps:.1f} MB/s'
+        scope_display = self.ids.get('scope_display_id')
+        if scope_display:
+            capture_fps = scope_display._capture_fps_value
+            display_fps = scope_display._display_fps_value
+            title = f'LumaViewPro {ctx.version} -- Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
+            if ctx.engineering_mode:
+                mbps = scope_display._camera_mbps
+                title += f' | Camera: {mbps:.1f} MB/s'
 
-                # Cursor XY readouts -- pixel + plate coords when mouse
-                # hovers the live view. Restored after d423d3c's
-                # single-owner pattern dropped them. (#638)
-                if self._mouse_over_image:
-                    title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
-                    from modules.config_ui_getters import (
-                        get_binning_from_ui,
-                        get_selected_labware,
+            # Cursor XY readouts -- pixel + plate coords when mouse
+            # hovers the live view. Restored after d423d3c's
+            # single-owner pattern dropped them. (#638)
+            if self._mouse_over_image:
+                title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
+                from modules.config_ui_getters import (
+                    get_binning_from_ui,
+                    get_selected_labware,
+                )
+
+                # The plate (um) readout converts a cursor offset into a
+                # stage distance; it needs a connected XY stage, a known
+                # objective and a known pixel size. Without any of them,
+                # the pixel readout above stands alone -- never an
+                # invented distance. Anything that fails beyond these is
+                # a fault, and is not hidden here.
+                objective = _app_ctx.ctx.session.scope.runtime_state.get_current_objective()
+                if (
+                    ctx.lumaview.scope.capabilities.has_xy_stage
+                    and ctx.lumaview.scope.motor_connected
+                    and objective is not None
+                ):
+                    pixel_size_um = config_ui_getters.get_pixel_size(
+                        focal_length=objective['focal_length'],
+                        binning_size=get_binning_from_ui(),
                     )
-
-                    # The plate (um) readout converts a cursor offset into a
-                    # stage distance; it needs a connected XY stage, a known
-                    # objective and a known pixel size. Without any of them,
-                    # the pixel readout above stands alone -- never an
-                    # invented distance. Anything that fails beyond these is
-                    # a fault, and is not hidden here.
-                    objective = _app_ctx.ctx.session.scope.runtime_state.get_current_objective()
-                    if (
-                        ctx.lumaview.scope.capabilities.has_xy_stage
-                        and ctx.lumaview.scope.motor_connected
-                        and objective is not None
-                    ):
-                        pixel_size_um = config_ui_getters.get_pixel_size(
-                            focal_length=objective['focal_length'],
-                            binning_size=get_binning_from_ui(),
+                    if pixel_size_um is not None:
+                        # _mouse_pixel_* are sensor-pixel coords (full frame);
+                        # center on the full-resolution frame, not the
+                        # downscaled preview texture.
+                        frame_w, frame_h = scope_display.full_resolution_frame_size()
+                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
+                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
+                        pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
+                        _, labware = get_selected_labware()
+                        px, py = ctx.coordinate_transformer.stage_to_plate(
+                            labware=labware,
+                            stage_offset=ctx.settings['stage_offset'],
+                            sx=pos['X'] + dx_um,
+                            sy=pos['Y'] - dy_um,
                         )
-                        if pixel_size_um is not None:
-                            # _mouse_pixel_* are sensor-pixel coords (full frame);
-                            # center on the full-resolution frame, not the
-                            # downscaled preview texture.
-                            frame_w, frame_h = scope_display.full_resolution_frame_size()
-                            dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
-                            dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
-                            pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
-                            _, labware = get_selected_labware()
-                            px, py = ctx.coordinate_transformer.stage_to_plate(
-                                labware=labware,
-                                stage_offset=ctx.settings['stage_offset'],
-                                sx=pos['X'] + dx_um,
-                                sy=pos['Y'] - dy_um,
-                            )
-                            title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
+                        title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
 
-                event_text = get_title_event_text()
-                if event_text:
-                    title += f'   --   {event_text}'
-                Window.set_title(title)
-        except Exception as e:
-            logger.debug(f'[LVP Main  ] Status bar update failed: {e}')
+            event_text = get_title_event_text()
+            if event_text:
+                title += f'   --   {event_text}'
+            Window.set_title(title)
 
     def current_false_color(self) -> str:
         return self._false_color
