@@ -94,6 +94,8 @@ def pressed(monkeypatch, held):
     engine.is_stopping.return_value = False
     session = MagicMock()
     session.create_protocol_runner.return_value = member
+    # Nothing holds the scope; a MagicMock's own answer would be truthy.
+    session.held_by_other.return_value = False
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
@@ -340,4 +342,21 @@ def test_the_button_is_disabled_while_its_request_is_in_flight_in_the_kv():
     window = kv[idx : idx + 500].splitlines()
     disabled = [line for line in window if line.strip().startswith('disabled:')]
     assert disabled, 'the Autofocus button has no disabled binding'
-    assert 'app.recording_active or root.autofocus_pending' in disabled[0]
+    assert 'root.autofocus_held or root.autofocus_pending' in disabled[0]
+
+
+def test_the_button_greys_while_anything_else_holds_the_scope(pressed):
+    """The Session answers for this button's own run: another holder greys it,
+    its own run leaves it live as that run's Stop."""
+    import modules.app_context as app_context
+
+    own = object()
+    pressed.button._autofocus_run = own
+    asked = []
+
+    for held in (True, False):
+        app_context.ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
+        pressed.button.draw_autofocus_button()
+        assert pressed.button.autofocus_held is held
+
+    assert asked == [own, own], 'the button must ask about the run it started'

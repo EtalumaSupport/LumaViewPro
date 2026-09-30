@@ -33,6 +33,10 @@ class ZStack(FloatLayout):
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     zstack_pending = BooleanProperty(False)
+    # True while anything but this button's own run holds the scope -- another
+    # run, a recording, a diagnostic -- as the Session answers; greys the
+    # button, and its own run leaves it live as that run's Stop.
+    zstack_held = BooleanProperty(False)
 
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
@@ -193,7 +197,9 @@ class ZStack(FloatLayout):
         count, asked of the engine, because the member built the protocol
         and this widget never holds it.
         """
-        engine = _app_ctx.ctx.sequenced_capture_runner
+        ctx = _app_ctx.ctx
+        self.zstack_held = ctx.session.held_by_other(self._zstack_run)
+        engine = ctx.sequenced_capture_runner
         button = self.ids['zstack_aqr_btn']
         if not engine.is_live_run(self._zstack_run):
             button.state = 'normal'

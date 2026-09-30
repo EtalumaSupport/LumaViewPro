@@ -83,3 +83,45 @@ def test_each_run_button_is_disabled_while_its_own_request_is_in_flight():
         if flag not in disabled:
             unbound.append(widget_id)
     assert not unbound, f'run buttons not disabled by their in-flight flag: {unbound}'
+
+
+# Each run button's kv id and the flag its draw sets from the Session's
+# held_by_other(<the run this button started>): anything else holding the
+# scope greys it, and its own run leaves it live as that run's Stop.
+HELD_FLAGS = {
+    'composite_btn': 'root.composite_held',
+    'autofocus_id': 'root.autofocus_held',
+    'zstack_aqr_btn': 'root.zstack_held',
+    'run_autofocus_btn': 'root.autofocus_scan_held',
+    'run_scan_btn': 'root.scan_held',
+    'run_protocol_btn': 'root.protocol_held',
+}
+
+
+def _disabled_line(kv, widget_id):
+    start = kv.find(f'id: {widget_id}')
+    assert start > 0, f'{widget_id} is gone from the kv'
+    block = kv[start : kv.find('on_release', start)]
+    return next((line for line in block.splitlines() if 'disabled:' in line), '')
+
+
+def test_each_run_button_greys_while_anything_else_holds_the_scope():
+    from tests.ast_seams import REPO_ROOT
+
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    unbound = [wid for wid, flag in HELD_FLAGS.items() if flag not in _disabled_line(kv, wid)]
+    assert not unbound, f'run buttons not greyed by their held flag: {unbound}'
+
+
+def test_no_run_button_decides_its_own_lock():
+    """held_by_other already answers a recording, live or draining: a second
+    term for it on a toggle is a second answer to one question."""
+    from tests.ast_seams import REPO_ROOT
+
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    second_answers = {
+        wid: line.strip()
+        for wid in HELD_FLAGS
+        if any(term in (line := _disabled_line(kv, wid)) for term in ('app.',))
+    }
+    assert not second_answers, f'run buttons locked by a term of their own: {second_answers}'

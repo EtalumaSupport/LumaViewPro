@@ -33,6 +33,10 @@ class CompositeCapture(FloatLayout):
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     composite_pending = BooleanProperty(False)
+    # True while anything but this button's own run holds the scope -- another
+    # run, a recording, a diagnostic -- as the Session answers; greys the
+    # button, and its own run leaves it live as that run's Stop.
+    composite_held = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -137,6 +141,7 @@ class CompositeCapture(FloatLayout):
         scope, and what every run shares is draw_shared_run_displays'.
         """
         ctx = _app_ctx.ctx
+        self.composite_held = ctx.session.held_by_other(self._composite_run)
         live = ctx.sequenced_capture_runner.is_live_run(self._composite_run)
         self.ids['composite_btn'].state = 'down' if live else 'normal'
         if live:

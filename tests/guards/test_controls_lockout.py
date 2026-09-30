@@ -61,8 +61,11 @@ KV_SRC = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
 
 
 class TestDerivedLockProperty:
-    def test_recording_mirror_property_exists(self):
-        assert 'recording_active = BooleanProperty(False)' in APP_SRC
+    def test_the_app_publishes_no_recording_mirror(self):
+        # Each run control greys through its own held flag, which the
+        # Session answers for a recording live or draining; an App-level
+        # recording mirror would be a second answer with no reader.
+        assert 'recording_active = BooleanProperty' not in APP_SRC
 
     def test_controls_locked_is_listener_published(self):
         # The derivation lives on the session; the App property is a

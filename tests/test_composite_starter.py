@@ -77,6 +77,8 @@ def app_ctx(runner, engine, tmp_path, monkeypatch):
     saved = getattr(_app_ctx, 'ctx', None)
     session = MagicMock()
     session.create_protocol_runner.return_value = runner
+    # Nothing holds the scope; a MagicMock's own answer would be truthy.
+    session.held_by_other.return_value = False
     pool = MagicMock()
 
     def _run_now(task):
@@ -250,3 +252,19 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, runn
     assert starter.composite_pending is True, 'a second press must not race the first to the pool'
     run_task_now(held[0])
     assert starter.composite_pending is False, "the request's own redraw brings the button back"
+
+
+def test_the_button_greys_while_anything_else_holds_the_scope(app_ctx):
+    """The Session answers for this button's own run: another holder greys it,
+    its own run leaves it live as that run's Stop."""
+    starter = _Starter()
+    own = object()
+    starter._composite_run = own
+    asked = []
+
+    for held in (True, False):
+        app_ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
+        cc.CompositeCapture.draw_composite_button(starter)
+        assert starter.composite_held is held
+
+    assert asked == [own, own], 'the button must ask about the run it started'

@@ -462,11 +462,11 @@ class LumaViewProApp(TooltipMixin, App):
     # the ONE run-state listener below (worker-side truth lives on the
     # session; a kv binding cannot read it directly). run_lockout
     # carries the session derivation of the same name (a run or its
-    # post-run file drain); recording_active carries a LIVE manual
-    # recording; controls_locked is the full-surface lock. Never add a
-    # second per-site flag -- bind to these.
+    # post-run file drain); controls_locked is the full-surface lock.
+    # Never add a second per-site flag -- bind to these. A run control
+    # binds its own held flag instead, drawn from the Session for the run
+    # that control started.
     run_lockout = BooleanProperty(False)
-    recording_active = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
 
     # The in-flight drain-close poller, or None when no close is running.
@@ -476,27 +476,21 @@ class LumaViewProApp(TooltipMixin, App):
     _drain_close_watch = None
 
     def publish_run_state(self, dt: float = 0) -> None:
-        """Write the three kv mirrors from the session derivations.
+        """Write the two kv mirrors from the session derivations.
 
-        One closure writes all three, in fail-safe order: Kivy
-        dispatches bindings synchronously inside each setattr, so a
-        handler observing a torn pair must see OVER-locked, never
-        under-locked -- the tightening property writes first on lock,
-        last on unlock.
+        One closure writes both, in fail-safe order: Kivy dispatches
+        bindings synchronously inside each setattr, so a handler
+        observing a torn pair must see OVER-locked, never under-locked --
+        the tightening property writes first on lock, last on unlock.
         """
         session = ctx.session
         run_lockout = session.run_lockout
-        recording = (
-            session.exclusive_activity == 'recording' and session.manual_recording.is_recording
-        )
         locked = session.controls_locked
         if locked:
             self.controls_locked = True
             self.run_lockout = run_lockout
-            self.recording_active = recording
         else:
             self.run_lockout = run_lockout
-            self.recording_active = recording
             self.controls_locked = False
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
@@ -541,7 +535,7 @@ class LumaViewProApp(TooltipMixin, App):
         # The ONE run-state listener: session transitions (claim
         # grant/release, file-drain exit, scope rebind) schedule a
         # single main-thread closure that re-reads the derivations at
-        # fire time and writes the three kv mirrors. Level-read at
+        # fire time and writes the kv mirrors. Level-read at
         # fire time means out-of-order delivery degrades to bounded
         # staleness, never a permanently wrong publish; registration
         # itself level-syncs the mirrors to current truth. The draw is

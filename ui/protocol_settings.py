@@ -124,6 +124,7 @@ _ABORT_BACKGROUND = './data/icons/abort_protocol_background.png'
 
 class _PanelRunButton(typing.NamedTuple):
     button_id: str
+    held_flag: str  # the panel property that greys the button while another holds the scope
     label: str  # the boundary's category for this button's requests
     idle_text: str
     running_text: str
@@ -135,10 +136,17 @@ class _PanelRunButton(typing.NamedTuple):
 # with -- the key its run's handle is kept under.
 _PANEL_RUN_BUTTONS = {
     'scan': _PanelRunButton(
-        'run_scan_btn', 'PROTOCOL_SCAN', 'Run One Scan', 'Abort One Scan', _ABORT_BACKGROUND, None
+        'run_scan_btn',
+        'scan_held',
+        'PROTOCOL_SCAN',
+        'Run One Scan',
+        'Abort One Scan',
+        _ABORT_BACKGROUND,
+        None,
     ),
     'protocol': _PanelRunButton(
         'run_protocol_btn',
+        'protocol_held',
         'PROTOCOL_RUN',
         'Run Full Protocol',
         '',
@@ -147,6 +155,7 @@ _PANEL_RUN_BUTTONS = {
     ),
     'autofocus_scan': _PanelRunButton(
         'run_autofocus_btn',
+        'autofocus_scan_held',
         'PROTOCOL_AF_SCAN',
         'Autofocus All Steps',
         'Running Autofocus Scan',
@@ -179,6 +188,12 @@ class ProtocolSettings(FloatLayout):
     scan_pending = BooleanProperty(False)
     protocol_pending = BooleanProperty(False)
     autofocus_scan_pending = BooleanProperty(False)
+    # Each True while anything but that button's own run holds the scope --
+    # another run, a recording, a diagnostic -- as the Session answers; greys
+    # the button, and its own run leaves it live as that run's Stop.
+    scan_held = BooleanProperty(False)
+    protocol_held = BooleanProperty(False)
+    autofocus_scan_held = BooleanProperty(False)
     # Drawn by draw_protocol_buttons: a finished run's files are draining
     # with no run live, so each of the three starts would only be refused.
     files_draining = BooleanProperty(False)
@@ -1505,6 +1520,7 @@ class ProtocolSettings(FloatLayout):
         for trigger, look in _PANEL_RUN_BUTTONS.items():
             button = self.ids[look.button_id]
             run = self._runs_started_here.get(trigger)
+            setattr(self, look.held_flag, session.held_by_other(run))
             if engine.is_live_run(run):
                 button.state = 'down'
                 if engine.is_stopping(run):

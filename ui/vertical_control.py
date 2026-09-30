@@ -35,6 +35,10 @@ class VerticalControl(BoxLayout):
     # True while this button's own request is on its way to the engine; the
     # Autofocus button is disabled until that request's redraw.
     autofocus_pending = BooleanProperty(False)
+    # True while anything but the Autofocus button's own run holds the scope --
+    # another run, a recording, a diagnostic -- as the Session answers; greys
+    # the button, and its own run leaves it live as that run's Stop.
+    autofocus_held = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -388,8 +392,10 @@ class VerticalControl(BoxLayout):
         to idle. It draws this button's own run and nothing else; a
         protocol's autofocus steps are not this button's to show.
         """
-        runner = _app_ctx.ctx.sequenced_capture_runner
+        ctx = _app_ctx.ctx
+        runner = ctx.sequenced_capture_runner
         run = self._autofocus_run
+        self.autofocus_held = ctx.session.held_by_other(run)
         button = self.ids['autofocus_id']
         if not runner.is_live_run(run):
             button.state = 'normal'

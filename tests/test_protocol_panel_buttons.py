@@ -98,6 +98,8 @@ def session():
         is_protocol_running=False,
         protocol_files_stalled=False,
         protocol_files_pending=0,
+        # Nothing holds the scope.
+        held_by_other=lambda run: False,
     )
 
 
@@ -458,3 +460,21 @@ def test_a_finished_runs_files_still_writing_refuse_until_they_land(monkeypatch)
     finally:
         release.set()
         lane.shutdown(wait=False)
+
+
+def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, session):
+    """Each of the three asks the Session about the run it started: another
+    holder greys it, its own run leaves it live as that run's Stop."""
+    panel = _Panel()
+    runs = {trigger: PendingRunOutcome() for trigger in ('scan', 'protocol', 'autofocus_scan')}
+    panel._runs_started_here = dict(runs)
+    own_run = runs['protocol']
+    session.held_by_other = lambda run: run is not own_run
+
+    panel.draw_protocol_buttons()
+
+    assert (panel.scan_held, panel.protocol_held, panel.autofocus_scan_held) == (
+        True,
+        False,
+        True,
+    )

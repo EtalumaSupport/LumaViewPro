@@ -80,6 +80,8 @@ def clicked(monkeypatch):
     engine.is_live_run.return_value = False
     session = MagicMock()
     session.create_protocol_runner.return_value = member_runner
+    # Nothing holds the scope; a MagicMock's own answer would be truthy.
+    session.held_by_other.return_value = False
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
@@ -311,3 +313,20 @@ class TestTheMemberCarriesWhatTheGuiStates:
         assert prepared['run_trigger_source'] == 'api_zstack'
         assert prepared['engineering_mode'] is False
         assert prepared['enable_image_saving'] is True
+
+
+def test_the_button_greys_while_anything_else_holds_the_scope(clicked):
+    """The Session answers for this button's own run: another holder greys it,
+    its own run leaves it live as that run's Stop."""
+    import modules.app_context as app_context
+
+    own = object()
+    clicked.starter._zstack_run = own
+    asked = []
+
+    for held in (True, False):
+        app_context.ctx.session.held_by_other = lambda run, held=held: asked.append(run) or held
+        clicked.starter.draw_zstack_button()
+        assert clicked.starter.zstack_held is held
+
+    assert asked == [own, own], 'the button must ask about the run it started'
