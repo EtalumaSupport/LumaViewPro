@@ -475,9 +475,24 @@ class TestProvisionalResolutionReAsks:
         assert on_start is not None
         assert '_prompt_objective_if_needed' in direct_call_names(on_start)
 
+        # The answer runs the retire through run_reported, and its redraw
+        # is where a resolved state goes on to the objective question.
         revert = find_def('lumaviewpro.py', '_revert', class_name='LumaViewProApp')
         assert revert is not None, 'the _revert closure inside _ask_about_rejected_settings is gone'
-        assert '_prompt_objective_if_needed' in direct_call_names(revert)
+        handed = [
+            arg.id
+            for node in ast.walk(revert)
+            if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'run_reported'
+            for arg in node.args
+            if isinstance(arg, ast.Name)
+        ]
+        assert '_after_revert' in handed, '_revert must hand _after_revert to run_reported'
+
+        after = find_def('lumaviewpro.py', '_after_revert', class_name='LumaViewProApp')
+        assert after is not None, (
+            'the _after_revert redraw inside _ask_about_rejected_settings is gone'
+        )
+        assert '_prompt_objective_if_needed' in direct_call_names(after)
 
 
 # ---------------------------------------------------------------------------

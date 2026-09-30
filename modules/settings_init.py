@@ -5,6 +5,7 @@ import logging
 import time
 
 from modules import labware_loader
+from modules.exceptions import SettingsFileNotReplacedError
 
 
 settings = None
@@ -631,6 +632,10 @@ def retire_rejected_current_json() -> str | None:
     Called only after a human has chosen to start over -- the rename is the
     point of no return for that file's role, and nothing should reach it by
     timeout, by a dismissed dialog, or by any other default.
+
+    Raises:
+        SettingsFileNotReplacedError: The rename failed. The settings stay
+            provisional, so the question can be answered again.
     """
     global rejected_current_json
     if rejected_current_json is None:
@@ -638,8 +643,14 @@ def retire_rejected_current_json() -> str | None:
     path, _reason = rejected_current_json
     stamp = time.strftime('%Y%m%d-%H%M%S')
     retired = f'{path}.rejected-{stamp}'
-    os.replace(path, retired)
+    try:
+        os.replace(path, retired)
+    except OSError as e:
+        raise SettingsFileNotReplacedError(path, e) from e
     rejected_current_json = None
+    logging.getLogger('lvp_logger').warning(
+        f'[Settings ] settings reset by user choice; previous file kept at {retired}'
+    )
     return retired
 
 

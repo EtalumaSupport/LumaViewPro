@@ -33,6 +33,9 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable, Iterable
 
+from modules.exceptions import PluginFailedError, PluginNotLoadedError
+from modules.notification_center import notifications
+
 logger = logging.getLogger('lvp_logger')
 
 
@@ -60,8 +63,8 @@ class PluginRegistrationError(Exception):
 
     Causes: name collision within a namespace, unknown mount point,
     version mismatch, malformed spec. The plugin is NOT loaded and the
-    app continues. Host wraps the raise in try/except and fires
-    notifications.error so the user sees the failure.
+    app continues. The loader catches the raise from the plugin's
+    register(ctx) and reports it as that plugin's load failure.
     """
 
 
@@ -116,10 +119,11 @@ class PluginStatus:
 class PluginRuntimeError:
     """A runtime error caught from a plugin handler.
 
-    Distinct from a load failure: the plugin loaded fine, but raised
-    while servicing a callback (e.g. on_settings_changed). Logged at
-    ERROR and surfaced via NamespaceHealth.last_runtime_errors so
-    diagnostic probes can attribute fault to the right plugin.
+    Distinct from a load failure: the plugin loaded fine, but failed
+    while servicing a callback (e.g. on_settings_changed). Reported by
+    PluginRegistry.record_runtime_error and kept in
+    NamespaceHealth.last_runtime_errors so diagnostic probes can
+    attribute fault to the right plugin.
     """
 
     plugin_name: str
@@ -188,17 +192,16 @@ class _BaseNamespace:
             )
         )
 
-    def record_runtime_error(self, plugin_name: str, hook: str, exc: BaseException) -> None:
-        """Plugins do not call this directly. The host wraps callbacks
-        in try/except and feeds caught exceptions through here so the
-        diagnostic surface knows which plugin failed."""
+    def _record_runtime_error(
+        self, plugin_name: str, hook: str, exc_type: str, message: str
+    ) -> None:
         self._runtime_errors.append(
             PluginRuntimeError(
                 plugin_name=plugin_name,
                 namespace=self.NAMESPACE,
                 hook=hook,
-                exc_type=type(exc).__name__,
-                message=str(exc),
+                exc_type=exc_type,
+                message=message,
             )
         )
 
@@ -513,6 +516,62 @@ class PluginRegistry:
                     return name
         return None
 
+    def record_load_failure(
+        self, name: str, version: str, reason: str, cause: BaseException | None = None
+    ) -> None:
+        """Record that a plugin did not load, and report it.
+
+        The one place a load failure becomes an outcome, so no path that
+        drops a plugin can keep it without telling anyone. A plugin that
+        never loaded has no namespace yet; its record is kept with the ui
+        namespace's.
+
+        Args:
+            name: The plugin's name, or its entry point's when it has no spec.
+            version: The plugin's version, or '' when it is not known.
+            reason: Why it did not load, in words a person can act on.
+            cause: The plugin's own exception, when there is one; its
+                traceback is carried into the one log record.
+        """
+        self.ui._record_failed(name, version, reason)
+        outcome = PluginNotLoadedError(name, reason)
+        outcome.__cause__ = cause
+        notifications.report_outcome(outcome, solicited=False, category='Plugins')
+
+    def record_runtime_error(
+        self,
+        name: str,
+        hook: str,
+        exc: BaseException | None = None,
+        detail: str = '',
+    ) -> None:
+        """Record that a loaded plugin failed while the host called it, and report it.
+
+        Plugins do not call this. The host catches a plugin's failure and
+        feeds it through here, the one place it becomes an outcome, so every
+        such failure is both kept for diagnostics and told to the person.
+        The report does not depend on the plugin having registered into a
+        namespace; the record does.
+
+        Args:
+            name: The plugin that failed.
+            hook: What the host was calling it for.
+            exc: The exception the plugin raised, or None when it failed
+                by what it returned.
+            detail: The plugin's own account, when it gave one.
+        """
+        ns = self._find_namespace(name)
+        if ns is not None:
+            ns._record_runtime_error(
+                name,
+                hook,
+                type(exc).__name__ if exc is not None else '',
+                detail or (str(exc) if exc is not None else ''),
+            )
+        outcome = PluginFailedError(name, hook, detail)
+        outcome.__cause__ = exc
+        notifications.report_outcome(outcome, solicited=False, category='Plugins')
+
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""
         return (
@@ -549,7 +608,7 @@ class PluginRegistry:
         subscribes_to=('video.max_fps',) fires only when that
         exact dot-path key changes.
 
-        Exceptions from a plugin handler are logged + recorded but
+        Exceptions from a plugin handler are recorded and reported but
         never propagate -- one plugin's failure does not block others.
         Runs on the calling thread; plugin handlers must be quick
         enough not to stall the settings-save path.
@@ -571,13 +630,7 @@ class PluginRegistry:
             try:
                 handler(ctx, settings)
             except Exception as exc:
-                logger.error(
-                    f'[Plugins ] {name}: on_settings_changed raised {type(exc).__name__}: {exc}',
-                    exc_info=True,
-                )
-                ns = self._find_namespace(name)
-                if ns is not None:
-                    ns.record_runtime_error(name, 'on_settings_changed', exc)
+                self.record_runtime_error(name, 'on_settings_changed', exc)
 
     def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
         for ns in (
@@ -748,33 +801,14 @@ def _extract_spec(module: Any) -> PluginSpec | None:
     return None
 
 
-def _notify_load_failure(ctx: Any, plugin_name: str, reason: str) -> None:
-    """Fire a user-facing notification when a plugin fails to load.
-
-    Best-effort: if notifications aren't wired (e.g. headless test
-    harness), the failure is still logged and the function returns.
-    """
-    try:
-        from modules.notification_center import notifications
-
-        notifications.error(
-            category='Plugins',
-            title='Plugin load failed',
-            message=f'{plugin_name} did not load: {reason}. Other features unaffected.',
-            source='modules.plugins',
-        )
-    except Exception:
-        logger.exception('[Plugins ] notification_center unavailable')
-
-
 def load_plugins(ctx: Any) -> None:
     """Discover and load plugins via entry_points group 'lvp.plugins'.
 
     Called once at app startup after AppContext is initialized and the
     widget tree exists. Each plugin's register(ctx) is wrapped in
-    try/except; a failed plugin is logged + notified but does not
-    abort the app. The plugin module is tracked so unload_plugins can
-    call its unregister(ctx) at shutdown.
+    try/except; a plugin that does not load, for any reason, is
+    recorded and reported but does not abort the app. The plugin module
+    is tracked so unload_plugins can call its unregister(ctx) at shutdown.
     """
     if ctx is None or not hasattr(ctx, 'plugins'):
         logger.error('[Plugins ] load_plugins called without ctx.plugins')
@@ -784,10 +818,7 @@ def load_plugins(ctx: Any) -> None:
     # plugin's register(ctx) can call ctx.plugins.live_processing.register.
     # ctx.scope is expected to be the live Lumascope by this point
     # (LumaViewProApp.build sets it before this call).
-    try:
-        ctx.plugins.live_processing.bind_scope(getattr(ctx, 'scope', None))
-    except Exception:
-        logger.exception('[Plugins ] live_processing bind_scope failed')
+    ctx.plugins.live_processing.bind_scope(getattr(ctx, 'scope', None))
 
     host_version = getattr(ctx, 'version', '') or ''
     try:
@@ -802,47 +833,40 @@ def load_plugins(ctx: Any) -> None:
         try:
             module = ep.load()
         except Exception as e:
-            logger.error(
-                f'[Plugins ] {ep_name}: import failed: {e}',
-                exc_info=True,
+            ctx.plugins.record_load_failure(
+                ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
             )
-            _notify_load_failure(ctx, ep_name, f'import error ({type(e).__name__})')
             continue
 
         spec = _extract_spec(module)
         if spec is None:
-            logger.warning(
-                f'[Plugins ] {ep_name}: no module-level PluginSpec, skipping',
+            ctx.plugins.record_load_failure(
+                ep_name, '', 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
             )
             continue
 
         if not is_version_compatible(spec.requires_lvp_version, host_version):
-            logger.warning(
-                f'[Plugins ] {spec.name} v{spec.version} requires LVP '
-                f'{spec.requires_lvp_version}; have {host_version}; skipping',
-            )
-            ctx.plugins.ui._record_failed(
+            ctx.plugins.record_load_failure(
                 spec.name,
                 spec.version,
-                f'requires {spec.requires_lvp_version}, have {host_version}',
+                f'version {spec.version} needs LumaViewPro {spec.requires_lvp_version}, '
+                f'and this is {host_version}',
             )
             continue
 
         register_fn = getattr(module, 'register', None)
         if not callable(register_fn):
-            logger.warning(
-                f'[Plugins ] {spec.name}: no register(ctx) function, skipping',
+            ctx.plugins.record_load_failure(
+                spec.name, spec.version, 'it has no register(ctx) function'
             )
             continue
 
         try:
             register_fn(ctx)
         except Exception as e:
-            logger.error(
-                f'[Plugins ] {spec.name}: register() failed: {e}',
-                exc_info=True,
+            ctx.plugins.record_load_failure(
+                spec.name, spec.version, f'its register() raised {type(e).__name__}: {e}', e
             )
-            _notify_load_failure(ctx, spec.name, f'{type(e).__name__}: {e}')
             # Give the plugin a chance to clean up partial state.
             unregister_fn = getattr(module, 'unregister', None)
             if callable(unregister_fn):
@@ -898,10 +922,11 @@ def run_protocol_complete_processors(
     Called once per protocol run after all output files are written
     to disk. ``files`` is the run's write outcome; on ``'incomplete'`` --
     some images are not on disk -- nothing runs, since a plugin
-    reading the folder as whole would build from a partial one. Each plugin's processor runs in turn; per-plugin
-    exceptions are caught and logged so one failure does not block
-    others or the rest of the completion handler. ProcessorResult is
-    logged at INFO on success, WARNING on reported failure.
+    reading the folder as whole would build from a partial one. Each plugin's processor runs in turn; a
+    processor that raises, returns something other than a
+    ProcessorResult, or returns one that reports failure is recorded and
+    reported, and does not block others or the rest of the completion
+    handler. A success is logged at INFO.
 
     Today this is invoked from the UI-side protocol-completion
     handler. When REST-triggered protocol runs land, the dispatcher
@@ -922,23 +947,18 @@ def run_protocol_complete_processors(
         try:
             result = processor(input_dir, manifest, output_dir)
         except Exception as e:
-            logger.error(
-                f'[Plugins ] {spec.name} processor raised {type(e).__name__}: {e}',
-                exc_info=True,
-            )
-            ctx.plugins.post_processing.record_runtime_error(
-                spec.name,
-                'auto_run_on_protocol_complete',
-                e,
-            )
+            ctx.plugins.record_runtime_error(spec.name, 'auto_run_on_protocol_complete', e)
             continue
         if not isinstance(result, ProcessorResult):
-            logger.warning(
-                f'[Plugins ] {spec.name} processor returned '
-                f'{type(result).__name__}, expected ProcessorResult',
+            ctx.plugins.record_runtime_error(
+                spec.name,
+                'auto_run_on_protocol_complete',
+                detail=f'its processor returned {type(result).__name__}, not a ProcessorResult',
             )
             continue
         if result.success:
             logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
         else:
-            logger.warning(f'[Plugins ] {spec.name} auto-run reported failure: {result.message}')
+            ctx.plugins.record_runtime_error(
+                spec.name, 'auto_run_on_protocol_complete', detail=result.message
+            )

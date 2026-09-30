@@ -223,6 +223,31 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
         self.file = file
 
 
+class SettingsFileNotReplacedError(ConfigError):
+    """The unreadable settings file could not be moved aside after the user chose to start over.
+
+    Raised by the retire, chained from the ``OSError`` the rename raised, so
+    the words name the file and the operating system's own reason rather
+    than guessing one: a lock by another program is the common cause on
+    Windows, but a permissions or disk fault reads the same to a guess. The
+    settings stay provisional, so nothing is lost and the question can be
+    answered again.
+
+    Attributes:
+        file: The settings file that is still in place.
+    """
+
+    title = 'Settings File Not Replaced'
+
+    def __init__(self, file: str, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(
+            f'{file} could not be moved aside ({reason}). Close any program that has '
+            'it open, then choose again.'
+        )
+        self.file = file
+
+
 class ScopeModelUnknownError(Refusal, ValueError):
     """A scope model was selected that this release's catalogue does not list.
 
@@ -855,6 +880,66 @@ class FrameHandlerRemovedError(Refusal, Exception):
         )
         self.name = name
         self.reason = reason
+
+
+class PluginError(Exception):
+    """A plugin failed: it did not load, or it failed after loading.
+
+    Nothing raises these: the plugin host catches the plugin's own failure
+    and has no caller to raise to, so each is built to be reported, chained
+    from the plugin's exception when there is one so the log record carries
+    that traceback. A plugin is separately versioned and may not be ours,
+    so its failure is a fault for the person to hear about while the rest
+    of the application carries on.
+
+    The title names the plugin, so two plugins failing together are two
+    notices rather than one that hides the other.
+
+    Attributes:
+        plugin_name: The plugin that failed.
+    """
+
+    def __init__(self, plugin_name: str, title: str, message: str):
+        super().__init__(message)
+        self.plugin_name = plugin_name
+        self.title = title
+
+
+class PluginNotLoadedError(PluginError):
+    """A plugin found in the plugin group did not load.
+
+    Attributes:
+        reason: Why, in words a person can act on.
+    """
+
+    def __init__(self, plugin_name: str, reason: str):
+        super().__init__(
+            plugin_name,
+            f'Plugin Not Loaded: {plugin_name}',
+            f'The "{plugin_name}" plugin did not load: {reason}. The rest of '
+            'LumaViewPro is unaffected.',
+        )
+        self.reason = reason
+
+
+class PluginFailedError(PluginError):
+    """A loaded plugin failed while the host was calling it.
+
+    Attributes:
+        hook: What the host was calling the plugin for.
+        detail: The plugin's own account of the failure, when it gave one.
+    """
+
+    def __init__(self, plugin_name: str, hook: str, detail: str = ''):
+        said = f' It said: {detail}' if detail else ''
+        super().__init__(
+            plugin_name,
+            f'Plugin Error: {plugin_name}',
+            f'The "{plugin_name}" plugin failed ({hook}), so that action did not '
+            f'complete. The rest of LumaViewPro is unaffected.{said}',
+        )
+        self.hook = hook
+        self.detail = detail
 
 
 class HardwareCommandRefusedError(Refusal, Exception):

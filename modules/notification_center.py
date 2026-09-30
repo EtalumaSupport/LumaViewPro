@@ -36,6 +36,7 @@ from modules.exceptions import (
     HomingFailedError,
     MotorStopFailedError,
     MoveNotCompletedError,
+    PluginError,
     ProtocolError,
     Quiet,
     Refusal,
@@ -61,6 +62,7 @@ _TYPED_FAULTS = (
     HomingFailedError,
     MotorStopFailedError,
     MoveNotCompletedError,
+    PluginError,
     ScopeDisconnectError,
 )
 

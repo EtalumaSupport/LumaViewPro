@@ -425,6 +425,7 @@ from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
     draw_unasked,
+    run_reported,
 )
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
@@ -800,37 +801,22 @@ class LumaViewProApp(TooltipMixin, App):
         if not ctx.session.settings_are_provisional():
             return
 
-        path, reason = settings_init.rejected_current_json
+        _path, reason = settings_init.rejected_current_json
+
+        def _after_revert():
+            # The retire is a file rename that can fail under a Windows
+            # AV/indexer lock. The session still says provisional then, so
+            # the question is put back -- every save raises loudly until it
+            # is resolved. Otherwise settings can be kept again, so the
+            # objective question suppressed while they were provisional is
+            # asked now.
+            if ctx.session.settings_are_provisional():
+                self._ask_about_rejected_settings()
+            else:
+                self._prompt_objective_if_needed()
 
         def _revert():
-            # The retire is a file rename that can fail under a Windows
-            # AV/indexer lock; unguarded, that exception would kill the
-            # process from the button callback with no teardown. On
-            # failure, say so and re-present the question -- the
-            # provisional state still holds, and every save raises
-            # loudly until it is resolved.
-            try:
-                retired = ctx.session.retire_rejected_settings()
-            except Exception:
-                logger.error(
-                    '[LVP Main  ] could not retire the rejected settings file',
-                    exc_info=True,
-                )
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Settings',
-                    'Settings file could not be replaced',
-                    f'{path} is in use by another program. Close it and try again.',
-                )
-                self._ask_about_rejected_settings()
-                return
-            logger.warning(
-                f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
-            )
-            # Settings can be kept again now -- ask the objective question
-            # that was suppressed while they were provisional.
-            self._prompt_objective_if_needed()
+            run_reported(ctx.session.retire_rejected_settings, _after_revert, 'USE_DEFAULTS')
 
         def _quit():
             logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')
@@ -1122,25 +1108,7 @@ class LumaViewProApp(TooltipMixin, App):
                     logger.debug(f'[Plugins ] crash attribution failed: {e}')
                 if plugin_name is None:
                     return ExceptionManager.RAISE
-                logger.exception(
-                    f'[Plugins ] contained a crash from plugin {plugin_name!r}: {inst}'
-                )
-                try:
-                    ctx.plugins.ui.record_runtime_error(plugin_name, 'ui_event', inst)
-                except Exception as e:
-                    logger.debug(f'[Plugins ] runtime-error record failed: {e}')
-                try:
-                    from modules.notification_center import notifications
-
-                    notifications.error(
-                        'Plugins',
-                        'Plugin Error',
-                        f'The "{plugin_name}" plugin hit an error and the action '
-                        'was cancelled. The rest of the application is '
-                        'unaffected. See the log for details.',
-                    )
-                except Exception as e:
-                    logger.debug(f'[Plugins ] plugin-error popup failed: {e}')
+                ctx.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
                 return ExceptionManager.PASS
 
         ExceptionManager.add_handler(_PluginCrashGuard())
@@ -1168,10 +1136,7 @@ class LumaViewProApp(TooltipMixin, App):
                     motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
-                    logger.error(
-                        f'[LVP Main  ] {plugin_name} mount failed: {e}',
-                        exc_info=True,
-                    )
+                    ctx.plugins.record_runtime_error(plugin_name, 'mount', e)
 
         # Enable engineering-only log files (autofocus.log, api.log).
         # Read from ctx since the engineering plugin's register(ctx)

@@ -57,12 +57,13 @@ import modules.notification_center as notification_center
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
 from modules import gui_logger
-from modules.exceptions import SettingsSaveRefusedError
+from modules.exceptions import SettingsFileNotReplacedError, SettingsSaveRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
 from tests.settings_fixtures import complete_settings
 from tests.installation_fixtures import copy_installation_files
+from ui.ui_helpers import run_reported
 from ui.vertical_control import VerticalControl
 
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -435,28 +436,31 @@ class TestTheQuestionIsAskable:
         it raises -- from a button callback, where an escape kills the
         process with no teardown. It must say so, re-present the
         question, and NOT go on to the objective prompt: settings are
-        still provisional, so that answer still could not be kept."""
+        still provisional, so that answer still could not be kept.
+
+        What it says is the retire's own typed fault, shown once by the
+        one reporter: the handler writes no popup and no log line of its
+        own, and names the OS's reason rather than guessing one."""
         _make_provisional(monkeypatch, tmp_path)
 
-        def _locked():
-            raise PermissionError('current.json is in use by another program')
+        def _locked(src, dst):
+            raise PermissionError(13, 'The process cannot access the file', src)
 
+        monkeypatch.setattr(settings_init.os, 'replace', _locked)
         ctx = SimpleNamespace(
             session=SimpleNamespace(
-                settings_are_provisional=lambda: True,
-                retire_rejected_settings=_locked,
+                settings_are_provisional=settings_init.settings_are_provisional,
+                retire_rejected_settings=settings_init.retire_rejected_current_json,
             )
         )
         clock = _FakeClock()
         log = MagicMock()
         stand = _AppStand()
 
+        centre = notification_center.NotificationCenter()
         errors = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'error',
-            lambda category, title, message, **kw: errors.append((category, title, message)),
-        )
+        centre.add_listener(errors.append, min_severity=notification_center.Severity.INFO)
+        monkeypatch.setattr(notification_center, 'notifications', centre)
 
         shown = {}
         monkeypatch.setattr(
@@ -465,7 +469,13 @@ class TestTheQuestionIsAskable:
             lambda **kwargs: shown.update(kwargs),
         )
 
-        ask = _app_method('_ask_about_rejected_settings', ctx=ctx, logger=log, Clock=clock)
+        ask = _app_method(
+            '_ask_about_rejected_settings',
+            ctx=ctx,
+            logger=log,
+            Clock=clock,
+            run_reported=run_reported,
+        )
         ask(stand)
 
         # Nothing opened yet -- the whole point of the deferral.
@@ -477,12 +487,58 @@ class TestTheQuestionIsAskable:
         shown['on_confirm']()
 
         assert stand.stopped == 0, 'a locked file is recoverable; it must not stop the app'
-        assert log.error.called
-        assert errors and errors[0][1] == 'Settings file could not be replaced'
+        assert not log.error.called, 'the handler logs nothing of its own beside the report'
+        assert [(n.title, n.severity) for n in errors] == [
+            ('Settings File Not Replaced', notification_center.Severity.ERROR)
+        ]
+        assert 'The process cannot access the file' in errors[0].message
+        assert 'in use by another program' not in errors[0].message
         assert stand.re_asked == 1, 'the unresolved question must be put back to the user'
         assert stand.objective_prompts == 0, (
             'settings are still provisional, so the objective answer still could not be kept'
         )
+
+    def test_a_failed_retire_raises_its_own_fault_and_keeps_the_settings_provisional(
+        self, monkeypatch, tmp_path
+    ):
+        """The retire is the API an L2 caller reaches too, so the failure
+        is raised there, typed and chained from the OS's error, and the
+        state it would have changed is left as it was."""
+        _make_provisional(monkeypatch, tmp_path)
+        locked = PermissionError(13, 'Permission denied', 'current.json')
+
+        def _locked(src, dst):
+            raise locked
+
+        monkeypatch.setattr(settings_init.os, 'replace', _locked)
+
+        with pytest.raises(SettingsFileNotReplacedError) as raised:
+            settings_init.retire_rejected_current_json()
+
+        assert raised.value.__cause__ is locked
+        assert 'Permission denied' in str(raised.value)
+        assert settings_init.settings_are_provisional()
+
+    def test_a_retire_logs_where_the_old_file_went_once(self, monkeypatch, tmp_path, caplog):
+        """The retire is the state change, so it says what it did -- once,
+        where it happened, whoever asked for it."""
+        data = tmp_path / 'data'
+        data.mkdir()
+        (data / 'current.json').write_text('{ not json')
+        _make_provisional(monkeypatch, tmp_path)
+        caplog.set_level(logging.WARNING)
+
+        retired = settings_init.retire_rejected_current_json()
+
+        lines = [
+            r.getMessage()
+            for r in caplog.records
+            if 'settings reset by user choice' in r.getMessage()
+        ]
+        assert lines == [
+            f'[Settings ] settings reset by user choice; previous file kept at {retired}'
+        ]
+        assert not settings_init.settings_are_provisional()
 
 
 # ---------------------------------------------------------------------------
