@@ -60,8 +60,8 @@ def fake_fx2_conn(monkeypatch):
     Teardown: restore the real class state.
 
     Also neutralizes the streaming-start paths. ``FX2Camera.__init__``
-    calls ``connect()`` -> ``start_grabbing()`` -> ``_start_iso_streaming``
-    which, under a MagicMock'd libusb1/winusb, records ~16 xfer
+    calls ``connect()`` -> ``start_grabbing()`` -> the connection's
+    ``start_stream``, which, under a MagicMock'd libusb1/winusb, records ~16 xfer
     callbacks holding a bound-method ref back to the camera. The
     MagicMock's call-args store makes that a cycle the GC can't break
     (~210 MB leaked per FX2Camera() instance). Tests in this file
@@ -758,7 +758,7 @@ class TestFX2ConnectionSingleton:
         the hardware).
         """
 
-        def boom(self):
+        def boom(self, transport):
             raise RuntimeError('no FX2 hardware')
 
         # Patch __init__ directly -- get() will still call cls() which
@@ -787,21 +787,22 @@ class TestFX2ConnectionSingleton:
 # These drive the seam the consumers use rather than the ctypes wrapper:
 # `drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
 # cannot be imported off-Windows at all. `control_transfer_out` reaches the
-# transport through a plain `self._winusb_reader_for_ctrl.device` attribute,
-# so a stub substitutes for it on any platform.
+# WinUSB transport, which routes through its streaming reader's plain `device`
+# attribute, so a stub reader substitutes for it on any platform.
 
 
 def _conn_on_winusb(device):
-    """A _FX2Connection routed through a stub WinUSB transport.
+    """A _FX2Connection on a WinUSB transport whose stream is running on a stub.
 
     Built with __new__ rather than the real constructor so the test needs no
-    USB device; only the three attributes control_transfer_out reads to pick
-    its transport, plus the lock it takes.
+    USB device; only the transport control_transfer_out routes through, plus
+    the lock it takes.
     """
+    transport = fx2driver._WinUsbTransport()
+    transport._reader = SimpleNamespace(device=device)  # streaming: control goes here
     conn = object.__new__(fx2driver._FX2Connection)
     conn._lock = threading.Lock()
-    conn._iso_handle_for_ctrl = None  # not the libusb1 path
-    conn._winusb_reader_for_ctrl = SimpleNamespace(device=device)
+    conn._transport = transport
     return conn
 
 
@@ -823,15 +824,6 @@ def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
     result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
     assert result == 1
     assert result is not None
-
-
-def test_a_failed_winusb_in_transfer_reaches_the_caller():
-    def refuse(*a, **kw):
-        raise RuntimeError('ControlTransfer IN ... failed: 31')
-
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
-    with pytest.raises(RuntimeError, match='failed'):
-        conn.control_transfer_in(fx2driver.VR_I2C_READ, index=0x42, length=2)
 
 
 def test_the_led_short_write_detector_fires_on_a_zero_byte_write():

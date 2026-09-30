@@ -12,7 +12,6 @@ frames told a reader the link was clean when it was not.
 
 from __future__ import annotations
 
-import threading
 from types import SimpleNamespace
 
 from drivers import fx2driver
@@ -23,16 +22,20 @@ FAILED = object()  # any status that is neither completed nor cancelled
 
 
 def _camera():
-    """An FX2 camera with only the state the ISO callback reads.
+    """The libusb transport's ISO callback, feeding a stream and a camera's counts.
 
-    Not grabbing, so the callback does not resubmit the transfer.
+    Not streaming, so the callback does not resubmit the transfer.
     """
-    cam = object.__new__(fx2driver.FX2Camera)
-    cam._grabbing = False
-    cam._iso_buf = bytearray()
-    cam._iso_buf_lock = threading.Lock()
-    cam.stream_stats = fx2driver.StreamStats()
-    return cam
+    stats = fx2driver.StreamStats()
+    transport = fx2driver._LibusbTransport()
+    transport._stream = fx2driver._ByteStream()
+    transport._on_error = stats.record_usb_error
+    transport.stream_stats = stats
+    return transport
+
+
+def _received(cam):
+    return bytes(cam._stream.take(0))
 
 
 def _transfer(status, packets=()):
@@ -54,14 +57,14 @@ def test_each_failed_packet_in_a_completed_transfer_is_counted_and_its_bytes_are
     packets = [(COMPLETED, b'ab'), (FAILED, b'xx'), (COMPLETED, b'cd'), (FAILED, b'')]
     cam._iso_callback(_transfer(COMPLETED, packets))
     assert _errors(cam) == 2
-    assert bytes(cam._iso_buf) == b'abcd'
+    assert _received(cam) == b'abcd'
 
 
 def test_a_clean_transfer_counts_nothing():
     cam = _camera()
     cam._iso_callback(_transfer(COMPLETED, [(COMPLETED, b'ab'), (COMPLETED, b'')]))
     assert _errors(cam) == 0
-    assert bytes(cam._iso_buf) == b'ab'
+    assert _received(cam) == b'ab'
 
 
 def test_a_cancelled_transfer_is_the_stream_stopping_not_an_error():

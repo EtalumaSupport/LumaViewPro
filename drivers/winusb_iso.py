@@ -342,8 +342,10 @@ class WinUsbIsoReader:
     """Reads isochronous data from a WinUSB device.
 
     Mirrors the C# ReadISOStream_WinUsb implementation.
-    Runs in a dedicated thread; fills a shared bytearray.
+    Runs in a dedicated thread; hands each packet's bytes to ``on_data``.
 
+    ``on_data`` receives the bytes in arrival order; the stream's owner
+    keeps them, so there is one buffer and the reader holds none.
     ``on_error`` is called once for each read that fails and for each
     failed packet inside a read that completed, so the stream's owner can
     count what never reached the buffer.
@@ -354,6 +356,7 @@ class WinUsbIsoReader:
         vid,
         pid,
         *,
+        on_data,
         on_error,
         pipe_id=0x82,
         alt_interface=3,
@@ -366,13 +369,12 @@ class WinUsbIsoReader:
         self.alt_interface = alt_interface
         self.num_slots = num_slots
         self.packets_per_xfer = packets_per_xfer
+        self._on_data = on_data
         self._on_error = on_error
 
         self._dev = None
         self._running = False
         self._thread = None
-        self.data_buf = bytearray()
-        self.data_lock = threading.Lock()
 
     def start(self):
         """Open device, configure for ISO, start streaming thread."""
@@ -446,9 +448,7 @@ class WinUsbIsoReader:
                         elif pkt.Length > 0:
                             start = pkt.Offset
                             end = start + pkt.Length
-                            chunk = bytes(slot.buffer[start:end])
-                            with self.data_lock:
-                                self.data_buf.extend(chunk)
+                            self._on_data(bytes(slot.buffer[start:end]))
 
                 # Reset event and resubmit
                 kernel32.ResetEvent(slot.event)

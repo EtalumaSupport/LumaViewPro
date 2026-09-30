@@ -8,11 +8,15 @@ driver roles (camera + LED board).
 Architecture
 ------------
 
-Three objects live in this file:
+Three objects live in this file, over one seam:
 
-1. ``_FX2Connection`` -- module-level singleton that owns the USB handle,
-   firmware upload, control transfers, I2C, sensor register R/W, and ISO
-   streaming. Constructed lazily the first time any driver calls
+1. ``_FX2Connection`` -- module-level singleton that owns the device:
+   discovery, firmware upload, control transfers, I2C, sensor register
+   writes, and the stream (``start_stream`` / ``stop_stream``, the bytes
+   arriving in its ``stream``). Every USB library call it makes goes
+   through its transport, chosen once per host by ``_platform_transport``:
+   ``_LibusbTransport`` (macOS / Linux) or ``_WinUsbTransport`` (Windows).
+   Constructed lazily the first time any driver calls
    ``_FX2Connection.get()``. Raises on any failure; the registry treats a
    raise as "this driver isn't available" and falls through to the next
    candidate. Private -- never touched from outside this module.
@@ -30,7 +34,8 @@ Three objects live in this file:
 The camera and LED objects both hold a reference to the same
 ``_FX2Connection._instance`` -- proven viable by
 ``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py.
-No special casing required in ``Lumascope.__init__``.
+No special casing required in ``Lumascope.__init__``. Neither driver
+touches a USB library or the connection's private state.
 
 Dependencies
 ------------
@@ -74,6 +79,7 @@ import time
 import weakref
 from typing import Any, NoReturn
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
@@ -180,12 +186,8 @@ try:
     import usb.util
 
     _HAS_USB = True
-    _USBError = usb.core.USBError
-    _USBTimeoutError = usb.core.USBTimeoutError
 except ImportError:
     _HAS_USB = False
-    _USBError = OSError
-    _USBTimeoutError = TimeoutError
 
 try:
     import usb1
@@ -341,7 +343,6 @@ PID_APP = 0xEA17  # Running firmware
 
 # Vendor request codes -- FX2 firmware vendor command handler
 VR_ANCHOR_DLD = 0xA0  # Cypress standard: firmware upload
-VR_I2C_READ = 0xB2
 VR_I2C_WRITE = 0xB3
 VR_I2C_MT9P031_READ = 0xB4  # Async MT9P031 register read (5s timeout OK)
 VR_INIT_GPIF = 0xB9
@@ -365,7 +366,6 @@ VR_STOP_STREAMING = 0xBE
 _VR_NAMES.update(
     {
         VR_ANCHOR_DLD: 'VR_ANCHOR_DLD',
-        VR_I2C_READ: 'VR_I2C_READ',
         VR_I2C_WRITE: 'VR_I2C_WRITE',
         VR_I2C_MT9P031_READ: 'VR_I2C_MT9P031_READ',
         VR_INIT_GPIF: 'VR_INIT_GPIF',
@@ -683,16 +683,412 @@ class StreamStats:
 
 
 # ---------------------------------------------------------------------------
-# _FX2Connection -- module-level singleton owning the USB handle
+# _ByteStream -- the streamed bytes, between the transport and the parser
+# ---------------------------------------------------------------------------
+
+
+class _ByteStream:
+    """The bytes the device streams, owned in one place. Thread-safe.
+
+    The transport's reader appends; the camera's grab loop takes what has
+    arrived, puts back what it could not parse, and flushes at a window
+    change. Every access goes through these methods, so a reader can never
+    be left extending a buffer the parser no longer reads -- the failure of
+    handing the parser the reader's own bytearray, which the parser then
+    replaced with a new one on its first take.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._buf = bytearray()
+
+    def append(self, data: bytes | bytearray) -> None:
+        """Add bytes that arrived from the device."""
+        with self._lock:
+            self._buf.extend(data)
+
+    def take(self, at_least: int) -> bytearray | None:
+        """Everything buffered, or None while fewer than ``at_least`` bytes are."""
+        with self._lock:
+            if len(self._buf) < at_least:
+                return None
+            taken = self._buf
+            self._buf = bytearray()
+            return taken
+
+    def put_back(self, data: bytes | bytearray, *, limit: int, keep: int) -> None:
+        """Return unparsed bytes ahead of what arrived since the take.
+
+        Past ``limit`` bytes only the newest ``keep`` are kept. One lock
+        acquisition covers both, so the reader cannot append between them.
+        """
+        with self._lock:
+            self._buf[:0] = data
+            if len(self._buf) > limit:
+                del self._buf[:-keep]
+
+    def flush(self) -> None:
+        """Drop everything buffered."""
+        with self._lock:
+            self._buf.clear()
+
+
+# ---------------------------------------------------------------------------
+# Transports -- every USB library call the driver makes
+# ---------------------------------------------------------------------------
+
+
+class _PyusbTransport:
+    """Discovery, the firmware upload and idle control, through pyusb.
+
+    The base of both platform transports; each adds the stream. While a
+    stream runs, the pyusb handle is released -- only one handle on the
+    device at a time -- and control goes through the stream's handle, then
+    comes back to a reopened pyusb handle when the stream stops.
+    """
+
+    def __init__(self):
+        self._dev = None
+
+    def find(self, pid: int) -> Any:
+        """The FX2 enumerated under ``pid``, or None."""
+        return usb.core.find(idVendor=VID, idProduct=pid)
+
+    def describe(self, dev: Any) -> str:
+        """The found device's place on the host, for the log."""
+        return describe_usb_device(dev)
+
+    def write_to(self, dev: Any, request: int, value: int, index: int, data: bytes) -> None:
+        """A vendor OUT request to a found device that is not opened: the bootloader."""
+        dev.ctrl_transfer(0x40, request, value, index, data)
+
+    def open(self, dev: Any) -> None:
+        """Detach the kernel driver, configure, claim interface 0; idle control goes here."""
+        # On macOS/Linux, detach the kernel driver if it grabbed the
+        # interface. Windows pyusb raises NotImplementedError here -- ignore.
+        try:
+            if dev.is_kernel_driver_active(0):
+                dev.detach_kernel_driver(0)
+                logger.info('[FX2 Conn  ] detached kernel driver from interface 0')
+        except (usb.core.USBError, NotImplementedError):
+            pass
+
+        try:
+            dev.set_configuration()
+        except usb.core.USBError:
+            pass  # may already be configured
+
+        try:
+            usb.util.claim_interface(dev, 0)
+        except usb.core.USBError:
+            pass  # may already be claimed
+
+        self._dev = dev
+        logger.info('[FX2 Conn  ] USB device configured, interface 0 claimed')
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        """A vendor OUT request on the opened device; returns the bytes written."""
+        return self._dev.ctrl_transfer(0x40, request, value, index, data, timeout=timeout)
+
+    def _release_idle(self) -> None:
+        try:
+            usb.util.dispose_resources(self._dev)
+        except Exception:
+            pass
+
+    def _reopen_idle(self) -> None:
+        try:
+            dev = self.find(PID_APP)
+            if dev is not None:
+                self.open(dev)
+        except Exception as e:
+            logger.warning('[FX2 Conn  ] pyusb handle reopen failed: %s', e)
+
+    def close(self) -> None:
+        """Release the pyusb handle. Idempotent, swallows errors."""
+        if self._dev is not None:
+            try:
+                usb.util.dispose_resources(self._dev)
+            except Exception:
+                pass
+            self._dev = None
+
+
+class _LibusbTransport(_PyusbTransport):
+    """macOS / Linux: the ISO stream, and control while it runs, through python-libusb1."""
+
+    def __init__(self):
+        super().__init__()
+        self._ctx = None
+        self._handle = None
+        self._transfers: list = []
+        self._event_thread: threading.Thread | None = None
+        self._streaming = False
+        self._stream: _ByteStream | None = None
+        self._on_error = None
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        if self._handle is not None:
+            return self._handle.controlWrite(0x40, request, value, index, data, timeout=timeout)
+        return super().control_out(request, value, index, data, timeout)
+
+    def start_stream(self, stream: _ByteStream, on_error: Callable[[], None]) -> None:
+        """Stream ISO data into ``stream``; ``on_error`` is called per failed transfer or packet."""
+        self._release_idle()
+
+        # Explicit open: usb1's lazy auto-open on first use is deprecated
+        # (warns at every stream start) and skips the library's shutdown
+        # cleanup registration. open() returns the context; the paired
+        # explicit close() lives in stop_stream.
+        self._ctx = usb1.USBContext().open()
+        handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
+        if handle is None:
+            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
+        try:
+            if handle.kernelDriverActive(0):
+                handle.detachKernelDriver(0)
+        except Exception:
+            pass
+        handle.claimInterface(0)
+        handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
+
+        # Control goes through this handle while streaming -- the pyusb
+        # handle is released.
+        self._handle = handle
+        self._stream = stream
+        self._on_error = on_error
+        self._streaming = True
+
+        # Submit ISO transfers BEFORE sending VR_START_STREAMING. Transfers
+        # must be pending when data starts flowing or the FIFO overflows
+        # while we're still queuing up.
+        self._transfers = []
+        for _ in range(ISO_NUM_TRANSFERS):
+            xfer = handle.getTransfer(iso_packets=ISO_NUM_PACKETS)
+            xfer.setIsochronous(
+                0x82,
+                ISO_MAX_PACKET_SIZE * ISO_NUM_PACKETS,
+                callback=self._iso_callback,
+                timeout=5000,
+                iso_transfer_length_list=[ISO_MAX_PACKET_SIZE] * ISO_NUM_PACKETS,
+            )
+            xfer.submit()
+            self._transfers.append(xfer)
+
+        # USB event pump in a dedicated thread -- libusb1 needs someone
+        # to call handleEventsTimeout() to process ISO completions.
+        self._event_thread = threading.Thread(target=self._usb_event_loop, daemon=True)
+        self._event_thread.start()
+
+        # Now start streaming -- transfers are ready to receive data.
+        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
+
+        logger.info(
+            '[FX2 Conn  ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
+            ISO_ALT_INTERFACE,
+            ISO_NUM_TRANSFERS,
+            ISO_NUM_PACKETS,
+        )
+
+    def stop_stream(self) -> None:
+        """Stop the ISO stream and give control back to a reopened pyusb handle.
+
+        Matches the LVC reference: cancel transfers, drain events for ~2s,
+        join the event thread, send STOP, close the handle.
+        """
+        self._streaming = False
+        for xfer in self._transfers:
+            try:
+                xfer.cancel()
+            except Exception:
+                pass
+
+        # Drain cancelled transfers.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                self._ctx.handleEventsTimeout(tv=0.1)
+            except Exception:
+                break
+
+        if self._event_thread is not None:
+            self._event_thread.join(timeout=3.0)
+            self._event_thread = None
+
+        try:
+            self._handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
+        except Exception:
+            pass
+        try:
+            self._handle.releaseInterface(0)
+            self._handle.close()
+        except Exception:
+            pass
+        self._transfers = []
+        # Paired with the explicit open() at stream start: dropping the
+        # reference without close() leaks the libusb context until GC. The
+        # transfers are cancelled and the handle closed above, so close()
+        # is safe here.
+        self._ctx.close()
+        self._ctx = None
+        self._handle = None
+        self._stream = None
+        self._on_error = None
+
+        self._reopen_idle()
+
+    def _iso_callback(self, transfer):
+        """libusb1 callback -- called when an ISO transfer completes.
+
+        A transfer that fails, and a failed packet inside one that completed,
+        are each counted as a USB error: the packet's bytes are missing from
+        the stream, which is what turns the frame around it into a partial.
+        """
+        status = transfer.getStatus()
+        if status == usb1.TRANSFER_CANCELLED:
+            return
+        if status == usb1.TRANSFER_COMPLETED:
+            failed_packets = 0
+            received = bytearray()
+            for packet_status, buf in transfer.iterISO():
+                if packet_status != usb1.TRANSFER_COMPLETED:
+                    failed_packets += 1
+                elif len(buf) > 0:
+                    received.extend(buf)
+            if received:
+                self._stream.append(received)
+            for _ in range(failed_packets):
+                self._on_error()
+        else:
+            self._on_error()
+        # Resubmit for continuous streaming.
+        if self._streaming:
+            try:
+                transfer.submit()
+            except Exception as e:
+                # A dead transfer is one fewer in flight; when all are
+                # gone the stream silently freezes (the preview keeps
+                # showing the last frame). ERROR level so a frozen-
+                # preview post-mortem finds the cause next to the
+                # display-stall watchdog warning. Bounded by the
+                # transfer count -- this is not a per-frame loop.
+                logger.error(
+                    '[FX2 Conn  ] _iso_callback: transfer resubmit failed; '
+                    'grab loop will stall if this persists: %s: %s',
+                    type(e).__name__,
+                    e,
+                )
+
+    def _usb_event_loop(self):
+        """Pump libusb1 events in a dedicated thread.
+
+        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
+        when the device dies and every call raises, this loop degrades to
+        a ~10 Hz idle poll -- it does not hot-spin.
+        """
+        while self._streaming:
+            try:
+                self._ctx.handleEventsTimeout(tv=0.1)
+            except Exception:
+                if not self._streaming:
+                    break
+
+
+class _WinUsbTransport(_PyusbTransport):
+    """Windows: the ISO stream, and control while it runs, through WinUSB (``drivers/winusb_iso.py``)."""
+
+    def __init__(self):
+        super().__init__()
+        self._reader = None
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        if self._reader is not None:
+            return self._reader.device.control_transfer(0x40, request, value, index, data=data)
+        return super().control_out(request, value, index, data, timeout)
+
+    def start_stream(self, stream: _ByteStream, on_error: Callable[[], None]) -> None:
+        """Stream ISO data into ``stream``; ``on_error`` is called per failed read or packet."""
+        from drivers.winusb_iso import WinUsbIsoReader
+
+        # Release the pyusb handle -- WinUSB needs exclusive device access.
+        self._release_idle()
+
+        reader = WinUsbIsoReader(
+            VID,
+            PID_APP,
+            pipe_id=0x82,
+            alt_interface=ISO_ALT_INTERFACE,
+            num_slots=ISO_NUM_TRANSFERS,
+            packets_per_xfer=ISO_NUM_PACKETS,
+            on_data=stream.append,
+            on_error=on_error,
+        )
+        reader.start()
+        # Held before START, so a START that raises leaves the running
+        # reader where stop_stream stops it. It also routes control
+        # transfers through the reader while streaming: without it, any LED
+        # command or exposure/gain change during streaming would fail on
+        # Windows (the branch the 4.0.0-LVCtest integration dropped from the
+        # LVC upstream).
+        self._reader = reader
+
+        # Send VR_START_STREAMING through the WinUSB reader (can't use
+        # the pyusb handle -- it's released).
+        reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
+
+        logger.info(
+            '[FX2 Conn  ] streaming started (WinUSB ISO alt %d, EP 0x82)',
+            ISO_ALT_INTERFACE,
+        )
+
+    def stop_stream(self) -> None:
+        """Stop the WinUSB stream and give control back to a reopened pyusb handle."""
+        if self._reader is not None:
+            try:
+                self._reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
+            except Exception:
+                pass
+            self._reader.stop()
+            self._reader = None
+        self._reopen_idle()
+
+
+def _platform_transport() -> _PyusbTransport:
+    """The transport for this host. The platform is decided here and nowhere else.
+
+    Raises:
+        ImportError: pyusb, or python-libusb1 off Windows, is not installed.
+    """
+    if not _HAS_USB:
+        raise ImportError(
+            'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
+        )
+    if sys.platform == 'win32':
+        return _WinUsbTransport()
+    # libusb1 is needed for ISO streaming on macOS/Linux. Fail fast so an
+    # LS620 user on macOS without libusb1 gets a clear install hint, not a
+    # confusing runtime error 30 seconds in when they hit "start streaming".
+    if not _HAS_USB1:
+        raise ImportError(
+            'libusb1 (python-libusb1) is required for FX2 ISO streaming '
+            'on macOS / Linux. Install with: pip install -r requirements.txt'
+        )
+    return _LibusbTransport()
+
+
+# ---------------------------------------------------------------------------
+# _FX2Connection -- module-level singleton owning the device
 # ---------------------------------------------------------------------------
 
 
 class _FX2Connection:
-    """Singleton owning the FX2 USB device.
+    """Singleton owning the FX2 USB device, through a platform transport.
 
     Lazily constructed on first ``_FX2Connection.get()``. Private -- external
     callers should never reference this class directly. ``FX2Camera`` and
-    ``FX2LEDController`` reach it only via ``get()`` in their ``__init__``.
+    ``FX2LEDController`` reach it only via ``get()`` in their ``__init__``,
+    and are the only objects that talk to it: every USB library call is the
+    transport's, and the bytes the device streams arrive in ``stream``.
 
     Why a singleton:
         The FX2 chip is one USB device with two functional sub-devices
@@ -730,7 +1126,7 @@ class _FX2Connection:
             return cls._instance
         with cls._instance_lock:
             if cls._instance is None:
-                cls._instance = cls()
+                cls._instance = cls(_platform_transport())
             return cls._instance
 
     @classmethod
@@ -749,34 +1145,14 @@ class _FX2Connection:
                     pass
             cls._instance = None
 
-    def __init__(self):
-        if not _HAS_USB:
-            raise ImportError(
-                'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
-            )
-        # libusb1 is needed for ISO streaming on macOS/Linux. Windows uses
-        # the native WinUSB path (drivers/winusb_iso.py) and doesn't need
-        # libusb1. Fail fast so an LS620 user on macOS without libusb1
-        # gets a clear install hint, not a confusing runtime error 30
-        # seconds in when they hit "start streaming".
-        if sys.platform != 'win32' and not _HAS_USB1:
-            raise ImportError(
-                'libusb1 (python-libusb1) is required for FX2 ISO streaming '
-                'on macOS / Linux. Install with: pip install -r requirements.txt'
-            )
-        self._dev = None
+    def __init__(self, transport: _PyusbTransport):
+        self._transport = transport
+        # Held around every control transfer and around the stream's start
+        # and stop, the moments the transport moves control between the
+        # pyusb handle and the stream's, so no transfer meets a half-made
+        # switch.
         self._lock = threading.Lock()
-        # During streaming, the pyusb handle is closed -- only one handle
-        # at a time. Control transfers issued while streaming route
-        # through whichever of these is live:
-        #   _iso_handle_for_ctrl      -> usb1 handle (macOS/Linux ISO path)
-        #   _winusb_reader_for_ctrl   -> WinUsbIsoReader (Windows WinUSB path)
-        # Both default to None; FX2Camera's streaming start/stop code sets
-        # and clears them in lockstep with its own handles.
-        # NOTE: losing the winusb branch was the bug in 4.0.0-LVCtest vs
-        # the LVC upstream -- restoring it here per the LVC reference.
-        self._iso_handle_for_ctrl = None
-        self._winusb_reader_for_ctrl = None
+        self.stream = _ByteStream()
 
         try:
             self._connect()
@@ -787,19 +1163,19 @@ class _FX2Connection:
     # -- connection ---------------------------------------------------------
 
     def _connect(self):
-        """Find the device, upload firmware if needed, claim interface."""
-        dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
+        """Find the device, upload firmware if needed, open it."""
+        transport = self._transport
+        dev = transport.find(PID_APP)
         if dev is not None:
-            self._dev = dev
-            logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
-            self._setup_device()
+            logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+            transport.open(dev)
             logger.info(
                 '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
                 PID_APP,
             )
             return
 
-        dev = usb.core.find(idVendor=VID, idProduct=PID_BOOT)
+        dev = transport.find(PID_BOOT)
         if dev is None:
             raise RuntimeError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
@@ -815,11 +1191,10 @@ class _FX2Connection:
         deadline = time.monotonic() + self.FIRMWARE_RE_ENUM_TIMEOUT
         while time.monotonic() < deadline:
             time.sleep(0.5)
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
+            dev = transport.find(PID_APP)
             if dev is not None:
-                self._dev = dev
-                logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
-                self._setup_device()
+                logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+                transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
                     PID_APP,
@@ -830,31 +1205,6 @@ class _FX2Connection:
             f'FX2 did not re-enumerate after firmware upload '
             f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
-
-    def _setup_device(self):
-        """Detach kernel driver, configure, claim interface 0."""
-        dev = self._dev
-
-        # On macOS/Linux, detach the kernel driver if it grabbed the
-        # interface. Windows pyusb raises NotImplementedError here -- ignore.
-        try:
-            if dev.is_kernel_driver_active(0):
-                dev.detach_kernel_driver(0)
-                logger.info('[FX2 Conn  ] detached kernel driver from interface 0')
-        except (usb.core.USBError, NotImplementedError):
-            pass
-
-        try:
-            dev.set_configuration()
-        except usb.core.USBError:
-            pass  # may already be configured
-
-        try:
-            usb.util.claim_interface(dev, 0)
-        except usb.core.USBError:
-            pass  # may already be claimed
-
-        logger.info('[FX2 Conn  ] USB device configured, interface 0 claimed')
 
     def _find_firmware_path(self) -> str:
         """Locate the FX2 firmware hex file in a PyInstaller bundle or source tree.
@@ -912,8 +1262,10 @@ class _FX2Connection:
         data, end_addr = parse_intel_hex(hex_path)
         logger.info('[FX2 Conn  ] firmware: %s (%d bytes)', hex_path, end_addr)
 
+        write_to = self._transport.write_to
+
         # Put 8051 into reset
-        dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, 0xE600, 0, b'\x01')
+        write_to(dev, VR_ANCHOR_DLD, 0xE600, 0, b'\x01')
 
         # Send firmware data in chunks
         addr = 0
@@ -921,11 +1273,11 @@ class _FX2Connection:
         while addr < end_addr:
             remaining = end_addr - addr
             length = min(chunk, remaining)
-            dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, addr, 0, data[addr : addr + length])
+            write_to(dev, VR_ANCHOR_DLD, addr, 0, data[addr : addr + length])
             addr += length
 
         # Release 8051 from reset -- firmware boots and the device re-enumerates
-        dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
+        write_to(dev, VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
         logger.info('[FX2 Conn  ] firmware upload complete, 8051 released')
 
     # -- control transfers --------------------------------------------------
@@ -941,10 +1293,10 @@ class _FX2Connection:
         """Thread-safe vendor OUT control transfer.
 
         While streaming, the pyusb handle is closed -- only one handle
-        on the device at a time. Routes through whichever streaming
-        handle is currently live (libusb1 on macOS/Linux, WinUSB reader
-        on Windows), or the pyusb handle otherwise. Callers don't need
-        to care which path is active.
+        on the device at a time. The transport routes through whichever
+        streaming handle is currently live (libusb1 on macOS/Linux, WinUSB
+        reader on Windows), or the pyusb handle otherwise. Callers don't
+        need to care which path is active.
 
         Args:
             request: USB vendor request code.
@@ -959,18 +1311,7 @@ class _FX2Connection:
         t_start = time.monotonic()
         try:
             with self._lock:
-                if self._iso_handle_for_ctrl is not None:
-                    result = self._iso_handle_for_ctrl.controlWrite(
-                        0x40, request, value, index, data, timeout=timeout
-                    )
-                elif self._winusb_reader_for_ctrl is not None:
-                    result = self._winusb_reader_for_ctrl.device.control_transfer(
-                        0x40, request, value, index, data=data
-                    )
-                else:
-                    result = self._dev.ctrl_transfer(
-                        0x40, request, value, index, data, timeout=timeout
-                    )
+                result = self._transport.control_out(request, value, index, data, timeout)
         except Exception as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             if request not in _I2C_VR_REQUESTS:
@@ -987,65 +1328,6 @@ class _FX2Connection:
             _serial_log.info(
                 f'[FX2] {_vr_name(request)} OUT value=0x{value:04X} '
                 f'index=0x{index:04X} len={len(data)} -> result={result} '
-                f'({elapsed_ms:.1f}ms)'
-            )
-        return result
-
-    def control_transfer_in(
-        self,
-        request: int,
-        value: int = 0,
-        index: int = 0,
-        length: int = 0,
-        timeout: int = 5000,
-    ) -> bytes:
-        """Thread-safe vendor IN control transfer (same routing as OUT).
-
-        Args:
-            request: USB vendor request code.
-            value: 16-bit ``wValue`` field.
-            index: 16-bit ``wIndex`` field.
-            length: Number of bytes to read.
-            timeout: Timeout in milliseconds.
-
-        Returns:
-            bytes: Bytes returned by the device (length-prefixed by the
-                USB layer).
-        """
-        t_start = time.monotonic()
-        try:
-            with self._lock:
-                if self._iso_handle_for_ctrl is not None:
-                    result = self._iso_handle_for_ctrl.controlRead(
-                        0xC0, request, value, index, length, timeout=timeout
-                    )
-                elif self._winusb_reader_for_ctrl is not None:
-                    result = self._winusb_reader_for_ctrl.device.control_transfer(
-                        0xC0, request, value, index, length=length
-                    )
-                else:
-                    result = self._dev.ctrl_transfer(
-                        0xC0, request, value, index, length, timeout=timeout
-                    )
-        except Exception as e:
-            elapsed_ms = (time.monotonic() - t_start) * 1000
-            if request not in _I2C_VR_REQUESTS:
-                _serial_log.error(
-                    f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
-                    f'index=0x{index:04X} length={length} -> EXCEPTION: '
-                    f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
-                )
-            raise
-        elapsed_ms = (time.monotonic() - t_start) * 1000
-        if request not in _I2C_VR_REQUESTS:
-            # Truncate large reads (sensor reg reads are 2 bytes; a long
-            # response would overflow the line).
-            result_repr = repr(bytes(result)) if result is not None else 'None'
-            if len(result_repr) > 200:
-                result_repr = result_repr[:200] + '...'
-            _serial_log.info(
-                f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
-                f'index=0x{index:04X} length={length} -> {result_repr} '
                 f'({elapsed_ms:.1f}ms)'
             )
         return result
@@ -1113,54 +1395,22 @@ class _FX2Connection:
         data = bytes([reg, high, low])
         self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
 
-    def start_streaming(self) -> None:
-        """Send vendor request to start image data output."""
-        self.control_transfer_out(VR_START_STREAMING)
+    # -- the stream ---------------------------------------------------------
 
-    def stop_streaming(self) -> None:
-        """Send vendor request to stop image data output."""
-        self.control_transfer_out(VR_STOP_STREAMING)
-
-    # -- bulk / alt-interface / low-level ----------------------------------
-
-    def set_alt_interface(self, alt: int) -> None:
-        """Switch USB alternate interface setting (0=bulk, 3=iso).
+    def start_stream(self, on_error: Callable[[], None]) -> None:
+        """Start the device streaming into ``stream``, emptied first.
 
         Args:
-            alt: Alternate setting index.
+            on_error: Called once per failed transfer or failed packet.
         """
         with self._lock:
-            self._dev.set_interface_altsetting(interface=0, alternate_setting=alt)
-            # Clear any halt/stall on EP 0x82 after switching alt interface
-            try:
-                usb.util.dispose_resources(self._dev)
-            except Exception:
-                pass
-            logger.info('[FX2 Conn  ] alt interface set to %d', alt)
+            self.stream.flush()
+            self._transport.start_stream(self.stream, on_error)
 
-    def clear_halt(self, endpoint: int = 0x82) -> None:
-        """Clear halt/stall condition on an endpoint.
-
-        Args:
-            endpoint: USB endpoint address (default 0x82, the bulk IN).
-        """
+    def stop_stream(self) -> None:
+        """Stop the stream; control returns to the idle handle."""
         with self._lock:
-            try:
-                self._dev.clear_halt(endpoint)
-            except usb.core.USBError as e:
-                logger.debug('[FX2 Conn  ] clear_halt(0x%02X): %s', endpoint, e)
-
-    def bulk_read(self, size: int, timeout: int = 1000) -> bytes:
-        """Read from bulk endpoint 0x82. NOT locked -- caller manages timing.
-
-        Args:
-            size: Number of bytes to read.
-            timeout: Timeout in milliseconds.
-
-        Returns:
-            bytes: Data read from EP 0x82.
-        """
-        return self._dev.read(0x82, size, timeout=timeout)
+            self._transport.stop_stream()
 
     # -- teardown ----------------------------------------------------------
 
@@ -1171,18 +1421,7 @@ class _FX2Connection:
         ``_reset_for_test``. Does NOT null out ``_instance`` -- that's
         ``_reset_for_test``'s job.
         """
-        if self._dev is not None:
-            try:
-                usb.util.dispose_resources(self._dev)
-            except Exception:
-                pass
-            self._dev = None
-        self._iso_handle_for_ctrl = None
-        self._winusb_reader_for_ctrl = None
-
-    def disconnect(self) -> None:
-        """Public cleanup hook. Same as ``_teardown`` but named for callers."""
-        self._teardown()
+        self._transport.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1260,18 +1499,6 @@ class FX2Camera(Camera):
         self._exposure_rows = 100
         self._gain_reg = 0x0008  # default = 1.0x = 0 dB
         self._pixel_format = 'Mono8'
-
-        # Platform-specific streaming state (set by _start_*_streaming)
-        self._use_iso = False
-        self._use_winusb_iso = False
-        self._iso_ctx = None
-        self._iso_handle = None
-        self._iso_transfers: list = []
-        self._iso_buf = bytearray()
-        self._iso_buf_lock = threading.Lock()
-        self._usb_event_thread: threading.Thread | None = None
-        self._bulk_reader_thread: threading.Thread | None = None
-        self._winusb_reader = None
 
         self.stream_stats = StreamStats()
 
@@ -1512,7 +1739,7 @@ class FX2Camera(Camera):
 
     # -- Streaming start / stop --------------------------------------------
 
-    def start_grabbing(self):
+    def start_grabbing(self) -> None:
         if self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
@@ -1521,152 +1748,11 @@ class FX2Camera(Camera):
             _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._grabbing = True  # set BEFORE starting threads that check it
-        self._use_winusb_iso = False
-        self._use_iso = False
-
-        if sys.platform == 'win32':
-            # Windows: WinUSB native ISO API (not libusb1).
-            self._use_winusb_iso = True
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=winusb_iso')
-            self._start_winusb_iso_streaming()
-        elif _HAS_USB1:
-            # macOS / Linux: libusb1 async ISO.
-            self._use_iso = True
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=libusb1_iso')
-            self._start_iso_streaming()
-        else:
-            # Fallback: bulk transfers. ~0.7 fps, useful only for bring-up.
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=bulk_fallback')
-            self._start_bulk_streaming()
-
+        self._fx2.start_stream(on_error=self.stream_stats.record_usb_error)
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 
-    def _start_iso_streaming(self):
-        """macOS / Linux ISO path via python-libusb1."""
-        # Close the pyusb handle -- only one handle on the device at a time.
-        try:
-            usb.util.dispose_resources(self._fx2._dev)
-        except Exception:
-            pass
-
-        # Explicit open: usb1's lazy auto-open on first use is deprecated
-        # (warns at every stream start) and skips the library's shutdown
-        # cleanup registration. open() returns the context; the paired
-        # explicit close() lives in the stop path.
-        self._iso_ctx = usb1.USBContext().open()
-        self._iso_handle = self._iso_ctx.openByVendorIDAndProductID(VID, PID_APP)
-        if self._iso_handle is None:
-            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
-        try:
-            if self._iso_handle.kernelDriverActive(0):
-                self._iso_handle.detachKernelDriver(0)
-        except Exception:
-            pass
-        self._iso_handle.claimInterface(0)
-        self._iso_handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
-
-        # Route control transfers through this handle while streaming --
-        # the pyusb handle is closed, so the connection's normal
-        # control_transfer_out/in path would fail without this swap.
-        self._fx2._iso_handle_for_ctrl = self._iso_handle
-
-        # Fresh buffer for the ISO callback to fill.
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
-
-        # Submit ISO transfers BEFORE sending VR_START_STREAMING. Transfers
-        # must be pending when data starts flowing or the FIFO overflows
-        # while we're still queuing up.
-        self._iso_transfers = []
-        for _ in range(ISO_NUM_TRANSFERS):
-            xfer = self._iso_handle.getTransfer(iso_packets=ISO_NUM_PACKETS)
-            xfer.setIsochronous(
-                0x82,
-                ISO_MAX_PACKET_SIZE * ISO_NUM_PACKETS,
-                callback=self._iso_callback,
-                timeout=5000,
-                iso_transfer_length_list=[ISO_MAX_PACKET_SIZE] * ISO_NUM_PACKETS,
-            )
-            xfer.submit()
-            self._iso_transfers.append(xfer)
-
-        # USB event pump in a dedicated thread -- libusb1 needs someone
-        # to call handleEventsTimeout() to process ISO completions.
-        self._usb_event_thread = threading.Thread(target=self._usb_event_loop, daemon=True)
-        self._usb_event_thread.start()
-
-        # Now start streaming -- transfers are ready to receive data.
-        self._iso_handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
-
-        logger.info(
-            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
-            ISO_ALT_INTERFACE,
-            ISO_NUM_TRANSFERS,
-            ISO_NUM_PACKETS,
-        )
-
-    def _start_winusb_iso_streaming(self):
-        """Windows ISO path via WinUSB native API."""
-        from drivers.winusb_iso import WinUsbIsoReader
-
-        # Close the pyusb handle -- WinUSB needs exclusive device access.
-        try:
-            usb.util.dispose_resources(self._fx2._dev)
-        except Exception:
-            pass
-
-        self._winusb_reader = WinUsbIsoReader(
-            VID,
-            PID_APP,
-            pipe_id=0x82,
-            alt_interface=ISO_ALT_INTERFACE,
-            num_slots=ISO_NUM_TRANSFERS,
-            packets_per_xfer=ISO_NUM_PACKETS,
-            on_error=self.stream_stats.record_usb_error,
-        )
-        self._winusb_reader.start()
-
-        # Send VR_START_STREAMING through the WinUSB reader (can't use
-        # the pyusb handle -- it's closed).
-        self._winusb_reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
-
-        # Route control transfers through the WinUSB reader while
-        # streaming. Restoring this branch (which the 4.0.0-LVCtest
-        # integration branch had dropped) is the entire reason we went
-        # back to the LVC upstream as the port source -- without it,
-        # any LED command or exposure/gain change during streaming
-        # would fail on Windows.
-        self._fx2._winusb_reader_for_ctrl = self._winusb_reader
-
-        # Share the reader's data buffer with our grab loop.
-        self._iso_buf = self._winusb_reader.data_buf
-        self._iso_buf_lock = self._winusb_reader.data_lock
-
-        logger.info(
-            '[FX2 Cam   ] streaming started (WinUSB ISO alt %d, EP 0x82)',
-            ISO_ALT_INTERFACE,
-        )
-
-    def _start_bulk_streaming(self):
-        """Bulk fallback via pyusb. Tops out at ~0.7 fps on macOS -- only
-        useful for hardware bring-up on systems without libusb1 installed.
-        """
-        self._fx2.set_alt_interface(0)
-        self._fx2.clear_halt(0x82)
-        self._fx2.start_streaming()
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
-
-        self._bulk_reader_thread = threading.Thread(target=self._bulk_reader_loop, daemon=True)
-        self._bulk_reader_thread.start()
-
-        logger.info('[FX2 Cam   ] streaming started (bulk alt 0, EP 0x82) -- fallback mode')
-
-    def stop_grabbing(self):
+    def stop_grabbing(self) -> None:
         if not self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
@@ -1674,13 +1760,7 @@ class FX2Camera(Camera):
         if _cam_log is not None:
             _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
-
-        if self._use_winusb_iso:
-            self._stop_winusb_iso_streaming()
-        elif self._use_iso:
-            self._stop_iso_streaming()
-        else:
-            self._stop_bulk_streaming()
+        self._fx2.stop_stream()
 
         if self._grab_thread is not None:
             self._grab_thread.join(timeout=3.0)
@@ -1698,184 +1778,23 @@ class FX2Camera(Camera):
             s['total_MB'],
         )
 
-    def _stop_iso_streaming(self):
-        """Stop libusb1 ISO streaming and restore the pyusb handle.
-
-        Matches the LVC reference: cancel transfers, drain events for
-        ~2s on the main thread, join the event thread, send STOP, close
-        the handle. Hardware-validated at Stage 3.5.
-
-        **Known robustness gap (Stage 3.6 followup):** if user code on
-        the main thread raises an unhandled exception while streaming,
-        Python interpreter shutdown will GC the libusb1 context while
-        the daemon event thread is still inside handleEventsTimeout,
-        which crashes with a libusb1 native ``pthread_mutex_destroy``
-        assertion. The fix is an atexit hook (or context-manager
-        ``__exit__``) on FX2Camera that calls ``stop_grabbing`` before
-        the interpreter tears down threads. Tracked in TODO.
-        """
-        for xfer in self._iso_transfers:
-            try:
-                xfer.cancel()
-            except Exception:
-                pass
-
-        # Drain cancelled transfers.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                self._iso_ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                break
-
-        if self._usb_event_thread is not None:
-            self._usb_event_thread.join(timeout=3.0)
-            self._usb_event_thread = None
-
-        try:
-            self._iso_handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
-        except Exception:
-            pass
-        try:
-            self._iso_handle.releaseInterface(0)
-            self._iso_handle.close()
-        except Exception:
-            pass
-        self._iso_transfers = []
-        # Paired with the explicit open() at stream start: dropping the
-        # reference without close() leaks the libusb context until GC. The
-        # transfers are cancelled and the handle closed above, so close()
-        # is safe here.
-        self._iso_ctx.close()
-        self._iso_ctx = None
-        self._iso_handle = None
-        self._fx2._iso_handle_for_ctrl = None
-
-        # Reopen the pyusb handle so control transfers work again.
-        try:
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
-            if dev is not None:
-                self._fx2._dev = dev
-                self._fx2._setup_device()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] pyusb handle reopen failed: %s', e)
-
-    def _stop_winusb_iso_streaming(self):
-        """Stop WinUSB ISO streaming and restore the pyusb handle."""
-        if self._winusb_reader is not None:
-            try:
-                self._winusb_reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
-            except Exception:
-                pass
-            self._winusb_reader.stop()
-            self._winusb_reader = None
-        self._fx2._winusb_reader_for_ctrl = None
-
-        try:
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
-            if dev is not None:
-                self._fx2._dev = dev
-                self._fx2._setup_device()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] pyusb handle reopen failed: %s', e)
-
-    def _stop_bulk_streaming(self):
-        """Stop bulk streaming."""
-        if self._bulk_reader_thread is not None:
-            self._bulk_reader_thread.join(timeout=3.0)
-            self._bulk_reader_thread = None
-        try:
-            self._fx2.stop_streaming()
-        except Exception:
-            pass
-
     def is_grabbing(self) -> bool:
         return self._grabbing and self._grab_thread is not None and self._grab_thread.is_alive()
-
-    # -- Reader threads ----------------------------------------------------
-
-    def _iso_callback(self, transfer):
-        """libusb1 callback -- called when an ISO transfer completes.
-
-        A transfer that fails, and a failed packet inside one that completed,
-        are each counted as a USB error: the packet's bytes are missing from
-        the stream, which is what turns the frame around it into a partial.
-        """
-        status = transfer.getStatus()
-        if status == usb1.TRANSFER_CANCELLED:
-            return
-        if status == usb1.TRANSFER_COMPLETED:
-            failed_packets = 0
-            with self._iso_buf_lock:
-                for packet_status, buf in transfer.iterISO():
-                    if packet_status != usb1.TRANSFER_COMPLETED:
-                        failed_packets += 1
-                    elif len(buf) > 0:
-                        self._iso_buf.extend(buf)
-            for _ in range(failed_packets):
-                self.stream_stats.record_usb_error()
-        else:
-            self.stream_stats.record_usb_error()
-        # Resubmit for continuous streaming.
-        if self._grabbing:
-            try:
-                transfer.submit()
-            except Exception as e:
-                # A dead transfer is one fewer in flight; when all are
-                # gone the stream silently freezes (the preview keeps
-                # showing the last frame). ERROR level so a frozen-
-                # preview post-mortem finds the cause next to the
-                # display-stall watchdog warning. Bounded by the
-                # transfer count -- this is not a per-frame loop.
-                logger.error(
-                    '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
-                    'grab loop will stall if this persists: %s: %s',
-                    type(e).__name__,
-                    e,
-                )
-
-    def _bulk_reader_loop(self):
-        """Read bulk EP 0x82 and feed into `_iso_buf` (fallback path)."""
-        while self._grabbing:
-            try:
-                data = self._fx2.bulk_read(16384, timeout=1000)
-                with self._iso_buf_lock:
-                    self._iso_buf.extend(data)
-            except _USBTimeoutError:
-                continue
-            except _USBError:
-                if not self._grabbing:
-                    break
-                self.stream_stats.record_usb_error()
-                time.sleep(0.01)
-
-    def _usb_event_loop(self):
-        """Pump libusb1 events in a dedicated thread.
-
-        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
-        when the device dies and every call raises, this loop degrades to
-        a ~10 Hz idle poll -- it does not hot-spin.
-        """
-        while self._grabbing:
-            try:
-                self._iso_ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                if not self._grabbing:
-                    break
 
     # -- Grab loop ---------------------------------------------------------
 
     def _grab_loop(self):
-        """Extract frames from the ISO / bulk data buffer.
+        """Extract frames from the connection's byte stream.
 
         Departures from the LVC reference:
         - ``local_buf`` is explicitly initialized before the loop instead
           of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
-        - The trim-after-prepend operation shares a single lock acquisition
-          with the prepend instead of splitting into two `with` blocks
-          (which could race against the ISO callback).
+        - The trim-after-prepend is one operation on the stream with the
+          prepend (``put_back``) instead of two lock acquisitions, which
+          could race against the reader appending.
         """
         stats = self.stream_stats
+        stream = self._fx2.stream
         last_stats_log = time.monotonic()
         first_frame_logged = False
         local_buf: bytearray | None = None  # explicit init
@@ -1889,12 +1808,7 @@ class FX2Camera(Camera):
             skip_first_row = stride + 1
             needed = skip_first_row + h * stride
 
-            with self._iso_buf_lock:
-                if len(self._iso_buf) >= needed:
-                    local_buf = self._iso_buf
-                    self._iso_buf = bytearray()
-                else:
-                    local_buf = None
+            local_buf = stream.take(needed)
 
             if local_buf is None:
                 time.sleep(0.005)
@@ -1908,12 +1822,8 @@ class FX2Camera(Camera):
                 idx = buf.find(FRAME_DELIM)
                 if idx < 0:
                     # No complete frame -- put unconsumed data back and
-                    # trim if it's gotten out of hand. Single lock
-                    # acquisition covers both.
-                    with self._iso_buf_lock:
-                        self._iso_buf = buf + self._iso_buf
-                        if len(self._iso_buf) > needed * 3:
-                            self._iso_buf = self._iso_buf[-(needed * 2) :]
+                    # trim if it's gotten out of hand.
+                    stream.put_back(buf, limit=needed * 3, keep=needed * 2)
                     break
 
                 frame_data = buf[:idx]
@@ -2016,7 +1926,7 @@ class FX2Camera(Camera):
 
     # -- Frame size --------------------------------------------------------
 
-    def set_frame_size(self, w, h):
+    def set_frame_size(self, w: int, h: int) -> dict | bool:
         """Set the sensor readout window.
 
         The sensor is configured to output (display + 1) x (display + 1)
@@ -2076,17 +1986,15 @@ class FX2Camera(Camera):
             # sensor window indeterminate; buffered stream data may match no
             # known geometry and would desync the frame parser, so drop it on
             # the failure path too.
-            with self._iso_buf_lock:
-                self._iso_buf = bytearray()
+            self._fx2.stream.flush()
             return False
 
         self._width = w
         self._height = h
 
-        # Flush the ISO buffer -- data captured with the old window is
+        # Flush the stream -- data captured with the old window is
         # now misaligned and would desync the frame parser.
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
+        self._fx2.stream.flush()
 
         logger.info(
             '[FX2 Cam   ] frame size %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',

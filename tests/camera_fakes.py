@@ -376,8 +376,8 @@ def bare_fx2_camera():
     Built via ``__new__`` so the base lifecycle state (config lock, depth
     counter, start-gate latch CLOSED) plus the FX2 streaming-state flags
     that ``is_grabbing()`` / ``start_grabbing()`` read are seeded here.
-    The platform-specific streaming starters are MagicMocks so
-    ``start_grabbing()`` is observable without touching USB.
+    The connection is a MagicMock so ``start_grabbing()`` is observable
+    without touching USB.
     """
     from drivers import fx2driver
 
@@ -392,9 +392,7 @@ def bare_fx2_camera():
     cam._grabbing = False
     cam._grab_thread = None
     cam.stream_stats = MagicMock()
-    cam._start_iso_streaming = MagicMock()
-    cam._start_winusb_iso_streaming = MagicMock()
-    cam._start_bulk_streaming = MagicMock()
+    cam._fx2 = MagicMock()
     # start_grabbing() unconditionally spawns a _grab_loop daemon thread;
     # keep it inert so a fake that reaches the start path leaks no work.
     cam._grab_loop = MagicMock()
