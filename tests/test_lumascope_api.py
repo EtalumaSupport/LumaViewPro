@@ -42,6 +42,7 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from tests.scope_fakes import build_scope
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 class TestNullMotionBoardCapabilities:
@@ -256,7 +257,9 @@ def _firmware_board(model: str, axes: str, dialect: str = '3.0', unplugged: bool
     backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
     if unplugged:
         backend.motor_board.unplug()
-    return MotorBoard(backend=backend), backend.motor_board
+    return MotorBoard(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend
+    ), backend.motor_board
 
 
 firmware_only = pytest.mark.skipif(
@@ -490,7 +493,9 @@ class TestFrameValidityDuringHoming:
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
         scope = build_scope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
+        scope._motion_driver = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
+        )
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present
         scope.motion._pos_cache = dict.fromkeys(present, 0.0)
@@ -546,7 +551,7 @@ class TestProtocolConformance:
         assert isinstance(instance, MotorBoardProtocol)
 
     def test_simulated_motorboard_satisfies_protocol(self):
-        instance = SimulatedMotorBoard(model='LS850')
+        instance = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         assert isinstance(instance, MotorBoardProtocol)
 
     def test_null_motorboard_satisfies_protocol(self):
@@ -979,7 +984,9 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
+        scope._motion_driver = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
+        )
         scope.capabilities = ScopeCapabilities.from_drivers(
             motion=scope._motion_driver,
             led=scope._led_driver,

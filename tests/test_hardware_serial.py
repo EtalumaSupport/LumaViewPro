@@ -18,6 +18,7 @@ import sys
 import time
 import threading
 import statistics
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -126,7 +127,7 @@ class TestMotorSerialBenchmark:
     def motor(self):
         from drivers.motorboard import MotorBoard
 
-        board = MotorBoard()
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         if not board.found:
             pytest.skip('Motor board not found')
         yield board

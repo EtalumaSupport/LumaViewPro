@@ -37,6 +37,7 @@ import pytest
 
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -48,7 +49,8 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
 def board(request):
     """A MotorBoard on the real firmware of the requested dialect."""
     b = MotorBoard(
-        backend=SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), dialect=request.param))
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+        backend=SimWireBackend(MotorBoardSpec('LS850T', frozenset('XYZT'), dialect=request.param)),
     )
     try:
         yield b

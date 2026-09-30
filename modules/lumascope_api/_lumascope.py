@@ -7,6 +7,7 @@ from lvp_logger import logger
 
 # Import Lumascope Hardware files
 from drivers.motorboard import MotorBoard
+from drivers.motorconfig import load_motorconfig_defaults
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
@@ -50,6 +51,7 @@ from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import CameraSettingRejected, ScopeDisconnectError
+from modules.path_utils import resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
@@ -329,7 +331,9 @@ class Lumascope:
         self._camera_override_key = None
 
     @staticmethod
-    def _build_simulated_motor_board(model: str, sim_tier: str) -> MotorBoardProtocol:
+    def _build_simulated_motor_board(
+        model: str, sim_tier: str, motorconfig_defaults: dict
+    ) -> MotorBoardProtocol:
         """The simulated scope's motor board, on the tier asked for.
 
         Both tiers ask the catalogue which axes the model has: a model
@@ -350,13 +354,21 @@ class Lumascope:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
         if sim_tier == 'fast':
-            board = motor_registry.create('auto', simulate=True, model=model, axes=axes)
+            board = motor_registry.create(
+                'auto',
+                simulate=True,
+                model=model,
+                axes=axes,
+                motorconfig_defaults=motorconfig_defaults,
+            )
             logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
             return board
         from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
         backend = SimWireBackend(MotorBoardSpec(model, axes))
-        board = motor_registry.create('rp2040', backend=backend)
+        board = motor_registry.create(
+            'rp2040', backend=backend, motorconfig_defaults=motorconfig_defaults
+        )
         logger.info(
             f'[SCOPE API ] Using the motor FIRMWARE in simulation '
             f'(model={model}, axes={"".join(sorted(axes))})'
@@ -464,6 +476,14 @@ class Lumascope:
         if warn_pre_release:
             _fire_pre_release_warning()
 
+        # Read before anything is started, so a missing install file stops
+        # the bring-up with nothing to tear down. It is read on every model:
+        # the motor probe below runs on every model, and a board it finds
+        # takes these defaults.
+        motorconfig_defaults = load_motorconfig_defaults(
+            resolve_data_file('motorconfig_defaults.json')
+        )
+
         # Shared state-slot init (audit #35) -- transformers, locks,
         # camera cache, objective/turret state, the scope's lanes.
         # Driver construction + sub-API wiring happen below.
@@ -490,10 +510,12 @@ class Lumascope:
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
             model = sim_model or configured_model or default_model
             self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
-                model, sim_tier
+                model, sim_tier, motorconfig_defaults
             )
         else:
-            self._motion_driver = motor_registry.create('auto')
+            self._motion_driver = motor_registry.create(
+                'auto', motorconfig_defaults=motorconfig_defaults
+            )
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.

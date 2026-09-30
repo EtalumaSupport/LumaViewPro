@@ -41,6 +41,7 @@ from tests.sim_wire_bench import FRESH, led_on_args
 
 sys.path.insert(0, str(pathlib.Path('drivers/sim_wire/mp').resolve()))
 import dac80508
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 firmware_only = pytest.mark.skipif(
     not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
@@ -213,7 +214,7 @@ class TestTheFirmwareBoots:
         # GP1 is the XY TMC5072's chip select on the motor board and the
         # DAC's on the LED board; each board's firmware must meet its own.
         backend = SimWireBackend(MOTOR, led=LED)
-        motor = MotorBoard(backend=backend)
+        motor = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         led = LEDBoard(backend=backend)
         try:
             assert led.firmware_date == '2024-06-05'

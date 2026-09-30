@@ -25,6 +25,7 @@ from modules.layer_record import load_scope_models, model_axes
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 MODELS = load_scope_models()
 MANUAL = sorted(model for model in MODELS if not model_axes(MODELS, model))
@@ -137,7 +138,7 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
         register_atexit=False,
     )
     try:
-        assert asked == [('auto', {})]
+        assert asked == [('auto', {'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS})]
     finally:
         scope.disconnect()
 

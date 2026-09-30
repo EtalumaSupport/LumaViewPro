@@ -8,7 +8,6 @@ no error anywhere. Every door onto the limits must hand out something
 that refuses the edit, loudly, at the line that tries it.
 """
 
-import pathlib
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +16,7 @@ from modules.exceptions import PositionOutOfRangeError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 @pytest.fixture
@@ -66,8 +66,8 @@ def test_the_hardware_driver_builds_a_read_only_config():
     from drivers.motorconfig import MotorConfig
 
     with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
-        board = MotorBoard()
-    board.motorconfig = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+    board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
     board._rebuild_cached_values()
 
     with pytest.raises(TypeError):

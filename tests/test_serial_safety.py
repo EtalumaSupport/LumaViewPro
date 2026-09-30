@@ -18,12 +18,10 @@ import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-import pathlib
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
-
-_MOTORCONFIG_DEFAULTS = pathlib.Path('data/motorconfig_defaults.json')
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +249,7 @@ class TestMotorBoardSafety:
         """Create a MotorBoard with a mock serial driver."""
         # MotorBoard imported at module level
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -497,7 +495,7 @@ class TestMotorBoardCommands:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -610,7 +608,7 @@ class TestMotorBoardHoming:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -719,7 +717,7 @@ class TestMotorBoardFullinfo:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -793,7 +791,7 @@ class TestMotorBoardConversions:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         return board
 
     def test_z_roundtrip(self):
@@ -856,7 +854,7 @@ class TestMotorBoardMovement:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -1103,7 +1101,7 @@ class TestMotorFirmwareVersion:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False
@@ -1186,14 +1184,16 @@ class TestSimulatorFirmwareVersion:
     def test_motor_simulator_default_v2(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_motor_simulator_legacy(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard(firmware_version=None)
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, firmware_version=None
+        )
         assert board.firmware_version is None
         assert board.is_v2 is False
 
@@ -1934,7 +1934,7 @@ class TestMotorBoardStateLock:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
         board.overshoot = False

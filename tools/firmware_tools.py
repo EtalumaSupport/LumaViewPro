@@ -24,7 +24,9 @@ _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
 from drivers.motorboard import MotorBoard
+from drivers.motorconfig import load_motorconfig_defaults
 from drivers.serialboard import SerialBoard
+from modules.path_utils import resolve_data_file
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +36,11 @@ from drivers.serialboard import SerialBoard
 
 def _connect_motor_board():
     """Connect to motor board using production MotorBoard driver."""
-    board = MotorBoard()
+    board = MotorBoard(
+        motorconfig_defaults=load_motorconfig_defaults(
+            resolve_data_file('motorconfig_defaults.json')
+        )
+    )
     if not board.found:
         print('ERROR: Motor board not found (VID=0x2E8A, PID=0x0005)')
         sys.exit(1)

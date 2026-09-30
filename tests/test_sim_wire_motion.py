@@ -15,6 +15,7 @@ import pytest
 
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -27,7 +28,7 @@ def board(request):
     model, axes, timing, *named = getattr(request, 'param', ('LS850T', 'XYZT', 'instant'))
     dialect = named[0] if named else DEFAULT_DIALECT
     spec = MotorBoardSpec(model, frozenset(axes), timing=timing, dialect=dialect)
-    b = MotorBoard(backend=SimWireBackend(spec))
+    b = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimWireBackend(spec))
     try:
         yield b
     finally:

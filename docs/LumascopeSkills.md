@@ -1958,12 +1958,17 @@ This appendix documents direct serial commands used by firmware update tools, bo
 ```python
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
+from drivers.motorconfig import load_motorconfig_defaults
+from modules.path_utils import resolve_data_file
 
 led = LEDBoard()                           # auto-detect by VID:PID
 led.exchange_command('LED3_200')           # set BF LED to 200 mA
 led.exchange_command('LEDS_OFF')
 
-motor = MotorBoard()                       # auto-detect by VID:PID
+# The motor driver takes the shipped defaults (travel limits, microsteps
+# per mm) as a required argument; a missing file raises, naming it.
+defaults = load_motorconfig_defaults(resolve_data_file('motorconfig_defaults.json'))
+motor = MotorBoard(motorconfig_defaults=defaults)  # auto-detect by VID:PID
 motor.exchange_command('HOME')
 motor.exchange_command('TARGET_WZ682666')  # move Z (µsteps)
 pos = motor.exchange_command('ACTUAL_RZ')

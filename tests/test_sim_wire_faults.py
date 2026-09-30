@@ -22,6 +22,7 @@ from drivers.sim_wire import port as sim_port
 from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import channel, tmc5072
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 firmware_only = pytest.mark.skipif(
     not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
@@ -182,7 +183,7 @@ def scope(request):
     backend = SimWireBackend(
         MotorBoardSpec('LS850T', frozenset('XYZT'), dialect=dialect, oracle=oracle)
     )
-    board = MotorBoard(backend=backend)
+    board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
     try:
         yield board, backend.motor_board
     finally:

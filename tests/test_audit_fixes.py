@@ -34,6 +34,7 @@ from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 
 
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 def _build_mock_logger():
@@ -1036,7 +1037,9 @@ class TestAxisState:
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
         scope = build_scope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(model='LS850T')
+        scope._motion_driver = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
+        )
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, 'LS850T sim must report T present'
         scope.motion._pos_cache = dict.fromkeys(present, 0.0)
@@ -2002,7 +2005,9 @@ def _firmware_motorboard(model: str, axes: str, dialect: str = '3.0', unplugged:
     backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
     if unplugged:
         backend.motor_board.unplug()
-    return MotorBoard(backend=backend), backend.motor_board
+    return MotorBoard(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend
+    ), backend.motor_board
 
 
 @pytest.fixture(scope='module')
@@ -2214,7 +2219,7 @@ class TestHomeRaises:
         so sim-backed tests exercise the same raise path as production."""
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard(timing='instant')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: None)
         with pytest.raises(HardwareError, match='no response'):
             getattr(board, method)()

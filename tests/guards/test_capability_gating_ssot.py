@@ -20,6 +20,7 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import REPO_ROOT
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # The scopes.json keys that duplicate a driver-derived capability. `Layers`
@@ -81,13 +82,17 @@ class TestUiGatesOnTheDriver:
 
 class TestCapabilitiesComeFromTheHardware:
     def test_stage_less_scope_reports_no_xy(self):
-        caps = _caps_for(SimulatedMotorBoard(model='Lumi'))
+        caps = _caps_for(
+            SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='Lumi')
+        )
         assert caps.has_focus is True
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
 
     def test_full_scope_reports_every_axis(self):
-        caps = _caps_for(SimulatedMotorBoard(model='LS850T'))
+        caps = _caps_for(
+            SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
+        )
         assert caps.has_focus is True
         assert caps.has_xy_stage is True
         assert caps.has_turret is True

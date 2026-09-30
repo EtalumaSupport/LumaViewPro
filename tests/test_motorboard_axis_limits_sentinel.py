@@ -25,6 +25,7 @@ import ast
 import pathlib
 
 import pytest
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
         # __init__ and inject a minimal axes_config. The driver method
         # under test reads only self.axes_config.
         with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
-            mb = MotorBoard()
+            mb = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
             mb.axes_config = {
                 'X': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
                 'Y': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
@@ -91,7 +92,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
     def test_t_axis_returns_none_not_raises(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         result = board.get_axis_limits('T')
         assert result is None, (
             "SimulatedMotorBoard.get_axis_limits('T') must return None "
@@ -101,7 +102,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
     def test_xyz_still_returns_limits_dict(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         for axis in ('X', 'Y', 'Z'):
             limits = board.get_axis_limits(axis)
             assert limits is not None
@@ -110,7 +111,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
     def test_unsupported_axis_still_raises(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         with pytest.raises(Exception):  # noqa: B017 -- deliberately asserts some exception is raised for an invalid axis
             board.get_axis_limits('Q')
 

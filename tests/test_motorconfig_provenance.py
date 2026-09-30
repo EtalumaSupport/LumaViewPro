@@ -19,14 +19,14 @@ import pytest
 
 from drivers.exceptions import ConfigReadError
 from drivers.motorboard import MotorBoard
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, load_motorconfig_defaults
 from lvp_logger import logger as _mock_logger
 
 
 def make_config(tmp_path, defaults=None):
     path = tmp_path / 'defaults.json'
     path.write_text(json.dumps(defaults if defaults is not None else {}), encoding='utf-8')
-    return MotorConfig(defaults_file=path)
+    return MotorConfig(load_motorconfig_defaults(path))
 
 
 def bare_board(monkeypatch, response):

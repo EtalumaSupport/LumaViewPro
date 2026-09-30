@@ -16,11 +16,12 @@ import math
 import pytest
 
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 @pytest.fixture
 def board():
-    return SimulatedMotorBoard()
+    return SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
 
 
 def _first_tie_um(usteps_per_mm, axis_scale=1000.0):

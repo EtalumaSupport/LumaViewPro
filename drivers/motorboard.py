@@ -3,7 +3,6 @@
 
 import math
 import logging
-import pathlib
 import threading
 import time
 from typing import ClassVar
@@ -130,7 +129,8 @@ class MotorBoard(SerialBoard):
     # ----------------------------------------------------------
     def __init__(
         self,
-        motorconfig_defaults_file: pathlib.Path | None = None,
+        *,
+        motorconfig_defaults: Mapping,
         backend: SerialBackend = PYSERIAL,
         **kwargs,
     ):
@@ -143,10 +143,9 @@ class MotorBoard(SerialBoard):
         self._connect_fails = 0
         self._connect_log_suppressed = False
 
-        # Load hardware config (per-unit values from motorconfig.json, with defaults fallback)
-        if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
-        self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
+        # Hardware config: the shipped defaults, with the board's per-unit
+        # motorconfig.json merged over them once it is read.
+        self.motorconfig = MotorConfig(motorconfig_defaults)
 
         # Default timeout 5s for regular commands. Long-running commands
         # (HOME, CALIBRATE) pass explicit timeout overrides (H15).

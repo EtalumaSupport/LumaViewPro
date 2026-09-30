@@ -23,6 +23,7 @@ from drivers.sim_wire import backend as sim_backend
 from drivers.sim_wire import port as sim_port
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import tmc5072
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -76,7 +77,7 @@ def _firmware_pid(port) -> int:
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_the_production_driver_connects_through_the_emulator(dialect):
     spec = MotorBoardSpec('LS850T', ALL_AXES, dialect=dialect)
-    board = MotorBoard(backend=SimWireBackend(spec))
+    board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimWireBackend(spec))
     try:
         assert board.is_connected() and board.is_responsive()
         date = MANIFEST.split(f'motor-{dialect}.mpy')[1].split('FirmwareDate ')[1].split()[0]
@@ -92,7 +93,10 @@ def test_the_production_driver_connects_through_the_emulator(dialect):
 def test_a_board_whose_firmware_is_not_named_runs_the_firmware_that_ships():
     # Every shipped motor board runs the 2024-09-10 field build; a simulated
     # scope that ran anything else would hide what the field firmware does.
-    board = MotorBoard(backend=SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES)))
+    board = MotorBoard(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+        backend=SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES)),
+    )
     try:
         assert board.firmware_date == '2024-09-10'
     finally:
@@ -100,7 +104,10 @@ def test_a_board_whose_firmware_is_not_named_runs_the_firmware_that_ships():
 
 
 def test_the_axes_the_board_reports_are_the_axes_it_was_given():
-    board = MotorBoard(backend=SimWireBackend(MotorBoardSpec('LS820', frozenset('Z'))))
+    board = MotorBoard(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+        backend=SimWireBackend(MotorBoardSpec('LS820', frozenset('Z'))),
+    )
     try:
         assert board.detect_present_axes() == ['Z']
     finally:
@@ -246,7 +253,7 @@ def test_the_board_boots_and_takes_faults_under_dash_with_a_high_fault_fd(monkey
     padding = [os.open(os.devnull, os.O_RDONLY) for _ in range(12)]
     try:
         backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES))
-        board = MotorBoard(backend=backend)
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
     finally:
         for fd in padding:
             os.close(fd)

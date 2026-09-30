@@ -15,6 +15,7 @@ import pytest
 
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -25,7 +26,7 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
 @pytest.fixture
 def board():
     spec = MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field', timing='realistic')
-    b = MotorBoard(backend=SimWireBackend(spec))
+    b = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimWireBackend(spec))
     try:
         yield b
     finally:

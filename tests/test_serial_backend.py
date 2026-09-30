@@ -15,6 +15,7 @@ from drivers import serial_backend
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.serialboard import SerialBoard
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 VID, PID = 0x1234, 0x5678
 
@@ -88,10 +89,13 @@ def test_a_failed_open_rescans_through_the_same_backend():
 
 
 def test_led_and_motor_boards_pass_their_backend_down():
-    for board_cls in (LEDBoard, MotorBoard):
+    for board_cls, kwargs in (
+        (LEDBoard, {}),
+        (MotorBoard, {'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS}),
+    ):
         backend = RecordingBackend([])
 
-        board = board_cls(backend=backend)
+        board = board_cls(backend=backend, **kwargs)
 
         assert board._backend is backend, board_cls.__name__
         assert backend.comports_calls >= 1, board_cls.__name__

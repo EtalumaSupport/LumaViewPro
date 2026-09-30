@@ -27,6 +27,7 @@ from drivers.simulated_camera import SimulatedCamera
 # test_amax_dmax_probe_warning_suppressed measures that filter.
 from drivers.motorboard import MotorBoard  # noqa: F401
 from tests.scope_fakes import build_scope
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -101,18 +102,18 @@ class TestSimulatedLEDBoard:
 
 class TestSimulatedMotorBoard:
     def test_initial_state(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.found is True
         assert board.is_connected()
         assert board.has_homed() is False
         assert board.has_turret() is False  # default model LS850 (no turret)
 
     def test_no_turret_model(self):
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         assert board.has_turret() is False
 
     def test_homing_xyz(self):
-        board = SimulatedMotorBoard(timing='instant')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         board.home()
         assert board.has_homed() is True
         assert board.current_pos('X') == 0
@@ -120,32 +121,32 @@ class TestSimulatedMotorBoard:
         assert board.current_pos('Z') == 0
 
     def test_zhome(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('Z', 5000)
         assert board.current_pos('Z') > 0
         board.zhome()
         assert board.current_pos('Z') == 0
 
     def test_thome(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.thome()
         assert board.has_thomed() is True
 
     def test_move_absolute_z(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('Z', 7000, overshoot_enabled=False)
         pos = board.current_pos('Z')
         assert abs(pos - 7000) < 1  # within rounding
 
     def test_move_absolute_xy(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('X', 60000)
         board.move_abs_pos('Y', 40000)
         assert abs(board.current_pos('X') - 60000) < 1
         assert abs(board.current_pos('Y') - 40000) < 1
 
     def test_move_relative(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('X', 50000)
         board.move_rel_pos('X', 10000)
         assert abs(board.current_pos('X') - 60000) < 1
@@ -154,12 +155,12 @@ class TestSimulatedMotorBoard:
         """Travel is the motion API's refusal, as on the real board; a
         driver that clamped made a refused move look like one that
         succeeded and stopped short."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('Z', 99999, overshoot_enabled=False)
         assert abs(board.current_pos('Z') - 99999) < 1
 
     def test_target_status(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('X', 50000)
         # Fast mode: position updates instantly but target_status is False
         # for ~3ms (simulates motion monitor detection window)
@@ -169,39 +170,41 @@ class TestSimulatedMotorBoard:
         assert board.target_status('X') is True
 
     def test_conversion_z(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 5000
         ustep = board.z_um2ustep(um)
         um_back = board.z_ustep2um(ustep)
         assert abs(um - um_back) < 0.01
 
     def test_conversion_xy(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 60000
         ustep = board.xy_um2ustep(um)
         um_back = board.xy_ustep2um(ustep)
         assert abs(um - um_back) < 0.1
 
     def test_conversion_turret(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         pos = 3
         ustep = board.t_pos2ustep(pos)
         pos_back = board.t_ustep2pos(ustep)
         assert pos == pos_back
 
     def test_fullinfo(self):
-        board = SimulatedMotorBoard(model='LS850T', serial_number='TEST-123')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T', serial_number='TEST-123'
+        )
         info = board.fullinfo()
         assert info['model'] == 'LS850T'
         assert info['serial_number'] == 'TEST-123'
 
     def test_exchange_command_info(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         resp = board.exchange_command('INFO')
         assert 'SIMULATED' in resp
 
     def test_disconnect_reconnect(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.disconnect()
         assert not board.is_connected()
         resp = board.exchange_command('INFO')
@@ -209,7 +212,7 @@ class TestSimulatedMotorBoard:
         assert board.is_connected()
 
     def test_acceleration_stubs(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.acceleration_limit('X', 'acceleration') == 30000
         limits = board.acceleration_limits()
         assert 'X' in limits
@@ -251,7 +254,7 @@ class TestSimulatedMotorBoard:
         )
 
     def test_axes_config(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         config = board.get_axes_config()
         assert 'X' in config
         assert 'Y' in config
@@ -259,14 +262,14 @@ class TestSimulatedMotorBoard:
         assert 'T' in config
 
     def test_axis_limits(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         z_limits = board.get_axis_limits('Z')
         assert z_limits['min'] == 0
         assert z_limits['max'] == 14000
 
     def test_thread_safety(self):
         """Concurrent moves should not corrupt state."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         errors = []
 
         def move_axis(axis, positions):
@@ -290,7 +293,7 @@ class TestSimulatedMotorBoard:
 
     def test_overshoot_z(self):
         """Z overshoot should work without errors."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('Z', 5000, overshoot_enabled=False)
         board.move_abs_pos('Z', 3000, overshoot_enabled=True)
         pos = board.current_pos('Z')
@@ -300,7 +303,7 @@ class TestSimulatedMotorBoard:
 
     def test_detect_present_axes_ls850(self):
         """LS850 should have X, Y, Z (no turret)."""
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         axes = board.detect_present_axes()
         assert 'X' in axes
         assert 'Y' in axes
@@ -309,7 +312,7 @@ class TestSimulatedMotorBoard:
 
     def test_detect_present_axes_ls820t(self):
         """LS820T should have Z and T (no XY stage)."""
-        board = SimulatedMotorBoard(model='LS820T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS820T')
         axes = board.detect_present_axes()
         assert 'Z' in axes
         assert 'T' in axes
@@ -318,7 +321,7 @@ class TestSimulatedMotorBoard:
 
     def test_detect_present_axes_ls850t(self):
         """LS850T should have X, Y, Z, and T."""
-        board = SimulatedMotorBoard(model='LS850T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         axes = board.detect_present_axes()
         assert 'X' in axes
         assert 'Y' in axes
@@ -329,7 +332,7 @@ class TestSimulatedMotorBoard:
 
     def test_current_pos_steps(self):
         """After a move, current_pos_steps returns raw microstep position."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 5000
         board.move_abs_pos('Z', target_um, overshoot_enabled=False)
         steps = board.current_pos_steps('Z')
@@ -339,7 +342,7 @@ class TestSimulatedMotorBoard:
 
     def test_target_pos_steps(self):
         """target_pos_steps returns raw target microstep position."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 7000
         board.move_abs_pos('Z', target_um, overshoot_enabled=False)
         steps = board.target_pos_steps('Z')
@@ -351,25 +354,25 @@ class TestSimulatedMotorBoard:
 
     def test_zhome_returns_bool(self):
         """zhome() should return True on success."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         result = board.zhome()
         assert result is True
 
     def test_home_returns_bool(self):
         """home() should return True on success."""
-        board = SimulatedMotorBoard(timing='instant')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         result = board.home()
         assert result is True
 
     def test_thome_returns_bool(self):
         """thome() should return True on success."""
-        board = SimulatedMotorBoard(model='LS850T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         result = board.thome()
         assert result is True
 
     def test_thome_no_turret(self):
         """thome() on a non-turret model should still return True."""
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         result = board.thome()
         assert result is True
 
@@ -389,42 +392,46 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_model_creates_without_error(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.found is True
         assert board.is_connected()
 
     @pytest.mark.parametrize('model', TURRET_MODELS)
     def test_turret_model_detected(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.has_turret() is True
 
     @pytest.mark.parametrize('model', NON_TURRET_MODELS)
     def test_non_turret_model_detected(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.has_turret() is False
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_fullinfo_reports_model(self, model):
-        board = SimulatedMotorBoard(model=model, serial_number='SN-TEST')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model, serial_number='SN-TEST'
+        )
         info = board.fullinfo()
         assert info['model'] == model
         assert info['serial_number'] == 'SN-TEST'
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_z_axis_works(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         board.move_abs_pos('Z', 5000, overshoot_enabled=False)
         assert abs(board.current_pos('Z') - 5000) < 1
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_homing_works(self, model):
-        board = SimulatedMotorBoard(model=model, timing='instant')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model, timing='instant'
+        )
         board.home()
         assert board.has_homed() is True
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_motorconfig_travel_limits(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         mc = board.motorconfig
         # All models should have valid travel limits
         assert mc.travel_limit_mm('X') > 0
@@ -433,7 +440,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_axes_config_populated(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         config = board.get_axes_config()
         assert 'X' in config
         assert 'Y' in config
@@ -443,7 +450,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', TURRET_MODELS)
     def test_turret_positions(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         mc = board.motorconfig
         for pos in range(1, 5):
             usteps = mc.turret_position_usteps(pos)
@@ -452,7 +459,7 @@ class TestAllModels:
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_center_command(self, model):
         """CENTER should move to stage center for all models."""
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         resp = board.exchange_command('CENTER')
         assert resp is not None
         x = board.current_pos('X')
@@ -475,9 +482,8 @@ class TestMotorConfigDefaults:
 
     def test_defaults_load(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         assert mc.model() in ('LS850', 'LS850T')
         assert mc.travel_limit_mm('X') == 120
         assert mc.travel_limit_mm('Y') == 80
@@ -488,9 +494,8 @@ class TestMotorConfigDefaults:
 
     def test_update_from_board_overrides(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
         assert mc.travel_limit_mm('Z') == 20
         # X/Y unchanged
@@ -498,9 +503,8 @@ class TestMotorConfigDefaults:
 
     def test_missing_section_returns_default(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         # Non-existent section should return default without crashing
         val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
         assert val == 42
@@ -1377,24 +1381,24 @@ class TestTimingModes:
     """Verify timing mode switching across all simulators."""
 
     def test_motor_instant_mode(self):
-        m = SimulatedMotorBoard(timing='instant')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         assert m._cmd_delay == 0.0
         assert m._simulate_move_duration is False
         assert m._fast_move_duration == 0.0
 
     def test_motor_fast_mode(self):
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         assert m._cmd_delay > 0  # 1ms minimum -- nothing returns instantly
         assert m._simulate_move_duration is True
         assert m._fast_move_duration > 0  # Brief ~3ms per move
 
     def test_motor_realistic_mode(self):
-        m = SimulatedMotorBoard(timing='realistic')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
         assert m._cmd_delay > 0
         assert m._simulate_move_duration is True
 
     def test_motor_switch_mode(self):
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         m.set_timing_mode('realistic')
         assert m._simulate_move_duration is True
         m.set_timing_mode('fast')
@@ -1406,7 +1410,7 @@ class TestTimingModes:
 
     def test_motor_realistic_move_not_instant(self):
         """In realistic mode, target_status returns False during move."""
-        m = SimulatedMotorBoard(timing='realistic')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
         m._homed['Z'] = True
         # 1000 usteps gives ~0.5 s expected duration with TMC ramp params --
         # still proves "not instant" via the immediate-False check, while
@@ -1429,7 +1433,7 @@ class TestTimingModes:
         """In fast mode, position updates instantly but target_status has ~3ms delay."""
         import time
 
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         m.move_abs_pos('Z', 10000.0)
         # Position is instant
         assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
@@ -1460,7 +1464,7 @@ class TestTimingModes:
 
     def test_invalid_mode_raises(self):
         with pytest.raises(ValueError):
-            SimulatedMotorBoard(timing='turbo')
+            SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='turbo')
         with pytest.raises(ValueError):
             SimulatedLEDBoard(timing='turbo')
         with pytest.raises(ValueError):
@@ -1474,7 +1478,7 @@ class TestFailureInjection:
 
     def test_motor_fail_after_disconnects(self):
         """Motor board should return None after N commands."""
-        m = SimulatedMotorBoard(fail_after=3)
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=3)
         assert m.exchange_command('INFO') is not None  # cmd 1
         assert m.exchange_command('INFO') is not None  # cmd 2
         assert m.exchange_command('INFO') is not None  # cmd 3
@@ -1483,7 +1487,7 @@ class TestFailureInjection:
 
     def test_motor_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
-        m = SimulatedMotorBoard(fail_after=1)
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=1)
         assert m.found is True
         m.exchange_command('INFO')  # cmd 1 -- succeeds
         m.exchange_command('INFO')  # cmd 2 -- fails
@@ -1491,7 +1495,7 @@ class TestFailureInjection:
 
     def test_motor_fail_on_specific_command(self):
         """Motor board should return None for targeted commands only."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME'})
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_on={'ZHOME'})
         assert m.exchange_command('INFO') is not None  # OK
         assert m.exchange_command('ZHOME') is None  # targeted failure
         assert m.exchange_command('INFO') is not None  # still connected
@@ -1499,20 +1503,26 @@ class TestFailureInjection:
 
     def test_motor_fail_on_multiple_commands(self):
         """Multiple commands can be targeted for failure."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'}, timing='instant')
+        m = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+            fail_on={'ZHOME', 'THOME'},
+            timing='instant',
+        )
         assert m.exchange_command('ZHOME') is None
         assert m.exchange_command('THOME') is None
         assert m.exchange_command('HOME') is not None  # not in fail set
 
     def test_motor_no_failure_by_default(self):
         """Without fail params, simulator works normally."""
-        m = SimulatedMotorBoard()
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         for _ in range(100):
             assert m.exchange_command('INFO') is not None
 
     def test_motor_fail_after_affects_move(self):
         """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(fail_after=5, timing='instant')
+        m = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
+        )
         m.exchange_command('HOME')  # cmd 1
         m.move_abs_pos('Z', 5000)  # cmds 2-3
         assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4

@@ -7,6 +7,7 @@ board identity (model/serial), and optics parameters. Falls back to defaults
 for any missing keys.
 """
 
+import copy
 import json
 import pathlib
 import types
@@ -39,12 +40,40 @@ def read_only_axes_config(axes_config: dict) -> Mapping:
     )
 
 
+def load_motorconfig_defaults(defaults_file: pathlib.Path) -> dict:
+    """The shipped motor defaults, read once by whoever brings the scope up.
+
+    A missing or unreadable file raises, naming it. Every value a motor
+    board does not report itself -- travel limits, microsteps per mm, ramp
+    parameters -- comes from here, and an empty table let a board come up
+    converting positions and bounding moves by hardcoded fallbacks with
+    only a log line to say so.
+    """
+    try:
+        with open(defaults_file, encoding='utf-8') as fp:
+            defaults = json.load(fp)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f'Required file motorconfig_defaults.json not found at {defaults_file}. '
+            'Please reinstall or restore from backup.'
+        ) from e
+    except (OSError, ValueError) as e:
+        raise RuntimeError(
+            f'motorconfig_defaults.json at {defaults_file} is unreadable ({e}). '
+            'Please restore from backup or reinstall.'
+        ) from e
+    if not isinstance(defaults, dict):
+        raise RuntimeError(
+            f'motorconfig_defaults.json at {defaults_file} holds a '
+            f'{type(defaults).__name__}, not an object. Please restore from backup or reinstall.'
+        )
+    return defaults
+
+
 class MotorConfig:
-    # True until a board config READ fails. A class-level default so the
-    # flag exists on every instance, including the bare-`__new__` fallback
-    # construction the Null motion driver uses when no defaults file is
-    # readable. False means the per-unit values may exist on the board but
-    # are unavailable -- a different state from "the board has none", and
+    # True until a board config READ fails. False means the per-unit values
+    # may exist on the board but are unavailable -- a different state from
+    # "the board has none", and
     # consumers deciding between per-unit and fallback sources need the
     # difference or they silently serve the wrong unit's answer.
     board_config_read_ok: bool = True
@@ -54,11 +83,10 @@ class MotorConfig:
     # two sources could describe hardware that does not exist.
     _WHOLESALE_KEYS: ClassVar[frozenset] = frozenset({'Layers', 'Filterset'})
 
-    def __init__(self, defaults_file: pathlib.Path):
-        self._config = {}
-        self._defaults = self._load_json(defaults_file, label='defaults')
-        # Start with defaults
-        self._config = dict(self._defaults)
+    def __init__(self, defaults: Mapping):
+        # A deep copy: the board merge edits nested sections in place, and
+        # one loaded table is handed to every board built.
+        self._config = copy.deepcopy(dict(defaults))
 
     def mark_board_read_failed(self) -> None:
         """Record that the board's config could not be read this session."""
@@ -147,18 +175,6 @@ class MotorConfig:
             else:
                 cleaned[key] = value
         return cleaned
-
-    @staticmethod
-    def _load_json(file_path: pathlib.Path, label: str = '') -> dict:
-        if file_path is None or not file_path.is_file():
-            logger.warning(f'[MotorConfig] {label} file not found: {file_path}')
-            return {}
-        try:
-            with open(file_path) as fp:
-                return json.load(fp)
-        except (json.JSONDecodeError, OSError) as ex:
-            logger.error(f'[MotorConfig] Failed to load {label} file {file_path}: {ex}')
-            return {}
 
     @staticmethod
     def _deep_merge(base: dict, override: dict):

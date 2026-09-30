@@ -22,6 +22,7 @@ import pytest
 
 from modules.lumascope_api._constants import AxisState
 from drivers.motorboard import _parse_fullinfo
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # A real EL-0940 response: one line, uneven padding, all four axes.
@@ -129,7 +130,7 @@ class TestDriversAnswerTheQuestion:
     def test_simulated_board_reports_homed_only_after_a_home(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.detect_homed_axes() == [], (
             'a simulated board that has not homed must look like a fresh boot'
         )

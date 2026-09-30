@@ -23,6 +23,7 @@ import serial
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MOTOR_DEVICE, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.port import EmulatedPort
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -178,7 +179,7 @@ class TestTheLinkAtThePort:
 
 class TestTheLinkThroughTheDriver:
     def test_the_driver_reconnects_after_a_cable_pull_to_the_same_homed_firmware(self, backend):
-        board = MotorBoard(backend=backend)
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
             assert board.home()
             backend.motor_board.unplug()
@@ -192,7 +193,7 @@ class TestTheLinkThroughTheDriver:
             board.disconnect()
 
     def test_a_dropped_reply_is_no_answer_to_the_driver(self, backend):
-        board = MotorBoard(backend=backend)
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
             backend.motor_board.drop_next_reply()
             assert not board.exchange_command('ZHOME', timeout=0.5)

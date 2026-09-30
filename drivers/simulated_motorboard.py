@@ -16,7 +16,6 @@ Failure injection (for testing error recovery):
 
 import math
 import logging
-import pathlib
 import threading
 import time
 from typing import ClassVar
@@ -78,7 +77,8 @@ class SimulatedMotorBoard:
         timing: str = 'fast',
         firmware_version: str = '2.0.1',
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
-        motorconfig_defaults_file: pathlib.Path | None = None,
+        *,
+        motorconfig_defaults: Mapping,
         fail_after: int | None = None,
         fail_on: set | None = None,
         axes: Iterable[str] | None = None,
@@ -100,10 +100,8 @@ class SimulatedMotorBoard:
         self._fail_on = fail_on or set()  # return None for these commands
         self._cmd_count = 0
 
-        # Load hardware config (same defaults as real MotorBoard)
-        if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
-        self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
+        # Hardware config: the same shipped defaults the real MotorBoard takes
+        self.motorconfig = MotorConfig(motorconfig_defaults)
 
         self.found = True
         self.overshoot = False
