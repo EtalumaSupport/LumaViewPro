@@ -10,6 +10,7 @@ from kivy.uix.dropdown import DropDown
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.spinner import Spinner, SpinnerOption
+from kivy.uix.widget import Widget
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -478,7 +479,19 @@ def show_objective_selection_popup(
         _objective_popup_folded.append(on_folded)
         return
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
-    content.add_widget(_make_message_label(message))
+    # The message is sized to its text, and three equal stretches -- above
+    # it, between it and the spinner, between the spinner and Confirm --
+    # take the spare height, so the three gaps stay equal whatever size
+    # the window gives the popup. A message that takes the spare height
+    # itself centres its text in it and leaves the spinner against Confirm.
+    message_label = Label(text=message, halign='center', size_hint_y=None)
+    message_label.bind(
+        width=lambda lbl, width: setattr(lbl, 'text_size', (width, None)),
+        texture_size=lambda lbl, size: setattr(lbl, 'height', size[1]),
+    )
+    content.add_widget(Widget())
+    content.add_widget(message_label)
+    content.add_widget(Widget())
 
     # A Spinner built in Python gets Kivy's stock dropdown: full-height
     # option rows and an uncapped list, which for a dozen objectives
@@ -505,6 +518,7 @@ def show_objective_selection_popup(
         dropdown_cls=_CappedDropDown,
     )
     content.add_widget(spinner)
+    content.add_widget(Widget())
 
     confirm_button = Button(text='Confirm', size_hint_y=None, height='34dp')
     content.add_widget(confirm_button)
