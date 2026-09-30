@@ -41,6 +41,8 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     ObjectiveUnknownError,
+    Remedy,
+    RemedyUnknownError,
     ScopeDisconnectError,
     ScopeModelUnknownError,
     SettingsSaveRefusedError,
@@ -836,6 +838,25 @@ class ScopeSession:
         abandoned = batch.abandon('File writer recovery')
         self.file_io_executor.replace_stuck_worker()
         return abandoned
+
+    def apply_remedy(self, remedy: Remedy) -> object:
+        """Take the action a refusal named as its remedy, and return its answer.
+
+        The one place a remedy's name becomes an action: the GUI's offer and
+        a REST caller answer a refusal through this, never by resolving the
+        name themselves. A name arrives as data -- from a refusal another
+        layer built, or from a caller sending it back -- so only the members
+        listed here are reachable through it. The member still decides
+        whether the remedy applies now, and refuses if not.
+
+        Raises:
+            RemedyUnknownError: the remedy names a member not offered as one.
+        """
+        remedies = {'recover_file_writer': self.recover_file_writer}
+        action = remedies.get(remedy.member)
+        if action is None:
+            raise RemedyUnknownError(remedy.member, remedies)
+        return action()
 
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         import modules.config_helpers as config_helpers

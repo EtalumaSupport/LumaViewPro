@@ -29,6 +29,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
     ProtocolRunRefusedError,
+    Remedy,
     RunAlreadyEndedError,
     RunCheckFailedError,
     RunStartError,
@@ -749,6 +750,7 @@ class SequencedCaptureRunner:
         message: str,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
+        remedy: Remedy | None = None,
     ) -> typing.NoReturn:
         """Report once, and raise, the typed refusal.
 
@@ -766,6 +768,7 @@ class SequencedCaptureRunner:
             message=message,
             holder=holder,
             holder_trigger=holder_trigger,
+            remedy=remedy,
         )
         notifications.report_outcome(refusal, solicited=True, category='Protocol')
         raise refusal
@@ -856,10 +859,11 @@ class SequencedCaptureRunner:
 
         batch = self._write_batch
         if batch is not None and batch.draining:
-            # Module layer must not popup-with-buttons, so the refusal only
-            # NAMES the stalled-vs-draining difference; the recovery action
-            # itself lives with the UI gate helper and the Session method.
+            # A stalled writer will not finish on its own, so its refusal
+            # carries the recovery that answers it, by name: the Session
+            # owns recovery, and this layer cannot reach it.
             if batch.stalled(WRITE_STALL_FATAL_S):
+                unsaved = batch.pending
                 self._refuse(
                     holder_trigger=self._run_trigger_source,
                     reason='files_writing_stalled',
@@ -868,8 +872,15 @@ class SequencedCaptureRunner:
                         f'{self._the_run_holding_the_scope(self._run_trigger_source)} has '
                         'stopped writing its files '
                         f'({batch.describe_stuck_write()}). '
-                        'Recover it (discard unsaved images) before starting '
-                        'a new run.'
+                        'Recover the file writer before starting a new run: '
+                        f'its {unsaved} unsaved image(s) will be lost, and a partial '
+                        'file from the stuck write may remain on disk, locked until '
+                        'that write releases it.'
+                    ),
+                    remedy=Remedy(
+                        member='recover_file_writer',
+                        confirm_text=f'Discard {unsaved} unsaved and unlock',
+                        cancel_text='Keep waiting',
                     ),
                 )
             self._refuse(

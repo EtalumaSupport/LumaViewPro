@@ -229,3 +229,123 @@ class TestBothEndsNameTheSameOperation:
             f'key; found {from_the_property}. The failure path is the one that '
             'gets forgotten, and no sim run reaches it.'
         )
+
+
+class TestARefusalThatNamesItsRemedyIsAnOffer:
+    """A notification carrying a remedy is shown as a confirmation whose confirm
+    asks the Session to apply it; the bridge renders the record and decides
+    nothing. It is a refusal popup like any other, so the next refusal replaces
+    it rather than stacking on it."""
+
+    @pytest.fixture
+    def offers(self, popup_surface, monkeypatch):
+        opened = []
+
+        def _fake_confirm(title, message, confirm_text, cancel_text, on_confirm, on_cancel=None):
+            popup = _FakePopup(title)
+            popup.confirm_text = confirm_text
+            popup.cancel_text = cancel_text
+            popup.confirm = on_confirm
+            opened.append(popup)
+            return popup
+
+        monkeypatch.setattr(notification_popup, 'show_confirmation_popup', _fake_confirm)
+        return opened
+
+    @staticmethod
+    def _refusal(title, *, timestamp, remedy=None):
+        from modules.notification_center import REFUSAL_OPERATION_KEY
+
+        return Notification(
+            severity=Severity.WARNING,
+            category='Protocol',
+            title=title,
+            message='body',
+            timestamp=timestamp,
+            operation_key=REFUSAL_OPERATION_KEY,
+            solicited=True,
+            remedy=remedy,
+        )
+
+    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(self, offers, monkeypatch):
+        import modules.app_context as app_context
+        import ui.ui_helpers as ui_helpers
+        from modules.exceptions import Remedy
+
+        remedy = Remedy(
+            member='recover_file_writer',
+            confirm_text='Discard 3 unsaved and unlock',
+            cancel_text='Keep waiting',
+        )
+        session = MagicMock()
+        monkeypatch.setattr(app_context, 'ctx', SimpleNamespace(session=session), raising=False)
+        submitted = []
+        monkeypatch.setattr(
+            ui_helpers,
+            'submit_reported',
+            lambda call, redraw, label, **kw: submitted.append((call, label)),
+        )
+
+        notification_popup.notification_popup_bridge(
+            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+        )
+
+        (offer,) = offers
+        assert (offer.confirm_text, offer.cancel_text) == (
+            'Discard 3 unsaved and unlock',
+            'Keep waiting',
+        )
+        offer.confirm()
+        ((call, _label),) = submitted
+        call()
+        session.apply_remedy.assert_called_once_with(remedy)
+
+    def test_the_next_refusal_replaces_the_offer(self, offers, popup_surface):
+        from modules.exceptions import Remedy
+
+        remedy = Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait')
+        notification_popup.notification_popup_bridge(
+            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+        )
+        notification_popup.notification_popup_bridge(
+            self._refusal('Files Still Writing', timestamp=2.0)
+        )
+
+        (offer,) = offers
+        assert offer.dismissed, 'the offer outlived the refusal that replaced it'
+        assert len(popup_surface) == 1 and not popup_surface[0].dismissed
+
+
+class TestTheConfirmationHandsBackWhatItOpens:
+    def test_the_popup_returned_is_the_one_opened(self, monkeypatch):
+        """The supersession bookkeeping dismisses what the opener returned; a
+        confirmation that returned nothing would be dismissed as None by the
+        next refusal, raising inside the clock callback."""
+
+        opened = []
+
+        class _Widget:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def add_widget(self, widget):
+                pass
+
+            def bind(self, **kwargs):
+                pass
+
+            def open(self):
+                opened.append(self)
+
+        for name in ('Label', 'BoxLayout', 'Button', 'Popup'):
+            monkeypatch.setattr(notification_popup, name, _Widget)
+
+        returned = notification_popup.show_confirmation_popup(
+            title='File Writer Stalled',
+            message='body',
+            confirm_text='Go',
+            cancel_text='Wait',
+            on_confirm=lambda: None,
+        )
+
+        assert opened == [returned]

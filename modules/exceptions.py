@@ -7,7 +7,30 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 
 import pathlib
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import ClassVar
+
+
+@dataclass(frozen=True)
+class Remedy:
+    """The one action that answers a refusal, offered to whoever was refused.
+
+    Data, not a callable: the layer that refuses cannot reach the member that
+    answers (a run's engine refuses; the Session recovers), and a REST caller
+    receives the remedy as a name it can send back. The Session is the one
+    place a name becomes an action (``ScopeSession.apply_remedy``). The offer's
+    prompt is the refusal's own title and message, so its words live in one
+    place.
+
+    Attributes:
+        member: The Session member that answers the refusal.
+        confirm_text: The words that take the remedy, naming what it costs.
+        cancel_text: The words that decline it and leave things as they are.
+    """
+
+    member: str
+    confirm_text: str
+    cancel_text: str
 
 
 class Refusal:
@@ -23,9 +46,37 @@ class Refusal:
 
     Attributes:
         title: The heading the person reads above the message.
+        remedy: The action that answers this refusal, when one exists; the
+            reporter then shows the refusal as an offer to take it. Set per
+            instance: one reason of a refusal type can have a remedy that its
+            others do not.
     """
 
     title: str
+    remedy: Remedy | None = None
+
+
+class RemedyUnknownError(Refusal, ValueError):
+    """A remedy was asked for by a name the Session does not offer.
+
+    A remedy names a Session member, and a name arrives as data -- from a
+    REST caller, or from a refusal built by another layer -- so only the
+    members the Session lists are reachable through it.
+
+    Attributes:
+        reason: ``'remedy_unknown'``.
+        member: The name that was asked for.
+    """
+
+    title = 'Unknown Remedy'
+
+    def __init__(self, member: str, offered: Iterable[str]):
+        super().__init__(
+            f"'{member}' is not an action the microscope offers as a remedy. "
+            f'The remedies are: {", ".join(sorted(offered))}.'
+        )
+        self.reason = 'remedy_unknown'
+        self.member = member
 
 
 class Quiet:
@@ -253,6 +304,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             finished run's, for an autofocus sweep the run that
             dispatched it. None when no run is behind the holder -- a
             recording has no trigger; its kind IS the holder.
+        remedy: The action that answers this refusal, or None. A stalled
+            file writer has one (recover it); a writer still making
+            progress does not, since its files will land.
     """
 
     def __init__(
@@ -262,6 +316,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         message: str,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
+        remedy: Remedy | None = None,
     ):
         super().__init__(message)
         self.reason = reason
@@ -269,6 +324,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+        self.remedy = remedy
 
 
 class RunCheckFailedError(ProtocolError):

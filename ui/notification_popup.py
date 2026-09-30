@@ -203,11 +203,38 @@ def show_notification_popup(title: str, message: str):
 _operation_popups: dict = {}
 
 
+def _open(n):
+    """Open n as the popup its record asks for, and return it.
+
+    A notification that carries a remedy is an offer: its confirm asks the
+    Session to take the remedy, so what taking it does is the Session's
+    answer, reported like any other request. Everything else is a notice.
+    """
+    if n.remedy is None:
+        return show_notification_popup(title=n.title, message=n.message)
+    remedy = n.remedy
+
+    def _take_remedy():
+        import modules.app_context as _app_ctx
+        from ui.ui_helpers import submit_reported
+
+        session = _app_ctx.ctx.session
+        submit_reported(lambda: session.apply_remedy(remedy), None, 'APPLY_REMEDY')
+
+    return show_confirmation_popup(
+        title=n.title,
+        message=n.message,
+        confirm_text=remedy.confirm_text,
+        cancel_text=remedy.cancel_text,
+        on_confirm=_take_remedy,
+    )
+
+
 def _show_superseding(n) -> None:
     """Open n's popup, replacing any popup still open for the same operation."""
     key = n.operation_key
     if not key:
-        show_notification_popup(title=n.title, message=n.message)
+        _open(n)
         return
 
     recorded = _operation_popups.get(key)
@@ -223,10 +250,7 @@ def _show_superseding(n) -> None:
         popup.dismiss()  # a no-op if the user already closed it by hand
         del _operation_popups[key]
 
-    _operation_popups[key] = (
-        show_notification_popup(title=n.title, message=n.message),
-        n.timestamp,
-    )
+    _operation_popups[key] = (_open(n), n.timestamp)
 
 
 def notification_popup_bridge(n) -> None:
@@ -348,6 +372,10 @@ def show_confirmation_popup(
         on_cancel: Optional. Called with no args when the user clicks cancel. If omitted, cancel
             just dismisses the popup. Useful for blocking-with-return-value adapters that need
             to release a worker thread on either path.
+
+    Returns:
+        The opened popup, so a caller can dismiss it when what it asks about
+        is overtaken.
     """
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     content.add_widget(_make_message_label(message))
@@ -407,6 +435,7 @@ def show_confirmation_popup(
     popup.bind(on_dismiss=_on_dismiss)
 
     popup.open()
+    return popup
 
 
 class _CompactSpinnerOption(SpinnerOption):

@@ -39,6 +39,7 @@ from modules.exceptions import (
     ProtocolError,
     Quiet,
     Refusal,
+    Remedy,
     ScopeDisconnectError,
 )
 
@@ -136,6 +137,9 @@ class Notification:
     # then replace the earlier message instead of stacking a second one on
     # top of it. Empty for the ordinary standalone notification.
     operation_key: str = ''
+    # The action that answers a refusal, when it has one: a UI listener shows
+    # the notification as an offer to take it rather than as a plain warning.
+    remedy: Remedy | None = None
 
 
 class NotificationCenter:
@@ -210,6 +214,7 @@ class NotificationCenter:
         operation_key: str = '',
         solicited: bool = False,
         reason: str = '',
+        remedy: Remedy | None = None,
     ) -> bool:
         """Post a notification.  Thread-safe.  Always logs.
 
@@ -233,6 +238,9 @@ class NotificationCenter:
         the log line and nowhere else: two refusals can share a title, and a
         support bundle has to tell them apart from the one line a shown
         refusal leaves.
+
+        ``remedy`` is the action a refusal names as its answer, carried to the
+        listeners on the notification.
         """
         # Always log at the matching level. Collapsed to one physical
         # line: message prose may span paragraphs, and raw continuation
@@ -330,6 +338,7 @@ class NotificationCenter:
             fatal=fatal,
             operation_key=operation_key,
             solicited=solicited,
+            remedy=remedy,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:
@@ -412,6 +421,7 @@ class NotificationCenter:
                 solicited=solicited,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=getattr(exception, 'reason', None) or '',
+                remedy=exception.remedy,
             )
         else:
             body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY

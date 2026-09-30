@@ -618,11 +618,14 @@ The two vocabularies are deliberately separate. A run that aborted names why in 
 
 `abort(run)` with a handle naming a run that has already ended does nothing to any run. When another run is live it is a refusal with reason `run_not_live`, and `holder_trigger` names the run that is live; when nothing is live it raises `RunAlreadyEndedError` -- not a refusal, since the run simply finished before the stop arrived. `runner.is_live_run(handle)` answers whether a handle is still the live run, and `runner.run_outcome()` is the live or last run's handle. `runner.is_stopping(handle)` is True from an accepted Stop until the run's teardown finishes. For a progress readout, `runner.run_step_number()` is the step executing now, counted from 1, and `runner.run_num_steps()` the live run's step count; both are `None` once no run is live.
 
-A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
+A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Its message says how many unsaved images recovery would lose, and it names its own answer: `refusal.remedy` is a `Remedy` (`modules.exceptions`) whose `member` is `'recover_file_writer'`, with `confirm_text` and `cancel_text` for an offer (the prompt is the refusal's own `title` and `message`). Every refusal has a `remedy` attribute; it is `None` when nothing answers the refusal but waiting or asking differently. The GUI shows a refusal that carries one as a confirmation, and so can any client. Recover with either:
 
 ```python
-session.recover_file_writer()   # gives up on the run's unsaved images, unlocks the writer
+session.apply_remedy(refusal.remedy)   # takes the remedy a refusal named
+session.recover_file_writer()          # the same recovery, called by name
 ```
+
+`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
