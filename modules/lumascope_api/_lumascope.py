@@ -1333,6 +1333,11 @@ class Lumascope:
             Lumascope: Instance with led/motion connected, camera=None.
         """
         instance = cls.__new__(cls)
+        # Read before anything is started, as __init__ does: a missing
+        # install file stops the diagnostic with nothing to tear down.
+        motorconfig_defaults = load_motorconfig_defaults(
+            resolve_data_file('motorconfig_defaults.json')
+        )
         # Shared state-slot init (audit #35) -- same call __init__ makes.
         instance._init_minimal(simulated=False)
 
@@ -1343,7 +1348,11 @@ class Lumascope:
         from drivers.null_motorboard import NullMotionBoard
 
         instance._led_driver = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
-        instance._motion_driver = _try_connect_board('Motor board', MotorBoard, NullMotionBoard)
+        instance._motion_driver = _try_connect_board(
+            'Motor board',
+            lambda: MotorBoard(motorconfig_defaults=motorconfig_defaults),
+            NullMotionBoard,
+        )
 
         # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
