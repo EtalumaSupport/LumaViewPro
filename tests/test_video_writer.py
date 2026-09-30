@@ -340,7 +340,6 @@ class TestProtocolVideoDropNotification:
             aborted_event=threading.Event(),
             is_run_in_progress=lambda: True,
             abort_run_fatal=MagicMock(),
-            abort_run_on_writer_death=MagicMock(),
             record_step_row=MagicMock(),
             record_dropped_capture=MagicMock(),
             clock=lambda: clock['t'],

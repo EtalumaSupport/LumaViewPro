@@ -17,24 +17,24 @@ dispatcher, writer edge, exclusivity claim, and time source at
 construction. ``RecordingConfig`` is an immutable snapshot taken at
 record start -- the engine never re-reads live settings mid-recording.
 
-Fatality classification (the notification policy's teeth; a misclassified
-event fails silent):
+What can go wrong, and where it is told. The engine reports nothing
+itself: it records what failed in its result, and the caller that
+finishes the recording reports it, because only that caller knows whether
+the recording belongs to a run the failure must also end.
 
-- FATAL, aborts the recording: writer-lane death (the lane thread dies or
-  wedges past recovery). Surfaced at critical severity, which reaches
-  listeners through the protocol notification mute.
-- Non-fatal, recording continues, counted and reported: a single frame's
-  write failure (costs exactly that frame), short delivery (the camera
-  delivered fewer frames than the configured rate promised), frame drops.
-  These land in the manifest and the end-of-run report, never a popup
-  mid-run.
-- Non-fatal, surfaced at warning severity: the MANIFEST write itself
-  failing -- it cannot land in the manifest, and it is the sole carrier
-  of channel color and measured rate, so it goes through the notify sink
-  (the protocol mute keeps it log-only mid-run; manual gets the popup).
+- FATAL, aborts the recording: writer-lane death (the lane thread dies).
+  The escape rides the result as ``writer_failure``, and ``aborted``
+  reads it.
+- Non-fatal, recording continues, counted: a single frame's write failure
+  (costs exactly that frame), short delivery (the camera delivered fewer
+  frames than the configured rate promised), frame drops. These land in
+  the manifest and the result.
+- Non-fatal, the MANIFEST write itself failing: it cannot land in the
+  manifest, and the manifest is the sole carrier of channel color and
+  measured rate, so its error rides the result as ``manifest_failure``
+  for the caller to report.
 - A start refusal (exclusive activity already running) raises
-  ``RecordingRefusedError`` directly to the refused caller, outside the
-  mute's scope.
+  ``RecordingRefusedError`` directly to the refused caller.
 """
 
 import json
@@ -133,10 +133,11 @@ class RecordingResult:
         frames_written: Frames whose final artifact landed on disk.
         write_failures: Frames lost to per-frame write errors (each cost
             exactly that frame; the recording continued).
-        aborted: True when the recording died fatally (writer-lane death)
-            or was discarded before drain completed.
-        abort_reason: Human-readable cause when ``aborted``; empty string
-            otherwise.
+        writer_failure: What escaped the writer lane and killed it, or
+            None; ``aborted`` is read from it, so the two cannot disagree.
+        manifest_failure: The manifest write's error, or None. Needed
+            because ``manifest_path`` is also None when there was nothing
+            to describe, which is not a failure.
         configured_fps: The snapshot rate limit, for comparison against
             measured; None when every delivered frame was kept.
         measured_fps: Rate computed from real frame timestamps.
@@ -158,8 +159,8 @@ class RecordingResult:
     frames_selected: int
     frames_written: int
     write_failures: int
-    aborted: bool
-    abort_reason: str
+    writer_failure: BaseException | None
+    manifest_failure: OSError | None
     configured_fps: float | None
     measured_fps: float
     measured_duration_s: float
@@ -167,6 +168,11 @@ class RecordingResult:
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
     end_reason: str
+
+    @property
+    def aborted(self) -> bool:
+        """True when the recording died fatally (writer-lane death)."""
+        return self.writer_failure is not None
 
 
 class VideoRecordingEngine:
@@ -191,8 +197,6 @@ class VideoRecordingEngine:
             held.
         clock: Time source returning seconds; injectable so cadence and
             duration behavior is testable without wall-clock sleeps.
-        notify: Optional notification sink for the fatality classification
-            above; None means log-only.
     """
 
     def __init__(
@@ -201,12 +205,10 @@ class VideoRecordingEngine:
         write_frame: Callable[..., pathlib.Path],
         claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
-        notify: Any = None,
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
-        self._notify = notify
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -239,8 +241,8 @@ class VideoRecordingEngine:
         self._timestamps: list[float] = []
         self._chunks: list = []
         self._all_frames_carried_chunks = True
-        self._aborted = False
-        self._abort_reason = ''
+        self._writer_failure: BaseException | None = None
+        self._manifest_failure: OSError | None = None
         self._result: RecordingResult | None = None
 
     @property
@@ -332,8 +334,8 @@ class VideoRecordingEngine:
                 self._timestamps = []
                 self._chunks = []
                 self._all_frames_carried_chunks = True
-                self._aborted = False
-                self._abort_reason = ''
+                self._writer_failure = None
+                self._manifest_failure = None
                 self._end_reason = ''
                 self._result = None
                 self._writer_thread = threading.Thread(
@@ -542,23 +544,12 @@ class VideoRecordingEngine:
             logger.critical('[VideoEngine] writer lane exited abnormally', exc_info=True)
             raise
         finally:
-            # Every lane exit ends the recording, including the abort path
-            # and an escape from the abort path's own notification sink.
+            # Every lane exit ends the recording, including the abort path.
             self._finalize()
 
     def _abort_from_lane_death(self, ex: BaseException) -> None:
-        reason = f'writer lane died: {ex}'
         with self._lock:
-            self._aborted = True
-            self._abort_reason = reason
-        logger.critical(f'[VideoEngine] {reason} -- recording aborted')
-        if self._notify is not None:
-            self._notify.critical(
-                'Recording',
-                'Recording Failed',
-                'The video writer stopped working and the recording was aborted. '
-                'Frames already written are on disk; check the log for the cause.',
-            )
+            self._writer_failure = ex
 
     def _finalize(self) -> None:
         """Compute measured truth, write the manifest, release the claim.
@@ -575,7 +566,9 @@ class VideoRecordingEngine:
             # Only an abnormal lane exit reaches here with selection still
             # open: every ordinary end path closes it to post the sentinel
             # that wakes the lane in the first place.
-            self._close_selection_locked('aborted' if self._aborted else 'lane_exited')
+            self._close_selection_locked(
+                'aborted' if self._writer_failure is not None else 'lane_exited'
+            )
             try:
                 self._finalize_locked()
             finally:
@@ -602,7 +595,7 @@ class VideoRecordingEngine:
         # produced no artifact has nothing to attach a manifest to; all get a
         # result in memory but no manifest on disk.
         if (
-            not self._aborted
+            self._writer_failure is None
             and self._end_reason != END_REASON_START_FAILED
             and manifest_name is not None
         ):
@@ -617,8 +610,8 @@ class VideoRecordingEngine:
             frames_selected=self._frames_selected,
             frames_written=self._frames_written,
             write_failures=self._write_failures,
-            aborted=self._aborted,
-            abort_reason=self._abort_reason,
+            writer_failure=self._writer_failure,
+            manifest_failure=self._manifest_failure,
             configured_fps=self._config.fps,
             measured_fps=measured_fps,
             measured_duration_s=measured_duration,
@@ -694,16 +687,7 @@ class VideoRecordingEngine:
             # manifest is the SOLE carrier of the recording's channel
             # color and measured rate, so the loss must be loud: without
             # it every later build of these frames silently plays
-            # grayscale at a default rate.
-            logger.error(f'[VideoEngine] Manifest write failed ({ex}); frames are unaffected')
-            if self._notify is not None:
-                self._notify.warning(
-                    'Video Recording',
-                    'Recording details not saved',
-                    'The video frames are safe on disk, but the recording details '
-                    'file could not be written. Videos built from this recording '
-                    'may be grayscale and use a default frame rate; check disk '
-                    'space and the log.',
-                )
+            # grayscale at a default rate. The caller reports it.
+            self._manifest_failure = ex
             return None
         return path

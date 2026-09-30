@@ -51,10 +51,12 @@ from modules.exceptions import (
     CaptureError,
     FrameListenerNotRegisteredError,
     HyperstackRefusedError,
+    RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     RecordingRefusedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
+    VideoWriterFailedError,
 )
 from modules.notification_center import notifications
 from modules.recording_frames import (
@@ -415,7 +417,6 @@ class ManualRecordingController:
             write_frame=self._write_frame,
             claim=self._claim,
             clock=self._clock,
-            notify=notifications,
         )
         # The frames leg's folder, reserved above; a start that fails from
         # here on leaves it holding nothing.
@@ -829,6 +830,16 @@ class ManualRecordingController:
             # does not. Keeping them apart is what lets the callback fire --
             # and the UI leave its recording state -- after a failed finish.
             if result is not None:
+                if result.writer_failure is not None:
+                    died = VideoWriterFailedError(protocol_step=False)
+                    died.__cause__ = result.writer_failure
+                    notifications.report_outcome(died, solicited=False, category='Recording')
+                if result.manifest_failure is not None:
+                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved.__cause__ = result.manifest_failure
+                    notifications.report_outcome(
+                        unsaved, solicited=False, category='Video Recording'
+                    )
                 # Announce the artifact only once its existence is known.
                 # A recording that captured nothing leaves NO file at all --
                 # the mp4 muxer writes neither header nor trailer for an

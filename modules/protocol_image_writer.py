@@ -188,25 +188,6 @@ class ProtocolImageWriter:
 
         notifications.critical(domain, title, message)
 
-    def _abort_run_on_writer_death(self) -> None:
-        """Arm the run abort after the engine surfaced writer-lane death.
-
-        The engine's critical notification already reached the user
-        through the protocol mute; this is _abort_run_fatal's ordering
-        minus a second popup: abort, fatal flag, force-dark.
-        """
-        self._abort_fn()
-        self._fatal_abort_event.set()
-        self._ending.set_if_unset(
-            RunEnding(
-                'failed',
-                'video_writer_died',
-                'Video Writer Failed',
-                'The video writer lane died; the run was stopped.',
-            )
-        )
-        self._scope.illumination.force_off()
-
     @property
     def video_busy(self) -> bool:
         """True while any video step's drain or post-drain finish runs."""
@@ -798,7 +779,6 @@ class ProtocolImageWriter:
                         aborted_event=self._aborted,
                         is_run_in_progress=self._is_run_in_progress,
                         abort_run_fatal=self._abort_run_fatal,
-                        abort_run_on_writer_death=self._abort_run_on_writer_death,
                         record_step_row=functools.partial(
                             self._record_video_step_row,
                             step=step,

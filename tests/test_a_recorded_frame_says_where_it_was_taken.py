@@ -224,7 +224,7 @@ class TestTheBoundPlateTransform:
 def _engine(writer, clock):
     from modules.activity_claim import ActivityClaim
 
-    return VideoRecordingEngine(write_frame=writer, claim=ActivityClaim(), clock=clock, notify=None)
+    return VideoRecordingEngine(write_frame=writer, claim=ActivityClaim(), clock=clock)
 
 
 def _config(out_dir):

@@ -465,6 +465,54 @@ class VideoFramesDroppedError(CaptureError):
         self.protocol_step = protocol_step
 
 
+class VideoWriterFailedError(CaptureError):
+    """The recording's video writer stopped working, so the recording ended.
+
+    Chained from what escaped the writer. The frames already written are on
+    disk. On a protocol video step the run is stopped too, and the run's
+    ending carries these same words, so a caller reading the run's outcome
+    reads what the person was shown.
+
+    Attributes:
+        protocol_step: True for a protocol video step, False for a manual
+            recording; each is named in its own words.
+    """
+
+    title = 'Recording Failed'
+
+    def __init__(self, *, protocol_step: bool):
+        stopped = (
+            ', so the recording and the run were stopped'
+            if protocol_step
+            else ' and the recording was aborted'
+        )
+        super().__init__(
+            f'The video writer stopped working{stopped}. Frames already written '
+            'are on disk; check the log for the cause.',
+            'video_writer_died',
+        )
+        self.protocol_step = protocol_step
+
+
+class RecordingDetailsNotSavedError(CaptureError):
+    """A recording's details file could not be written; its frames are whole.
+
+    Chained from the write's error. The details file is the only record of
+    the recording's channel color and measured rate, so a video built from
+    these frames later falls back to grayscale and a default rate.
+    """
+
+    title = 'Recording details not saved'
+
+    def __init__(self):
+        super().__init__(
+            'The video frames are safe on disk, but the recording details file '
+            'could not be written. Videos built from this recording may be '
+            'grayscale and use a default frame rate; check disk space and the log.',
+            'recording_details_not_saved',
+        )
+
+
 class ImageSaveError(CaptureError):
     """An image could not be written to disk.
 

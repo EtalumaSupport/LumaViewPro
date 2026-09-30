@@ -74,9 +74,7 @@ def _config(tmp_path):
 
 
 def _engine(claim):
-    return VideoRecordingEngine(
-        write_frame=lambda *a, **k: None, claim=claim, clock=lambda: 0.0, notify=None
-    )
+    return VideoRecordingEngine(write_frame=lambda *a, **k: None, claim=claim, clock=lambda: 0.0)
 
 
 class _Change:

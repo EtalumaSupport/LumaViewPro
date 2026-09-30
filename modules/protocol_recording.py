@@ -48,8 +48,10 @@ import modules.image_utils as image_utils
 from modules.exceptions import (
     CameraSettingRejected,
     FrameListenerNotRegisteredError,
+    RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     VideoFramesDroppedError,
+    VideoWriterFailedError,
 )
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
@@ -111,11 +113,9 @@ class ProtocolVideoStep:
             the UI scheduler.
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
-        abort_run_fatal: PIW's fatal-abort funnel, for disk faults;
-            called with the cause, then domain, title and message.
-        abort_run_on_writer_death: Arms the run abort after the engine
-            has already surfaced writer-lane death at critical severity
-            (no second popup).
+        abort_run_fatal: PIW's fatal-abort funnel, for disk faults and
+            the video writer's death; called with the cause, then domain,
+            title and message.
         record_step_row: Records the finished step's execution-record
             row: ``record_step_row(capture_result_file_name, frame_count,
             duration_sec, timestamp)``.
@@ -143,7 +143,6 @@ class ProtocolVideoStep:
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
         abort_run_fatal: Callable[[str, str, str, str], None],
-        abort_run_on_writer_death: Callable[[], None],
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
@@ -162,7 +161,6 @@ class ProtocolVideoStep:
         self._aborted = aborted_event
         self._is_run_in_progress = is_run_in_progress
         self._abort_run_fatal = abort_run_fatal
-        self._abort_run_on_writer_death = abort_run_on_writer_death
         self._record_step_row = record_step_row
         self._record_dropped_capture = record_dropped_capture
         self._run_claim = run_claim
@@ -333,7 +331,6 @@ class ProtocolVideoStep:
             write_frame=self._write_frame,
             claim=self._run_claim,
             clock=self._clock,
-            notify=notifications,
         )
         engine.start(lambda: config)
         try:
@@ -670,10 +667,18 @@ class ProtocolVideoStep:
             else:
                 dropped = result.write_failures + writer_dropped
                 if result.aborted:
-                    # The engine already surfaced writer-lane death at
-                    # critical severity; arm the run abort without a second
-                    # popup and leave an honest no-artifact row.
-                    self._abort_run_on_writer_death()
+                    # The writer's death ends the run. Logged once here with
+                    # its cause; the run's fatal funnel then stops the run,
+                    # darkens the light and shows the one popup last, in the
+                    # words the run's ending records. The reason is written
+                    # out because the run-ending vocabulary is collected from
+                    # the funnel's literal first argument.
+                    died = VideoWriterFailedError(protocol_step=True)
+                    died.__cause__ = result.writer_failure
+                    notifications.report_outcome(
+                        died, solicited=False, category='Recording', log_only=True
+                    )
+                    self._abort_run_fatal('video_writer_died', 'Recording', died.title, str(died))
                     self._record_dropped_capture(
                         reason='video_write_failed', capture_time=self._start_dt
                     )
@@ -702,6 +707,12 @@ class ProtocolVideoStep:
                         frame_count=result.frames_written,
                         duration_sec=result.measured_duration_s,
                         timestamp=self._start_dt,
+                    )
+                if result.manifest_failure is not None:
+                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved.__cause__ = result.manifest_failure
+                    notifications.report_outcome(
+                        unsaved, solicited=False, category='Video Recording'
                     )
                 if dropped > 0 and not result.aborted:
                     # The center's protocol mute suppresses this popup during

@@ -25,7 +25,6 @@ from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
     FakeClock,
     FrameFeed,
-    NotifyRecorder,
     WriterStub,
 )
 
@@ -105,11 +104,11 @@ class SingleFileWriterStub:
         return self.output_path
 
 
-def make_engine(tmp_path, *, clock=None, writer=None, claim=None, notify=None):
+def make_engine(tmp_path, *, clock=None, writer=None, claim=None):
     clock = clock or FakeClock()
     writer = writer if writer is not None else WriterStub(tmp_path)
     claim = claim or ActivityClaim()
-    engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock, notify=notify)
+    engine = VideoRecordingEngine(write_frame=writer, claim=claim, clock=clock)
     return engine, writer, clock, claim
 
 
@@ -273,8 +272,7 @@ class TestStopPromptness:
 class TestLossIsNeverSilent:
     def test_per_frame_write_failure_costs_that_frame_only(self, tmp_path):
         writer = WriterStub(tmp_path, fail_frames={3})
-        notify = NotifyRecorder()
-        engine, _, clock, _ = make_engine(tmp_path, writer=writer, notify=notify)
+        engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: make_config(tmp_path, fps=10, duration_s=1))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
@@ -284,8 +282,6 @@ class TestLossIsNeverSilent:
         assert result.frames_written == 9
         assert result.write_failures == 1
         assert result.aborted is False
-        # Non-fatal: no critical popup fired mid-run.
-        assert 'critical' not in notify.severities()
 
     def test_discard_pending_is_loud(self, tmp_path):
         writer = WriterStub(tmp_path, blocked=True)
@@ -317,26 +313,22 @@ class TestLossIsNeverSilent:
 class TestFatalityClassification:
     def test_writer_lane_death_aborts_the_recording(self, tmp_path):
         writer = WriterStub(tmp_path, die_on_frame=2)
-        notify = NotifyRecorder()
-        engine, _, clock, _ = make_engine(tmp_path, writer=writer, notify=notify)
+        engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: make_config(tmp_path, fps=10, duration_s=1))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
         engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.aborted is True
-        assert result.abort_reason != ''
-        assert 'critical' in notify.severities()
+        assert isinstance(result.writer_failure, SystemExit)
 
     def test_under_delivery_is_not_fatal(self, tmp_path):
-        notify = NotifyRecorder()
-        engine, _writer, clock, _ = make_engine(tmp_path, notify=notify)
+        engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: make_config(tmp_path, fps=50, duration_s=1))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().aborted is False
-        assert 'critical' not in notify.severities()
 
 
 class TestMeasuredTruth:
@@ -453,14 +445,13 @@ class TestManifestNamesTheArtifactItDescribes:
 
 
 class TestManifestWriteFailureIsLoud:
-    def test_manifest_write_failure_notifies_non_fatally(self, tmp_path):
+    def test_manifest_write_failure_rides_the_result_non_fatally(self, tmp_path):
         # The manifest is the SOLE carrier of the recording's channel
         # color and measured rate; a silent write failure downgrades
         # every later build of these frames to grayscale at an
         # unmeasured rate. Non-fatal: the frames are the artifact and
         # stay intact, so the recording must not abort.
-        notify = MagicMock()
-        engine, writer, clock, _ = make_engine(tmp_path, notify=notify)
+        engine, writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
         # A directory squatting on the manifest path makes the write
@@ -473,12 +464,9 @@ class TestManifestWriteFailureIsLoud:
         assert result.manifest_path is None
         assert not result.aborted, 'a manifest write failure must not abort the recording'
         assert writer.written, 'frames must still be on disk'
-        notify.warning.assert_called_once()
-        title = notify.warning.call_args[0][1]
-        assert 'not saved' in title.lower() or 'detail' in title.lower(), (
-            f'the warning must name the lost details file, got {title!r}'
+        assert isinstance(result.manifest_failure, OSError), (
+            'the lost details file must reach the caller that reports it'
         )
-        notify.critical.assert_not_called()
 
 
 class TestFrameIdentityTravelsWithTheFrame:
@@ -755,26 +743,17 @@ class TestEndReason:
         assert engine.result().end_reason == 'frame_budget_filled'
 
 
-class RaisingNotify(NotifyRecorder):
-    """Notification sink that raises on one severity.
+class _QueueThatFailsToRead:
+    """A lane queue whose read raises: an escape outside the per-frame try."""
 
-    A sink is host code the engine does not own, so any of its calls can
-    throw; the engine must still end the recording.
-    """
+    def put(self, item):
+        pass
 
-    def __init__(self, raise_on: str):
-        super().__init__()
-        self._raise_on = raise_on
+    def get(self):
+        raise RuntimeError('scripted queue read failure')
 
-    def _record(self, severity):
-        inner = super()._record(severity)
-
-        def _call(*args, **kwargs):
-            inner(*args, **kwargs)
-            if severity == self._raise_on:
-                raise RuntimeError(f'scripted {severity} sink failure')
-
-        return _call
+    def get_nowait(self):
+        raise RuntimeError('scripted queue read failure')
 
 
 class TestClaimLifetime:
@@ -806,32 +785,6 @@ class TestClaimLifetime:
         assert not engine.is_recording
         assert claim.owner is None
         assert engine.result().aborted
-
-    def test_notify_failure_on_lane_death_still_releases(self, tmp_path):
-        # The abort notification runs BEFORE finalize, so a raising sink
-        # strands the claim no matter what finalize itself guards.
-        writer = WriterStub(tmp_path, die_on_frame=2)
-        engine, _writer, clock, claim = make_engine(
-            tmp_path, writer=writer, notify=RaisingNotify('critical')
-        )
-        engine.start(lambda: make_config(tmp_path, fps=5, duration_s=2))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
-        assert engine.wait_for_drain(timeout=5)
-        assert claim.owner is None
-        assert not engine.is_recording
-
-    def test_manifest_notify_failure_still_releases(self, tmp_path):
-        # The manifest-failure sink is called from inside finalize, before
-        # the result exists -- invisible to any guard keyed on the result.
-        engine, _writer, clock, claim = make_engine(tmp_path, notify=RaisingNotify('warning'))
-        # Frames land in tmp_path, but the manifest is written to a
-        # directory that does not exist -- so the manifest write raises,
-        # its handler calls the sink, and the sink raises from inside
-        # finalize before any result exists.
-        engine.start(lambda: make_config(tmp_path / 'absent', fps=5, duration_s=1))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
-        assert engine.wait_for_drain(timeout=5)
-        assert claim.owner is None
 
     def test_finalize_escape_still_releases_and_drains(self, tmp_path, monkeypatch):
         engine, _writer, clock, claim = make_engine(tmp_path)
@@ -917,20 +870,17 @@ class TestClaimLifetime:
         # threading.excepthook, not this module's logger, so without the
         # lane's own boundary the failure it exists to report leaves no
         # trace in the app log -- a support bundle would show a recording
-        # that simply stopped. The raising sink is what carries an
-        # exception past the abort handler and out of the lane body.
+        # that simply stopped. A queue read that raises is outside the
+        # per-frame try, so it carries an exception out of the lane body.
         #
         # Asserted on the module's logger rather than caplog: conftest
         # installs lvp_logger as a MagicMock for the whole session, so
         # these calls never become logging records for caplog to capture.
         recorder = MagicMock()
         monkeypatch.setattr(video_recording_module, 'logger', recorder)
-        writer = WriterStub(tmp_path, die_on_frame=2)
-        engine, _writer, clock, claim = make_engine(
-            tmp_path, writer=writer, notify=RaisingNotify('critical')
-        )
+        engine, _writer, _clock, claim = make_engine(tmp_path)
+        engine._queue = _QueueThatFailsToRead()
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=2))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
         assert engine.wait_for_drain(timeout=5)
 
         logged = [call.args[0] for call in recorder.critical.call_args_list if call.args]
