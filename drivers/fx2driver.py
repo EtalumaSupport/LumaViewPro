@@ -728,11 +728,24 @@ class _ByteStream:
     def __init__(self):
         self._lock = threading.Lock()
         self._buf = bytearray()
+        self._arrived = 0
 
     def append(self, data: bytes | bytearray) -> None:
         """Add bytes that arrived from the device."""
         with self._lock:
             self._buf.extend(data)
+            self._arrived += len(data)
+
+    def take_arrived_count(self) -> int:
+        """How many bytes arrived since the last call.
+
+        Counted where they arrive, because the grab loop takes the same
+        bytes more than once: what it puts back while waiting for a frame's
+        closing delimiter comes back in its next take.
+        """
+        with self._lock:
+            arrived, self._arrived = self._arrived, 0
+            return arrived
 
     def take(self, at_least: int) -> bytearray | None:
         """Everything buffered, or None while fewer than ``at_least`` bytes are."""
@@ -755,9 +768,15 @@ class _ByteStream:
                 del self._buf[:-keep]
 
     def flush(self) -> None:
-        """Drop everything buffered."""
+        """Drop everything buffered. What arrived stays counted: it did arrive."""
         with self._lock:
             self._buf.clear()
+
+    def restart(self) -> None:
+        """A new stream: nothing buffered and nothing counted from the last one."""
+        with self._lock:
+            self._buf.clear()
+            self._arrived = 0
 
 
 # ---------------------------------------------------------------------------
@@ -1433,7 +1452,7 @@ class _FX2Connection:
             on_error: Called once per failed transfer or failed packet.
         """
         with self._lock:
-            self.stream.flush()
+            self.stream.restart()
             self._transport.start_stream(self.stream, on_error)
 
     def stop_stream(self) -> None:
@@ -1796,6 +1815,8 @@ class FX2Camera(Camera):
         if self._grab_thread is not None:
             self._grab_thread.join(timeout=3.0)
             self._grab_thread = None
+        # Bytes that arrived after the grab loop's last take belong to this stream.
+        self.stream_stats.record_bytes(self._fx2.stream.take_arrived_count())
 
         s = self.stream_stats.summary()
         logger.info(
@@ -1844,7 +1865,7 @@ class FX2Camera(Camera):
                 time.sleep(0.005)
                 continue
 
-            stats.record_bytes(len(local_buf))
+            stats.record_bytes(stream.take_arrived_count())
 
             # Scan for frame delimiters.
             buf = local_buf
