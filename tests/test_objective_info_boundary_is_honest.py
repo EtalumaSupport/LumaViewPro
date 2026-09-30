@@ -15,6 +15,7 @@ asserted beside it.
 
 import inspect
 import typing
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,8 +26,9 @@ from modules.objectives_loader import ObjectiveLoader
 
 def _turretless_state():
     # A scope with no turret: the selected objective is the store, and the
-    # state never asks the scope for a slot, so no scope is needed.
-    state = RuntimeState(scope=None)
+    # state never asks the scope for a slot, so the scope stand-in carries
+    # only the objective catalogue the state reads.
+    state = RuntimeState(scope=SimpleNamespace(objective_helper=ObjectiveLoader()))
     state.set_turreted(False)
     return state
 

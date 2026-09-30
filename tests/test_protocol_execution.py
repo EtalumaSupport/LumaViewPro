@@ -64,10 +64,9 @@ COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
 def _make_simulated_scope():
     """Create a Lumascope with simulated hardware in fast timing mode."""
-    s = build_scope(simulate=True)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = build_scope(simulate=True, source_path='.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -331,9 +330,6 @@ def executor(scope, executors):
     Only the AutofocusRunner is mocked (real AF needs camera focus
     simulation which is only set up in dedicated AF test fixtures).
     """
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -353,8 +349,6 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 

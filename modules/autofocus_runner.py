@@ -26,7 +26,6 @@ from modules.lumascope_api.illumination import (
     snapshot_lit_pairs,
 )
 from modules.notification_center import notifications
-from modules.objectives_loader import ObjectiveLoader
 from modules.exceptions import RunWriteRefusedError
 
 if TYPE_CHECKING:
@@ -70,12 +69,6 @@ class AutofocusRunner:
 
         self._af_in_progress = threading.Event()
 
-        self._reset_state()
-
-        if not self._scope.imaging.active_cached:
-            return
-
-        self._objective_loader = ObjectiveLoader()
         self._reset_state()
 
     def _notify_af_failure(self, title: str, message: str) -> None:
@@ -256,7 +249,9 @@ class AutofocusRunner:
             # so every later run raised 'Autofocus already in progress' and
             # is_focusing answered True until the app restarted. One bad
             # objective config killed autofocus for the session.
-            self._objective = self._objective_loader.get_objective_info(objective_id=objective_id)
+            self._objective = self._scope.objective_helper.get_objective_info(
+                objective_id=objective_id
+            )
 
             self._calculate_params()
             self._af_start_time = time.monotonic()

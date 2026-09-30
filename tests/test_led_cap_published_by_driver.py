@@ -141,26 +141,26 @@ def _protocol_with(led_max_ma, illumination) -> Protocol:
         'labware_id': '96 well microplate',
     }
     p._num_steps_cache = None
-    p._objective_loader = SimpleNamespace(
-        get_objective_info=lambda **kw: {}, get_objectives_list=lambda: ['4x']
-    )
     return p
 
 
+_CATALOGUE = SimpleNamespace(get_objective_info=lambda **kw: {}, get_objectives_list=lambda: ['4x'])
+
+
 def test_a_protocol_built_under_a_cap_refuses_a_step_above_it():
-    errors = _protocol_with(840, 900).validate_steps()
+    errors = _protocol_with(840, 900).validate_steps(_CATALOGUE)
     assert any('Illumination must be 0-840 mA' in e for e in errors), errors
 
 
 def test_a_protocol_built_under_a_cap_accepts_a_step_at_it():
-    errors = _protocol_with(840, 840).validate_steps()
+    errors = _protocol_with(840, 840).validate_steps(_CATALOGUE)
     assert not any('Illumination' in e for e in errors), errors
 
 
 def test_a_protocol_with_no_authority_checks_format_only():
-    errors = _protocol_with(None, 5000).validate_steps()
+    errors = _protocol_with(None, 5000).validate_steps(_CATALOGUE)
     assert not any('Illumination' in e for e in errors), errors
-    errors = _protocol_with(None, -1).validate_steps()
+    errors = _protocol_with(None, -1).validate_steps(_CATALOGUE)
     assert any('Illumination must be 0 or more' in e for e in errors), errors
 
 

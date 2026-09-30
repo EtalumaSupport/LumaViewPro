@@ -106,17 +106,14 @@ class TestStandaloneAfDeliversCharacterizationData:
     def test_af_run_delivers_characterization_data_to_disk(self, tmp_path):
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
-        from modules.coord_transformations import CoordinateTransformer
-        from modules.labware_loader import WellPlateLoader
         from modules.protocol_thread import ProtocolThread
 
-        scope = home_sim_scope(build_scope(simulate=True))
+        # The data root is the scope's, given at construction; a runner over a
+        # bare scope reads its catalogues and tiling config from it.
+        scope = home_sim_scope(build_scope(simulate=True, source_path='.'))
         # A bare scope skipped bring-up, which fills the turret from the
         # persisted slots; an empty turret addresses no glass at all.
         configure_turret_like_bringup(scope)
-        # The session registers the data root at bring-up; a runner over a
-        # bare scope needs it too, or the run refuses at start.
-        scope.protocols.register_source_path('.')
         scope._led_driver.set_timing_mode('fast')
         scope._motion_driver.set_timing_mode('fast')
         scope._camera_driver.set_timing_mode('fast')
@@ -146,8 +143,6 @@ class TestStandaloneAfDeliversCharacterizationData:
             activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
         )
-        runner._wellplate_loader = WellPlateLoader()
-        runner._coordinate_transformer = CoordinateTransformer()
 
         char_dir = tmp_path / 'Autofocus Characterization'
         done = threading.Event()

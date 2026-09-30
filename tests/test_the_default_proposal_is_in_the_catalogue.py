@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import InstallationFileError
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID, ObjectiveLoader
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -26,5 +26,5 @@ def test_a_catalogue_without_the_default_refuses_to_load(tmp_path):
     (tmp_path / 'data').mkdir()
     (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
 
-    with pytest.raises(ConfigError, match=DEFAULT_PROPOSED_OBJECTIVE_ID):
+    with pytest.raises(InstallationFileError, match=DEFAULT_PROPOSED_OBJECTIVE_ID):
         ObjectiveLoader(source_path=tmp_path)

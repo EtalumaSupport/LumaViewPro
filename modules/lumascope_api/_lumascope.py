@@ -51,12 +51,14 @@ from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import CameraSettingRejected, ScopeDisconnectError
-from modules.path_utils import resolve_data_file
+from modules.path_utils import get_source_root, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import os
+
     from modules.layer_record import LayerIdentity
     from modules.scope_init_config import ScopeInitConfig
 
@@ -280,12 +282,32 @@ class Lumascope:
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
+    def _read_catalogues(self, source_path: 'str | os.PathLike') -> None:
+        """Read the installation's labware and objective catalogues once, from ``source_path``.
+
+        The scope is their one owner. Its runtime state, protocol
+        construction, the session and the run all read these two objects,
+        so no two parts of one session can disagree about which plates or
+        objectives exist. Both are read-only after construction, so every
+        thread may share them.
+
+        Raises:
+            InstallationFileError: a catalogue file is missing, unreadable,
+                or not the shape its loader needs, naming the file.
+        """
+        from modules import labware_loader, objectives_loader
+
+        # A string, the type the session's source_path has always had.
+        self.source_path = str(source_path)
+        self.wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
+        self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
+
     def _init_minimal(self, simulated: bool, ui_dispatcher=None) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
 
         Sets the non-driver state that every Lumascope instance must
         carry: transformers, locks, camera cache, objective state slots,
-        the scope's two lanes, source path. Both __init__ and
+        the scope's two lanes. Both __init__ and
         create_diagnostic call this first; each then does its
         driver-connection-specific work.
 
@@ -413,10 +435,17 @@ class Lumascope:
         sim_tier: str = 'fast',
         ui_dispatcher=None,
         fx2_debug_wire: bool = False,
+        *,
+        source_path: 'str | os.PathLike | None' = None,
     ):
         """Initialize Microscope.
 
         Args:
+            source_path: The data folder this scope is started on -- the
+                folder holding ``data/``. The scope reads the labware and
+                objective catalogues from it once, here, and everything
+                that asks about plates or objectives reads those copies.
+                None (default) is the installation's own folder.
             simulate: If True, use simulated hardware (no USB devices needed).
             camera_type: Camera registry kind. 'auto' (default) tries the
                 registered real cameras in descending priority order
@@ -481,6 +510,11 @@ class Lumascope:
         if warn_pre_release:
             _fire_pre_release_warning()
         self._fx2_debug_wire = fx2_debug_wire
+
+        # Read before anything is started, like the motor defaults below: a
+        # missing or unusable catalogue stops the bring-up with nothing to
+        # tear down.
+        self._read_catalogues(get_source_root(source_path))
 
         # Read before anything is started, so a missing install file stops
         # the bring-up with nothing to tear down. It is read on every model:
@@ -701,7 +735,7 @@ class Lumascope:
         # _last_turret_position, illumination owns LED state,
         # runtime_state owns settings-host state (labware / objective /
         # turret_config / stage_offset). Lumascope holds driver slots,
-        # its two lanes and source_path.
+        # its two lanes, its data folder and the catalogues read from it.
 
         # Frame validity, camera_cache, scale_bar, +
         # _camera_listeners/_frame_buffer/_focusing_event/
@@ -1325,7 +1359,7 @@ class Lumascope:
         return led and motion and camera
 
     @classmethod
-    def create_diagnostic(cls) -> 'Lumascope':
+    def create_diagnostic(cls, source_path: 'str | os.PathLike | None' = None) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
 
         Internal degraded-mode constructor for support reports -- not
@@ -1335,10 +1369,17 @@ class Lumascope:
         the tech support report that need board access without the full
         application stack.
 
+        Args:
+            source_path: The data folder to read the catalogues from; None
+                (default) is the installation's own folder.
+
         Returns:
             Lumascope: Instance with led/motion connected, camera=None.
         """
         instance = cls.__new__(cls)
+        # The same read __init__ makes, first: one construction path for the
+        # catalogues on every scope.
+        instance._read_catalogues(get_source_root(source_path))
         # Read before anything is started, as __init__ does: a missing
         # install file stops the diagnostic with nothing to tear down.
         motorconfig_defaults = load_motorconfig_defaults(

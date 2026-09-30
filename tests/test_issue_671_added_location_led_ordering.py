@@ -186,13 +186,12 @@ def _add_3rd_location_via_insert_step(protocol):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(build_scope(simulate=True))
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = home_sim_scope(build_scope(simulate=True, source_path='.'))
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -231,9 +230,6 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -253,8 +249,6 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 

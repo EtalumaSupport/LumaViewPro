@@ -530,13 +530,12 @@ class TestScopeSession:
             settings=settings,
             scope=scope,
             executor_bundle=MagicMock(),
-            source_path='/test',
         )
         assert session.settings is settings
         assert session.scope is scope
         assert session.io_executor is io
         assert session.camera_executor is cam
-        assert session.source_path == '/test'
+        assert session.source_path == scope.source_path
         assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):

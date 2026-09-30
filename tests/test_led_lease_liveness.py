@@ -42,8 +42,8 @@ def _af_runner(scope):
     r = AutofocusRunner(
         scope=scope,
     )
-    r._objective_loader = MagicMock()
-    r._objective_loader.get_objective_info.return_value = {
+    scope.objective_helper = MagicMock()
+    scope.objective_helper.get_objective_info.return_value = {
         'AF_range': 50.0,
         'AF_max': 10.0,
         'AF_min': 5.0,

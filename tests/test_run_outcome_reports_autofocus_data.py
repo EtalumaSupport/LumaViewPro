@@ -117,17 +117,14 @@ class _AfRig:
     def __init__(self):
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
-        from modules.coord_transformations import CoordinateTransformer
-        from modules.labware_loader import WellPlateLoader
         from modules.protocol_thread import ProtocolThread
 
-        self.scope = home_sim_scope(build_scope(simulate=True))
+        # The data root is the scope's, given at construction; a runner over a
+        # bare scope reads its catalogues and tiling config from it.
+        self.scope = home_sim_scope(build_scope(simulate=True, source_path='.'))
         # A bare scope skipped bring-up, which fills the turret from the
         # persisted slots; an empty turret addresses no glass at all.
         configure_turret_like_bringup(self.scope)
-        # The session registers the data root at bring-up; a runner over a
-        # bare scope needs it too, or the run refuses at start.
-        self.scope.protocols.register_source_path('.')
         self.scope._led_driver.set_timing_mode('fast')
         self.scope._motion_driver.set_timing_mode('fast')
         self.scope._camera_driver.set_timing_mode('fast')
@@ -157,8 +154,6 @@ class _AfRig:
             activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
         )
-        self.runner._wellplate_loader = WellPlateLoader()
-        self.runner._coordinate_transformer = CoordinateTransformer()
 
     def run_autofocus(
         self, parent_dir: pathlib.Path, *, save_data: bool, borrowed_claim=None

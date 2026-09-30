@@ -2,6 +2,29 @@
 
 ## 4.0.0 (in development)
 
+- **One labware and objective catalogue per scope (SDK)**: `Lumascope(..., source_path=None)`
+  reads `data/labware.json` and `data/objectives.json` once, from `source_path` (the
+  installation's own folder when none is given), and exposes `scope.source_path`,
+  `scope.wellplate_loader` and `scope.objective_helper`. The session's same-named members
+  are now the scope's, read-only. Before, a session started on another folder read its own
+  catalogues from that folder while the scope, autofocus and the run read the installation's,
+  so they could disagree about which objectives and plates exist. `ScopeSession.create`'s
+  `source_path` now defaults to the installation's folder (was `'.'`), and is refused beside
+  `scope=`: pass it to `Lumascope(source_path=...)` instead. A caller-built scope's session
+  saves settings and reads `data/tiling.json` under that scope's folder.
+  `scope.protocols.register_source_path` is removed.
+- **A missing or unusable catalogue file raises `InstallationFileError` (breaking)**:
+  `labware.json` / `objectives.json` failures raise `modules.exceptions.InstallationFileError`
+  (with `.file_path`) when the scope is built, and nothing is left running. It used to be a
+  popup plus a later `ConfigError`, which the GUI read as bad stored settings.
+- **Protocol takes the scope's catalogues (SDK, breaking)**: `Protocol.validate_steps`,
+  `validate_for_run`, `apply_tiling`, `Protocol.from_config` and `Protocol.create_empty` take
+  `objective_helper` (and `wellplate_loader` where a plate is read); a `Protocol` no longer
+  builds its own. `scope.protocols.create_protocol` / `load_protocol` pass them for you.
+  `ProtocolTimeEstimator` requires its loader.
+- **Post-processed file names**: the objective token is derived from the id the run recorded,
+  so an objective the current catalogue lacks is named rather than omitted.
+
 - **One session factory: `ScopeSession.create_headless` is removed (SDK, breaking)**:
   build every session with `ScopeSession.create(settings, ..., simulate=...)`. What
   `create_headless()` did becomes `ScopeSession.create(ScopeSession.load_user_settings(root), simulate=True)`;

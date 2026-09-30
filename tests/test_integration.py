@@ -235,13 +235,12 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 @pytest.fixture
 def scope():
     """Create a real Lumascope with simulated hardware."""
-    s = build_scope(simulate=True)
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = build_scope(simulate=True, source_path='.')
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
     # Set timing to fast for test speed
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
@@ -266,8 +265,6 @@ def executors():
 def executor(scope, executors):
     """Create a SequencedCaptureRunner with real simulated scope,
     real WellPlateLoader, and real CoordinateTransformer."""
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
 
     # Use a mock autofocus executor for non-AF tests.
     # AF executor is the one mock we keep -- real AF needs real camera focus
@@ -291,8 +288,6 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 

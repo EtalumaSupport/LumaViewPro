@@ -22,8 +22,8 @@ AF_CENTER_Z = 500.0
 
 def af_runner_and_scope():
     """Real AutofocusRunner wired to a MagicMock scope that run() can
-    drive headlessly. The objective loader is replaced so no objective
-    config file is read."""
+    drive headlessly. The scope's objective catalogue is a stub, so no
+    objective config file is read."""
     from modules.autofocus_runner import AutofocusRunner
 
     scope = MagicMock()
@@ -37,8 +37,7 @@ def af_runner_and_scope():
     runner = AutofocusRunner(
         scope=scope,
     )
-    runner._objective_loader = MagicMock()
-    runner._objective_loader.get_objective_info.return_value = {
+    scope.objective_helper.get_objective_info.return_value = {
         'AF_range': 10.0,
         'AF_max': 30.0,
         'AF_min': 10.0,

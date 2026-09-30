@@ -28,6 +28,8 @@ import pytest
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -198,13 +200,12 @@ def _save_and_reload(protocol, tmp_path):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(build_scope(simulate=True))
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = home_sim_scope(build_scope(simulate=True, source_path='.'))
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -262,10 +263,8 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    mock_loader = MagicMock()
     mock_transformer = MagicMock()
     mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._wellplate_loader = mock_loader
     exc._coordinate_transformer = mock_transformer
     return exc
 
@@ -277,9 +276,6 @@ def real_executor(scope, executors):
     This exercises the full code path including move_abs_pos -> axes_config,
     which catches init bugs that mocked fixtures miss.
     """
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -299,8 +295,6 @@ def real_executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -492,7 +486,7 @@ class TestRoundTripBasic:
         assert 'fps' in vc, 'loader must merge default fps when missing'
         assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
 
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         fps_errors = [e for e in errors if 'Video Config fps' in e]
         assert fps_errors == [], (
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
@@ -535,7 +529,9 @@ class TestRoundTripBasic:
         assert proto is not None
         assert proto.labware() == '384 well microplate'
 
-        errors = proto.validate_for_run()
+        errors = proto.validate_for_run(
+            objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
+        )
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
         assert labware_errors == [], (
             f'alias-resolvable labware name must not produce validation errors; '
@@ -943,7 +939,7 @@ class TestValidation:
     def test_invalid_video_config_not_dict(self):
         steps = [_make_step(acquire='video', video_config='not a dict')]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Video Config' in e for e in errors), (
             f'Expected Video Config error, got: {errors}'
         )
@@ -951,13 +947,13 @@ class TestValidation:
     def test_invalid_color(self):
         steps = [_make_step(color='Ultraviolet')]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert len(errors) > 0, 'Expected validation error for invalid color'
 
     def test_negative_exposure(self):
         steps = [_make_step(exposure=-1.0)]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert len(errors) > 0, 'Expected validation error for negative exposure'
 
 
@@ -1649,93 +1645,93 @@ class TestProtocolValidation:
 
     def test_valid_protocol_no_errors(self):
         proto = _build_protocol([_make_step()])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert errors == [], f'Expected no errors, got: {errors}'
 
     def test_all_valid_colors(self):
         """Every valid color passes validation."""
         for color in ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']:
             proto = _build_protocol([_make_step(color=color)])
-            errors = proto.validate_steps()
+            errors = proto.validate_steps(ObjectiveLoader())
             color_errors = [e for e in errors if 'Color' in e]
             assert color_errors == [], f"Color '{color}' should be valid, got: {color_errors}"
 
     def test_invalid_color_rejected(self):
         proto = _build_protocol([_make_step(color='Ultraviolet')])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Color' in e for e in errors)
 
     def test_negative_exposure_rejected(self):
         proto = _build_protocol([_make_step(exposure=-1.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Exposure' in e for e in errors)
 
     def test_zero_exposure_rejected(self):
         """No camera takes 0 ms."""
         proto = _build_protocol([_make_step(exposure=0.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Exposure' in e for e in errors)
 
     def test_negative_gain_rejected(self):
         proto = _build_protocol([_make_step(gain=-1.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Gain' in e for e in errors)
 
     def test_zero_gain_valid(self):
         proto = _build_protocol([_make_step(gain=0.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         gain_errors = [e for e in errors if 'Gain' in e]
         assert gain_errors == []
 
     def test_illumination_over_1000_rejected(self):
         proto = _build_protocol([_make_step(illumination=1001.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Illumination' in e for e in errors)
 
     def test_illumination_1000_valid(self):
         proto = _build_protocol([_make_step(illumination=1000.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         ill_errors = [e for e in errors if 'Illumination' in e]
         assert ill_errors == []
 
     def test_negative_illumination_rejected(self):
         proto = _build_protocol([_make_step(illumination=-10.0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Illumination' in e for e in errors)
 
     def test_sum_zero_rejected(self):
         proto = _build_protocol([_make_step(sum_count=0)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Sum' in e for e in errors)
 
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
 
     def test_invalid_acquire_mode(self):
         proto = _build_protocol([_make_step(acquire='timelapse')])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Acquire' in e for e in errors)
 
     def test_video_with_zero_fps_rejected(self):
         proto = _build_protocol(
             [_make_step(acquire='video', video_config={'duration': 1.0, 'fps': 0})]
         )
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('fps' in e for e in errors)
 
     def test_video_with_zero_duration_rejected(self):
         proto = _build_protocol(
             [_make_step(acquire='video', video_config={'duration': 0, 'fps': 5})]
         )
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('duration' in e for e in errors)
 
     def test_video_with_string_config_rejected(self):
         proto = _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert any('Video Config' in e for e in errors)
 
     def test_multiple_errors_reported(self):
@@ -1745,7 +1741,7 @@ class TestProtocolValidation:
             _make_step(name='bad2', illumination=2000.0, gain=-5.0),
         ]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader())
         assert len(errors) >= 3, f'Expected at least 3 errors, got {len(errors)}: {errors}'
 
 

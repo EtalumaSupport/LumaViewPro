@@ -220,6 +220,7 @@ def test_zstack_children_keep_parent_label():
 
 def test_tiling_children_keep_parent_label(scale_capabilities):
     from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')
     axes_config = {
@@ -237,6 +238,7 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
         capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
     )
     assert status['tiles_skipped'] == 0
     steps = proto.steps()

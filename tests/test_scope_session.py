@@ -40,7 +40,9 @@ from modules.sequential_io_executor import IOTask
 @pytest.fixture
 def headless_session():
     """A real headless session, torn down whatever the test does."""
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+    )
     try:
         yield session
     finally:

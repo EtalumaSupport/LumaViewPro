@@ -177,7 +177,6 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     swap_lanes(runner._scope, io=_InlineIOExecutor())
     runner._coordinate_transformer = MagicMock()
     runner._coordinate_transformer.plate_to_stage.return_value = (1.0, 2.0)
-    runner._wellplate_loader = MagicMock()
     runner._scope.motion.is_moving.return_value = False
 
     # The state the runner is in on the poll after a sweep has resolved: the

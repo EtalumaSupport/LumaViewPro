@@ -30,6 +30,9 @@ import pathlib
 
 import pytest
 
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
@@ -80,7 +83,11 @@ def test_protocol_from_config_applies_previous_well_z(scale_capabilities):
 
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 5.0, ('B2', 'BF'): 7.5})
     protocol = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
     df = protocol.steps()
 
@@ -101,7 +108,11 @@ def test_protocol_from_config_no_previous_well_z_falls_through(scale_capabilitie
 
     cfg = _build_input_config()  # no previous_well_z
     protocol = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
     df = protocol.steps()
 
@@ -118,7 +129,11 @@ def test_protocol_from_config_empty_previous_well_z_falls_through(scale_capabili
 
     cfg = _build_input_config(previous_well_z={})
     protocol = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
     df = protocol.steps()
     assert (df['Z'] == 100.0).all()

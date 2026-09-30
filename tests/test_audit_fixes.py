@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import pathlib
 import shutil
 import inspect
 import sys
@@ -1577,50 +1578,61 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
-    """A8: scope_session optional helper failures must notify (Rule 14)
-    and must not abort session construction -- a missing helper disables
-    one feature, not the whole session."""
+    """A8: a catalogue the installation is missing stops the session factory.
 
-    def _create_with_failing_loader(self, monkeypatch, patch_target):
-        from modules.notification_center import notifications
+    The labware and objective catalogues are read once, by the scope, when
+    it is built. A missing file raises InstallationFileError naming it, out
+    of ScopeSession.create, before any session exists: nothing is posted
+    (whoever catches it reports it once) and no thread is left running.
+    """
+
+    def _create_without(self, tmp_path, file_name):
+        import time
+
+        from modules.exceptions import InstallationFileError
+        from modules.notification_center import Severity, notifications
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        repo_data = pathlib.Path(__file__).resolve().parent.parent / 'data'
+        shutil.copytree(repo_data, tmp_path / 'data')
+        (tmp_path / 'data' / file_name).unlink()
 
-        def raising_loader(*args, **kwargs):
-            raise RuntimeError('config file corrupt')
+        posted = []
 
-        monkeypatch.setattr(patch_target, raising_loader)
-        session = ScopeSession.create(settings={}, scope=MagicMock())
-        return session, captured
+        def listener(notification):
+            posted.append(notification)
 
-    def test_wellplate_loader_failure_notifies(self, monkeypatch):
-        session, captured = self._create_with_failing_loader(
-            monkeypatch, 'modules.labware_loader.WellPlateLoader'
-        )
-        assert session is not None, 'a failed helper must not abort the session'
-        assert captured and captured[0][1] == 'Wellplate loader unavailable', (
-            f'wellplate loader failure must warn the user; got {captured}'
-        )
+        threads_before = {t.name for t in threading.enumerate()}
+        notifications.add_listener(listener, min_severity=Severity.DEBUG)
+        try:
+            with pytest.raises(InstallationFileError) as refusal:
+                ScopeSession.create(
+                    complete_settings(),
+                    source_path=str(tmp_path),
+                    simulate=True,
+                    warn_pre_release=False,
+                )
+        finally:
+            notifications.remove_listener(listener)
 
-    def test_coord_transformer_failure_notifies(self, monkeypatch):
-        session, captured = self._create_with_failing_loader(
-            monkeypatch, 'modules.coord_transformations.CoordinateTransformer'
-        )
-        assert session is not None
-        assert captured and captured[0][1] == 'Coordinate transformer unavailable', (
-            f'coordinate transformer failure must warn the user; got {captured}'
-        )
+        new_threads = set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            new_threads = {t.name for t in threading.enumerate()} - threads_before
+            if not new_threads:
+                break
+            time.sleep(0.05)
 
-    def test_objective_helper_failure_notifies(self, monkeypatch):
-        session, captured = self._create_with_failing_loader(
-            monkeypatch, 'modules.objectives_loader.ObjectiveLoader'
-        )
-        assert session is not None
-        assert captured and captured[0][1] == 'Objective helper unavailable', (
-            f'objective helper failure must warn the user; got {captured}'
-        )
+        assert refusal.value.file_path.name == file_name
+        assert posted == [], f'a refused factory posts nothing; got {posted}'
+        assert not new_threads, f'a refused factory leaves no thread behind: {new_threads}'
+
+    def test_a_missing_labware_file_stops_the_bring_up(self, tmp_path):
+        self._create_without(tmp_path, 'labware.json')
+
+    def test_a_missing_objectives_file_stops_the_bring_up(self, tmp_path):
+        self._create_without(tmp_path, 'objectives.json')
 
 
 class TestRule14_A7_HyperstackBuildNotify:
@@ -4118,7 +4130,8 @@ def _sim_backed_imaging():
 
     The API object builds its own locks and frame_validity, so the scope
     stub only needs the camera-driver slot the _driver property resolves,
-    runtime_state (read by get_image's scale-bar gate) and capabilities
+    runtime_state (read by get_image's scale-bar gate) with the objective
+    catalogue it reads, and capabilities
     (the optics the scale bar's pixel size is resolved from).
     """
     from drivers.simulated_camera import SimulatedCamera
@@ -4132,6 +4145,9 @@ def _sim_backed_imaging():
     # No executor: the public dispatchers run their body on the calling
     # thread, so these tests exercise the public surface inline.
     give_stub_lanes(scope)
+    from modules.objectives_loader import ObjectiveLoader
+
+    scope.objective_helper = ObjectiveLoader()
     scope.runtime_state = RuntimeState(scope)
     scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded

@@ -637,6 +637,7 @@ class ProtocolSettings(FloatLayout):
                 stage_offset=stage_offset,
                 overlap_percent=overlap_percent,
                 capabilities=ctx.lumaview.scope.capabilities,
+                objective_helper=ctx.lumaview.scope.objective_helper,
             )
 
             tiles_skipped = tile_status['tiles_skipped']
@@ -1451,7 +1452,7 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_idx=self.curr_step)
 
     def _warn_if_steps_invalid(self, what: str) -> None:
-        errors = self._protocol.validate_steps()
+        errors = self._protocol.validate_steps(_app_ctx.ctx.lumaview.scope.objective_helper)
         if errors:
             from ui.notification_popup import show_notification_popup
 

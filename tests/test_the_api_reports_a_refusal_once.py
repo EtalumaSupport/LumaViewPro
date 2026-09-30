@@ -54,6 +54,8 @@ def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
             input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
             tiling_configs_file_loc=_TILING,
             capabilities=sim_scope.capabilities,
+            objective_helper=sim_scope.objective_helper,
+            wellplate_loader=sim_scope.wellplate_loader,
         )
     _report_again(refusal.value)
 

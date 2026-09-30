@@ -73,7 +73,7 @@ SETUP_CALLS_IN_SOURCE_ORDER = [
 def _break(runner, scope, seam, monkeypatch):
     """Make one setup statement raise, leaving the other four intact."""
     if seam == 'objective':
-        runner._objective_loader.get_objective_info.side_effect = _raise
+        scope.objective_helper.get_objective_info.side_effect = _raise
     elif seam == 'position_read':
         # The scan centre is the first thing _calculate_params reads.
         scope.motion.get_current_position.side_effect = _raise
@@ -130,7 +130,7 @@ class TestSetupFailureReleasesTheRunner:
             drive_af(runner)
 
         # Heal every seam, then run for real.
-        runner._objective_loader.get_objective_info.side_effect = None
+        scope.objective_helper.get_objective_info.side_effect = None
         scope.motion.get_current_position.side_effect = None
         scope.illumination.save_led_state.side_effect = None
         scope.imaging.save_camera_state.side_effect = None

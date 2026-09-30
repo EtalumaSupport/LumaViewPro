@@ -1,18 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Seams for the `scope.protocols` sub-API.
 
-Four things are locked here:
+Three things are locked here:
 
 1. Both Lumascope constructor paths expose the SAME sub-API roster.
    `__init__` and `create_diagnostic` open-code their wiring separately,
    so a sub-API added to one and forgotten in the other raises
    AttributeError only on the diagnostic path -- which nobody exercises
    until a customer needs a support report.
-2. `source_path` is stored in exactly one place, on ProtocolsAPI.
-3. The constructors refuse to guess when source_path was never
-   registered. Guessing would silently build a protocol whose tiling
-   geometry does not match the instrument.
-4. The migration itself: production callers reach the cluster through
+2. `source_path` is stored in exactly one place, on the scope, given at
+   its construction; ProtocolsAPI reads it and keeps no copy.
+3. The migration itself: production callers reach the cluster through
    `scope.protocols` (Guard A) and Lumascope no longer carries it
    (Guard B). Both are xfail-strict until their migration stage lands,
    so they flip LOUDLY -- an unexpected pass fails the suite -- rather
@@ -24,9 +22,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
-
-from tests.ast_seams import find_def, iter_package_modules, parse_module
+from tests.ast_seams import REPO_ROOT, find_def, iter_package_modules, parse_module
 from tests.scope_fakes import build_scope
 
 _LUMASCOPE_SRC = 'modules/lumascope_api/_lumascope.py'
@@ -121,53 +117,42 @@ class TestSubApiRoster:
 
 
 class TestSourcePathHasOneHome:
-    """source_path is stored on ProtocolsAPI and nowhere else."""
+    """source_path is stored on the scope and nowhere else; ProtocolsAPI reads it."""
 
     def test_slot_lives_on_the_sub_api(self):
         scope = _new_scope()
         try:
-            assert hasattr(scope.protocols, '_source_path')
+            assert not hasattr(scope.protocols, '_source_path'), (
+                'ProtocolsAPI must not carry its own source_path; a second copy '
+                'is a store that can disagree with the scope.'
+            )
+            assert not hasattr(scope.protocols, 'register_source_path')
         finally:
             scope.disconnect()
 
     def test_composition_root_holds_no_copy(self):
         scope = _new_scope()
         try:
+            assert 'source_path' in vars(scope), 'the scope holds its data folder'
             assert '_source_path' not in vars(scope), (
-                'Lumascope must not carry its own source_path; a second copy '
-                'is a store that can disagree with the sub-API.'
+                'Lumascope must carry its data folder once; a second copy '
+                'is a store that can disagree with the first.'
             )
         finally:
             scope.disconnect()
 
 
 class TestConstructorsRefuseToGuess:
-    """The unregistered-path contract, asserted against the sub-API directly
-    so it survives the forwarder retirement unchanged."""
-
-    def test_create_protocol_raises_before_registration(self):
-        scope = _new_scope()
-        try:
-            with pytest.raises(RuntimeError, match='register_source_path'):
-                scope.protocols.create_protocol(empty_config={})
-        finally:
-            scope.disconnect()
-
-    def test_load_protocol_raises_before_registration(self):
-        scope = _new_scope()
-        try:
-            with pytest.raises(RuntimeError, match='register_source_path'):
-                scope.protocols.load_protocol(file_path='ignored.tsv')
-        finally:
-            scope.disconnect()
+    """The folder the sub-API resolves against, asserted against the sub-API
+    directly so it survives the forwarder retirement unchanged."""
 
     def test_registration_resolves_the_tiling_config(self):
-        scope = _new_scope()
+        # The folder is given at construction; the sub-API resolves from it.
+        root = REPO_ROOT
+        scope = build_scope(simulate=True, register_atexit=False, source_path=root)
         try:
-            scope.protocols.register_source_path('/tmp/lvp-root')
-            assert scope.protocols.tiling_configs_path() == (
-                pathlib.Path('/tmp/lvp-root') / 'data' / 'tiling.json'
-            )
+            assert pathlib.Path(scope.source_path) == root
+            assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
         finally:
             scope.disconnect()
 

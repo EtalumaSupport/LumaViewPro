@@ -97,6 +97,7 @@ def ctx(monkeypatch):
     context = SimpleNamespace(
         session=session,
         scope=scope,
+        lumaview=SimpleNamespace(scope=scope),
         stage=MagicMock(),
         settings={'protocol': {'filepath': 'plate.tsv'}},
         image_settings=MagicMock(),

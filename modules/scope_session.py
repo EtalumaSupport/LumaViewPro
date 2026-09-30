@@ -65,6 +65,8 @@ _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
+    from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
@@ -113,10 +115,6 @@ class ScopeSession:
         settings: dict,
         scope,
         executor_bundle,
-        wellplate_loader=None,
-        coordinate_transformer=None,
-        objective_helper=None,
-        source_path: str = '.',
         protocol_thread=None,
         autofocus_runner=None,
         autofocus_thread=None,
@@ -162,10 +160,11 @@ class ScopeSession:
         # retry possible; read at entry to make the second call a logged
         # no-op. Host-serialized like the metrics flag.
         self._shut_down = False
-        self.wellplate_loader = wellplate_loader
-        self.coordinate_transformer = coordinate_transformer
-        self.objective_helper = objective_helper
-        self.source_path = source_path
+        from modules import coord_transformations
+
+        # Stateless: several instances are not several stores, so the
+        # session keeps its own for the plate<->stage conversions it serves.
+        self.coordinate_transformer = coord_transformations.CoordinateTransformer()
         # The mode this session was built in, never written afterwards. The
         # GUI's live flag lives on its own context and is flipped by a
         # plugin after the session exists, so a GUI run passes that flag
@@ -261,8 +260,6 @@ class ScopeSession:
             autofocus_runner=autofocus_runner,
             z_ui_update_func=z_ui_update_func,
             activity_claim=self.activity_claim,
-            coordinate_transformer=coordinate_transformer,
-            wellplate_loader=wellplate_loader,
             on_run_idle=self.notify_run_state,
         )
         self._protocol_runner = None
@@ -285,17 +282,30 @@ class ScopeSession:
         """
         return self.scope.camera_lane()
 
+    @property
+    def source_path(self) -> str:
+        """The data folder this session runs on: its scope's, never a copy."""
+        return self.scope.source_path
+
+    @property
+    def wellplate_loader(self) -> 'WellPlateLoader':
+        """The labware catalogue: the scope's one copy, read from its data folder."""
+        return self.scope.wellplate_loader
+
+    @property
+    def objective_helper(self) -> 'ObjectiveLoader':
+        """The objective catalogue: the scope's one copy, read from its data folder."""
+        return self.scope.objective_helper
+
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
 
-        The camera override key and the protocol source path live on the
-        scope but belong to the session's composition; a scope missing the
-        source path cannot resolve its protocol data files. Construction
-        comes through here so no scope the session drives can be left
-        un-serviced -- the bring-up steps are spelled out exactly once.
+        The camera override key lives on the scope but belongs to the
+        session's composition. Construction comes through here so no scope
+        the session drives can be left un-serviced -- the bring-up steps are
+        spelled out exactly once.
         """
         scope.set_camera_override_key(self._camera_override_key)
-        scope.protocols.register_source_path(self.source_path)
 
     @contextlib.contextmanager
     def diagnostic_claim(self) -> Iterator[HeldClaim]:
@@ -486,7 +496,7 @@ class ScopeSession:
     def create(
         cls,
         settings: dict,
-        source_path: str = '.',
+        source_path: str | None = None,
         scope: object | None = None,
         *,
         simulate: bool = False,
@@ -503,6 +513,11 @@ class ScopeSession:
         build their session here, passing what only a host knows as the
         keyword arguments below. Pass ``scope`` to reuse one you built;
         omit it and the factory builds it.
+
+        ``source_path`` is the data folder the factory builds the scope on;
+        None (default) is the installation's own folder. The session's data
+        folder and catalogues are always its scope's, so a folder is refused
+        beside ``scope``: the scope was given its folder when it was built.
 
         The executor bundle is always built, around the scope's own IO and
         CAMERA lanes, via executor_registry.create_default, so every caller
@@ -541,7 +556,14 @@ class ScopeSession:
                 no display).
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
+        from modules.path_utils import get_source_root
 
+        if scope is not None and source_path is not None:
+            raise ValueError(
+                'ScopeSession.create: source_path is refused beside a scope -- the '
+                'session reads its data folder and catalogues from the scope, so pass '
+                'the folder to Lumascope(source_path=...) instead'
+            )
         if scope is not None and ui_dispatcher is not None:
             raise ValueError(
                 'ScopeSession.create: ui_dispatcher is refused beside a scope -- the '
@@ -562,6 +584,7 @@ class ScopeSession:
                 sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
                 ui_dispatcher=ui_dispatcher,
                 fx2_debug_wire=settings['fx2_debug_wire_enabled'],
+                source_path=get_source_root(source_path),
             )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,
@@ -579,10 +602,8 @@ class ScopeSession:
             ctx_provider=display_ctx_provider,
         )
 
-        # Service registration (override key, source path) happens in
+        # Service registration (the camera override key) happens in
         # __init__ for every session-composed scope -- nothing here.
-
-        wellplate_loader, coordinate_transformer, objective_helper = cls._build_helpers(source_path)
 
         autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
             scope=scope,
@@ -596,10 +617,6 @@ class ScopeSession:
             session = cls(
                 settings=settings,
                 scope=scope,
-                wellplate_loader=wellplate_loader,
-                coordinate_transformer=coordinate_transformer,
-                objective_helper=objective_helper,
-                source_path=source_path,
                 executor_bundle=executor_bundle,
                 autofocus_runner=autofocus_runner,
                 autofocus_thread=autofocus_thread,
@@ -696,76 +713,6 @@ class ScopeSession:
                 'installation root; pass source_path or run from one'
             ) from e
         return settings
-
-    @staticmethod
-    def _build_helpers(source_path: str) -> tuple:
-        """The three data-file helpers, each guarded so one corrupt file
-        disables one feature with a notification instead of the whole
-        composition. A helper that failed is ``None`` here and refuses at
-        ``configure_scope`` by name."""
-        # Every silent helper-init failure has a downstream AttributeError
-        # waiting for whichever UI action first reads the missing helper;
-        # surface a warning at the failure site so the user knows which
-        # subsystem is unavailable and why.
-        from modules.notification_center import notifications
-
-        wellplate_loader = None
-        coordinate_transformer = None
-        objective_helper = None
-
-        # Loader failures disable a major feature (plate UI / coord
-        # conversion / objective lookup). Log at error + exc_info so
-        # the traceback lands in the main log; notification level
-        # stays at warning to match the existing regression-test
-        # contract. Broad Exception catch is legitimate at this
-        # top-level boundary -- each loader raises a mix of ValueError /
-        # RuntimeError / FileNotFoundError / json.JSONDecodeError plus
-        # generic Exception() paths inside objectives_loader.
-
-        try:
-            from modules import labware_loader
-
-            wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
-        except Exception as e:
-            logger.error(f'[ScopeSession] Could not load wellplate loader: {e}', exc_info=True)
-            notifications.warning(
-                'Configuration',
-                'Wellplate loader unavailable',
-                'Labware configuration could not load. '
-                'Plate-based UI (tile plans, well picker) will not work. '
-                'Check that data/labware.json exists and is valid.',
-            )
-
-        try:
-            from modules import coord_transformations
-
-            coordinate_transformer = coord_transformations.CoordinateTransformer()
-        except Exception as e:
-            logger.error(
-                f'[ScopeSession] Could not load coordinate transformer: {e}', exc_info=True
-            )
-            notifications.warning(
-                'Configuration',
-                'Coordinate transformer unavailable',
-                'Coordinate transformer could not load. '
-                'Stage coordinate conversion (plate <-> stage) will not work.',
-            )
-
-        try:
-            from modules import objectives_loader
-
-            objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
-        except Exception as e:
-            logger.error(f'[ScopeSession] Could not load objective helper: {e}', exc_info=True)
-            notifications.warning(
-                'Configuration',
-                'Objective helper unavailable',
-                'Objective configuration could not load. '
-                'Objective selection and lookup will not work. '
-                'Check that data/objectives.json exists and is valid.',
-            )
-
-        return wellplate_loader, coordinate_transformer, objective_helper
 
     @staticmethod
     def _report_teardown_failure(teardown: typing.Callable[[], None]) -> None:
@@ -909,22 +856,6 @@ class ScopeSession:
         """
         import modules.config_helpers as config_helpers
 
-        # A corrupt data file leaves its helper None rather than failing the
-        # whole composition, so both are absent states this can actually be
-        # called in. Refused by name here: handed on, the labware lane warns
-        # the user it substituted the default plate and then raises
-        # AttributeError two lines later -- a false account of what happened,
-        # followed by a crash.
-        for helper, data_file in (
-            (self.wellplate_loader, 'labware.json'),
-            (self.objective_helper, 'objectives.json'),
-        ):
-            if helper is None:
-                raise ConfigError(
-                    f'cannot assemble a capture config: {data_file} did not load '
-                    f'under {self.source_path!r} (see the earlier error)'
-                )
-
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
@@ -940,14 +871,9 @@ class ScopeSession:
         created while the objective in the light path is unknown -- at
         startup, before the turret is in a known slot. Steps added later
         carry the objective they were taken with.
-
-        Raises:
-            ConfigError: labware.json did not load under this session's
-                data root.
         """
         import modules.config_helpers as config_helpers
 
-        self._require_wellplate_loader()
         return self.scope.protocols.create_protocol(
             empty_config=config_helpers.get_empty_protocol_config_from_settings(
                 self.get_settings_snapshot(), self.wellplate_loader
@@ -1154,17 +1080,6 @@ class ScopeSession:
         # and the runtime's ints; without it every slot reads as unassigned.
         settings_init._normalize_turret_slot_keys(self.settings)
         scope_config = scope_models.get(self.settings.get('microscope'))
-        for helper, data_file in (
-            (self.wellplate_loader, 'labware.json'),
-            (self.objective_helper, 'objectives.json'),
-            (self.coordinate_transformer, 'the coordinate transformer'),
-        ):
-            if helper is None:
-                raise ConfigError(
-                    f'cannot configure the scope: {data_file} did not load under '
-                    f'{self.source_path!r} (see the earlier error); a data root '
-                    'without the shipped files is not an installation'
-                )
         _labware_id, labware = config_helpers.get_selected_labware_from_settings(
             self.settings, self.wellplate_loader
         )
@@ -1321,13 +1236,6 @@ class ScopeSession:
     # The objective: the question, the answer and the plain writers
     # ------------------------------------------------------------------
 
-    def _require_objective_catalogue(self) -> None:
-        if self.objective_helper is None:
-            raise ConfigError(
-                'the objective catalogue is unavailable: objectives.json did not load '
-                f'under {self.source_path!r}'
-            )
-
     def scope_has_turret(self) -> bool:
         """Does this scope have a turret, as well as it can be known?
 
@@ -1388,14 +1296,13 @@ class ScopeSession:
         and a polled read must not log per poll.
 
         Raises:
-            ConfigError: the catalogue is unavailable or empty, or the
-                model catalogue cannot be read.
+            ConfigError: the catalogue is empty, or the model catalogue
+                cannot be read.
             ObjectiveUnknownError: the objective has never been confirmed
                 on this install and the turret model's slot is unknown --
                 there is no slot to answer for until the turret is homed
                 or moved.
         """
-        self._require_objective_catalogue()
         has_turret = self.scope_has_turret()
         first_run = not self.settings.get('objective_confirmed', False)
         slots = self.settings.get('turret_objectives') or {}
@@ -1450,8 +1357,8 @@ class ScopeSession:
         active objective changed.
 
         Raises:
-            ConfigError: ``objective_id`` is not exactly a catalogue key,
-                or the catalogue is unavailable. Nothing is written.
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+                Nothing is written.
             ObjectiveUnknownError: No ``turret_position`` was given on a
                 turreted scope whose slot is unknown.
             ValueError: ``turret_position`` is not a slot number 1-4.
@@ -1485,16 +1392,14 @@ class ScopeSession:
         Picking the objective already active is a no-op.
 
         Raises:
-            ConfigError: ``objective_id`` is not exactly a catalogue key,
-                or the catalogue is unavailable. The refusal lands before
-                any write.
+            ConfigError: ``objective_id`` is not exactly a catalogue key.
+                The refusal lands before any write.
             ObjectiveUnknownError: On a turreted scope, the slot in the
                 light path is unknown, so there is no slot to assign.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
-        self._require_objective_catalogue()
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
         # Refuses an id that is not a catalogue key, before any write.
@@ -1515,13 +1420,6 @@ class ScopeSession:
     # The labware
     # ------------------------------------------------------------------
 
-    def _require_wellplate_loader(self) -> None:
-        if self.wellplate_loader is None:
-            raise ConfigError(
-                'the labware catalogue is unavailable: labware.json did not load '
-                f'under {self.source_path!r}'
-            )
-
     def select_labware(self, labware_name: str) -> bool:
         """Make ``labware_name`` the current plate. Returns whether it changed.
 
@@ -1538,9 +1436,8 @@ class ScopeSession:
         decided on the key rather than on how it was spelled.
 
         Raises:
-            ConfigError: ``labware_name`` is not a string, the labware
-                catalogue did not load, the loader cannot resolve the
-                name, or the settings have no protocol block to hold the
+            ConfigError: ``labware_name`` is not a string, the loader
+                cannot resolve the name, or the settings have no protocol block to hold the
                 selection. Refused before either store is written: a write
                 that half-lands leaves the settings store and the runtime
                 state describing different plates, and every well
@@ -1550,7 +1447,6 @@ class ScopeSession:
                 (``exclusive_activity_running``): each states its positions
                 against the plate it started with. Nothing is written.
         """
-        self._require_wellplate_loader()
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
         protocol_settings = self.settings.get('protocol')
         if not isinstance(protocol_settings, dict):
@@ -1599,7 +1495,6 @@ class ScopeSession:
                 holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
-        self._require_objective_catalogue()
         self._check_turret_slot(position)
         if objective_id not in self.objective_helper.get_objectives_list():
             raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')

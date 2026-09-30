@@ -34,6 +34,8 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 from modules.common_utils import PostFunction
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -82,7 +84,12 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
             ),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        axis_limits=_DEFAULT_AXIS_LIMITS,
+        stage_offset=_STAGE_OFFSET,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+    )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
     msg = collision_errors[0]
@@ -108,7 +115,12 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
             ),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        axis_limits=_DEFAULT_AXIS_LIMITS,
+        stage_offset=_STAGE_OFFSET,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+    )
     assert not any('would save captures' in e for e in errors), errors
 
 
@@ -734,7 +746,9 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
     assert list(proto.steps()['Label']) == ['A1', 'A1']
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
 
-    errors = proto.validate_for_run(axis_limits=None)
+    errors = proto.validate_for_run(
+        axis_limits=None, objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
+    )
     assert any('would save captures' in e for e in errors), errors
 
 
@@ -772,7 +786,12 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch)
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Objective='20x Oly'),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        axis_limits=_DEFAULT_AXIS_LIMITS,
+        stage_offset=_STAGE_OFFSET,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+    )
     assert not any('would save captures' in e for e in errors), errors
 
 
@@ -783,7 +802,12 @@ def test_same_base_same_objective_still_refused_at_run_start():
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Objective='4x Oly'),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        axis_limits=_DEFAULT_AXIS_LIMITS,
+        stage_offset=_STAGE_OFFSET,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+    )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
     assert 'Steps 1, 2' in collision_errors[0]

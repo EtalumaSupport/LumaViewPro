@@ -24,7 +24,6 @@ from modules.lumascope_api import AxisState, Lumascope
 import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
-import modules.labware_loader as labware_loader
 from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
@@ -169,11 +168,6 @@ class RunPlan:
     borrowed_claim: BorrowedClaim | None = None
 
 
-# Constructor sentinel: distinguishes "omitted -- build a local loader"
-# from an explicit (possibly None) session-owned handle.
-_BUILD_LOCALLY = object()
-
-
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
     # Max time for ONE continuous stage motion to complete. The timer
@@ -195,8 +189,6 @@ class SequencedCaptureRunner:
         activity_claim: ActivityClaim,
         autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
-        coordinate_transformer=_BUILD_LOCALLY,
-        wellplate_loader=_BUILD_LOCALLY,
         on_run_idle: typing.Callable[[], None] | None = None,
     ):
         # Told once a run's cleanup has put the runner back to IDLE. The
@@ -204,22 +196,9 @@ class SequencedCaptureRunner:
         # alone can still read the run as live; this is the edge after
         # which is_live_run says it has ended.
         self._on_run_idle = on_run_idle
-        # The composing session passes its own loaders -- it owns the
-        # GUARDED construction, where a corrupt labware/coordinate
-        # config disables one feature with a notification instead of
-        # killing the whole composition (a session-passed None stays
-        # None and surfaces at use). Only a bare runner nobody composed
-        # builds its own.
-        self._coordinate_transformer = (
-            coord_transformations.CoordinateTransformer()
-            if coordinate_transformer is _BUILD_LOCALLY
-            else coordinate_transformer
-        )
-        self._wellplate_loader = (
-            labware_loader.WellPlateLoader()
-            if wellplate_loader is _BUILD_LOCALLY
-            else wellplate_loader
-        )
+        # Stateless, so the run keeps its own. The labware catalogue is the
+        # scope's, read where a run needs a plate.
+        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         # Hold stage_offset by reference so UI edits between runs are visible
         # to the next run; prepare() takes a deepcopy into the RunPlan so an
         # in-flight protocol's coordinate transforms are immune to mid-run
@@ -990,12 +969,15 @@ class SequencedCaptureRunner:
                 if limits is not None:
                     axis_limits[axis] = limits
             validation_errors = protocol.validate_for_run(
-                axis_limits=axis_limits, stage_offset=stage_offset
+                axis_limits=axis_limits,
+                stage_offset=stage_offset,
+                objective_helper=self._scope.objective_helper,
+                wellplate_loader=self._scope.wellplate_loader,
             )
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
-            # list -- e.g. labware loader OS error, missing objectives.json,
-            # pandas exception inside the steps DataFrame. Without this the
+            # list -- e.g. a pandas exception inside the steps DataFrame.
+            # Without this the
             # run would proceed past validation and hit hardware mid-run with
             # bad coordinates.
             raise RunCheckFailedError(
@@ -1446,7 +1428,7 @@ class SequencedCaptureRunner:
                 video_max_fps=self._video_max_fps,
                 engineering_mode=self._engineering_mode,
                 run_claim=self._held_claim.lend(),
-                labware=self._wellplate_loader.get_plate(plate_key=self._protocol.labware()),
+                labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
             )
 
             # From here each lane serves only the run's queue, and only work

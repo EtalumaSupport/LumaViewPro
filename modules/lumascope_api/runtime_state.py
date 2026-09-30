@@ -7,9 +7,9 @@ Design doc sec 2.5 splits the capabilities surface into TWO:
   new Lumascope = new capabilities.
 - `scope.runtime_state`: MUTABLE, refreshed on driver events (reflash,
   reconnect, etc.). Also hosts the settings-host cluster: labware,
-  objective, turret config, stage offset, and the helper objects
-  (`_objectives_loader`, `_coordinate_transformer`) that operate on
-  those values.
+  objective, turret config, stage offset, and the coordinate
+  transformer that operates on those values. The objective catalogue is
+  the scope's own (`scope.objective_helper`), read at each use.
 
 The split exists because firmware version legitimately mutates mid-
 session when boards are reflashed; a single frozen surface would lie
@@ -32,7 +32,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import modules.coord_transformations as coord_transformations
-import modules.objectives_loader as objectives_loader
 from lvp_logger import logger
 from modules.exceptions import ConfigError, ObjectiveUnknownError
 
@@ -68,7 +67,6 @@ class RuntimeState:
         self._optics_lock = threading.Lock()
         self._stage_offset: dict | None = None
 
-        self._objectives_loader = objectives_loader.ObjectiveLoader()
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
     def set_labware(self, labware) -> None:
@@ -135,7 +133,7 @@ class RuntimeState:
                 'a turreted scope has no selected objective to set: the active objective '
                 'is the one assigned to the slot in the light path'
             )
-        objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
         self._objective_id = objective_id
         self._objective = objective
 
@@ -210,9 +208,9 @@ class RuntimeState:
         objective_id = self._turret_config.get(slot)
         if objective_id is None:
             return None, None, ObjectiveUnknownError('slot_unassigned', slot)
-        if objective_id not in self._objectives_loader.get_objectives_list():
+        if objective_id not in self._scope.objective_helper.get_objectives_list():
             return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
-        info = self._objectives_loader.get_objective_info(objective_id=objective_id)
+        info = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
         return objective_id, info, None
 
     def get_current_objective_id(self) -> str | None:
@@ -241,7 +239,7 @@ class RuntimeState:
                 caller subscripts the answer, so a None reached the user as
                 a bare attribute error naming nothing they could act on.
         """
-        return self._objectives_loader.get_objective_info(objective_id=objective_id)
+        return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
 
     def get_available_objectives(self) -> list[str]:
         """Get list of all available objective IDs.
@@ -249,7 +247,7 @@ class RuntimeState:
         Returns:
             list[str]: Objective identifiers (e.g. ["4x", "10x Oly", "20x Oly"]).
         """
-        return self._objectives_loader.get_objectives_list()
+        return self._scope.objective_helper.get_objectives_list()
 
     def get_current_objective(self) -> dict | None:
         """Get the currently active objective info.

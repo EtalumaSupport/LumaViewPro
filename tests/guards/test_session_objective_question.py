@@ -324,14 +324,6 @@ class TestT8ObjectiveQuestion:
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
         assert question.proposed != '20x Oly'
 
-    def test_a_session_without_a_catalogue_raises(self, sessions):
-        # The helper is None when objectives.json did not load under the
-        # data root; the question names that rather than failing on it.
-        session = sessions(**_turret_settings())
-        session.objective_helper = None
-        with pytest.raises(ConfigError, match='catalogue'):
-            session.objective_question()
-
     def test_a_returned_question_logs_nothing(self, sessions):
         # The renderer logs its own show; a polled read must not log per poll.
         session = _at_slot(sessions(**_turret_settings()), 1)

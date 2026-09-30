@@ -17,6 +17,7 @@ import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from tests.test_run_refusal_contract import _capture_notifications
 from tests.test_step_label_ssot import _ZSTACK, _WIDE_Z, _build_protocol, _labeled_step
 
@@ -43,6 +44,7 @@ def _tile_2x2(proto, axes_config):
         overlap_percent=0.0,
         # Refused before the scale is read, so no real optics are needed.
         capabilities=SimpleNamespace(),
+        objective_helper=ObjectiveLoader(),
     )
 
 

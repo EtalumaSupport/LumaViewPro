@@ -261,7 +261,6 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # The run moves every step itself: a turretless scope on a flat plate
     # frame, its moves queued on the io executor mock.
     runner._scope.capabilities.has_turret = False
-    runner._wellplate_loader = MagicMock()
     runner._coordinate_transformer = MagicMock()
     runner._coordinate_transformer.plate_to_stage.return_value = (0.0, 0.0)
     runner._cleanup = MagicMock()

@@ -152,6 +152,8 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
     every layer is disabled yields an empty (0-step) Protocol -- the
     precondition the #680 UI guard catches. A layer set to 'image' still
     produces steps."""
+    from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol
 
     tiling_configs = REPO / 'data' / 'tiling.json'
@@ -160,6 +162,8 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
         input_config=_from_config_input({'BF': 'none', 'Blue': 'none'}),
         tiling_configs_file_loc=tiling_configs,
         capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
     assert all_disabled.num_steps() == 0, (
         'every-layer-disabled must construct an EMPTY protocol (the #680 '
@@ -170,6 +174,8 @@ def test_protocol_from_config_filters_non_acquire_layers(scale_capabilities):
         input_config=_from_config_input({'BF': 'image', 'Blue': 'none'}),
         tiling_configs_file_loc=tiling_configs,
         capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
     assert one_enabled.num_steps() > 0, 'an image layer must still produce steps'
     step_colors = set(one_enabled.steps()['Color'].unique())

@@ -13,10 +13,12 @@ import pytest
 from modules.exceptions import ConfigError
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.runtime_state import RuntimeState
+from modules.objectives_loader import ObjectiveLoader
 
 
 def _make_runtime_state() -> RuntimeState:
     scope = Lumascope.__new__(Lumascope)
+    scope.objective_helper = ObjectiveLoader()
     state = RuntimeState(scope)
     # A scope with no turret, where the selected objective is the store.
     state.set_turreted(False)

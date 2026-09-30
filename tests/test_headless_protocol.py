@@ -254,16 +254,12 @@ class TestHeadlessProtocolExecution:
             # Ensure no dispatcher leaked from previous test
             _kivy_utils._ui_dispatcher = None
 
-            from modules.coord_transformations import CoordinateTransformer
-            from modules.labware_loader import WellPlateLoader
-
-            scope = build_scope(simulate=True)
+            # The data root is the scope's, given at construction; a runner
+            # over a bare scope reads its catalogues and tiling config from it.
+            scope = build_scope(simulate=True, source_path='.')
             # A bare scope skipped bring-up, which fills the turret from the
             # persisted slots; an empty turret addresses no glass at all.
             configure_turret_like_bringup(scope)
-            # The session registers the data root at bring-up; a runner over a
-            # bare scope needs it too, or the run refuses at start.
-            scope.protocols.register_source_path('.')
             # Speed up the simulator for test runtime
             scope._led_driver.set_timing_mode('fast')
             scope._motion_driver.set_timing_mode('fast')
@@ -291,9 +287,6 @@ class TestHeadlessProtocolExecution:
                     activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
                 )
-                executor._wellplate_loader = WellPlateLoader()
-                executor._coordinate_transformer = CoordinateTransformer()
-
                 protocol = self._make_protocol()
 
                 done = threading.Event()

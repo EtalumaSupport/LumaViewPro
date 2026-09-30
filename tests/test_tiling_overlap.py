@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.tiling_config import TilingConfig
 
@@ -63,6 +65,8 @@ def _make_protocol_from_config(overlap_percent, capabilities):
         input_config=input_config,
         tiling_configs_file_loc=TILING_CONFIGS,
         capabilities=capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     )
 
 

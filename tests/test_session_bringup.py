@@ -16,7 +16,7 @@ import time
 import numpy as np
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, InstallationFileError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
@@ -45,7 +45,7 @@ class TestAFactorySessionIsConfigured:
         assert session.objective_helper is not None
         assert session.wellplate_loader is not None
         assert session.coordinate_transformer is not None
-        assert session.sequenced_capture_runner._wellplate_loader is session.wellplate_loader
+        assert session.wellplate_loader is session.scope.wellplate_loader
 
     def test_the_scope_carries_the_objective_and_labware(self, session):
         assert (
@@ -140,7 +140,7 @@ class TestSettingsThatCannotConfigureAScope:
         data.mkdir()
         shutil.copy(repo / 'data' / 'settings.json', data / 'settings.json')
         shutil.copy(repo / 'data' / 'objectives.json', data / 'objectives.json')
-        with pytest.raises(ConfigError, match=r'labware\.json'):
+        with pytest.raises(InstallationFileError, match=r'labware\.json'):
             ScopeSession.create(
                 ScopeSession.load_user_settings(str(tmp_path)),
                 source_path=str(tmp_path),

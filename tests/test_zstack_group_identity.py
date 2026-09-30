@@ -24,6 +24,7 @@ button order.
 from __future__ import annotations
 
 from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from tests.test_step_label_ssot import (
     _ZSTACK,
     _WIDE_Z,
@@ -49,6 +50,7 @@ def _tile_2x2(proto, capabilities):
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
         capabilities=capabilities,
+        objective_helper=ObjectiveLoader(),
     )
 
 

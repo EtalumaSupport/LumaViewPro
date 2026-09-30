@@ -237,13 +237,12 @@ class LedSubstream:
 
 @pytest.fixture
 def scope():
-    s = build_scope(simulate=True)
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = build_scope(simulate=True, source_path='.')
     # A bare scope skipped bring-up, which fills the turret from the
     # persisted slots; an empty turret addresses no glass at all.
     configure_turret_like_bringup(s)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -308,9 +307,6 @@ def _make_runner(scope, execs):
     runner -- faithful for AF-off scenarios (production does not invoke the AF
     runner when Auto_Focus is False). Takes the executor set as an argument so
     a test can substitute its own."""
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
@@ -321,8 +317,6 @@ def _make_runner(scope, execs):
         activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -639,8 +633,8 @@ def _af_runner(scope):
     r = AutofocusRunner(
         scope=scope,
     )
-    r._objective_loader = MagicMock()
-    r._objective_loader.get_objective_info.return_value = {
+    scope.objective_helper = MagicMock()
+    scope.objective_helper.get_objective_info.return_value = {
         'AF_range': 50.0,
         'AF_max': 10.0,
         'AF_min': 5.0,

@@ -87,10 +87,13 @@ def main():
     settings = settings_init.settings
     settings['live_folder'] = str(pathlib.Path('./capture').resolve())
 
-    # Create scope in simulate mode. The simulated motor board reports the
-    # model it is declared with, so declaring the settings' model keeps the
-    # bring-up's model check silent -- it has nothing to correct.
-    scope = Lumascope(simulate=True, configured_model=settings['microscope'])
+    # Create scope in simulate mode, on the same data folder the settings
+    # came from: the scope reads the labware and objective catalogues there,
+    # and the session takes its folder from the scope. The simulated motor
+    # board reports the model it is declared with, so declaring the
+    # settings' model keeps the bring-up's model check silent -- it has
+    # nothing to correct.
+    scope = Lumascope(simulate=True, configured_model=settings['microscope'], source_path='.')
     print('Scope initialized (simulate=True)')
 
     # Create a ScopeSession -- the GUI-independent state container. The
@@ -113,14 +116,14 @@ def main():
 
     # NOTE: Creating a Protocol from a config dict requires a tiling
     # configurations file. For this example, we show the setup without
-    # actually executing, since Protocol.from_config() depends on data
+    # actually executing, since building a protocol depends on data
     # files that may not be present in all environments.
     #
     # In a real application with the full LumaViewPro installation:
     #
-    #   from modules.protocol import Protocol
-    #   tiling_file = pathlib.Path("data/tiling.json")
-    #   protocol = Protocol.from_config(config, tiling_configs_file_loc=tiling_file)
+    #   # The scope resolves data/tiling.json and hands the protocol its
+    #   # labware and objective catalogues.
+    #   protocol = scope.protocols.create_protocol(input_config=config)
     #
     #   # The image capture config is REQUIRED: it states the run's image
     #   # mode (bit depth + on-disk encoding) explicitly -- there is no

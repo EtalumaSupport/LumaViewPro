@@ -115,9 +115,26 @@ scope = Lumascope()                       # real hardware (auto-detect camera)
 scope = Lumascope(simulate=True)          # simulated (no hardware)
 scope = Lumascope(camera_type='pylon')    # force Basler Pylon
 scope = Lumascope(camera_type='ids')      # force IDS
+scope = Lumascope(simulate=True, source_path='/path/to/lvp')  # another data folder
+
+scope.source_path                         # the data folder the scope was started on
+scope.wellplate_loader                    # the labware catalogue, read from it once
+scope.objective_helper                    # the objective catalogue, read from it once
 ```
 
 Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
+
+```python
+scope.objective_helper.get_objectives_list()        # every objective id in the catalogue
+scope.objective_helper.get_objective_info('4x Oly') # one entry; ConfigError names an unknown id
+scope.objective_helper.get_objectives_dataframe()   # the catalogue as a pandas DataFrame
+scope.wellplate_loader.get_plate_list()             # every plate name in the catalogue
+scope.wellplate_loader.is_known_plate(name)         # True for a catalogue name or a retired alias
+scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; ConfigError if unknown
+scope.wellplate_loader.get_plate(plate_key=name)    # a WellPlate built from the catalogue entry
+```
+
+`source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json` and `data/objectives.json` from it once, first, before anything starts, and everything that asks about plates or objectives reads those two objects: the scope's runtime state, protocol construction and validation, autofocus, the run, and the session. A catalogue file that is missing, unreadable or not the shape its loader needs raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. It is not a `ConfigError`: the installation is at fault, not your settings.
 
 The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. `ui_dispatcher=` (`Clock.schedule_once(func, dt)`'s shape) is where the lanes hand a finished command's callback; leave it `None` (the default) and callbacks run on the lane's worker. A GUI host passes its UI marshaller so they reach its UI thread.
 
@@ -283,7 +300,13 @@ from modules.scope_session import ScopeSession
 # source) and populates the module-global settings dict.
 settings_init.load_lvp_settings(logger, '.')
 session = ScopeSession.create(settings=settings_init.settings, source_path='.')
+
+session.source_path                       # the scope's data folder (source_path above)
+session.wellplate_loader                  # the scope's labware catalogue -- the same object
+session.objective_helper                  # the scope's objective catalogue -- the same object
 ```
+
+`source_path` is the data folder `create` builds the scope on; leave it out and the scope uses the installation's own folder. The session's folder and catalogues are always its scope's, never copies, so nothing in one session can disagree about which plates or objectives exist.
 
 The session comes back **configured** and **running**: `create` builds the scope, runs `session.configure_scope()` (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, `scope.initialize(...)` applied), releases the camera start gate — so `save_image` works without a further `initialize` — and starts the executor lanes: the scope builds and starts its own IO and CAMERA lanes, and the factory builds and starts the FILE lane, the worker pool and the protocol thread around them. Each lane is started once, by whoever built it; starting a running lane again raises `RuntimeError`. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
 
@@ -296,7 +319,8 @@ session = ScopeSession.create(
     simulate=False,                         # True builds a simulated scope instead of opening hardware
     ui_dispatcher=None,                     # host UI marshaling, Clock.schedule_once(func, dt)'s shape;
                                             # None runs executor callbacks inline on the worker (headless);
-                                            # refused beside scope= -- pass it to Lumascope(...) instead
+                                            # refused beside scope= -- pass it to Lumascope(...) instead;
+                                            # so is source_path: a session's folder is its scope's
     af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
     settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
     engineering_mode=False,                 # stored on the session
@@ -317,7 +341,7 @@ session.scope.imaging.start_streaming()
 
 Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. `configure_scope()` also raises `ConfigError` when a data file its helpers need (`labware.json`, `objectives.json`) is absent or unreadable under `source_path`, or when `scopes.json` has no `Models` section.
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json` or `objectives.json` stops the scope's construction with `InstallationFileError` (see "Initialization"). `configure_scope()` raises `ConfigError` when `scopes.json` has no `Models` section.
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -593,7 +617,7 @@ session.recover_file_writer()   # gives up on the run's unsaved images, unlocks 
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
-**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the scope's data folder and judge the protocol against the scope's catalogues, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
 **Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. With no `before_step` or `after_step` the steps follow the last step; giving both raises `ProtocolError`. It returns the inserted step names in protocol order. When any axis (X, Y, Z, or the turret) does not know its position -- never homed, homing, or lost after a failed home -- it raises `ProtocolRunRefusedError` with reason `step_position_unknown`, naming the axes: the position read keeps answering the last number an axis reported, so a step saved then would record a place the scope no longer vouches for. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is logged and notified once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=... (None when unknown, which is refused), channel_order=..., before_step=... | after_step=...)`.
 

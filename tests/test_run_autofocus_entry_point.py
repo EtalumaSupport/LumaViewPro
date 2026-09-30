@@ -364,6 +364,8 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
                     pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
                 ),
                 capabilities=scope.capabilities,
+                objective_helper=scope.objective_helper,
+                wellplate_loader=scope.wellplate_loader,
             )
         finally:
             scope.disconnect()

@@ -21,12 +21,12 @@ from modules.notification_center import notifications
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
-from modules.objectives_loader import ObjectiveLoader
 from modules.zstack_config import ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
+    from modules.objectives_loader import ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
 coordinate_transformer = CoordinateTransformer()
@@ -293,8 +293,6 @@ class Protocol:
     ):
         self._led_max_ma = led_max_ma
 
-        self._objective_loader = ObjectiveLoader()
-
         self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if config is None:
@@ -414,12 +412,11 @@ class Protocol:
             logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
         return out
 
-    def copy_for_execution(self):
+    def copy_for_execution(self) -> 'Protocol':
         """Lightweight copy for protocol execution.
 
         Copies the config dict and steps DataFrame (which get mutated by
-        autofocus Z updates) but shares the read-only ObjectiveLoader and
-        TilingConfig. Much cheaper than copy.deepcopy() for large protocols
+        autofocus Z updates) but shares the read-only TilingConfig. Much cheaper than copy.deepcopy() for large protocols
         with many steps (M14).
         """
         new_config = dict(self._config)  # shallow copy of config dict
@@ -427,7 +424,6 @@ class Protocol:
             new_config['steps'] = new_config['steps'].copy()  # DataFrame copy
         new = Protocol.__new__(Protocol)
         new._config = new_config
-        new._objective_loader = self._objective_loader  # shared, read-only
         new._tiling_config = self._tiling_config  # shared, read-only
         new._num_steps_cache = None
         return new
@@ -645,8 +641,12 @@ class Protocol:
             }
         )
 
-    def validate_steps(self) -> list:
+    def validate_steps(self, objective_helper: 'ObjectiveLoader') -> list:
         """Validate all step fields and return a list of error strings.
+
+        Args:
+            objective_helper: The scope's objective catalogue; a step naming
+                an objective it lacks is an error.
 
         Returns an empty list if all steps are valid.
         """
@@ -655,12 +655,12 @@ class Protocol:
         if steps is None or len(steps) == 0:
             return errors
 
-        # The protocol's own catalogue, the one every other objective read
-        # in this class consults. A second loader built here used to answer
-        # a failed load by skipping the objective check for every step, and
-        # an empty catalogue skipped it the same way -- so the one protocol
-        # that most needed refusing validated clean.
-        valid_objectives = set(self._objective_loader.get_objectives_list())
+        # The caller's catalogue -- the scope's, read from its data folder. A
+        # loader built here used to answer a failed load by skipping the
+        # objective check for every step, and an empty catalogue skipped it
+        # the same way -- so the one protocol that most needed refusing
+        # validated clean.
+        valid_objectives = set(objective_helper.get_objectives_list())
 
         for idx, step in steps.iterrows():
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
@@ -745,7 +745,12 @@ class Protocol:
         return errors
 
     def validate_for_run(
-        self, axis_limits: dict | None = None, stage_offset: dict | None = None
+        self,
+        axis_limits: dict | None = None,
+        stage_offset: dict | None = None,
+        *,
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> list:
         """Validate protocol is safe to execute on hardware.
 
@@ -767,6 +772,8 @@ class Protocol:
             stage_offset: {'x': float, 'y': float} in um, used to convert step
                 X/Y from plate-mm to stage-um. Required when axis_limits
                 includes X or Y; may be None only when X/Y are not checked.
+            objective_helper: The scope's objective catalogue.
+            wellplate_loader: The scope's labware catalogue.
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -782,7 +789,7 @@ class Protocol:
             return errors
 
         # Validate step field values first
-        errors.extend(self.validate_steps())
+        errors.extend(self.validate_steps(objective_helper))
 
         # Refuse a run whose steps would write identical files. Collisions
         # are caught here, loudly, before any hardware moves -- never left
@@ -807,9 +814,7 @@ class Protocol:
         # microplate") are accepted here exactly as they are at runtime in
         # get_plate(). Without this, validation hard-fails on names that
         # would have run fine.
-        from modules import labware_loader
-
-        loader = labware_loader.WellPlateLoader()
+        loader = wellplate_loader
         labware_key = self.labware()
         labware = None
         if labware_key:
@@ -1368,13 +1373,14 @@ class Protocol:
         overlap_percent: float = 0.0,
         *,
         capabilities: 'ScopeCapabilities',
+        objective_helper: 'ObjectiveLoader',
     ) -> dict:
         """Expand every step into a tile grid; returns a status dict.
 
         The tile spacing derives from each step's objective and the scope's
-        optics, so the caller that owns the scope hands its capabilities in;
-        a protocol is a data object handed a scale, never one that finds a
-        scope.
+        optics, so the caller that owns the scope hands its capabilities and
+        its objective catalogue in; a protocol is a data object handed a
+        scale, never one that finds a scope.
         """
 
         status = {
@@ -1396,7 +1402,7 @@ class Protocol:
             orig_steps_df = self.steps()
 
             # Add objective focal length to steps dataframe
-            objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
+            objectives = objective_helper.get_objectives_dataframe()['focal_length']
 
             orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
 
@@ -1644,6 +1650,8 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path,
         *,
         capabilities: 'ScopeCapabilities',
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
         tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
@@ -1710,7 +1718,7 @@ class Protocol:
                 )
             focal_length = None
         else:
-            objective = ObjectiveLoader().get_objective_info(objective_id=objective_id)
+            objective = objective_helper.get_objective_info(objective_id=objective_id)
             focal_length = objective['focal_length']
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
@@ -1737,7 +1745,6 @@ class Protocol:
             actual_positions = positions
             position_source = 'from_manual'
         else:
-            wellplate_loader = labware_loader.WellPlateLoader()
             labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
             labware_obj.set_positions()
             well_positions = labware_obj.get_positions_with_labels()
@@ -1894,7 +1901,7 @@ class Protocol:
         )
 
         # Validate step fields -- reject protocol if any errors found
-        validation_errors = protocol.validate_steps()
+        validation_errors = protocol.validate_steps(objective_helper)
         if validation_errors:
             for err in validation_errors:
                 logger.error(f'Protocol validation: {err}')
@@ -1911,6 +1918,8 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path,
         *,
         capabilities: 'ScopeCapabilities',
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
         tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
@@ -1945,6 +1954,8 @@ class Protocol:
             input_config=input_config,
             tiling_configs_file_loc=tiling_configs_file_loc,
             capabilities=capabilities,
+            objective_helper=objective_helper,
+            wellplate_loader=wellplate_loader,
         )
 
     @staticmethod

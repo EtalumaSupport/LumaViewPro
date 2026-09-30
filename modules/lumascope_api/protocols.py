@@ -7,12 +7,10 @@ property of the running INSTALLATION, not of any protocol, so the
 constructors resolve it here and callers never pass
 `tiling_configs_file_loc` by hand.
 
-`source_path` arrives after construction rather than as a constructor
-argument: the application builds the scope before it knows its own data
-root. That ordering is why `register_source_path` is a separate call,
-and why the constructors raise instead of guessing when it was never
-made -- a wrong tiling config silently produces a protocol whose tiling
-geometry does not match the instrument.
+The data folder is the scope's own, given at its construction; the
+tiling config and the labware catalogue a loaded protocol is judged
+against both come from it, so a protocol is never built against another
+installation's files.
 
 This surface BUILDS protocols; it does not run them. The runner is
 `ScopeSession.create_protocol_runner()`.
@@ -55,24 +53,9 @@ class ProtocolsAPI:
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
-        self._source_path = None
-
-    def register_source_path(self, source_path) -> None:
-        """Register the LVP source/data path the constructors resolve against.
-
-        Internal session-composition wiring -- called by ScopeSession at
-        construction and not part of the L2 API surface.
-
-        Called once at startup, after the scope is constructed. Tests that
-        don't drive the protocol API can skip it.
-
-        Args:
-            source_path: Path-like to the LVP source/data root.
-        """
-        self._source_path = source_path
 
     def tiling_configs_path(self) -> pathlib.Path:
-        """Resolve data/tiling.json from the registered source path.
+        """Resolve data/tiling.json from the scope's data folder.
 
         The one owner of that path: the protocol constructors resolve it
         here, and the run engine takes it from here at run start for the
@@ -81,19 +64,13 @@ class ProtocolsAPI:
         of whatever the process's script root holds. An engine seam, not
         part of the L2 API surface: a caller never needs the path itself.
         """
-
-        if self._source_path is None:
-            raise RuntimeError(
-                'scope.protocols.load_protocol/create_protocol require '
-                'scope.protocols.register_source_path() to have been called.'
-            )
-        return pathlib.Path(self._source_path) / 'data' / 'tiling.json'
+        return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
 
     def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.
 
         Wraps ``Protocol.from_file(...)`` and resolves
-        ``data/tiling.json`` from the registered source_path.
+        ``data/tiling.json`` from the scope's data folder.
 
         Args:
             file_path: Path to the protocol file.
@@ -113,14 +90,13 @@ class ProtocolsAPI:
                 plate is: a caller must not be handed a protocol it can
                 edit, navigate and save but never perform.
         """
-        from modules import labware_loader
         from modules.protocol import Protocol
 
         protocol = Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self.tiling_configs_path(),
             led_max_ma=self._scope.capabilities.led_max_ma,
-            wellplate_loader=labware_loader.WellPlateLoader(source_path=self._source_path),
+            wellplate_loader=self._scope.wellplate_loader,
         )
         # After the parse, so a file that is not a protocol at all is
         # answered as that rather than as a turret problem, and before the
@@ -144,8 +120,8 @@ class ProtocolsAPI:
           - empty_config={...}: labware, period, duration, frame_dimensions
             and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
-        tiling_configs_file_loc is resolved internally from the registered
-        source_path.
+        tiling_configs_file_loc is resolved internally from the scope's data
+        folder.
 
         Args:
             config: Full config dict, or None.
@@ -172,12 +148,16 @@ class ProtocolsAPI:
                 input_config=input_config,
                 tiling_configs_file_loc=tcfg,
                 capabilities=self._scope.capabilities,
+                objective_helper=self._scope.objective_helper,
+                wellplate_loader=self._scope.wellplate_loader,
             )
         if empty_config is not None:
             return Protocol.create_empty(
                 config=empty_config,
                 tiling_configs_file_loc=tcfg,
                 capabilities=self._scope.capabilities,
+                objective_helper=self._scope.objective_helper,
+                wellplate_loader=self._scope.wellplate_loader,
             )
         return Protocol(
             tiling_configs_file_loc=tcfg,

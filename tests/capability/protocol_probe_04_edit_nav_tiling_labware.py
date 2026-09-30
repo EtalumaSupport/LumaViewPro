@@ -109,6 +109,7 @@ try:
         stage_offset=settings['stage_offset'],
         overlap_percent=settings['tiling_overlap_percent'],
         capabilities=session.scope.capabilities,
+        objective_helper=session.scope.objective_helper,
     )
     print('tile status:', status, f'{before} -> {p.num_steps()} steps')
     print('ASSERT tiled 4x:', 'PASS' if p.num_steps() == before * 4 else f'CHECK ({p.num_steps()})')

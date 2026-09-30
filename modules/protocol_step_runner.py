@@ -595,7 +595,7 @@ class ProtocolStepRunner:
         sliders, manual moves) mid-step.
         """
         p = self._p
-        labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())
+        labware = p._scope.wellplate_loader.get_plate(plate_key=p._protocol.labware())
 
         if (px is not None) and (py is not None):
             # Converted HERE, against the labware the PROTOCOL stores, not

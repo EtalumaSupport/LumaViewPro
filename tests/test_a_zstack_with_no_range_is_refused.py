@@ -77,8 +77,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
 @pytest.fixture
 def sim_scope():
 
-    scope = build_scope(simulate=True)
-    scope.protocols.register_source_path(_REPO_ROOT)
+    scope = build_scope(simulate=True, source_path=_REPO_ROOT)
     try:
         yield scope
     finally:
@@ -93,6 +92,8 @@ class TestTheBuilderRefuses:
                 input_config=_standalone_config(zstack),
                 tiling_configs_file_loc=_TILING,
                 capabilities=sim_scope.capabilities,
+                objective_helper=sim_scope.objective_helper,
+                wellplate_loader=sim_scope.wellplate_loader,
             )
 
         assert refusal.value.reason == 'zstack_not_configured', (
@@ -112,6 +113,8 @@ class TestTheBuilderRefuses:
                 input_config=_standalone_config(zstack),
                 tiling_configs_file_loc=_TILING,
                 capabilities=sim_scope.capabilities,
+                objective_helper=sim_scope.objective_helper,
+                wellplate_loader=sim_scope.wellplate_loader,
             )
 
     def test_a_configured_stack_still_builds(self, sim_scope):
@@ -120,6 +123,8 @@ class TestTheBuilderRefuses:
             input_config=_standalone_config({'range': 20.0, 'step_size': 5.0}),
             tiling_configs_file_loc=_TILING,
             capabilities=sim_scope.capabilities,
+            objective_helper=sim_scope.objective_helper,
+            wellplate_loader=sim_scope.wellplate_loader,
         )
 
         assert protocol.num_steps() > 1, 'a configured stack is more than one plane'
@@ -136,6 +141,8 @@ class TestTheBuilderRefuses:
             input_config=_standalone_config(zstack, use_zstacking=False),
             tiling_configs_file_loc=_TILING,
             capabilities=sim_scope.capabilities,
+            objective_helper=sim_scope.objective_helper,
+            wellplate_loader=sim_scope.wellplate_loader,
         )
 
         assert protocol.num_steps() >= 1
@@ -162,6 +169,8 @@ class TestTheRefusalReachesTheUser:
                 input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
                 tiling_configs_file_loc=_TILING,
                 capabilities=sim_scope.capabilities,
+                objective_helper=sim_scope.objective_helper,
+                wellplate_loader=sim_scope.wellplate_loader,
             )
 
         assert len(posted) == 1, f'the refusal must reach the user exactly once: {posted}'
@@ -182,6 +191,8 @@ class TestTheRefusalReachesTheUser:
                 input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
                 tiling_configs_file_loc=_TILING,
                 capabilities=sim_scope.capabilities,
+                objective_helper=sim_scope.objective_helper,
+                wellplate_loader=sim_scope.wellplate_loader,
             )
 
         assert posted[0].get('solicited') is True, (

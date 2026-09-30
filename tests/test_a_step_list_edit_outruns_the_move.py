@@ -62,6 +62,7 @@ import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 
 
@@ -149,6 +150,7 @@ def env(monkeypatch):
             motor_connected=True,
             motion=MagicMock(),
             illumination=MagicMock(),
+            objective_helper=ObjectiveLoader(),
         ),
         image_settings=SimpleNamespace(layer_lookup=lambda layer: MagicMock()),
         session=SimpleNamespace(
@@ -158,6 +160,8 @@ def env(monkeypatch):
         ),
         stage=MagicMock(),
     )
+    # The GUI reads the scope through the main widget as well as directly.
+    ctx.lumaview = SimpleNamespace(scope=ctx.scope)
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
 
     def panel(num_steps, curr_step):
