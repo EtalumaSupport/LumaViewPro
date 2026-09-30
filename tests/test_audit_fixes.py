@@ -9829,9 +9829,9 @@ class TestOpticsOnCapabilities:
         assert sim_scope.capabilities.lens_focal_length_mm == 47.8
 
     def test_null_motor_optics_defaults(self):
-        """A NullMotionBoard has no motorconfig; capabilities falls back
-        to the Etaluma reference defaults (47.8 mm / 2.0 um) so callers
-        don't need to special-case the no-hardware path."""
+        """A NullMotionBoard has no motor configuration, and an unresolved
+        identity names no model, so nothing can report a scale: the
+        capabilities say None rather than a motorised scope's 2.0 um."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
         from modules.layer_record import UNRESOLVED
@@ -9843,8 +9843,8 @@ class TestOpticsOnCapabilities:
             camera=None,
             layer_identity=UNRESOLVED,
         )
-        assert caps.pixel_size_um == 2.0
-        assert caps.lens_focal_length_mm == 47.8
+        assert caps.pixel_size_um is None
+        assert caps.lens_focal_length_mm is None
 
 
 class TestConnectionCheckShapeUniformOnLumascope:

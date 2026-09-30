@@ -48,6 +48,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 
 import platformdirs
 
@@ -2567,7 +2568,11 @@ class TechSupportReport:
             except OSError:
                 pass
 
-    def generate_logs_only(self, callback=None, output_dir=None):
+    def generate_logs_only(
+        self,
+        callback: Callable[[int, str], None] | None = None,
+        output_dir: str | pathlib.Path | None = None,
+    ) -> pathlib.Path | None:
         """Quick zip of logs + data + recent protocols + video receipts.
         No hardware tests.
 
@@ -2608,8 +2613,10 @@ class TechSupportReport:
                 sn_tag = None
                 try:
                     mb = self.diag.motor_board
-                    if mb is not None and hasattr(mb, 'motorconfig'):
-                        sn = mb.motorconfig.serial_number()
+                    # A scope with no motor board has no motor configuration.
+                    motorconfig = getattr(mb, 'motorconfig', None) if mb is not None else None
+                    if motorconfig is not None:
+                        sn = motorconfig.serial_number()
                         if sn and sn != 'Unknown':
                             sn_tag = sn
                 except Exception:

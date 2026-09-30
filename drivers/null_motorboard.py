@@ -3,8 +3,9 @@
 """Null-object motor board -- no-op implementation of the MotorBoard interface.
 
 Used when no motor hardware is present (e.g., LS620 Lumascope Classic, or
-MotorBoard connection failure). All methods return safe defaults:
-positions return 0.0, moves complete immediately, homing reports done.
+MotorBoard connection failure). It has no motor configuration and no
+axes; the rest return safe defaults: positions return 0.0, moves
+complete immediately, homing reports done.
 
 This eliminates the need for ``if not self.motion`` guards throughout the
 codebase (the API handles missing hardware gracefully).
@@ -16,12 +17,11 @@ The Lumascope API assigns ``self.motion = NullMotionBoard()`` instead of
 from __future__ import annotations
 
 import logging
-import pathlib
 import threading
 from collections.abc import Mapping
 
 from drivers.registry import motor_registry
-from drivers.motorconfig import MotorConfig, read_only_axes_config
+from drivers.motorconfig import read_only_axes_config
 
 logger = logging.getLogger('LVP.drivers.null_motorboard')
 
@@ -34,7 +34,7 @@ class NullMotionBoard:
     directly (``driver``, ``overshoot``, ``thread_lock``, etc.).
     """
 
-    def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None):
+    def __init__(self):
         # Required attributes accessed directly by lumascope_api and callers
         self.driver = True  # truthy sentinel -- satisfies `not self.motion.driver`
         self.overshoot = False
@@ -52,25 +52,16 @@ class NullMotionBoard:
         self.firmware_responding = False
         self.is_v3 = False
 
-        # Load motorconfig for coordinate transforms (uses defaults)
-        if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
-        try:
-            self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
-        except Exception:
-            self.motorconfig = MotorConfig.__new__(MotorConfig)
-            self.motorconfig._config = {}
+        # No board, so no motor configuration and no axes. A default
+        # configuration here answered the optics and the axis limits of a
+        # motorised scope, and the pixel-size resolver takes the motor
+        # configuration's answer first -- so a scope with no motor board
+        # recorded that scope's scale instead of its own.
+        self.motorconfig = None
 
         self.backlash = 0.0
 
-        self.axes_config = read_only_axes_config(
-            {
-                'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': self.z_um2ustep},
-                'X': {'limits': {'min': 0.0, 'max': 120000.0}, 'move_func': self.xy_um2ustep},
-                'Y': {'limits': {'min': 0.0, 'max': 80000.0}, 'move_func': self.xy_um2ustep},
-                'T': {'move_func': self.t_pos2ustep},
-            }
-        )
+        self.axes_config = read_only_axes_config({})
 
         logger.debug('[NULL Motor] NullMotionBoard initialized (no motor hardware)')
 
@@ -359,95 +350,71 @@ class NullMotionBoard:
         return ''
 
     # ------------------------------------------------------------------
-    # Coordinate transforms (delegate to motorconfig or use defaults)
+    # Coordinate transforms (no axes, so none)
     # ------------------------------------------------------------------
-    def z_ustep2um(self, ustep) -> float:
-        """Convert Z microsteps to micrometers (motorconfig delegate).
+    def z_ustep2um(self, ustep: int) -> float:
+        """No board, so no Z axis to convert for.
 
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            float: Position in micrometers.
+        Raises:
+            RuntimeError: Always.
         """
-        try:
-            return self.motorconfig.z_ustep2um(ustep)
-        except Exception:
-            return float(ustep) * 0.049  # default
+        raise RuntimeError('no motor board: no Z axis to convert for')
 
-    def z_um2ustep(self, um) -> int:
-        """Convert Z micrometers to microsteps (motorconfig delegate).
+    def z_um2ustep(self, um: float) -> int:
+        """No board, so no Z axis to convert for.
 
-        Args:
-            um: Position in micrometers.
-
-        Returns:
-            int: Microstep count.
+        Raises:
+            RuntimeError: Always.
         """
-        try:
-            return self.motorconfig.z_um2ustep(um)
-        except Exception:
-            return int(um / 0.049)
+        raise RuntimeError('no motor board: no Z axis to convert for')
 
-    def xy_ustep2um(self, ustep) -> float:
-        """Convert XY microsteps to micrometers (motorconfig delegate).
+    def xy_ustep2um(self, ustep: int) -> float:
+        """No board, so no XY axis to convert for.
 
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            float: Position in micrometers.
+        Raises:
+            RuntimeError: Always.
         """
-        try:
-            return self.motorconfig.xy_ustep2um(ustep)
-        except Exception:
-            return float(ustep) * 0.049
+        raise RuntimeError('no motor board: no XY axis to convert for')
 
-    def xy_um2ustep(self, um) -> int:
-        """Convert XY micrometers to microsteps (motorconfig delegate).
+    def xy_um2ustep(self, um: float) -> int:
+        """No board, so no XY axis to convert for.
 
-        Args:
-            um: Position in micrometers.
-
-        Returns:
-            int: Microstep count.
+        Raises:
+            RuntimeError: Always.
         """
-        try:
-            return self.motorconfig.xy_um2ustep(um)
-        except Exception:
-            return int(um / 0.049)
+        raise RuntimeError('no motor board: no XY axis to convert for')
 
-    def t_ustep2deg(self, ustep) -> float:
-        """Null implementation: returns sentinel value.
+    def t_ustep2deg(self, ustep: int) -> float:
+        """No board, so no turret to convert for.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            RuntimeError: Always.
         """
-        return 0.0
+        raise RuntimeError('no motor board: no turret to convert for')
 
-    def t_ustep2pos(self, ustep) -> float:
-        """Null implementation: returns sentinel value.
+    def t_ustep2pos(self, ustep: int) -> int:
+        """No board, so no turret to convert for.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            RuntimeError: Always.
         """
-        return 0.0
+        raise RuntimeError('no motor board: no turret to convert for')
 
-    def t_deg2ustep(self, degrees) -> int:
-        """Null implementation: returns sentinel value.
+    def t_deg2ustep(self, degrees: float) -> int:
+        """No board, so no turret to convert for.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            RuntimeError: Always.
         """
-        return 0
+        raise RuntimeError('no motor board: no turret to convert for')
 
-    def t_pos2ustep(self, position) -> int:
-        """Null implementation: returns sentinel value.
+    def t_pos2ustep(self, position: int) -> int:
+        """No board, so no turret to convert for.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            RuntimeError: Always.
         """
-        return 0
+        raise RuntimeError('no motor board: no turret to convert for')
 
     # ------------------------------------------------------------------
     # Firmware / serial (no-ops)

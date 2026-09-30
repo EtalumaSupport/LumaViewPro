@@ -81,7 +81,6 @@ def test_the_null_driver_builds_a_read_only_config():
 
     board = NullMotionBoard()
 
-    with pytest.raises(TypeError):
-        board.get_axis_limits('Z')['max'] = 114000.0
+    # It has no axes and no limits; its empty config still refuses a write.
     with pytest.raises(TypeError):
         board.get_axes_config()['Z'] = {}

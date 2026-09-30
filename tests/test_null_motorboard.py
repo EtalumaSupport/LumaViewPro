@@ -25,10 +25,8 @@ class TestNullMotionBoardInterface:
         assert board.overshoot is False
 
     def test_has_axes_config(self, board):
-        assert 'X' in board.axes_config
-        assert 'Y' in board.axes_config
-        assert 'Z' in board.axes_config
-        assert 'T' in board.axes_config
+        # No board, no axes: an empty config, not a motorised scope's.
+        assert dict(board.axes_config) == {}
 
 
 class TestNullMotionBoardMovement:
@@ -126,33 +124,30 @@ class TestNullMotionBoardInfo:
         assert board.get_microscope_model() is None
 
     def test_get_axis_limits(self, board):
-        limits = board.get_axis_limits('Z')
-        assert limits is not None
-        assert 'min' in limits
-        assert 'max' in limits
+        assert board.get_axis_limits('Z') is None
 
     def test_is_connected_false(self, board):
         assert board.is_connected() is False
 
 
 class TestNullMotionBoardCoordinateTransforms:
-    """Coordinate transforms work (use defaults)."""
+    """No axes, so no coordinate transforms: each refuses loudly."""
 
     @pytest.fixture
     def board(self):
         return NullMotionBoard()
 
     def test_z_roundtrip(self, board):
-        um = 5000.0
-        steps = board.z_um2ustep(um)
-        back = board.z_ustep2um(steps)
-        assert abs(back - um) < 1.0  # within 1um
+        with pytest.raises(RuntimeError, match='no motor board'):
+            board.z_um2ustep(5000.0)
+        with pytest.raises(RuntimeError, match='no motor board'):
+            board.z_ustep2um(1)
 
     def test_xy_roundtrip(self, board):
-        um = 10000.0
-        steps = board.xy_um2ustep(um)
-        back = board.xy_ustep2um(steps)
-        assert abs(back - um) < 1.0
+        with pytest.raises(RuntimeError, match='no motor board'):
+            board.xy_um2ustep(10000.0)
+        with pytest.raises(RuntimeError, match='no motor board'):
+            board.xy_ustep2um(1)
 
 
 class TestNullMotionBoardNoOps:
