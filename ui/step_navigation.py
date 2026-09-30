@@ -319,11 +319,11 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # executor. Outside a run the listener bridge is the sole button writer,
     # reflecting driver truth -- a forced 'down' here would go stale and any
     # later apply_settings(update_led=True) would re-light the channel.
-    # "During protocol" is the RUNNER's truth, not the run lockout: the
+    # "During protocol" is a run in progress, not the run lockout: the
     # lockout deliberately holds through the post-run writing-files
     # window, when stepping is manual and no LED event will ever correct a
     # forced 'down' left here.
-    if ctx.sequenced_capture_runner.run_in_progress():
+    if ctx.session.run_in_progress:
         from ui.layer_control import LayerControl
 
         LayerControl._suppressing_led_log = True

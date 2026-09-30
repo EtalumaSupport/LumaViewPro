@@ -903,12 +903,13 @@ class TestCloseWithProgress:
         assert not controller.is_busy
 
     def test_app_close_gate_reads_the_controller(self):
-        # The close hook must consult the recording controller and route
-        # through the progress-with-discard flow; kv/Window plumbing has
-        # no headless seam, so pin the wiring on source.
+        # The close hook must ask the Session whether either video drain
+        # still holds frames, and route through the progress-with-discard
+        # flow; kv/Window plumbing has no headless seam, so pin the wiring
+        # on source.
         repo = manual_recording_module.Path(__file__).resolve().parent.parent
         app_src = (repo / 'lumaviewpro.py').read_text()
-        assert 'recording.is_busy' in app_src
+        assert 'close_drain_pending' in app_src
         assert '_close_with_drain_progress' in app_src
         assert 'show_blocking_progress_popup' in app_src
         assert 'Discard Remaining Frames' in app_src

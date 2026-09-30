@@ -60,7 +60,7 @@ class VerticalControl(BoxLayout):
 
     def update_gui(self, vertical_control=False):
         ctx = _app_ctx.ctx
-        if ctx.sequenced_capture_runner.run_in_progress():
+        if ctx.session.run_in_progress:
             return
         if not vertical_control:
             # The target is a cache read -- no lane, no serial I/O -- shown on

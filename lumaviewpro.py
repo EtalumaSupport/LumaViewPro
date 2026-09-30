@@ -1329,7 +1329,7 @@ class LumaViewProApp(TooltipMixin, App):
         recording.stop()
 
         def _busy() -> bool:
-            return recording.is_busy or (runner is not None and runner.video_drain_busy)
+            return ctx.session.close_drain_pending
 
         def _pending() -> int:
             tail = runner.video_pending_writes if runner is not None else 0

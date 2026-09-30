@@ -112,13 +112,15 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
             ids={'toggle_imagesettings': _Button(state='down')},
             toggle_settings=lambda: None,
         ),
-        sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: run_in_progress),
         ui_listener_bridge=None,
         scope=scope,
         # Nothing holds the scope: the run has ended; its files are written
         # unless files_draining.
         session=SimpleNamespace(
-            run_lockout=False, exclusive_activity=None, protocol_files_draining=files_draining
+            run_lockout=False,
+            exclusive_activity=None,
+            protocol_files_draining=files_draining,
+            run_in_progress=run_in_progress,
         ),
         scope_display=SimpleNamespace(use_live_image_histogram_equalization=False),
         live_histo_setting=False,

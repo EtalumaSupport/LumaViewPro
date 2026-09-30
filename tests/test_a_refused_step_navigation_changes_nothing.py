@@ -135,8 +135,9 @@ def nav_env(monkeypatch):
         ),
         scope=scope,
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
-        session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
-        sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
+        session=SimpleNamespace(
+            is_protocol_running=False, run_lockout=False, run_in_progress=False
+        ),
         stage=SimpleNamespace(draw_labware=MagicMock()),
         io_executor=object(),
     )
