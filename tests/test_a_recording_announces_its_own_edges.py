@@ -10,15 +10,20 @@ not yet live, and a recording still finishing after it has finished; before
 these edges the GUI polled to cover them, which a headless caller cannot.
 """
 
+import threading
+
 import pytest
 
 from modules.activity_claim import ActivityClaim
+import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
 from modules.video_recording import VideoRecordingEngine
 from tests.test_manual_recording_controller import (
+    _capture_engine_and_writer,
     _FakeScope,
     feed_frames,
     finish,
+    make_controller,
     make_settings,
 )
 from tests.test_video_recording_contract import make_config
@@ -113,3 +118,29 @@ class TestTheController:
         assert heard[-1] is False, (
             f'the last edge a listener heard still read the recording busy; heard {heard}'
         )
+
+    def test_a_finish_that_could_not_start_leaves_nothing_busy(self, tmp_path, monkeypatch):
+        # Thread exhaustion raises at the finish thread's start(), after the
+        # controller has marked its finish pending. Nothing will ever run to
+        # end that finish, so the failed start must: a finish left pending
+        # refuses every later recording and holds the application's close.
+        made = _capture_engine_and_writer(monkeypatch)
+        real_thread = threading.Thread
+
+        class _Unstartable(real_thread):
+            def start(self):
+                raise RuntimeError("can't start new thread")
+
+        def _thread(*args, **kwargs):
+            if kwargs.get('name') == 'ManualRecordingFinish':
+                return _Unstartable(*args, **kwargs)
+            return real_thread(*args, **kwargs)
+
+        monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
+        controller, _scope, _clock = make_controller(tmp_path)
+
+        with pytest.raises(RuntimeError):
+            controller.start()
+
+        assert made['engine'].wait_for_drain(timeout=5)
+        assert not controller.is_busy, 'a finish that never started is still pending'
