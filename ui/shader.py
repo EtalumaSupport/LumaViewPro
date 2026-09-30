@@ -114,6 +114,9 @@ void main (void) {
         self._mouse_pixel_y = -1
         self._mouse_over_image = False
         Window.bind(mouse_pos=self._on_mouse_pos)
+        # The window sends no mouse position once the pointer has left it, so
+        # without this the readout would freeze on the last pixel it saw.
+        Window.bind(on_cursor_leave=self._on_cursor_leave)
 
         # Scroll-to-focus: accumulate scroll ticks and debounce into single move
         # The last tick's (signed speed factor, coarse), or None: the step
@@ -220,6 +223,10 @@ void main (void) {
             redraw=None,
             label='SCROLL_TO_FOCUS',
         )
+
+    def _on_cursor_leave(self, window):
+        """The pointer left the window, so it is over no image."""
+        self._mouse_over_image = False
 
     def _on_mouse_pos(self, window, pos):
         """Convert window mouse position to image pixel coordinates."""
