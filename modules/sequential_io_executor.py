@@ -537,7 +537,6 @@ class SequentialIOExecutor:
         self._worker_thread = None
         self._running_task_lock = threading.Lock()
         self._running_task = None
-        self.global_callback = None
         self.pending_shutdown = False
         self._caller_futures_lock = threading.Lock()
         self.caller_futures = {}
@@ -1535,10 +1534,6 @@ class SequentialIOExecutor:
 
         self.running_task = None
         self._running_task_started_monotonic = None
-        if self.global_callback is not None:
-            self._ui_dispatch(
-                lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0
-            )
 
     def caller_futures_stats(self) -> tuple:
         """Return (allocs, pops, live_count) for the caller_futures dict.
@@ -1555,12 +1550,6 @@ class SequentialIOExecutor:
                 len(self.caller_futures),
             )
 
-    def set_done_callback(self, callback_fn, cb_args, cb_kwargs):
-        # Allows to set a callback for when any IO task finishes (universal)
-        self.global_callback = callback_fn
-        self.global_cb_args = cb_args
-        self.global_cb_kwargs = cb_kwargs
-
     def shutdown(self, wait: bool = True) -> None:
         self.pending_shutdown = True
         self.enable()
@@ -1572,10 +1561,6 @@ class SequentialIOExecutor:
             # (0.2s); bound the join so a hung task does not block
             # process exit indefinitely.
             self._worker_thread.join(timeout=5.0)
-
-        self.global_callback = None
-        self.global_cb_args = None
-        self.global_cb_kwargs = None
 
         # The queues' waiters were cancelled above; what remains belongs to
         # tasks still running. Each is completed, never just forgotten: a
