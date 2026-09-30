@@ -34,6 +34,29 @@ _MOTOR_VERBS_ANYWHERE = ('ACTUAL_W', 'TARGET_W')
 # TMC5072 read half; bit 7 set is a register write) and a decimal payload.
 _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 
+# What the diagnostics channel answers in place of a board's reply. They
+# come back as strings so a report can write them where the reply would
+# have gone; anything that times, parses or counts a reply tells them from
+# one with ``is_board_reply``.
+NOT_CONNECTED = 'Board not connected'
+NO_REPLY = 'None'  # a single-line read that timed out
+NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
+ERROR_PREFIX = 'Error: '
+
+# The LED board's text command set, as ``get_led_info()['command_set']``
+# names it. INFO predates the v2 firmware; SELFTEST, I2CSCAN and the
+# LEDREAD current reads came with it. A board with no text command channel
+# at all (the FX2's LED peripheral) answers None.
+LED_COMMANDS_LEGACY = 'legacy'
+LED_COMMANDS_V2 = 'v2'
+
+
+def is_board_reply(response: str | list[str] | None) -> bool:
+    """True when ``response`` is a board's reply, not the channel's stand-in for one."""
+    if not response or response in (NOT_CONNECTED, NO_REPLY, NO_RESPONSE):
+        return False
+    return not (isinstance(response, str) and response.startswith(ERROR_PREFIX))
+
 
 def _refuse_motor_verb(command: str) -> None:
     """Raise if ``command`` would move or stop a motor or rewrite a position."""
@@ -711,10 +734,10 @@ class DiagnosticsAPI:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
             logger.warning(f'[SCOPE API ] send_diagnostic_command: {e}')
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
         if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
+            return NOT_CONNECTED
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
@@ -739,12 +762,12 @@ class DiagnosticsAPI:
     def _exchange_command_impl(board, target: str, command: str, **kwargs) -> str:
         try:
             resp = board.exchange_command(command, **kwargs)
-            return resp if resp is not None else 'None'
+            return resp if resp is not None else NO_REPLY
         except Exception as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command({target}, {command!r}) failed: {e}'
             )
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
     def send_diagnostic_command_multiline(
         self,
@@ -784,10 +807,10 @@ class DiagnosticsAPI:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
             logger.warning(f'[SCOPE API ] send_diagnostic_command_multiline: {e}')
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
         if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
+            return NOT_CONNECTED
 
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
@@ -809,12 +832,12 @@ class DiagnosticsAPI:
         try:
             # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
             result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
-            return result if result else 'No response'
+            return result if result else NO_RESPONSE
         except Exception as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command_multiline({target}, {command!r}) failed: {e}'
             )
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
     # --- Motor driver / fan diagnostics ---
     # Each returns parsed values or None when the firmware does not
@@ -970,15 +993,52 @@ class DiagnosticsAPI:
         """Get LED controller information.
 
         Returns:
-            dict: Keys 'firmware_version', 'connected'.
+            dict: Keys 'firmware_version', 'connected' and 'command_set':
+                ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
+                ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2),
+                or None (no text command channel, as on an FX2 scope, or no
+                board connected).
         """
-        if not self._scope._led_driver or not self._scope._led_driver.is_connected():
-            return {'firmware_version': None, 'connected': False}
+        drv = self._scope._led_driver
+        if not drv or not drv.is_connected():
+            return {'firmware_version': None, 'connected': False, 'command_set': None}
 
+        if not hasattr(drv, 'exchange_multiline'):
+            command_set = None
+        elif drv.is_v2:
+            command_set = LED_COMMANDS_V2
+        else:
+            command_set = LED_COMMANDS_LEGACY
         return {
-            'firmware_version': getattr(self._scope._led_driver, 'firmware_version', None),
+            'firmware_version': getattr(drv, 'firmware_version', None),
             'connected': True,
+            'command_set': command_set,
         }
+
+    def read_led_currents_ma(self) -> dict[int, float | None]:
+        """Read the measured current of every LED channel, in mA.
+
+        One pass over the board's channels on the IO lane. The v2 firmware
+        answers these reads only in engineering mode; the caller enters it.
+
+        Returns:
+            dict: Channel -> mA, or None for a channel whose current could
+                not be read (no reply, an unparseable one, or a board with
+                no current sensing). Empty when no LED board is connected.
+        """
+        drv = self._scope._led_driver
+        if not self._scope.led_connected:
+            return {}
+        return self._scope.motion._dispatch_motion(
+            self._read_led_currents_impl,
+            'read_led_currents_ma',
+            args=(drv,),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _read_led_currents_impl(drv) -> dict[int, float | None]:
+        return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
     def get_camera_info(self) -> dict:
         """Get camera information.

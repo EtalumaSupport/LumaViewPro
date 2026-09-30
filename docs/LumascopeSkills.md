@@ -1388,7 +1388,10 @@ Hardware diagnostic probes and identity getters live on the `scope.diagnostics` 
 ```python
 scope.diagnostics.get_microscope_model()   # 'LS850'
 scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
-scope.diagnostics.get_led_info()           # firmware, cal status
+scope.diagnostics.get_led_info()           # firmware_version, connected, command_set:
+                                           #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
+                                           #   'legacy' (INFO only: firmware before v2),
+                                           #   None (no text commands, e.g. an FX2 scope)
 scope.diagnostics.get_system_info()        # combined summary
 scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). For an objective-adjusted effective um/pixel, call common_utils.get_pixel_size(focal_length, binning_size).
 scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None if the scope cannot report it
@@ -1426,6 +1429,11 @@ probe = scope.diagnostics.run_pylon_diagnostic_probe(
 # Engineering-mode firmware diagnostic commands. Routes through the
 # canonical driver path (Rule 13 logging, Rule 14 error visibility).
 # target is 'led' or 'motor'.
+# When no reply came back the answer is a stand-in string ('Board not
+# connected', 'None' for a timed-out read, 'No response', or 'Error: ...');
+# is_board_reply() tells them from a reply. Check get_led_info()['command_set']
+# before sending an LED command the board may not carry.
+from modules.lumascope_api.diagnostics import is_board_reply
 resp = scope.diagnostics.send_diagnostic_command('led', 'INFO')
 lines = scope.diagnostics.send_diagnostic_command_multiline(
     'led', 'SELFTEST', timeout_s=60,
@@ -1440,6 +1448,7 @@ ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
 # LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
 # Use these in place of open-coded send_diagnostic_command sequences.
 ok = scope.diagnostics.enter_led_engineering_mode(timeout_s=5.0)
+currents = scope.diagnostics.read_led_currents_ma()   # {channel: mA or None}; v2, in engineering mode
 scope.diagnostics.exit_led_engineering_mode()
 ```
 

@@ -34,6 +34,7 @@ Recent protocols list (reusable from GUI):
 """
 
 import contextlib
+import dataclasses
 import datetime
 import enum
 import json
@@ -59,6 +60,11 @@ from modules.exceptions import (
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
     HomingFailedError,
+)
+from modules.lumascope_api.diagnostics import (
+    LED_COMMANDS_V2,
+    NOT_CONNECTED,
+    is_board_reply,
 )
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
@@ -863,6 +869,20 @@ class MotorBoardPresence(enum.Enum):
     NOT_ON_THIS_MODEL = 'No motor board on this model'
 
 
+def _unread_text(unread: dict) -> str:
+    """The one statement an ``_unread_*`` entry makes, for a step that writes text."""
+    (text,) = unread.values()
+    return text
+
+
+@dataclasses.dataclass(frozen=True)
+class _SkippedStep:
+    """Why the report's hardware steps did not run, and what that meant for each."""
+
+    reason: str
+    consequence: str
+
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -872,28 +892,30 @@ class FirmwareDiagnostics:
     Driver objects are NOT held on this class (LAYER-D / LV-32 / LV-40).
     """
 
-    # Bench code that historically invoked this class without a scope
-    # (e.g. command-line tools) can still call ``connect_standalone()``
-    # to set ``self._scope``. The ``self.led_board`` / ``self.motor_board``
-    # convenience attributes are intentionally absent -- diagnostics call
-    # ``self._cmd('led', ...)`` / ``self._cmd('motor', ...)`` instead.
+    # The command-line report builds its own scope with
+    # ``connect_standalone()``; the GUI report is handed the running one.
 
     def __init__(self, scope=None):
         self._scope = scope
+        # Why ``connect_standalone`` could not build a scope, or None.
+        self.build_failure: Exception | None = None
 
-    def connect_standalone(self):
-        """Auto-detect and connect to boards (standalone mode).
+    def connect_standalone(self) -> None:
+        """Build a scope for the command-line report through the API.
 
-        Uses Lumascope.create_diagnostic() to connect through the proper
-        API layer instead of importing drivers directly.
+        A scope that cannot be built (a missing or unreadable install file,
+        say) leaves ``self._scope`` None and the cause in
+        ``build_failure``, so the report can say in its own files why no
+        hardware step ran instead of reporting every board as unplugged.
         """
         try:
             from modules.lumascope_api import Lumascope
 
             self._scope = Lumascope.create_diagnostic()
+            self.build_failure = None
         except Exception as e:
-            logger.warning(f'Diagnostic scope creation failed: {e}')
             self._scope = None
+            self.build_failure = e
 
     @property
     def scope(self):
@@ -918,20 +940,11 @@ class FirmwareDiagnostics:
     def _led_ok(self) -> bool:
         """True when a real LED board is connected to this scope.
 
-        Post-Wave-7 the truthy probe lives on the Lumascope live property
-        ``led_connected`` (the sub-API namespace ``scope.illumination``
-        is non-None even when only a NullLEDBoard is installed, so
-        checking sub-API truthiness is not enough). Falls back to the
-        underlying driver's ``found`` attribute when the live property
-        is unavailable (e.g. legacy diagnostic scopes).
+        The probe is the scope's ``led_connected``: the sub-API namespace
+        ``scope.illumination`` is non-None even when only a NullLEDBoard is
+        installed, so its truthiness says nothing.
         """
-        if not self._scope:
-            return False
-        live = getattr(self._scope, 'led_connected', None)
-        if isinstance(live, bool):
-            return live
-        drv = getattr(self._scope, '_led_driver', None)
-        return drv is not None and getattr(drv, 'found', False)
+        return self._scope is not None and self._scope.led_connected
 
     def motor_board_presence(self) -> MotorBoardPresence:
         """Whether this scope's motor board is connected, missing, or never fitted.
@@ -961,6 +974,23 @@ class FirmwareDiagnostics:
         if presence is MotorBoardPresence.NOT_ON_THIS_MODEL:
             return {'not_applicable': presence.value}
         return {'error': presence.value}
+
+    def _unread_led(self, needs_v2: bool) -> dict | None:
+        """None when an LED board command can be sent; else the entry saying why not.
+
+        An unconnected board is an ``error``. A board that cannot carry the
+        command -- no text command channel (an FX2 scope's LED peripheral),
+        or firmware older than the command -- is ``not_applicable``: the
+        check was not possible, which is neither a fault nor a pass.
+        """
+        if not self._led_ok():
+            return {'error': 'LED board not connected'}
+        command_set = self._scope.diagnostics.get_led_info()['command_set']
+        if command_set is None:
+            return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
+        if needs_v2 and command_set != LED_COMMANDS_V2:
+            return {'not_applicable': 'Not supported by this LED firmware (needs v2 or later)'}
+        return None
 
     def _enter_engineering(self):
         """Enter LED engineering mode via the diagnostics sub-API.
@@ -994,13 +1024,13 @@ class FirmwareDiagnostics:
             timeout_s: Per-call serial timeout in seconds.
 
         Returns:
-            str: Response, ``'Board not connected'``, or ``'Error: ...'``.
+            str: Response, or the diagnostics channel's stand-in for one.
         """
         target_str = self._target_str(target)
         if target_str is None:
-            return 'Board not connected'
+            return NOT_CONNECTED
         if self._scope is None:
-            return 'Board not connected'
+            return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command(
             target_str, command, timeout_s=timeout_s
         )
@@ -1009,9 +1039,9 @@ class FirmwareDiagnostics:
         """Send command and read multi-line response (for SELFTEST etc.)."""
         target_str = self._target_str(target)
         if target_str is None:
-            return 'Board not connected'
+            return NOT_CONNECTED
         if self._scope is None:
-            return 'Board not connected'
+            return NOT_CONNECTED
         return self._scope.diagnostics.send_diagnostic_command_multiline(
             target_str, command, timeout_s=timeout_s, end_markers=end_markers
         )
@@ -1040,7 +1070,10 @@ class FirmwareDiagnostics:
 
     # -- High-level collectors --
 
-    def get_led_info(self):
+    def get_led_info(self) -> str | list[str]:
+        unread = self._unread_led(needs_v2=False)
+        if unread is not None:
+            return _unread_text(unread)
         return self._read_multiline(
             self.led_board,
             'INFO',
@@ -1067,7 +1100,7 @@ class FirmwareDiagnostics:
             self._cached_motor_fullinfo = self._cmd(self.motor_board, 'FULLINFO')
         return self._cached_motor_fullinfo
 
-    def get_serial_number(self):
+    def get_serial_number(self) -> str:
         """Extract serial number from FULLINFO.
 
         Old firmware returns everything on one line:
@@ -1075,7 +1108,7 @@ class FirmwareDiagnostics:
         New firmware uses multi-line with 'Serial Number = ...'
         """
         fullinfo = self.get_motor_fullinfo()
-        if not fullinfo or 'not connected' in fullinfo.lower() or 'error' in fullinfo.lower():
+        if not is_board_reply(fullinfo):
             return 'UNKNOWN'
         text = str(fullinfo)
 
@@ -1098,20 +1131,22 @@ class FirmwareDiagnostics:
         clean = text.strip().split('\n')[0][:30]
         return clean if clean else 'UNKNOWN'
 
-    def run_led_selftest(self):
+    def run_led_selftest(self) -> str | list[str]:
         """Run SELFTEST on LED board (v2.0+). Returns full output."""
-        if not self._led_ok():
-            return 'LED board not connected'
-        info = self.get_led_info()
-        if not info or not re.search(r'v[2-9]\.\d', str(info)):
-            return f'LED firmware too old for SELFTEST (info: {info})'
-        self._enter_engineering()
+        unread = self._unread_led(needs_v2=True)
+        if unread is not None:
+            return _unread_text(unread)
         try:
+            if not self._enter_engineering():
+                return 'The LED board did not enter engineering mode; SELFTEST was not run'
             return self._read_multiline(self.led_board, 'SELFTEST', timeout_s=90)
         finally:
             self._exit_engineering()
 
-    def get_led_readings(self):
+    def get_led_readings(self) -> str | list[str]:
+        unread = self._unread_led(needs_v2=True)
+        if unread is not None:
+            return _unread_text(unread)
         return self._read_multiline(
             self.led_board,
             'LEDREADS',
@@ -1149,7 +1184,10 @@ class FirmwareDiagnostics:
             return None
         return self._scope.diagnostics.read_motor_fan_rpm()
 
-    def get_i2c_scan(self):
+    def get_i2c_scan(self) -> str:
+        unread = self._unread_led(needs_v2=True)
+        if unread is not None:
+            return _unread_text(unread)
         return self._cmd(self.led_board, 'I2CSCAN')
 
     def read_config_files(self, board, label=''):
@@ -1204,21 +1242,25 @@ class FirmwareDiagnostics:
 
     # -- New hardware diagnostics --
 
-    def measure_serial_latency(self, board, command='INFO', iterations=SERIAL_LATENCY_ITERATIONS):
+    def measure_serial_latency(
+        self, target: str, command: str = 'INFO', iterations: int = SERIAL_LATENCY_ITERATIONS
+    ) -> dict:
         """Send a command N times and measure round-trip latency.
+
+        Only a board's reply is timed: the channel answers at once when no
+        board is there or a read times out, and timing that answer would
+        report a fast link that never carried a byte.
 
         Returns dict with min/max/mean/std_dev in milliseconds, plus
         the raw timings list.
         """
-        if board is None:
-            return {'error': 'Board not connected'}
         timings = []
         errors = 0
         for _ in range(iterations):
             t0 = time.monotonic()
-            resp = self._cmd(board, command)
+            resp = self._cmd(target, command)
             t1 = time.monotonic()
-            if resp and 'Error' not in resp and resp != 'None':
+            if is_board_reply(resp):
                 timings.append((t1 - t0) * 1000)  # ms
             else:
                 errors += 1
@@ -1258,51 +1300,41 @@ class FirmwareDiagnostics:
             results[chip_label] = chip
         return results
 
-    def check_led_leakage(self):
-        """Read all LED channels with LEDs off, check for leakage current.
+    def check_led_leakage(self) -> dict:
+        """Read every LED channel's current with the LEDs off.
 
-        Returns dict with per-channel readings and pass/fail.
-        Requires engineering mode (enters/exits automatically).
+        Passes only when every channel was read and is under the threshold:
+        a channel whose current could not be read is NOT MEASURED, and a
+        board that could not carry the check is ``not_applicable``, never a
+        pass. Requires engineering mode (enters/exits automatically).
         """
-        if not self._led_ok():
-            return {'error': 'LED board not connected', 'passed': False}
-        self._enter_engineering()
+        unread = self._unread_led(needs_v2=True)
+        if unread is not None:
+            return {**unread, 'passed': False}
         try:
-            raw = self.get_led_readings()
+            if not self._enter_engineering():
+                return {
+                    'error': 'The LED board did not enter engineering mode; no current was read',
+                    'passed': False,
+                }
+            currents = self._scope.diagnostics.read_led_currents_ma()
         finally:
             self._exit_engineering()
-        if not raw or 'not connected' in raw.lower() or 'Error' in raw:
-            return {'error': raw, 'passed': False}
+        if not currents:
+            return {'error': 'The LED board reported no channels to read', 'passed': False}
 
-        results = {'raw_response': raw, 'channels': {}, 'passed': True}
-
-        # Parse LEDREADS response -- v2.0+ format:
-        # "LED0 I_SENS  (AIN14): 0.0234V  ->     0.3 mA"
-        # "LED0 LED_K   (AIN15): 2.0833V"
-        for ch in range(8):
-            reading = None
-            # Look for "LEDx I_SENS ... -> <value> mA"
-            m = re.search(
-                rf'LED{ch}\s+I_SENS\s+\(AIN\d+\):\s*[\d.]+V\s*->\s*([-\d.]+)\s*mA',
-                raw,
-            )
-            if m:
-                try:
-                    reading = float(m.group(1))
-                except ValueError:
-                    pass
-
-            status = 'PASS'
-            if reading is not None and abs(reading) > LED_LEAKAGE_WARN_MA:
+        channels = {}
+        for ch in sorted(currents):
+            reading = currents[ch]
+            if reading is None:
+                status = 'NOT MEASURED'
+            elif abs(reading) > LED_LEAKAGE_WARN_MA:
                 status = 'WARN'
-                results['passed'] = False
-
-            results['channels'][f'CH{ch}'] = {
-                'i_sens_mA': reading,
-                'status': status,
-            }
-
-        return results
+            else:
+                status = 'PASS'
+            channels[f'CH{ch}'] = {'i_sens_mA': reading, 'status': status}
+        passed = all(c['status'] == 'PASS' for c in channels.values())
+        return {'channels': channels, 'passed': passed}
 
     def verify_fan_tachometer(self) -> dict:
         """Set fan to known duty, wait, read tachometer.
@@ -1439,72 +1471,6 @@ class FirmwareDiagnostics:
 
 
 # ---------------------------------------------------------------------------
-# Standalone-mode diagnostic-scope shim
-# ---------------------------------------------------------------------------
-
-
-class _BoardOnlyDiagnosticScope:
-    """Minimal scope-shaped wrapper around explicit driver-board handles.
-
-    Used only by the legacy standalone CLI path of TechSupportReport
-    (no live Lumascope, but caller has already opened raw boards).
-    Mirrors the slice of the Lumascope API that
-    ``FirmwareDiagnostics`` needs: ``.led``, ``.motion``, plus
-    ``send_diagnostic_command`` / ``send_diagnostic_command_multiline``
-    that delegate to the boards via the same exchange_command API the
-    full Lumascope uses. Importing the full Lumascope class for this
-    case would be heavier than the wrapper.
-    """
-
-    def __init__(self, led_board=None, motor_board=None):
-        self.led = led_board
-        self.motion = motor_board
-
-    def _board(self, target):
-        target = target.lower() if isinstance(target, str) else target
-        if target == 'led':
-            return self.led
-        if target in ('motor', 'motion'):
-            return self.motion
-        raise ValueError(f'_BoardOnlyDiagnosticScope: unknown target {target!r}')
-
-    def send_diagnostic_command(self, target, command, *, response_numlines=None, timeout_s=None):
-        try:
-            board = self._board(target)
-        except ValueError as e:
-            return f'Error: {e}'
-        if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
-        try:
-            kwargs = {}
-            if response_numlines is not None:
-                kwargs['response_numlines'] = response_numlines
-            if timeout_s is not None:
-                # Driver exchange_command keeps bare `timeout` (pyserial-
-                # shaped). Forward seconds through that kwarg.
-                kwargs['timeout'] = timeout_s
-            resp = board.exchange_command(command, **kwargs)
-            return resp if resp is not None else 'None'
-        except Exception as e:
-            return f'Error: {e}'
-
-    def send_diagnostic_command_multiline(self, target, command, *, timeout_s=60, end_markers=None):
-        try:
-            board = self._board(target)
-        except ValueError as e:
-            return f'Error: {e}'
-        if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
-        if end_markers is None:
-            end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
-        try:
-            result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
-            return result if result else 'No response'
-        except Exception as e:
-            return f'Error: {e}'
-
-
-# ---------------------------------------------------------------------------
 # Main Report Generator
 # ---------------------------------------------------------------------------
 
@@ -1512,7 +1478,7 @@ class _BoardOnlyDiagnosticScope:
 class TechSupportReport:
     """Generate a comprehensive diagnostic ZIP for Etaluma tech support."""
 
-    def __init__(self, scope=None, session=None, led_board=None, motor_board=None, camera=None):
+    def __init__(self, scope=None, session=None):
         # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
         #
@@ -1530,17 +1496,9 @@ class TechSupportReport:
             self.scope = None
 
         # FirmwareDiagnostics routes all serial I/O through the
-        # Lumascope API (LAYER-D / LV-23, LV-24, LV-32, LV-40). In
-        # integrated mode it inherits the live scope; standalone callers
-        # either pass explicit boards (wrapped in a minimal scope shim
-        # below) or call ``diag.connect_standalone()`` later.
-        if self.scope is not None:
-            self.diag = FirmwareDiagnostics(scope=self.scope)
-        elif led_board is not None or motor_board is not None:
-            self.diag = FirmwareDiagnostics(scope=_BoardOnlyDiagnosticScope(led_board, motor_board))
-        else:
-            # No scope, no boards -- standalone will call diag.connect_standalone()
-            self.diag = FirmwareDiagnostics()
+        # Lumascope API. In integrated mode it inherits the live scope; the
+        # command-line report calls ``diag.connect_standalone()`` later.
+        self.diag = FirmwareDiagnostics(scope=self.scope)
 
         self._cancelled = False
         self._meta = {}
@@ -1815,103 +1773,122 @@ class TechSupportReport:
         """
         with contextlib.ExitStack() as held:
             refusal = None
+            skip = None
+            not_built = self.diag.build_failure
+            if not_built is not None:
+                skip = _SkippedStep(
+                    f'The scope could not be built: {type(not_built).__name__}: {not_built}',
+                    'No board or camera was reached, so this step did not run.',
+                )
+                self._meta['scope_not_built'] = skip.reason
             # No session means the command-line report, which opens the
             # boards in a process of its own; nothing in that process can
             # contend for the scope, so there is no claim to take.
-            if self._session is not None:
+            elif self._session is not None:
                 try:
                     held.enter_context(self._session.diagnostic_claim())
                 except DiagnosticRefusedError as e:
                     refusal = e
+                    skip = _SkippedStep(
+                        e.message,
+                        'The microscope was in use, so this step did not drive the hardware.',
+                    )
                     logger.info(f'Report: hardware steps skipped -- {e.message}')
 
             # 1. Firmware info + serial number  (0-5%)
             cb(1, 'Querying firmware...')
-            sn = self._step_firmware_info(tmp, refusal)
+            if not_built is not None:
+                self._record_skipped(
+                    tmp / 'firmware_info', 'firmware_info.txt', 'Firmware Info', skip
+                )
+                sn = 'UNKNOWN'
+            else:
+                sn = self._step_firmware_info(tmp, refusal)
             self._check_cancel()
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
-            if refusal is None:
+            if skip is None:
                 self._step_configbackup(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'firmware_configs', 'config_backup.txt', 'Config Backup', refusal
+                    tmp / 'firmware_configs', 'config_backup.txt', 'Config Backup', skip
                 )
             self._check_cancel()
 
             # 3. LED selftest  (10-15%)
             cb(11, 'Running LED selftest...')
-            if refusal is None:
+            if skip is None:
                 self._step_firmware_tests(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'firmware_tests', 'led_selftest.txt', 'LED SELFTEST', refusal
+                    tmp / 'firmware_tests', 'led_selftest.txt', 'LED SELFTEST', skip
                 )
             self._check_cancel()
 
             # 4. LED leakage check  (15-18%)
             cb(16, 'Checking LED leakage...')
-            if refusal is None:
+            if skip is None:
                 self._step_led_checks(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', refusal
+                    tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', skip
                 )
             self._check_cancel()
 
             # 5. TMC5072 register dump  (18-20%)
             cb(19, 'Reading motor driver registers...')
-            if refusal is None:
+            if skip is None:
                 self._step_tmc_registers(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'hardware_checks', 'tmc5072_registers.txt', 'TMC5072 Registers', refusal
+                    tmp / 'hardware_checks', 'tmc5072_registers.txt', 'TMC5072 Registers', skip
                 )
             self._check_cancel()
 
             # 6. Fan tachometer verification  (20-23%)
             cb(21, 'Testing fan...')
-            if refusal is None:
+            if skip is None:
                 self._step_fan_test(tmp)
             else:
-                self._record_skipped(tmp / 'hardware_checks', 'fan_test.txt', 'Fan Test', refusal)
+                self._record_skipped(tmp / 'hardware_checks', 'fan_test.txt', 'Fan Test', skip)
             self._check_cancel()
 
             # 7. Serial latency measurement  (23-27%)
             cb(24, 'Measuring serial latency...')
-            if refusal is None:
+            if skip is None:
                 self._step_serial_latency(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'hardware_checks', 'serial_latency.txt', 'Serial Latency', refusal
+                    tmp / 'hardware_checks', 'serial_latency.txt', 'Serial Latency', skip
                 )
             self._check_cancel()
 
             # 8. Homing test  (27-35%)
             cb(28, 'Homing all axes...')
-            if refusal is None:
+            if skip is None:
                 self._step_homing_test(tmp)
             else:
-                self._record_skipped(
-                    tmp / 'motion_tests', 'homing_test.txt', 'Homing Test', refusal
-                )
+                self._record_skipped(tmp / 'motion_tests', 'homing_test.txt', 'Homing Test', skip)
             self._check_cancel()
 
             # 9. Camera diagnostics (temp)  (38-41%)
             cb(39, 'Checking camera...')
-            self._step_camera_diagnostics(tmp)
+            if not_built is not None:
+                self._record_skipped(tmp / 'camera_info', 'camera_info.txt', 'Camera', skip)
+            else:
+                self._step_camera_diagnostics(tmp)
             self._check_cancel()
         return sn
 
     @staticmethod
-    def _record_skipped(directory, filename, title, refusal):
+    def _record_skipped(directory, filename, title, skip):
         """Write a skipped step's file where its result would have gone."""
         directory.mkdir(exist_ok=True)
         with open(directory / filename, 'w') as f:
             f.write(f'{title}\n' + '=' * 40 + '\n\n')
-            f.write(f'SKIPPED: {refusal.message}\n')
-            f.write('The microscope was in use, so this step did not drive the hardware.\n')
+            f.write(f'SKIPPED: {skip.reason}\n')
+            f.write(f'{skip.consequence}\n')
 
     def _no_motor_board_on_this_model(self) -> bool:
         return self.diag.motor_board_presence() is MotorBoardPresence.NOT_ON_THIS_MODEL
@@ -1942,20 +1919,27 @@ class TechSupportReport:
         leakage = self.diag.check_led_leakage()
         with open(d / 'led_leakage.txt', 'w') as f:
             f.write('LED Leakage Check (all LEDs off)\n' + '=' * 40 + '\n\n')
-            f.write(f'Raw response: {leakage.get("raw_response", "N/A")}\n\n')
-            if 'error' in leakage:
+            if 'not_applicable' in leakage:
+                f.write(f'{leakage["not_applicable"]}.\n')
+            elif 'error' in leakage:
                 f.write(f'Error: {leakage["error"]}\n')
             else:
-                for ch, data in leakage.get('channels', {}).items():
-                    val = data.get('i_sens_mA')
-                    st = data.get('status', '?')
+                statuses = set()
+                for ch, data in leakage['channels'].items():
+                    val = data['i_sens_mA']
+                    st = data['status']
+                    statuses.add(st)
                     if val is not None:
                         f.write(f'  {ch}: {val:7.3f} mA  [{st}]\n')
                     else:
-                        f.write(f'  {ch}: could not parse  [{st}]\n')
-                f.write(
-                    f'\nOverall: {"PASS" if leakage.get("passed") else "WARN -- leakage detected"}\n'
-                )
+                        f.write(f'  {ch}: not measured  [{st}]\n')
+                if leakage['passed']:
+                    overall = 'PASS'
+                elif 'WARN' in statuses:
+                    overall = 'WARN -- leakage detected'
+                else:
+                    overall = 'INCOMPLETE -- a channel could not be read'
+                f.write(f'\nOverall: {overall}\n')
                 f.write(f'(Threshold: {LED_LEAKAGE_WARN_MA} mA)\n')
 
     def _step_tmc_registers(self, tmp):
@@ -2018,9 +2002,12 @@ class TechSupportReport:
         d.mkdir(exist_ok=True)
 
         # Run latency test once per board, write both text and JSON from same data
-        results = {'LED': self.diag.measure_serial_latency(self.diag.led_board, 'INFO')}
+        results = {
+            'LED': self.diag._unread_led(needs_v2=False)
+            or self.diag.measure_serial_latency('led', 'INFO')
+        }
         results['Motor'] = self.diag._unread_motor_board() or self.diag.measure_serial_latency(
-            self.diag.motor_board, 'INFO'
+            'motor', 'INFO'
         )
 
         with open(d / 'serial_latency.txt', 'w') as f:
@@ -2820,16 +2807,28 @@ def main() -> int:
 
     report = TechSupportReport()
 
-    if not args.no_firmware:
-        logger.info('Connecting to hardware...')
+    def connect():
+        """Build the scope and say what came up: (LED ok, motor ok, built)."""
         report.diag.connect_standalone()
+        not_built = report.diag.build_failure
+        if not_built is not None:
+            # Not a cable or power fault: power-cycle advice would send the
+            # user after the wrong thing, and a retry fails the same way.
+            logger.error(f'  The scope could not be built: {type(not_built).__name__}: {not_built}')
+            logger.error('  The report will say so; no hardware test will run.')
+            return False, False, False
         led_ok = report.diag._led_ok()
         mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
         logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
         logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
+        return led_ok, mot_ok, True
+
+    if not args.no_firmware:
+        logger.info('Connecting to hardware...')
+        led_ok, mot_ok, built = connect()
 
         # If neither board found, prompt for power cycle before giving up
-        if not led_ok and not mot_ok:
+        if built and not led_ok and not mot_ok:
             logger.info('')
             logger.info('  ** No boards detected. **')
             logger.info('  Please try the following:')
@@ -2844,12 +2843,8 @@ def main() -> int:
                 mot_ok = False
             else:
                 logger.info('  Retrying...')
-                report.diag.connect_standalone()
-                led_ok = report.diag._led_ok()
-                mot_ok = report.diag.motor_board_presence() is MotorBoardPresence.CONNECTED
-                logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
-                logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
-                if not led_ok and not mot_ok:
+                led_ok, mot_ok, built = connect()
+                if built and not led_ok and not mot_ok:
                     logger.info('')
                     logger.info('  Still no boards found. Generating report without hardware.')
                     logger.info('  Please include this report and contact techsupport@etaluma.com')
