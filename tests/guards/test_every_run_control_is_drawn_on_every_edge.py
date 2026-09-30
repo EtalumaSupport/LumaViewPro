@@ -126,3 +126,38 @@ def test_no_run_button_decides_its_own_lock():
         if any(term in (line := _disabled_line(kv, wid)) for term in ('app.', 'files_draining'))
     }
     assert not second_answers, f'run buttons locked by a term of their own: {second_answers}'
+
+
+# Where each held flag is declared: a kv binding to a property its class does
+# not declare fails when the kv loads, which no headless test does.
+HELD_FLAG_OWNERS = {
+    'composite_held': ('ui/composite_capture.py', 'CompositeCapture'),
+    'autofocus_held': ('ui/vertical_control.py', 'VerticalControl'),
+    'zstack_held': ('ui/zstack.py', 'ZStack'),
+    'autofocus_scan_held': ('ui/protocol_settings.py', 'ProtocolSettings'),
+    'scan_held': ('ui/protocol_settings.py', 'ProtocolSettings'),
+    'protocol_held': ('ui/protocol_settings.py', 'ProtocolSettings'),
+}
+
+
+def test_each_held_flag_is_a_property_of_the_widget_that_binds_it():
+    from tests.ast_seams import parse_module
+
+    assert {f'root.{name}' for name in HELD_FLAG_OWNERS} == set(HELD_FLAGS.values())
+    undeclared = []
+    for name, (rel_path, class_name) in HELD_FLAG_OWNERS.items():
+        (cls,) = [
+            node
+            for node in ast.walk(parse_module(rel_path))
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        ]
+        declared = any(
+            isinstance(stmt, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == name for t in stmt.targets)
+            and isinstance(stmt.value, ast.Call)
+            and getattr(stmt.value.func, 'id', '') == 'BooleanProperty'
+            for stmt in cls.body
+        )
+        if not declared:
+            undeclared.append(f'{class_name}.{name}')
+    assert not undeclared, f'held flags bound in kv but not declared: {undeclared}'

@@ -66,6 +66,7 @@ class TestDerivedLockProperty:
         # Session answers for a recording live or draining; an App-level
         # recording mirror would be a second answer with no reader.
         assert 'recording_active = BooleanProperty' not in APP_SRC
+        assert 'self.recording_active' not in APP_SRC, 'publish_run_state writes a dropped mirror'
 
     def test_controls_locked_is_listener_published(self):
         # The derivation lives on the session; the App property is a
