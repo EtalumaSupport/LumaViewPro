@@ -10,9 +10,9 @@ Uncaught, that refusal is raised inside the loop that plans output names across
 every group, so a single bad id in a single well aborted the post-processing of
 the entire run -- stitches, composites, projections and stacks for every other
 well included. The files already exist and only their names are at stake, so
-this one caller catches the refusal and omits the objective from the name; the
-capture lane does not catch it, because a step naming an unknown objective is
-refused before any run starts.
+post-processing does not ask the catalogue at all: the name carries the id the
+run recorded, derived from the id alone; the capture lane still refuses, because
+a step naming an unknown objective is refused before any run starts.
 """
 
 import pandas as pd
@@ -20,6 +20,7 @@ import pytest
 
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.common_utils import PostFunction
+from modules.objectives_loader import objective_short_name
 
 UNRESOLVABLE = 'ZZZ_not_a_prefix'
 
@@ -55,7 +56,9 @@ def turret_post_processor():
 
 def test_an_unresolvable_objective_id_does_not_raise(turret_post_processor):
     """The defect: one bad id anywhere aborted every group in the run."""
-    assert turret_post_processor._get_objective_short_name_if_has_turret(UNRESOLVABLE) is None
+    assert turret_post_processor._get_objective_short_name_if_has_turret(
+        UNRESOLVABLE
+    ) == objective_short_name(UNRESOLVABLE)
 
 
 def test_a_resolvable_objective_id_still_names_the_lens(turret_post_processor):

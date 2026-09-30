@@ -55,6 +55,46 @@ def _validate_objectives(objectives: dict, filepath: pathlib.Path) -> None:
                 )
 
 
+def objective_short_name(objective_id: str) -> str:
+    """The objective's token in step names and file names, derived from its id alone.
+
+    One function for every writer of a name -- the catalogue at capture and
+    post-processing afterwards -- so one objective is never named two ways,
+    and a run's files can be named from the id they recorded without any
+    catalogue, on any installation.
+
+    Raises:
+        TypeError: ``objective_id`` is not a string; a missing id is the
+            caller's to handle, never coerced into a name.
+    """
+    if not isinstance(objective_id, str):
+        raise TypeError(f'an objective id is a string, got {type(objective_id).__name__}')
+
+    tmp = objective_id.replace('w/o', 'No')
+    tmp = tmp.replace('W/o', 'No')
+    tmp = tmp.replace('W/O', 'No')
+
+    tmp = tmp.replace('w/', '')
+    tmp = tmp.replace('W/', '')
+
+    # Remove illegal path characters
+    tmp = tmp.replace('/', '')
+    tmp = tmp.replace('\\', '')
+    tmp = tmp.replace('-', '')
+    tmp = tmp.replace('_', '')
+
+    # Split on whitespace
+    tmp = tmp.split(' ')
+
+    # Capitalize the first letter of each word
+    tmp = [v.capitalize() for v in tmp]
+
+    # Rejoin into single key
+    tmp = ''.join(tmp)
+
+    return tmp
+
+
 class ObjectiveLoader:
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         filepath = resolve_data_file('objectives.json', source_path=source_path)
@@ -78,38 +118,12 @@ class ObjectiveLoader:
         self._generate_short_names(filepath)
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
 
-    def _create_short_name_from_objective_id(self, objective_id: str) -> str:
-
-        tmp = objective_id.replace('w/o', 'No')
-        tmp = tmp.replace('W/o', 'No')
-        tmp = tmp.replace('W/O', 'No')
-
-        tmp = tmp.replace('w/', '')
-        tmp = tmp.replace('W/', '')
-
-        # Remove illegal path characters
-        tmp = tmp.replace('/', '')
-        tmp = tmp.replace('\\', '')
-        tmp = tmp.replace('-', '')
-        tmp = tmp.replace('_', '')
-
-        # Split on whitespace
-        tmp = tmp.split(' ')
-
-        # Capitalize the first letter of each word
-        tmp = [v.capitalize() for v in tmp]
-
-        # Rejoin into single key
-        tmp = ''.join(tmp)
-
-        return tmp
-
     def _generate_short_names(self, filepath: pathlib.Path):
-        # Generate short name to be used for protocol step names
+        # Always derived, never read from the file: post-processing derives
+        # the same token from a run's recorded id without a catalogue, so a
+        # name written here must be the one it would derive.
         for objective_key, objective_info in self._objectives.items():
-            if 'short_name' not in objective_info:
-                short_name = self._create_short_name_from_objective_id(objective_id=objective_key)
-                self._objectives[objective_key]['short_name'] = short_name
+            objective_info['short_name'] = objective_short_name(objective_key)
 
         # Two objectives with one short name would write their files under one name.
         owners: dict[str, str] = {}
