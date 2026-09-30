@@ -21,6 +21,7 @@ import numpy as np
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
+from drivers.simulated_specimen import specimen_frames
 
 # Imported for its side effect, not its name: drivers/motorboard.py installs
 # the AMAX/DMAX probe-warning filter at import time, and
@@ -1238,14 +1239,14 @@ class TestSpecimenCycleFrames:
     """
 
     def test_frames_are_distinct_so_a_live_stream_is_visible(self):
-        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        frames = specimen_frames(600, 800)
         assert len(frames) == 4
         assert len({f.tobytes() for f in frames}) == 4, (
             'identical frames make a running stream indistinguishable from a frozen one'
         )
 
     def test_consecutive_frames_stay_close_including_the_wrap(self):
-        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        frames = specimen_frames(600, 800)
         deltas = [
             float(np.abs(frames[i].astype(int) - frames[(i + 1) % len(frames)].astype(int)).mean())
             for i in range(len(frames))
@@ -1261,17 +1262,17 @@ class TestSpecimenCycleFrames:
         assert min(deltas) > 1.0, f'frames too similar to read as motion: {deltas}'
 
     def test_never_fully_black_or_blown_out(self):
-        for frame in SimulatedCamera._make_specimen_frames(600, 800):
+        for frame in specimen_frames(600, 800):
             assert frame.min() > 0, 'a crushed frame reads as a dead camera'
             assert frame.max() < 255, 'a blown frame hides the exposure control'
 
     def test_deterministic_for_a_fixed_seed(self):
-        first = SimulatedCamera._make_specimen_frames(600, 800)
-        second = SimulatedCamera._make_specimen_frames(600, 800)
+        first = specimen_frames(600, 800)
+        second = specimen_frames(600, 800)
         assert all(np.array_equal(a, b) for a, b in zip(first, second, strict=True))
 
     def test_matches_requested_frame_size(self):
-        for frame in SimulatedCamera._make_specimen_frames(1200, 1920):
+        for frame in specimen_frames(1200, 1920):
             assert frame.shape == (1200, 1920)
             assert frame.dtype == np.uint8
 

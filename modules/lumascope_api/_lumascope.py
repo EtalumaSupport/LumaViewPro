@@ -409,22 +409,28 @@ class Lumascope:
         return board
 
     @staticmethod
-    def _build_simulated_led_board(
-        model: str, axes: frozenset[str], sim_tier: str
-    ) -> LEDBoardProtocol:
-        """The simulated scope's LED board, on the tier asked for.
+    def _simulates_an_fx2(axes: frozenset[str]) -> bool:
+        """Whether a simulated scope with these catalogue axes is an FX2 scope.
 
         The catalogue names no LED board, so the model's axes stand in for
         one: a model with motor axes is an EL-0940 scope, whose LEDs are on
-        their own board; a model with none is an FX2 scope, whose LEDs the
-        FX2 drives, and the simulator does not run the FX2, so that scope
-        keeps the Python stand-in on both tiers. The firmware tier builds
-        the production driver by name against the emulator, so an emulator
-        that does not come up raises instead of becoming a stand-in. The
-        tier is the one the motor board was just built on, which refused
-        any tier that is not one of the two.
+        their own board; a model with none is an FX2 scope, whose camera and
+        LEDs the FX2 drives. It is a proxy, right for every catalogue row
+        today; an FX2 scope with motors (the LS720) changes it here, the
+        one place both the LED and the camera builders ask.
         """
-        if sim_tier == 'fast' or not axes:
+        return not axes
+
+    @staticmethod
+    def _build_simulated_led_board(model: str, sim_tier: str) -> LEDBoardProtocol:
+        """The simulated EL-0940 scope's LED board, on the tier asked for.
+
+        The firmware tier builds the production driver by name against the
+        emulator, so an emulator that does not come up raises instead of
+        becoming a stand-in. The tier is the one the motor board was just
+        built on, which refused any tier that is not one of the two.
+        """
+        if sim_tier == 'fast':
             board = led_registry.create('auto', simulate=True)
             logger.info(f'[SCOPE API ] Using SIMULATED LED Board (model={model})')
             return board
@@ -593,10 +599,22 @@ class Lumascope:
 
         # ----- LED Control Board -----
         # Same selection as motion: the simulated board on the session's tier.
-        if simulate:
-            self._led_driver: LEDBoardProtocol = self._build_simulated_led_board(
-                model, sim_axes, sim_tier
+        # A simulated FX2 scope runs the production FX2 drivers on both tiers
+        # over one simulated device: the FX2 has no firmware to emulate, so
+        # its device model is the one simulation. Built by name, since the
+        # registry lists no FX2 on a host without libusb.
+        sim_fx2 = None
+        if simulate and self._simulates_an_fx2(sim_axes):
+            from drivers.fx2driver import FX2LEDController
+            from drivers.simulated_fx2 import SimulatedFX2
+
+            sim_fx2 = SimulatedFX2()
+            self._led_driver: LEDBoardProtocol = FX2LEDController(
+                connection=sim_fx2.connection, debug_wire=fx2_debug_wire
             )
+            logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
+        elif simulate:
+            self._led_driver = self._build_simulated_led_board(model, sim_tier)
         else:
             self._led_driver = led_registry.create('auto', debug_wire=fx2_debug_wire)
 
@@ -610,7 +628,7 @@ class Lumascope:
         # defaulted to None in _init_minimal; the registry call below
         # overrides it on a successful connect.
         camera_kwargs: dict = {}
-        if simulate:
+        if simulate and sim_fx2 is None:
             camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
             # Light reaches the simulated sensor the same way Z does: the
             # composition root hands it over, because it is the only object
@@ -631,12 +649,20 @@ class Lumascope:
                 ma for _, ma in live_lit_pairs(self.illumination)
             )
         try:
-            self._camera_driver: Camera = camera_registry.create(
-                camera_type, simulate=simulate, **camera_kwargs
-            )
-            if simulate:
-                self._camera_driver.load_cycle_images()
-                logger.info('[SCOPE API ] Using SIMULATED Camera')
+            if sim_fx2 is not None:
+                from drivers.fx2driver import FX2Camera
+
+                self._camera_driver: Camera = FX2Camera(connection=sim_fx2.connection)
+                logger.info(
+                    f'[SCOPE API ] Using the FX2 camera driver on a SIMULATED FX2 (model={model})'
+                )
+            else:
+                self._camera_driver = camera_registry.create(
+                    camera_type, simulate=simulate, **camera_kwargs
+                )
+                if simulate:
+                    self._camera_driver.load_cycle_images()
+                    logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.error(
                 f'[SCOPE API ] Camera Board Not Initialized: {type(_cam_exc).__name__}: {_cam_exc}'

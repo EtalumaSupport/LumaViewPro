@@ -14,11 +14,10 @@ NOT MEASURED, only a board's reply is timed, the LED board's command set
 be built is named, with its cause, in every hardware file.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from drivers import fx2driver
+from drivers.simulated_fx2 import SimulatedFX2
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.diagnostics import (
     ERROR_PREFIX,
@@ -47,14 +46,9 @@ def session(tmp_path):
 
 
 @pytest.fixture
-def fx2_led(monkeypatch):
-    """An FX2 LED controller on a stub connection, until the FX2 simulator exists."""
-    fx2driver._FX2Connection._reset_for_test()
-    monkeypatch.setattr(
-        fx2driver._FX2Connection, 'get', classmethod(lambda cls: MagicMock(name='fx2_conn'))
-    )
-    yield fx2driver.FX2LEDController()
-    fx2driver._FX2Connection._reset_for_test()
+def fx2_led():
+    """An FX2 LED controller on a simulated FX2."""
+    return fx2driver.FX2LEDController(connection=SimulatedFX2().connection)
 
 
 def test_the_channels_stand_ins_are_not_replies():

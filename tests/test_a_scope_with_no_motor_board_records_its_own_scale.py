@@ -29,11 +29,14 @@ def _um_per_pixel_at_20x(model: str) -> float | None:
     settings = complete_settings()
     settings['microscope'] = model
     session = ScopeSession.create(settings, simulate=True)
-    return common_utils.get_pixel_size(
-        focal_length=FOCAL_LENGTH_20X_MM,
-        binning_size=1,
-        capabilities=session.scope.capabilities,
-    )
+    try:
+        return common_utils.get_pixel_size(
+            focal_length=FOCAL_LENGTH_20X_MM,
+            binning_size=1,
+            capabilities=session.scope.capabilities,
+        )
+    finally:
+        session.shutdown()
 
 
 @pytest.mark.parametrize('model', ['LS620', 'LS560'])

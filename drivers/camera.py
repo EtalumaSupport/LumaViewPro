@@ -407,9 +407,10 @@ class Camera(ABC):
 
     def __del__(self):
         # Subclass __init__ may raise before super().__init__() runs (e.g.
-        # FX2Camera grabs _FX2Connection.get() first so it has self._fx2
-        # ready for the base class's self.connect() call -- if that get()
-        # raises on the Pylon-fallback path, this instance is partially
+        # FX2Camera takes its connection (_FX2Connection.get() when none is
+        # handed in) first so it has self._fx2 ready for the base class's
+        # self.connect() call -- if that get() raises on the
+        # Pylon-fallback path, this instance is partially
         # constructed and _state_lock + _active never got set). Python
         # still runs __del__ on the partial object; the hasattr gate
         # short-circuits to a clean no-op instead of firing a misleading

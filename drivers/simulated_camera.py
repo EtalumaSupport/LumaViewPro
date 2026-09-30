@@ -20,6 +20,7 @@ from scipy.ndimage import uniform_filter
 from lvp_logger import logger
 from drivers.camera import Camera
 from drivers.registry import camera_registry
+from drivers.simulated_specimen import specimen_frames
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -154,66 +155,6 @@ class SimulatedCamera(Camera):
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
 
-    @staticmethod
-    def _make_specimen_frames(
-        h: int, w: int, count: int = 4, shift_px: int = 1, seed: int = 20260827
-    ) -> list[np.ndarray]:
-        """Build the frames the cycle falls back to when no image dir exists.
-
-        These are ONE soft field sampled at ``count`` slightly different
-        offsets, not independent patterns. The distinction is the whole point:
-        the cycle advances once per generated frame, so anything that differs
-        much between entries strobes at frame rate. Neighbouring crops of a
-        single field read as gentle drift instead -- enough motion to tell a
-        live stream from a frozen one, and to judge the rate by how smooth it
-        looks, without a pattern change fighting for attention.
-
-        The field is low-resolution noise upsampled and smoothed twice, which
-        leaves rounded blobs with no hard edges. Grey values are held inside a
-        mid band so no frame is ever fully black or blown out; the caller's
-        brightness scaling then reads as exposure rather than as a switch.
-
-        Args:
-            h: Frame height in pixels.
-            w: Frame width in pixels.
-            count: How many frames the cycle should contain.
-            shift_px: Sampling offset between consecutive frames. One pixel,
-                set by watching the live display: the field is coherent, so a
-                whole-frame shift is far more visible than its ~1.5 grey-level
-                mean difference suggests, and larger values read as the sample
-                being jostled rather than as the stream being alive.
-            seed: Fixes the field so a run is reproducible.
-
-        Returns:
-            ``count`` grayscale uint8 frames of shape ``(h, w)``.
-        """
-        rng = np.random.RandomState(seed)
-        margin = shift_px * count
-        canvas_h = h + margin
-        canvas_w = w + margin
-
-        # Cell size sets the apparent feature scale -- roughly the blob width
-        # in pixels before smoothing rounds them off.
-        cell = 48
-        low = rng.random((canvas_h // cell + 2, canvas_w // cell + 2))
-        field = np.kron(low, np.ones((cell, cell)))[:canvas_h, :canvas_w]
-        field = uniform_filter(field, size=cell // 2)
-        field = uniform_filter(field, size=cell // 2)
-        field -= field.min()
-        field /= max(field.max(), 1e-9)
-        canvas = 55.0 + field * 165.0
-
-        frames = []
-        # Sampling around a circle keeps the drift bounded and closes the loop,
-        # so wrapping from the last frame back to the first is the same size
-        # step as every other -- a linear walk would snap back on the wrap.
-        for i in range(count):
-            angle = 2.0 * np.pi * i / count
-            y = margin // 2 + round(shift_px * np.sin(angle))
-            x = margin // 2 + round(shift_px * np.cos(angle))
-            frames.append(canvas[y : y + h, x : x + w].astype(np.uint8))
-        return frames
-
     def load_cycle_images(self, image_dir: str | None = None) -> None:
         """Load images from a directory for cycling through in simulate mode.
 
@@ -258,7 +199,7 @@ class SimulatedCamera(Camera):
                     logger.warning('[SimCamera ] Pillow not available -- cannot load cycle images')
 
         if not images:
-            images = self._make_specimen_frames(self._height, self._width)
+            images = specimen_frames(self._height, self._width)
             logger.info(f'[SimCamera ] Generated {len(images)} synthetic cycle images')
 
         self._cycle_images = images
@@ -815,7 +756,7 @@ class SimulatedCamera(Camera):
         call entirely.
         """
         if not self._cycle_images:
-            self._cycle_images = self._make_specimen_frames(h, w)
+            self._cycle_images = specimen_frames(h, w)
         src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
         self._cycle_index += 1
         # Resize if binning changed since load -- nearest-neighbor via slicing

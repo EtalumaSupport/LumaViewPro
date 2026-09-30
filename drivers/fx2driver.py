@@ -19,11 +19,14 @@ Three objects live in this file, over one seam:
    Constructed lazily the first time any driver calls
    ``_FX2Connection.get()``. Raises on any failure; the registry treats a
    raise as "this driver isn't available" and falls through to the next
-   candidate. Private -- never touched from outside this module.
+   candidate. Private to the FX2 drivers and the simulated FX2
+   (``drivers/simulated_fx2.py``), which builds one on its own transport.
 
 2. ``FX2Camera`` -- registered as ``@camera_registry.register('fx2', ...)``.
    Implements the Camera ABC. Pulls ``_FX2Connection.get()`` in ``__init__``
-   so the camera and LED end up sharing the same USB handle.
+   so the camera and LED end up sharing the same USB handle, unless it is
+   handed a connection: a simulated FX2 (``drivers/simulated_fx2.py``) hands
+   both drivers the connection on its device.
 
 3. ``FX2LEDController`` -- registered as ``@led_registry.register('fx2', ...)``.
    Satisfies LEDBoardProtocol. Thin command translator: no state tracking,
@@ -31,11 +34,11 @@ Three objects live in this file, over one seam:
    ``IlluminationAPI._led_state``. The class exists only to convert LVP's
    (channel, mA) calls into FX2 I2C byte sequences.
 
-The camera and LED objects both hold a reference to the same
-``_FX2Connection._instance`` -- proven viable by
-``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py.
-No special casing required in ``Lumascope.__init__``. Neither driver
-touches a USB library or the connection's private state.
+The camera and LED objects both hold a reference to the same connection:
+on hardware the ``_FX2Connection._instance`` singleton -- proven viable by
+``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py
+-- and in the simulator the one connection the simulated FX2 hands both.
+Neither driver touches a USB library or the connection's private state.
 
 Dependencies
 ------------
@@ -77,7 +80,7 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -394,6 +397,30 @@ IMG_WIDTH = 1900
 IMG_HEIGHT = 1900
 FRAME_BYTES = IMG_WIDTH * IMG_HEIGHT  # raw pixel count (8-bit mono)
 FRAME_DELIM = b'\x01\xfe\x00\xff'  # injected between frames by GpifWaveform_Isr
+
+
+class FrameLayout(NamedTuple):
+    """Where a frame's pixels sit in the bytes streamed between two delimiters.
+
+    After ``FRAME_DELIM`` comes a row the parser skips (``skip`` bytes), then
+    ``h`` rows of ``stride`` bytes -- ``w`` pixels and the sync byte the GPIF
+    puts between rows -- then one more row of padding. A whole frame is
+    ``frame_bytes`` long; anything else between two delimiters is damaged.
+    """
+
+    stride: int
+    skip: int
+    needed: int
+    frame_bytes: int
+
+
+def frame_layout(w: int, h: int) -> FrameLayout:
+    """The wire layout of a ``w`` x ``h`` window: what the parser reads and a device sends."""
+    stride = w + 1
+    skip = stride + 1
+    needed = skip + h * stride
+    return FrameLayout(stride, skip, needed, needed + stride)
+
 
 # MT9P031 register addresses
 REG_ROW_START = 0x01
@@ -1084,11 +1111,12 @@ def _platform_transport() -> _PyusbTransport:
 class _FX2Connection:
     """Singleton owning the FX2 USB device, through a platform transport.
 
-    Lazily constructed on first ``_FX2Connection.get()``. Private -- external
-    callers should never reference this class directly. ``FX2Camera`` and
-    ``FX2LEDController`` reach it only via ``get()`` in their ``__init__``,
-    and are the only objects that talk to it: every USB library call is the
-    transport's, and the bytes the device streams arrive in ``stream``.
+    Lazily constructed on first ``_FX2Connection.get()``. Private -- outside
+    the FX2 drivers only the simulated FX2 builds one, on its own transport.
+    ``FX2Camera`` and ``FX2LEDController`` reach it through ``get()`` in their
+    ``__init__``, or through the connection they are handed, and are the only
+    objects that talk to it: every USB library call is the transport's, and
+    the bytes the device streams arrive in ``stream``.
 
     Why a singleton:
         The FX2 chip is one USB device with two functional sub-devices
@@ -1185,7 +1213,7 @@ class _FX2Connection:
             '[FX2 Conn  ] bootloader found (PID 0x%04X), uploading firmware...',
             PID_BOOT,
         )
-        self._upload_firmware(dev, self._find_firmware_path())
+        self._upload_firmware(dev, _FX2Connection.find_firmware_path())
 
         # Wait for re-enumeration under the new application PID.
         deadline = time.monotonic() + self.FIRMWARE_RE_ENUM_TIMEOUT
@@ -1206,7 +1234,8 @@ class _FX2Connection:
             f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
 
-    def _find_firmware_path(self) -> str:
+    @staticmethod
+    def find_firmware_path() -> str:
         """Locate the FX2 firmware hex file in a PyInstaller bundle or source tree.
 
         Two hex files ship with the driver:
@@ -1481,14 +1510,16 @@ class FX2Camera(Camera):
     FRAME_SIZE_MIN = 100
     FRAME_SIZE_STEP = 4
 
-    def __init__(self, **kwargs):
-        # Grab the FX2 connection BEFORE super().__init__() -- the Camera
+    def __init__(self, *, connection: _FX2Connection | None = None, **kwargs):
+        # Take the FX2 connection BEFORE super().__init__() -- the Camera
         # base class calls self.connect() at the end of its __init__,
-        # and that needs self._fx2 live. If _FX2Connection.get() raises
-        # (no FX2 hardware, no pyusb, firmware upload fails), the
-        # exception propagates and the registry falls through to the
-        # next camera driver candidate.
-        self._fx2 = _FX2Connection.get()
+        # and that needs self._fx2 live. The registry passes none, so the
+        # camera shares the process's device through _FX2Connection.get();
+        # if that raises (no FX2 hardware, no pyusb, firmware upload
+        # fails), the exception propagates and the registry falls through
+        # to the next camera driver candidate. A simulated FX2 hands its
+        # own connection to both drivers instead.
+        self._fx2 = connection if connection is not None else _FX2Connection.get()
 
         # Streaming state -- initialized here so connect() can see them
         # even though connect() runs inside super().__init__().
@@ -1804,9 +1835,8 @@ class FX2Camera(Camera):
             # set_frame_size() between frames.
             w = self._width
             h = self._height
-            stride = w + 1
-            skip_first_row = stride + 1
-            needed = skip_first_row + h * stride
+            layout = frame_layout(w, h)
+            stride, skip_first_row, needed = layout.stride, layout.skip, layout.needed
 
             local_buf = stream.take(needed)
 
@@ -1852,7 +1882,7 @@ class FX2Camera(Camera):
                 # dominates. If frame size or readout config ever
                 # changes such that the +stride invariant breaks, the
                 # shifted counter will spike and we re-measure.
-                expected = needed + stride
+                expected = layout.frame_bytes
 
                 if len(frame_data) == expected:
                     raw = np.frombuffer(frame_data, dtype=np.uint8)
@@ -2240,10 +2270,11 @@ class FX2LEDController:
     def _wire_debug_enabled(self) -> bool:
         return self._FX2_DEBUG_WIRE or self._debug_wire
 
-    def __init__(self, *, debug_wire: bool = False):
-        # Grab the singleton -- raises if no FX2 hardware, registry
-        # fallthrough handles that case cleanly.
-        self._fx2 = _FX2Connection.get()
+    def __init__(self, *, connection: _FX2Connection | None = None, debug_wire: bool = False):
+        # The registry passes no connection, so this takes the singleton --
+        # raises if no FX2 hardware, registry fallthrough handles that case
+        # cleanly. A simulated FX2 hands in the connection its camera shares.
+        self._fx2 = connection if connection is not None else _FX2Connection.get()
         self._enabled = True
         self._debug_wire = debug_wire
 

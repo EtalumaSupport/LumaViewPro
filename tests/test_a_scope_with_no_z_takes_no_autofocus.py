@@ -35,7 +35,8 @@ def _session(model: str) -> ScopeSession:
 def no_z_session():
     session = _session('LS620')
     assert not session.scope.capabilities.has_focus
-    return session
+    yield session
+    session.shutdown()
 
 
 def test_an_added_step_does_not_autofocus(no_z_session):
@@ -67,10 +68,13 @@ def test_the_saved_switch_is_left_as_the_user_set_it(no_z_session):
 
 def test_a_scope_with_z_keeps_the_saved_switch():
     session = _session('LS850')
-    assert session.scope.capabilities.has_focus
+    try:
+        assert session.scope.capabilities.has_focus
 
-    configs = session.get_layer_configs()
-    snapshot = session.capture_settings_snapshot()
+        configs = session.get_layer_configs()
+        snapshot = session.capture_settings_snapshot()
+    finally:
+        session.shutdown()
 
     for layer in LAYERS_SAVED_WITH_AUTOFOCUS:
         assert configs[layer]['autofocus']
