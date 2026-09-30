@@ -162,7 +162,8 @@ def test_no_cleanup_call_states_an_ending_without_one():
 
     Never a bare call, and never a stated None for the run: a cleanup that
     names no run cannot tell its own run from a successor on the same
-    runner.
+    runner. The one keyword is ``wait``, which says how to take the lock,
+    never what the cleanup ends.
     """
     offenders = []
     for path in MODULES.glob('*.py'):
@@ -174,7 +175,7 @@ def test_no_cleanup_call_states_an_ending_without_one():
                 and node.func.attr == '_cleanup'
                 and (
                     len(node.args) != 2
-                    or node.keywords
+                    or any(k.arg != 'wait' for k in node.keywords)
                     or (isinstance(node.args[1], ast.Constant) and node.args[1].value is None)
                 )
             ):
@@ -298,7 +299,7 @@ class TestAStartFailureCarriesItsCause:
         stub = SimpleNamespace(
             _run_dir=None,
             _ending=EndingLatch(),
-            _cleanup=lambda ending, run: cleaned.append(ending),
+            _cleanup=lambda ending, run, wait=False: cleaned.append((ending, wait)),
             LOGGER_NAME='TEST',
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
@@ -311,13 +312,18 @@ class TestAStartFailureCarriesItsCause:
         assert ending.status == 'failed_at_start'
         assert ending.reason == 'capture_location_unusable'
         assert ending.message == 'Pick a folder.'
-        assert cleaned == [ending]
+        # No other pass unwinds a run whose loop never ran, so its cleanup
+        # waits its turn rather than being skipped.
+        assert cleaned == [(ending, True)]
 
     def test_an_untyped_failure_does_not_put_a_traceback_in_front_of_the_user(self):
         import modules.sequenced_capture_runner as scr
 
         stub = SimpleNamespace(
-            _run_dir=None, _ending=EndingLatch(), _cleanup=lambda e, run: None, LOGGER_NAME='TEST'
+            _run_dir=None,
+            _ending=EndingLatch(),
+            _cleanup=lambda e, run, wait=False: None,
+            LOGGER_NAME='TEST',
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
@@ -339,6 +345,8 @@ class TestACleanupPassThatDoesNotOwnTheRun:
         return SimpleNamespace(
             run_outcome=lambda: current_run,
             _is_run_live=lambda: run_live,
+            _run_lock=threading.Lock(),
+            _is_live_run_locked=lambda run: run is current_run and run_live,
             LOGGER_NAME='TEST',
             camera_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('camera')),
             _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
@@ -353,10 +361,10 @@ class TestACleanupPassThatDoesNotOwnTheRun:
         has already released. Its releases key on runner-lifetime state, so
         acting here can hand away a claim a SUCCESSOR run has taken.
 
-        The run is still the runner's but already ended: the pass ends the
-        IO and CAMERA lanes' protocol mode and nothing else. The FILE lane
-        has no run mode to end, and the run's batch was closed by the pass
-        that owned the run.
+        The run is still the runner's but already ended: the pass touches
+        nothing, the lanes included. The pass that owned the run ended its
+        lanes' run modes before the run went IDLE; after that the lanes may
+        be a successor's.
         """
         import modules.sequenced_capture_runner as scr
 
@@ -368,10 +376,7 @@ class TestACleanupPassThatDoesNotOwnTheRun:
             stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x'), run
         )
 
-        assert touched == ['camera', 'io'], (
-            f'a pass that does not own the run touched more than the executors '
-            f'it must always end: {touched}'
-        )
+        assert touched == [], f'a pass that does not own the run touched: {touched}'
 
     def test_a_pass_for_a_replaced_run_touches_nothing(self):
         """A late pass for run N arriving while run N+1 is live on the same

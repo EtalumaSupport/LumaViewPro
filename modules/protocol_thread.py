@@ -22,10 +22,13 @@ Public API:
                                      protocol_step_runner consult its
                                      is_set() directly each tick).
 
-Concurrency contract: one protocol run at a time. A second run_protocol()
-invocation while the first is in flight returns a Future that immediately
-resolves to a RuntimeError ("Protocol already in progress"); the in-flight
-run is not affected. Mirrors AutofocusThread (B2).
+Concurrency contract: one protocol run at a time, admitted by the runner
+that owns this thread, never here. A run the runner admits while the
+previous run's loop is still returning -- its run already ended, its last
+cleanup pass not yet done -- waits in the request slot and starts when that
+loop returns. Refusing it here instead failed a run the runner had already
+committed, and the failed start could not unwind while that last pass held
+the runner's cleanup lock.
 """
 
 import logging
@@ -56,9 +59,9 @@ class ProtocolThread:
         self._stop_event = threading.Event()
         self._aborted = threading.Event()
 
-        # One outstanding protocol run at a time; second arrivals while a
-        # run is in flight fail-fast via run_protocol(). The queue is
-        # bounded at 1 to make that contract explicit.
+        # One run waiting at most: the runner admits a run only once the
+        # last one has ended, so the most this slot holds is the next run
+        # while the last one's loop returns.
         self._request_queue: queue.Queue = queue.Queue(maxsize=1)
 
         self._state_lock = threading.Lock()
@@ -132,23 +135,22 @@ class ProtocolThread:
         """
         future: Future = Future()
         with self._state_lock:
-            if self._current_future is not None and not self._current_future.done():
-                future.set_exception(RuntimeError('Protocol already in progress'))
-                return future
+            previous = self._current_future
             self._current_future = future
             # Clear _aborted under the same lock that publishes
             # _current_future. Same-lock pairing makes the new-Future-with-
             # cleared-aborted publication atomic w.r.t. abort(); mirrors
             # AutofocusThread's race fix (autofocus_thread.py:160-168).
+            # Cleared BEFORE the put: the worker may start the run the
+            # moment it is queued, and must not find the last run's abort.
             self._aborted.clear()
-        try:
-            self._request_queue.put_nowait((run_loop_callable, kwargs, future))
-        except queue.Full:
-            # Queue full despite the state lock guard above; should not
-            # happen but degrade gracefully by failing the new Future.
-            with self._state_lock:
-                self._current_future = None
-            future.set_exception(RuntimeError('Protocol request queue full'))
+            try:
+                self._request_queue.put_nowait((run_loop_callable, kwargs, future))
+            except queue.Full:
+                # The slot is taken -- by stop()'s shutdown sentinel, or by a
+                # second run the runner's own gate should have refused.
+                self._current_future = previous
+                future.set_exception(RuntimeError('Protocol request queue full'))
         return future
 
     def abort(self) -> None:
@@ -206,11 +208,8 @@ class ProtocolThread:
                 future.set_exception(ex)
             finally:
                 with self._state_lock:
-                    # Only clear current_future if it still points to
-                    # this run; a second concurrent call could not have
-                    # replaced it (run_protocol rejects while we're
-                    # running), but the explicit identity check costs
-                    # nothing and survives future refactors.
+                    # Only if it is still this run's: the next run may
+                    # already wait in the slot, and its Future is current.
                     if self._current_future is future:
                         self._current_future = None
 

@@ -26,6 +26,7 @@ _RUN_MODE_MEMBERS = frozenset(
         'protocol_start',
         'protocol_end',
         'protocol_finish_then_end',
+        'end_protocol_mode',
         'clear_protocol_pending',
     }
 )
@@ -83,3 +84,4 @@ def test_the_scan_sees_the_run_mode_calls_that_exist():
     assert ('modules/sequenced_capture_runner.py', 'camera_executor', 'protocol_start') in found
     assert ('modules/sequenced_capture_runner.py', '_io_executor', 'protocol_start') in found
     assert ('modules/protocol_cleanup.py', 'io_executor', 'protocol_end') in found
+    assert ('modules/sequenced_capture_runner.py', '_io_executor', 'end_protocol_mode') in found

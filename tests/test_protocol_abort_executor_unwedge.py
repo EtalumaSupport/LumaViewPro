@@ -9,20 +9,14 @@ every normal file op (composite, video, z-projection, manual save) is refused,
 so the post-processing operation hangs with its progress popup stuck open.
 
 ``end_protocol_mode()`` is the idempotent safety net -- it drains any remaining
-protocol items then returns the executor to normal-queue service.
-``SequencedCaptureRunner._cleanup_inner`` calls it on the cleanup skip-path so
-recovery is guaranteed on every teardown path, not just the normal drain.
+protocol items then returns the executor to normal-queue service. The run's
+own cleanup calls it on every path out, before the run ends.
 """
 
 import threading
 import time
-from types import SimpleNamespace
 
-from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-
-
-from modules.run_outcome import RunEnding
 
 
 def test_end_protocol_mode_restores_normal_queue_service():
@@ -98,43 +92,3 @@ def test_end_protocol_mode_is_noop_when_not_in_protocol_mode():
     ex.end_protocol_mode()
     assert not ex.protocol_running.is_set()
     assert not ex.protocol_finish.is_set()
-
-
-def test_cleanup_skip_path_ends_executor_protocol_mode():
-    """When run-in-progress is already clear, _cleanup_inner takes the skip
-    path and must still end every protocol-mode lane -- otherwise an abort
-    that cleared the run flag without ending them leaves the workers wedged.
-    The camera lane is fenced with the same verb as IO, so it is ended too.
-    The file lane never enters protocol-mode: a run's writes are counted in
-    the run's own write batch instead."""
-    io = SequentialIOExecutor(name='IO')
-    camera = SequentialIOExecutor(name='CAMERA')
-    io.protocol_start()
-    camera.protocol_start()
-    # The pass belongs to the runner's current run; a pass for any other
-    # run returns before touching a lane.
-    run = object()
-
-    # Not live -> _cleanup_inner takes the early-return branch.
-    # The skip path releases the scan's LED lease before ending protocol-mode;
-    # stub it as a no-op since this test is about executor teardown, not LEDs.
-    stub = SimpleNamespace(
-        run_outcome=lambda: run,
-        _is_run_live=lambda: False,
-        _io_executor=io,
-        camera_executor=camera,
-        _release_scan_led_lease=lambda: None,
-        _release_activity_claim=lambda: None,
-        # Same reason as the two above: the skip path settles the run's
-        # outcome before releasing, and this test is about executor
-        # teardown, not the outcome.
-        _settle_run_outcome=lambda ending: None,
-    )
-    # The ending feeds the end-reason plumbing on the full cleanup path;
-    # the skip path under test never reads it.
-    SequencedCaptureRunner._cleanup_inner(
-        stub, RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'), run
-    )
-
-    assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
-    assert camera.protocol_finish.is_set(), 'camera executor not signalled out of protocol-mode'

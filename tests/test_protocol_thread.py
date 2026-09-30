@@ -6,14 +6,14 @@ Covers the public API contract:
     callable's return value or carries its exception.
   - abort() sets the aborted Event; in-flight callables polling
     self.aborted unwind cooperatively.
-  - One run at a time -- second concurrent run_protocol() rejects via
-    a Future resolving to RuntimeError ("Protocol already in progress").
+  - One run at a time -- a second run_protocol() while the first is in
+    flight waits in the slot and runs when the first returns.
   - is_running flips True during a run, False after the Future resolves.
   - start() / stop() are idempotent and process-exit-safe (daemon=True).
   - C6 collapse: PIW's abort_fn (bound to protocol_thread.abort) drives
     abort propagation; standalone AF abort does not touch protocol state.
-  - Reentrancy guard: rapid back-to-back run_protocol() rejects the
-    second when the first is still in flight.
+  - Back-to-back run_protocol() runs the second after the first returns;
+    the runner, not this thread, decides whether a run may start.
   - Daemon-reap: a hung callable exits cleanly when stop() is called.
 """
 
@@ -99,32 +99,32 @@ class TestRunProtocol:
 
 
 class TestReentrancyGuard:
-    """The single-slot queue + state-lock pair must reject a second
-    run while the first is in flight."""
+    """A second run handed over while the first is in flight waits for
+    the first to return, then runs."""
 
-    def test_second_run_rejected_while_first_in_flight(self, pt):
+    def test_second_run_waits_for_the_first_then_runs(self, pt):
         release = threading.Event()
+        entered = threading.Event()
 
         def slow_cb():
+            entered.set()
             release.wait(timeout=2.0)
             return 'first'
 
         first = pt.run_protocol(slow_cb)
-        # Wait for is_running to flip True; small spin (no API exposes
-        # an entered-run event for the generic case).
-        deadline = time.monotonic() + 1.0
-        while not pt.is_running and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert pt.is_running, 'first run did not start'
+        # Running on the worker, not merely handed over: the runner admits
+        # a next run only after the last one's loop has run it.
+        assert entered.wait(timeout=1.0), 'first run did not start'
 
-        # Second run while first is in flight -- Future fails immediately.
+        # Second run while first is in flight -- it waits in the slot.
         second = pt.run_protocol(lambda: 'second')
-        with pytest.raises(RuntimeError, match='already in progress'):
-            second.result(timeout=1.0)
+        time.sleep(0.1)
+        assert not second.done(), 'the second run did not wait for the first'
 
-        # Release the first; it completes normally.
+        # Release the first; both complete, in order.
         release.set()
         assert first.result(timeout=2.0) == 'first'
+        assert second.result(timeout=2.0) == 'second'
 
     def test_serial_runs_after_first_completes(self, pt):
         a = pt.run_protocol(lambda: 'a')

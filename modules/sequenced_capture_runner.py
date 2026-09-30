@@ -1539,7 +1539,11 @@ class SequencedCaptureRunner:
                 'The run could not start. See the log for details.',
             )
         self._ending.set_if_unset(ending)
-        self._cleanup(ending, run)
+        # Waits for a late pass holding the cleanup lock rather than
+        # skipping: this run's loop never ran, so no other pass will ever
+        # unwind it, and a skipped unwind leaves its claim held, its caller
+        # unanswered and the runner live until restart.
+        self._cleanup(ending, run, wait=True)
         # Notify AFTER cleanup: on an unattended run start() enabled the popup
         # suppression, which drops this non-fatal error until cleanup's
         # set_unattended_run(False) restores popups.
@@ -1619,7 +1623,7 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self, ending: RunEnding, run: PendingRunOutcome):
+    def _cleanup(self, ending: RunEnding, run: PendingRunOutcome, *, wait: bool = False):
         """Unwind *run*; ending names the terminal outcome and its cause.
 
         ending is REQUIRED so every cleanup site states the truth it
@@ -1635,8 +1639,12 @@ class SequencedCaptureRunner:
         successor may be live on the same runner; a cleanup that asked only
         whether *a* run is live would end the successor as if it were its
         own.
+
+        A second pass arriving while one holds the cleanup lock returns at
+        once: the run it would end is already being ended. ``wait`` waits
+        for the lock instead, for a caller whose run no other pass unwinds.
         """
-        if not self._cleanup_lock.acquire(blocking=False):
+        if not self._cleanup_lock.acquire(blocking=wait):
             return  # Another thread is already cleaning up
         try:
             # Cleanup runs on whichever thread ended the run -- the protocol
@@ -1964,12 +1972,19 @@ class SequencedCaptureRunner:
     def _cleanup_inner(self, ending: RunEnding, run: PendingRunOutcome):
         from modules.notification_center import notifications
 
-        if run is not self.run_outcome():
-            # A late pass for a run that has already been replaced: a
-            # successor is on this runner and on the same lanes, and nothing
-            # here is this pass's to touch.
+        # One read, under the lock start() commits under: a late pass --
+        # the run loop's safety net, after the run already ended -- must
+        # not read "mine" and then "live" apart, or a successor started
+        # between the two reads is torn down as this run. A pass for a run
+        # that is not live, or no longer the runner's, touches nothing: the
+        # pass that ended the run already ended its lanes' modes, released
+        # its claim and restored popups, and anything it touched now may be
+        # a successor's.
+        with self._run_lock:
+            mine = self._is_live_run_locked(run)
+        if not mine:
             logger.info(
-                f"[{self.LOGGER_NAME}] Cleanup for a run that is no longer the runner's "
+                f'[{self.LOGGER_NAME}] Cleanup for a run that is no longer live '
                 f'({ending.reason}); nothing to do'
             )
             return
@@ -1979,24 +1994,6 @@ class SequencedCaptureRunner:
         # attended run never raised it, and lowering it twice is harmless,
         # where missing one lowering mutes popups for the whole session.
         notifications.set_unattended_run(False)
-
-        if not self._is_run_live():
-            # The run is already back at IDLE, so run_cleanup (which ends
-            # the executors' protocol-mode and drives the RUN_END LED
-            # transition) will not run here. Guarantee the
-            # lanes still leave protocol-mode -- an abort that ended
-            # the run without ending them would otherwise wedge their
-            # worker on protocol_queue.get and starve normal work.
-            # Idempotent: a no-op when not in protocol-mode.
-            #
-            # Returns ahead of the try below, so this pass settles no
-            # outcome and releases nothing: it does not own the run. The
-            # releases are keyed on runner-lifetime state, so a pass
-            # arriving after the owner's release could otherwise hand away
-            # a claim a SUCCESSOR run had already taken.
-            self.camera_executor.end_protocol_mode()
-            self._io_executor.end_protocol_mode()
-            return
 
         led_end_state_applied = False
         # This run's writes and its one run_complete, read while the run is
@@ -2096,6 +2093,14 @@ class SequencedCaptureRunner:
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.
             self._settle_run_outcome(ending)
+            # run_cleanup ends both lanes' run modes; a cleanup that raised
+            # before it did would leave their workers serving a queue no run
+            # fills, starving every later move and camera task. Ended here,
+            # on every path and before the run ends, because no later pass
+            # may: once the run is IDLE its lanes may be a successor's.
+            # A no-op on a lane already out of its run mode.
+            self.camera_executor.end_protocol_mode()
+            self._io_executor.end_protocol_mode()
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
             # the next run. After run_cleanup, not before: apply(RUN_END) runs
