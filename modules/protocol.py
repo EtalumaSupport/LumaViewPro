@@ -54,6 +54,35 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
 
 
+def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: str) -> dict:
+    """The travel limits of each of *axes*, or a refusal naming the missing ones.
+
+    A z-stack or a tile grid is built by moving an axis. On a scope without
+    that axis's motor there are no limits to build against, and building
+    nothing while reporting nothing read as success: the caller asked for a
+    stack and got a photograph. Refused here, where the protocol is built,
+    so every caller -- the GUI, a script, REST -- is told the same thing.
+
+    Raises:
+        ProtocolRunRefusedError: An axis in *axes* has no limits. It has
+            been logged and shown before it is raised.
+    """
+    limits = {axis: (axes_config.get(axis) or {}).get('limits') for axis in axes}
+    missing = [axis for axis, axis_limits in limits.items() if axis_limits is None]
+    if missing:
+        refusal = ProtocolRunRefusedError(
+            reason='positions_unreachable',
+            title='Position Not Reachable',
+            message=(
+                f'This scope has no motor for {", ".join(missing)}, so {what} cannot be built.'
+            ),
+        )
+        # Solicited: the refusal answers the build the caller just asked for.
+        notifications.report_outcome(refusal, solicited=True, category='Protocol')
+        raise refusal
+    return limits
+
+
 class ProtocolFormatError(Exception):
     pass
 
@@ -1355,6 +1384,12 @@ class Protocol:
         if tiling == '1x1':
             return status
 
+        # Before anything below touches the steps: a refused build leaves the
+        # protocol as it was.
+        limits = _axis_limits_or_refuse(axes_config, ('X', 'Y'), what='a tile grid')
+        x_limits = limits['X']
+        y_limits = limits['Y']
+
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
         try:
@@ -1367,14 +1402,6 @@ class Protocol:
 
         except Exception as e:
             logger.error(f'Error adding objective focal length to steps dataframe: {e}')
-            return status
-
-        try:
-            x_limits = axes_config['X']['limits']
-            y_limits = axes_config['Y']['limits']
-
-        except Exception as e:
-            logger.error(f'Error getting axes limits from axes_config: {e}')
             return status
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
@@ -1512,11 +1539,7 @@ class Protocol:
         if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
             return status
 
-        try:
-            z_limits = axes_config['Z']['limits']
-        except Exception as e:
-            logger.error(f'Error getting Z axis limits from axes_config: {e}')
-            return status
+        z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')['Z']
 
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
