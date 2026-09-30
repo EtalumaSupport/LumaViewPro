@@ -72,6 +72,23 @@ _LOGGED_MARK = '_lvp_outcome_logged'
 _SHOWN_MARK = '_lvp_outcome_shown'
 
 
+def _outcome_words(exception: BaseException) -> str:
+    """The exception's own words, or a sentence saying they could not be written.
+
+    An exception's ``__str__`` is its author's code and can itself raise.
+    The reporter is where every outcome ends its flight, so a raise here
+    would escape into whatever was reporting it -- a lane, a listener, a
+    run's cleanup -- instead of being reported.
+    """
+    try:
+        return str(exception)
+    except Exception as failure:
+        return (
+            f'{type(exception).__name__} (its message could not be written: '
+            f'{type(failure).__name__})'
+        )
+
+
 class Severity(IntEnum):
     """Notification severity levels (matches Python logging levels).
 
@@ -374,35 +391,30 @@ class NotificationCenter:
                 setattr(exception, _SHOWN_MARK, True)
 
         kind = type(exception).__name__
+        words = _outcome_words(exception)
         if do_log:
             if quiet:
-                _outcome_logger.info(f'[{category}] {kind}: {exception}')
+                _outcome_logger.info(f'[{category}] {kind}: {words}')
             elif refusal:
                 if not do_show:
                     reason = getattr(exception, 'reason', None)
                     because = f', {reason}' if reason else ''
-                    _outcome_logger.warning(f'[{category}] refused ({kind}{because}): {exception}')
+                    _outcome_logger.warning(f'[{category}] refused ({kind}{because}): {words}')
             else:
-                _outcome_logger.error(
-                    f'[{category}] raised {kind}: {exception}', exc_info=exception
-                )
+                _outcome_logger.error(f'[{category}] raised {kind}: {words}', exc_info=exception)
         if not do_show:
             return
         if refusal:
             delivered = self.warning(
                 category,
                 exception.title,
-                str(exception),
+                words,
                 solicited=solicited,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=getattr(exception, 'reason', None) or '',
             )
         else:
-            body = (
-                str(exception)
-                if isinstance(exception, _TYPED_FAULTS) and str(exception)
-                else _UNTYPED_FAULT_BODY
-            )
+            body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY
             title = getattr(exception, 'title', None) or fault_title
             delivered = self.error(
                 category, title, body, solicited=solicited, operation_key=operation_key
