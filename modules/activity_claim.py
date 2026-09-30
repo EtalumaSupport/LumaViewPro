@@ -206,7 +206,8 @@ class ActivityClaim:
     def __init__(self, on_transition=None) -> None:
         """Args:
         on_transition: Optional zero-argument callable invoked after
-            every successful claim or release. It fires OUTSIDE this
+            every successful claim or release, and on every
+            ``announce`` by the activity holding it. It fires OUTSIDE this
             claim's lock but ON the transitioning thread, which may
             hold engine locks of its own -- so it must only schedule
             or notify (level-read listeners re-read state when they
@@ -273,7 +274,7 @@ class ActivityClaim:
             held = HeldClaim(self)
             self._held = held
             self._holder = ActivityHolder(kind=owner, run_trigger_source=run_trigger_source)
-        self._announce()
+        self.announce()
         return held
 
     def refusing_holder(
@@ -343,10 +344,16 @@ class ActivityClaim:
                 )
             self._held = None
             self._holder = None
-        self._announce()
+        self.announce()
 
-    def _announce(self) -> None:
-        """Tell the listener the holder changed; a raise stays here.
+    def announce(self) -> None:
+        """Tell the listener the Session's run state changed; a raise stays here.
+
+        The claim calls it for its own grant and release. An activity holding
+        the claim calls it for a change of its own the holder does not show --
+        a recording going live after its grant, its selection closing while it
+        still holds, its finish ending after its release -- so a listener hears
+        every edge from one place, and none is inferred by polling.
 
         The claim is already settled when this runs. A listener's raise
         carried out to the taker would leave the scope held by a taking the

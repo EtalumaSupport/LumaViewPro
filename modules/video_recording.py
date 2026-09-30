@@ -356,6 +356,9 @@ class VideoRecordingEngine:
                 self._release_claim_locked()
                 self._drained.set()
                 raise
+            # The claim's grant was heard before the recording was live; this
+            # is the edge at which it is.
+            self._held_claim.claim.announce()
 
     def ingest_frame(
         self, image: Any, timestamp_s: float, chunks: Any = None, *, fact: Any
@@ -493,6 +496,10 @@ class VideoRecordingEngine:
         self._end_reason = reason
         self._recording = False
         self._queue.put(_END_OF_RECORDING)
+        # Live to draining, with the claim still held: no grant or release
+        # marks it. Selection is open only while this engine holds its
+        # taking, so the taking is here to announce through.
+        self._held_claim.claim.announce()
 
     def _drain_loop(self) -> None:
         """Writer lane: pop each frame and write it as its final artifact.

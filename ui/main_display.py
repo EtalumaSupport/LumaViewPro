@@ -106,10 +106,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         submit_reported(_start, self._recording_request_done, 'RECORD')
 
     def _recording_request_done(self):
-        # The claim grant already notified the run-state listeners, but the
-        # engine may not have been live yet at that instant; this level
-        # republish lands the recording mirror now that it is.
-        _app_ctx.ctx.session.notify_run_state()
         self.draw_record_button()
 
     def draw_record_button(self):
@@ -147,13 +143,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.is_recording:
             set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
             return
-        # Selection closed (Stop, duration cap, or budget full). The
-        # live->drain flip has no claim transition of its own, so this
-        # poll is the edge that republishes the mirrors (unlocking the
-        # controls); the claim stays held until the drain ends, so a
-        # protocol start attempted during the drain still gets its loud
-        # refusal.
-        _app_ctx.ctx.session.notify_run_state()
+        # Selection closed (Stop, duration cap, or budget full); the
+        # recording announced that edge itself, so this tick only keeps the
+        # title counting down the drain.
         self.draw_record_button()
         if controller.is_draining:
             set_title_event_text(
@@ -171,7 +163,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if self._recording_poll is not None:
             Clock.unschedule(self._recording_poll)
             self._recording_poll = None
-        _app_ctx.ctx.session.notify_run_state()
         controller = _app_ctx.ctx.session.manual_recording
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)

@@ -161,6 +161,11 @@ class ManualRecordingController:
         self._last_disk_check_ts = 0.0
         self._on_complete: Callable[[], None] | None = None
         self._finish_thread: threading.Thread | None = None
+        # Whether a recording's finish has yet to end. Its own store, not the
+        # finish thread's liveness: the thread announces its end as its last
+        # step, while still alive, and a listener told of that end must read
+        # it as ended.
+        self._finishing = False
         self._health_handle: object | None = None
         # Guards the per-recording state slots published by start():
         # the health check reads them from the scheduler's timer thread,
@@ -195,8 +200,7 @@ class ManualRecordingController:
         The app-close gate reads this: the recording is not safely over
         until the post-drain finish (MP4 close, hyperstack) has run.
         """
-        thread = self._finish_thread
-        return self.is_recording or self.is_draining or (thread is not None and thread.is_alive())
+        return self.is_recording or self.is_draining or self._finishing
 
     @property
     def elapsed_s(self) -> float:
@@ -481,6 +485,7 @@ class ManualRecordingController:
             self._finish_thread = threading.Thread(
                 target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
             )
+            self._finishing = True
             self._finish_thread.start()
             # Armed last, after every state slot above is published: a
             # check firing between engine.start and the publish would
@@ -558,6 +563,7 @@ class ManualRecordingController:
         self._engine = None
         self._writer = None
         self._finish_thread = None
+        self._finishing = False
 
     def stop(self, reason: str = 'user_stop') -> None:
         """Close selection; the drain and finish continue on their own.
@@ -874,6 +880,12 @@ class ManualRecordingController:
                     self._on_complete()
                 except Exception:
                     logger.exception('[ManualRecord] on_complete callback failed')
+            # Last: once it reads False a new recording may start and rebind
+            # every per-recording slot this thread reads above. The claim was
+            # released when the drain ended, so this end is no transition of
+            # the claim's and is announced on its own.
+            self._finishing = False
+            self._claim.announce()
 
     def _build_hyperstack(self) -> None:
         plan = self._plan

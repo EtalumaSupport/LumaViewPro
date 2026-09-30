@@ -89,12 +89,13 @@ class TestDerivedLockProperty:
             'controls_locked = False'
         ), 'unlocking must write controls_locked last'
 
-    def test_main_display_republishes_the_mirror(self):
-        # The live->drain flip has no claim transition of its own, so
-        # the recording UI paths trigger the session republish; the
-        # listener derives recording_active from the engine phase.
+    def test_main_display_supplies_no_run_state_edge(self):
+        # A recording announces its own edges (live, draining, finish
+        # ended) through the claim, so a headless listener hears them
+        # too; a republish from the GUI would be an edge only the GUI
+        # can see.
         src = (REPO_ROOT / 'ui' / 'main_display.py').read_text()
-        assert src.count('session.notify_run_state()') >= 3
+        assert 'notify_run_state' not in src
         assert 'app.recording_active = value' not in src
 
 
