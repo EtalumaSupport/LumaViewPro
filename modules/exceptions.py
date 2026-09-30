@@ -359,9 +359,110 @@ class HyperstackRefusedError(CaptureError):
         message: The builder's one-paragraph reason, user-facing.
     """
 
+    title = 'Hyperstack Not Built'
+
     def __init__(self, message: str):
         super().__init__(message, 'hyperstack_refused')
         self.message = message
+
+
+class RecordingStoppedError(CaptureError):
+    """A manual recording was stopped before anyone asked it to stop.
+
+    Built by the recording's own watch when the camera stops delivering
+    frames or the free disk falls below the floor, and reported where it is
+    detected: no caller is waiting on a recording that is running. The
+    frames written so far are on disk.
+
+    Attributes:
+        reason: ``camera_disconnected``, ``camera_stalled`` or ``disk_floor``.
+    """
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'camera_disconnected': 'Recording Stopped',
+        'camera_stalled': 'Recording Stopped',
+        'disk_floor': 'Recording Stopped -- Disk Almost Full',
+    }
+    _WORDS: ClassVar[dict[str, str]] = {
+        'camera_disconnected': (
+            'The camera stopped delivering frames, so the recording was stopped. '
+            'Frames captured so far are saved; check the camera connection before '
+            'recording again.'
+        ),
+        'disk_floor': (
+            'Free disk space fell below the safety floor, so the recording was '
+            'stopped early. Frames captured so far are saved; free up space before '
+            'recording again.'
+        ),
+    }
+    _WORDS['camera_stalled'] = _WORDS['camera_disconnected']
+
+    def __init__(self, reason: str):
+        super().__init__(self._WORDS[reason], reason)
+        self.title = self._TITLES[reason]
+
+
+class RecordingFinalizeError(CaptureError):
+    """A recording finished but its output could not be fully assembled.
+
+    Raised around what failed in the finish of a manual recording or of a
+    protocol video step, and chained from it. The frames already written
+    are on disk.
+
+    Attributes:
+        protocol_step: True for a protocol video step, False for a manual
+            recording; each is named in its own words.
+    """
+
+    def __init__(self, *, protocol_step: bool):
+        if protocol_step:
+            message = (
+                'A video step finished but its output could not be fully assembled. '
+                'Frames already written are on disk; check the log.'
+            )
+            reason = 'video_step_finalize_failed'
+            self.title = 'Video Finalize Failed'
+        else:
+            message = (
+                'The recording finished but its output could not be fully assembled. '
+                'Frames already written are on disk; check the log.'
+            )
+            reason = 'recording_finalize_failed'
+            self.title = 'Recording Finalize Failed'
+        super().__init__(message, reason)
+        self.protocol_step = protocol_step
+
+
+class VideoFramesDroppedError(CaptureError):
+    """Frames a recording selected could not be written, so its video is short.
+
+    Each dropped frame is a write that failed; the recording's manifest
+    carries the counts too.
+
+    Attributes:
+        dropped: Frames that could not be written.
+        selected: Frames the recording selected.
+        protocol_step: True for a protocol video step, False for a manual
+            recording.
+    """
+
+    title = 'Video Frames Dropped'
+
+    def __init__(self, dropped: int, selected: int, *, protocol_step: bool):
+        what = 'in a video step ' if protocol_step else ''
+        short = (
+            'that video is shorter than its'
+            if protocol_step
+            else 'the saved video is shorter than the'
+        )
+        super().__init__(
+            f'{dropped} of {selected} frame(s) {what}could not be written, so {short} '
+            'recording. Check the log for the cause.',
+            'video_frames_dropped',
+        )
+        self.dropped = dropped
+        self.selected = selected
+        self.protocol_step = protocol_step
 
 
 class ImageSaveError(CaptureError):

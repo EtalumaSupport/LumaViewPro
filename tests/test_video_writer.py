@@ -357,11 +357,11 @@ class TestProtocolVideoDropNotification:
         assert recorder.wait_until_finished(timeout=10.0)
         return recorder
 
-    def test_write_failure_posts_one_nonfatal_warning(self, tmp_path, monkeypatch):
+    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch):
         fired = self._capture_notifications(monkeypatch)
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
-        assert len(fired['warning']) == 1, (
-            'a step that lost frames must post exactly one warning through the '
+        assert len(fired['error']) == 1 and fired['warning'] == [], (
+            'a step that lost frames must post exactly one error through the '
             f'center (the protocol mute owns popup policy); got {fired}'
         )
         assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'

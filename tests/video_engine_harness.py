@@ -14,6 +14,8 @@ import threading
 
 import numpy as np
 
+from modules.notification_center import NotificationCenter
+
 
 class FakeClock:
     """Injectable time source: a float the test advances explicitly."""
@@ -147,14 +149,23 @@ class WriterStub:
 
 
 class NotifyRecorder:
-    """Notification sink recording (severity, args, kwargs) calls."""
+    """Notification sink recording (severity, args, kwargs) calls.
+
+    ``report_outcome`` is the production reporter's own, so an outcome is
+    recorded as the display call the reporter would make -- its kind, title
+    and words decided by the real code, not restated here.
+    """
+
+    report_outcome = NotificationCenter.report_outcome
 
     def __init__(self):
         self.calls = []
+        self._lock = threading.Lock()
 
     def _record(self, severity):
         def _call(*args, **kwargs):
             self.calls.append((severity, args, kwargs))
+            return True
 
         return _call
 

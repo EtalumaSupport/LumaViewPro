@@ -45,7 +45,12 @@ from modules.common_utils import (
 )
 import modules.image_save as image_save
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected, FrameListenerNotRegisteredError
+from modules.exceptions import (
+    CameraSettingRejected,
+    FrameListenerNotRegisteredError,
+    RecordingFinalizeError,
+    VideoFramesDroppedError,
+)
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.recording_frames import (
@@ -649,14 +654,10 @@ class ProtocolVideoStep:
                 # manifest carries the engine-counted failures.
                 writer_dropped = self._writer.dropped_frames
             result = engine.result()
-        except Exception:
-            logger.exception('[PROTOCOL-VIDEO] Post-drain finish failed')
-            notifications.error(
-                'Protocol',
-                'Video Finalize Failed',
-                'A video step finished but its output could not be fully '
-                'assembled. Frames already written are on disk; check the log.',
-            )
+        except Exception as failed:
+            fault = RecordingFinalizeError(protocol_step=True)
+            fault.__cause__ = failed
+            notifications.report_outcome(fault, solicited=False, category='Protocol')
         finally:
             self._reset_title()
             if result is None:
@@ -706,12 +707,12 @@ class ProtocolVideoStep:
                     # The center's protocol mute suppresses this popup during
                     # an unattended run; the manifest and end-of-run report
                     # carry the counts either way.
-                    notifications.warning(
-                        'Protocol',
-                        'Video Frames Dropped',
-                        f'{dropped} of {result.frames_selected} frame(s) in a video step '
-                        'could not be written, so that video is shorter than its '
-                        'recording. Check the log for the cause.',
+                    notifications.report_outcome(
+                        VideoFramesDroppedError(
+                            dropped, result.frames_selected, protocol_step=True
+                        ),
+                        solicited=False,
+                        category='Protocol',
                     )
                 logger.info(
                     f'[PROTOCOL-VIDEO] Finished: {result.frames_written} written, '

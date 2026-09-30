@@ -51,7 +51,10 @@ from modules.exceptions import (
     CaptureError,
     FrameListenerNotRegisteredError,
     HyperstackRefusedError,
+    RecordingFinalizeError,
     RecordingRefusedError,
+    RecordingStoppedError,
+    VideoFramesDroppedError,
 )
 from modules.notification_center import notifications
 from modules.recording_frames import (
@@ -249,8 +252,7 @@ class ManualRecordingController:
         # this controller's per-recording state, so a second start landing
         # in that gap rebinds every slot underneath a recording that is
         # still closing its encoder and building its hyperstack. Must stay
-        # the FIRST statement: the refusals below are not side-effect-free
-        # (the rate clamp pops an FPS-budget warning).
+        # the FIRST statement.
         #
         # Shares the engine's reason code, whose message says "stop it"
         # while this one says "wait". Considered a distinct code; rejected
@@ -288,19 +290,8 @@ class ManualRecordingController:
                 message='The camera has not reported its exposure time, so the '
                 'recording cannot be started. Reconnect the camera and try again.',
             )
-        exposure_fps = 1000.0 / exposure
-
         video_settings = settings.get('video', {})
         max_fps = video_settings.get('max_fps', 0)
-        if max_fps > 0 and max_fps > exposure_fps:
-            notifications.warning(
-                'Recording',
-                'FPS budget exceeded',
-                f'Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure exceeds '
-                f"the camera's max {exposure_fps:.1f} FPS for that exposure. "
-                f'Recording will run at {exposure_fps:.1f} FPS instead. '
-                'Reduce exposure to hit the requested rate.',
-            )
         # Manual recording asks for no rate of its own: it records every
         # frame the camera delivers, limited only by the user's setting
         # when one is set.
@@ -646,14 +637,11 @@ class ManualRecordingController:
             self._scheduler.unschedule(handle)
 
     def _stop_for_camera_loss(self, reason: str) -> None:
-        logger.error(f'[ManualRecord] Camera feed lost mid-recording ({reason}); stopping')
+        # The person reads one sentence for both reasons; the log keeps which.
+        logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self.stop(reason=reason)
-        notifications.error(
-            'Recording',
-            'Recording Stopped',
-            'The camera stopped delivering frames, so the recording was '
-            'stopped. Frames captured so far are saved; check the camera '
-            'connection before recording again.',
+        notifications.report_outcome(
+            RecordingStoppedError(reason), solicited=False, category='Recording'
         )
 
     def discard_pending(self) -> None:
@@ -771,16 +759,12 @@ class ManualRecordingController:
             logger.warning(f'[ManualRecord] Disk-floor probe failed: {e}')
             return
         if not ok and self._engine is not None and self._engine.is_recording:
-            logger.error(
+            logger.info(
                 f'[ManualRecord] Free disk fell to {free_mb:.0f} MB (floor '
-                f'{MIN_REQUIRED_DISK_MB} MB); stopping the recording'
+                f'{MIN_REQUIRED_DISK_MB} MB)'
             )
-            notifications.error(
-                'Recording',
-                'Recording Stopped -- Disk Almost Full',
-                'Free disk space fell below the safety floor, so the recording '
-                'was stopped early. Frames captured so far are saved; free up '
-                'space before recording again.',
+            notifications.report_outcome(
+                RecordingStoppedError('disk_floor'), solicited=False, category='Recording'
             )
             self.stop(reason='disk_floor')
 
@@ -835,16 +819,11 @@ class ManualRecordingController:
             # The builder's reason is the whole answer, in its own words:
             # "check the log" is no answer to a REST caller or to a user who
             # cannot read one. The frames are on disk as recorded.
-            logger.error(f'[ManualRecord] Hyperstack not built: {refused.message}')
-            notifications.error('Recording', 'Hyperstack Not Built', refused.message)
-        except Exception:
-            logger.exception('[ManualRecord] Post-drain finish failed')
-            notifications.error(
-                'Recording',
-                'Recording Finalize Failed',
-                'The recording finished but its output could not be fully '
-                'assembled. Frames already written are on disk; check the log.',
-            )
+            notifications.report_outcome(refused, solicited=False, category='Recording')
+        except Exception as failed:
+            fault = RecordingFinalizeError(protocol_step=False)
+            fault.__cause__ = failed
+            notifications.report_outcome(fault, solicited=False, category='Recording')
         finally:
             # Reporting needs the measured truth; completing the recording
             # does not. Keeping them apart is what lets the callback fire --
@@ -867,12 +846,12 @@ class ManualRecordingController:
 
                 dropped = result.write_failures + writer_dropped
                 if dropped > 0 and not result.aborted:
-                    notifications.warning(
-                        'Recording',
-                        'Video Frames Dropped',
-                        f'{dropped} of {result.frames_selected} frame(s) could not '
-                        'be written, so the saved video is shorter than the '
-                        'recording. Check the log for the cause.',
+                    notifications.report_outcome(
+                        VideoFramesDroppedError(
+                            dropped, result.frames_selected, protocol_step=False
+                        ),
+                        solicited=False,
+                        category='Recording',
                     )
                 logger.info(
                     f'[ManualRecord] Finished: {result.frames_written} written, '

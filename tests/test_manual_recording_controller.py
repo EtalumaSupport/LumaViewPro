@@ -735,7 +735,7 @@ class TestLossIsNotified:
         assert len(list(folder.glob('ManualVideo_Frame_*.tiff'))) == 4
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
         assert manifest['write_failures'] == 1
-        assert 'warning' in recorder.severities()
+        assert 'error' in recorder.severities()
 
     def test_finish_failure_notifies(self, tmp_path, monkeypatch):
         # A post-drain finish failure (here the hyperstack build) must
