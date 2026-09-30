@@ -1242,7 +1242,7 @@ class Protocol:
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
-        before_step: int | None = 0,
+        before_step: int | None = None,
         after_step: int | None = None,
     ) -> str:
 

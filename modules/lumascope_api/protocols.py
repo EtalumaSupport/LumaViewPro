@@ -215,14 +215,18 @@ class ProtocolsAPI:
         ``objective_id`` is the active objective, or None when no one can say
         which objective is in the light path.
 
+        ``before_step`` or ``after_step`` places the steps; with neither
+        they follow the last step, which is what a script building a
+        protocol one add at a time means by "add".
+
         Returns the inserted step names, in protocol order.
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, no
                 layer acquires, the turret's current slot has no objective,
                 or the active objective is unknown. Logged and notified once.
-            ProtocolError: an impossible ``before_step`` / ``after_step``
-                (raised by the protocol).
+            ProtocolError: an impossible ``before_step`` / ``after_step``,
+                or both given (raised by the protocol).
         """
         self._refuse_unrecordable_step(verb='add', objective_id=objective_id)
         if not any(cfg['acquire'] is not None for cfg in layer_configs.values()):
@@ -238,6 +242,8 @@ class ProtocolsAPI:
         ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
         ordered += [layer for layer in layer_configs if layer not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
+        if before_step is None and after_step is None:
+            after_step = protocol.num_steps() - 1
 
         names: list[str] = []
         for layer in ordered:
