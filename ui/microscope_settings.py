@@ -710,28 +710,22 @@ class MicroscopeSettings(BoxLayout):
         """Apply the current scope to the UI in the canonical order.
 
         set_ui_features_for_scope first (control visibility + the read-only
-        model label), then a stage redraw for the new model's geometry. The
-        single owner of the scope-change reconfigure sequence -- called at
-        startup and when the Advanced Settings selector changes the scope, so
-        the order is identical on both paths.
+        model label), then a stage redraw for the scope's geometry. Runs at
+        startup, once the scope is up; a model selected later is saved for
+        the next start and changes nothing here.
         """
         ctx = _app_ctx.ctx
-        # Layer identity re-resolves before anything reads it, so a model
-        # selection takes effect immediately on hardware that cannot
-        # report its own model; a motor-reported model still wins inside
-        # the resolver, so on self-reporting hardware this refresh is a
-        # no-op by design.
-        ctx.lumaview.scope.refresh_layer_identity(configured_model=ctx.settings.get('microscope'))
         self.set_ui_features_for_scope()
         ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
-        settings = ctx.settings
 
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
 
-        microscope_settings.current_scope_model = settings['microscope']
+        # The model the scope runs as, not the stored selection: a selection
+        # saved in Advanced Settings applies only at the next start.
+        microscope_settings.current_scope_model = ctx.lumaview.scope.layer_identity.model or ''
 
         # Which motion hardware exists is asked of the drivers, never of the
         # selected model. scopes.json describes the model picked in Advanced

@@ -464,6 +464,7 @@ class TestFrameValidityDuringHoming:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
+            layer_identity=scope.layer_identity,
         )
         captured = {}
 
@@ -983,6 +984,7 @@ class TestScopeCapabilities:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
+            layer_identity=scope.layer_identity,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -998,6 +1000,7 @@ class TestScopeCapabilities:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
+            layer_identity=scope.layer_identity,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -1005,12 +1008,14 @@ class TestScopeCapabilities:
         assert scope.capabilities.has_turret is False
 
     def test_null_motor_capabilities_empty_axes(self):
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert caps.axes == ()
         assert caps.has_focus is False
@@ -1020,18 +1025,21 @@ class TestScopeCapabilities:
     def test_null_led_still_reports_six_channels_for_compat(self):
         """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
         silent no-ops work on channels 0-5. Capabilities mirrors that."""
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert len(caps.led_channels) == 6
         assert caps.led_channels == (0, 1, 2, 3, 4, 5)
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""
+        from modules.layer_record import resolve_layer_identity
         from modules.scope_capabilities import ScopeCapabilities
 
         class FourChannelLED(SimulatedLEDBoard):
@@ -1042,6 +1050,12 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=FourChannelLED(),
             camera=None,
+            layer_identity=resolve_layer_identity(
+                board_block=None,
+                board_config_read_ok=True,
+                motor_model=None,
+                configured_model='LS620',
+            ),
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}

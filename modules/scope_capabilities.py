@@ -152,9 +152,11 @@ class ScopeCapabilities:
     has_xy_stage: bool  # 'X' and 'Y' in axes
     has_turret: bool  # 'T' in axes
 
-    motor_model: str
-    """Scope model string reported by `motion.get_microscope_model()`, or
-    empty string if unknown / not connected."""
+    model: str
+    """The scope model this scope runs as: the one its layer identity
+    settled on (the board's report, else the operator's selection), or
+    empty string when there is none. Fixed for the life of the scope; a
+    new selection applies at the next start."""
 
     pixel_size_um: float | None
     """Per-scope camera pixel size in um/pixel, resolved from the first
@@ -246,7 +248,7 @@ class ScopeCapabilities:
         motion: MotorBoardProtocol,
         led: LEDBoardProtocol,
         camera: object | None,
-        layer_identity: LayerIdentity | None = None,
+        layer_identity: LayerIdentity,
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
@@ -264,10 +266,12 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
+            layer_identity: The scope's resolved identity; its model is
+                the capabilities' model, so the two cannot disagree.
         """
         # Motion
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
-        model = _probe('get_microscope_model', lambda: motion.get_microscope_model() or '', '')
+        model = layer_identity.model or ''
 
         # Optics (read once at boot; motorconfig is loaded once at driver
         # init and is immutable for the run).
@@ -282,10 +286,7 @@ class ScopeCapabilities:
         # while which layer names exist (and what they drive) is unit
         # data. A scope with no resolved identity honestly reports no
         # colour names -- the channels stay visible via led_channels.
-        if layer_identity is not None:
-            led_colors = tuple(r.key_name for r in layer_identity.layers if r.led_channel)
-        else:
-            led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
+        led_colors = tuple(r.key_name for r in layer_identity.layers if r.led_channel)
         has_firmware_stim = _probe(
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),
@@ -343,7 +344,7 @@ class ScopeCapabilities:
             has_focus='Z' in axes,
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
-            motor_model=model,
+            model=model,
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
             led_channels=led_channels,

@@ -139,12 +139,14 @@ class TestScopeCapabilitiesPlumbing:
     def _build_caps(self, led_stub):
         """Build a ScopeCapabilities snapshot with a stub LED driver."""
         from drivers.null_motorboard import NullMotionBoard
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         return ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=led_stub,
             camera=None,
+            layer_identity=UNRESOLVED,
         )
 
     def test_has_firmware_stim_true_when_driver_reports_true(self):
@@ -173,6 +175,7 @@ class TestScopeCapabilitiesPlumbing:
         AttributeError pre-rollout scenario -- gets False via _probe's
         AttributeError fallback (per the Rule 8 capability-probe corollary)."""
         from drivers.null_motorboard import NullMotionBoard
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         old_led = MagicMock(spec=['available_channels', 'available_colors'])
@@ -184,5 +187,6 @@ class TestScopeCapabilitiesPlumbing:
             motion=NullMotionBoard(),
             led=old_led,
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert caps.has_firmware_stim is False

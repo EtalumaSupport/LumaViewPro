@@ -17,6 +17,7 @@ import ast
 
 from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import REPO_ROOT
 
@@ -29,7 +30,9 @@ DUPLICATED_FLAGS = ('XYStage', 'Turret', 'Focus')
 
 
 def _caps_for(motion):
-    return ScopeCapabilities.from_drivers(motion=motion, led=None, camera=None)
+    return ScopeCapabilities.from_drivers(
+        motion=motion, led=None, camera=None, layer_identity=UNRESOLVED
+    )
 
 
 class TestUiGatesOnTheDriver:

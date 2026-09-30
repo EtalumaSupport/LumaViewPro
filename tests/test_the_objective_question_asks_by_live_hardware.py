@@ -28,6 +28,7 @@ import dataclasses
 import pytest
 
 from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
@@ -65,19 +66,27 @@ class TestTheTurretFactPrefersTheBoard:
 
         assert session.scope_has_turret() is False
 
-    def test_a_disconnected_board_falls_back_to_the_declaration(self, session, monkeypatch):
+    def test_a_disconnected_board_falls_back_to_the_declaration(self, tmp_path, monkeypatch):
         """The case the declaration was chosen for, and it still holds.
 
         A dead board reports no axes. Believing it would say "no turret",
         and a stale stored objective would then be adopted without anyone
         being asked -- which is the failure the declared model was there
-        to prevent.
+        to prevent. The model is declared when the scope is brought up,
+        the one way a declaration reaches a running scope.
         """
-        _declare(session, 'LS850T')
-        monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
-        _board(session, connected=False, has_turret=False)
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        )
+        try:
+            monkeypatch.setattr(
+                type(session.scope), 'motor_connected', property(lambda self: False)
+            )
+            _board(session, connected=False, has_turret=False)
 
-        assert session.scope_has_turret() is True
+            assert session.scope_has_turret() is True
+        finally:
+            session.shutdown()
 
     def test_a_disconnected_board_on_a_turretless_declaration_says_no(self, session, monkeypatch):
         _declare(session, 'LS850')

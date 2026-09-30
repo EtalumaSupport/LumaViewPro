@@ -94,7 +94,7 @@ def identity_from_rows(rows):
         )
         for i, (key, channel) in enumerate(rows)
     )
-    return LayerIdentity(layers=records, filterset='', source='scopes')
+    return LayerIdentity(layers=records, filterset='', source='scopes', model=None)
 
 
 _LS620_IDENTITY = identity_from_rows([('BF', 3), ('Blue', 0), ('Green', 1), ('Red', 2)])

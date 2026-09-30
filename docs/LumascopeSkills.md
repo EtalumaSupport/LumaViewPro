@@ -130,6 +130,7 @@ scope = Lumascope(simulate=True, configured_model='LS560')
 
 identity = scope.layer_identity          # immutable snapshot
 identity.source                          # 'motorconfig' | 'scopes' | 'unresolved'
+identity.model                           # the model it resolved as: the board's report, else configured_model; None if neither
 identity.filterset                       # the unit's filterset identity string
 for layer in identity.layers:
     layer.key_name                       # stable name: settings keys, protocol Color, filenames
@@ -139,10 +140,15 @@ for layer in identity.layers:
 
 identity.find('BF')                      # record by stable key name, or None
 
-# Re-resolve after a configuration change; override_model resolves AS
-# another model for this call only (lab/testing use — never persisted).
-scope.refresh_layer_identity(configured_model='LS620')
+# override_model resolves AS another model for this call only
+# (lab/testing use — never persisted, and the capabilities do not follow).
 scope.refresh_layer_identity(override_model='LS850T')
+```
+
+A scope's model is fixed for its lifetime: `identity.model`, `scope.capabilities.model` and the model every saved image records are one answer. A model the catalogue lacks is still carried, with no layers. To change the model of a scope that cannot report its own (the FX2 line), save the selection through the session; it applies the next time the scope is brought up, and a motor board that reports its own model still wins then:
+
+```python
+session.select_model('LS560')   # saved to settings['microscope']; raises ScopeModelUnknownError if the catalogue lacks it
 ```
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
@@ -1451,7 +1457,7 @@ caps.axes                       # ('X', 'Y', 'Z', 'T') on LS850T; ()         on 
 caps.has_focus                  # True if Z is motorized
 caps.has_xy_stage               # True if X/Y are motorized
 caps.has_turret                 # True if the turret axis is present
-caps.motor_model                # e.g. 'RP2040' or '' if no motor
+caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040

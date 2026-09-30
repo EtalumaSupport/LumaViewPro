@@ -73,11 +73,20 @@ class LayerIdentity:
     model's rows -- what a pre-block unit of this model has), or
     'unresolved' (no block and no resolvable model; empty, and loud at
     the point of LED use rather than silently wrong here).
+
+    `model` is the scope model the resolver settled on, whichever rung
+    answered: the override, else the model the board reports, else the
+    operator's selection -- the only identity an FX2 scope has, since it
+    cannot report its own. A model the catalogue lacks is still carried,
+    with no layers; `None` means there was no model at all. Every reader
+    of "which model is this scope" takes it from here, so the layers, the
+    capabilities and the saved files name one model.
     """
 
     layers: tuple[LayerRecord, ...]
     filterset: str
     source: str
+    model: str | None
 
     def find(self, key_name: str) -> LayerRecord | None:
         """Return the layer whose stable key name matches, else None.
@@ -91,7 +100,7 @@ class LayerIdentity:
         return None
 
 
-UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved')
+UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=None)
 
 # The release catalogue is loaded once per process: it ships with the
 # release (the file is version-paired), so nothing invalidates it at
@@ -309,7 +318,8 @@ def resolve_layer_identity(
     describe hardware that does not exist); else the model's
     `scopes.json` rows, with the motor-reported model outranking the
     configured one because hardware truth beats a user selection; else
-    the empty `unresolved` snapshot.
+    the empty `unresolved` snapshot. Whichever rung answers, the snapshot
+    carries the model the resolver settled on (`LayerIdentity.model`).
 
     A block that is absent because the board's config could not be READ
     is not the same as a unit with no block: the failed read is logged
@@ -324,36 +334,41 @@ def resolve_layer_identity(
         logger.error(f'[LAYER_RECORD] scopes data has no Models section: {sorted(scopes_data)!r}')
         models = {}
 
-    def _from_model(model: str, source: str) -> LayerIdentity | None:
+    def _from_model(model: str) -> LayerIdentity:
         entry = models.get(model)
         if not isinstance(entry, dict):
-            return None
+            return LayerIdentity(layers=(), filterset='', source='unresolved', model=model)
         layers = _parse_rows(entry.get('Layers', []), catalogue, f'scopes[{model}]')
         filterset = entry.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''
-        return LayerIdentity(layers=layers, filterset=filterset, source=source)
+        return LayerIdentity(layers=layers, filterset=filterset, source='scopes', model=model)
 
     if override_model is not None:
         logger.warning(
             f'[LAYER_RECORD] identity override active: resolving as model '
             f'{override_model!r} for this session'
         )
-        identity = _from_model(override_model, source='scopes')
-        if identity is not None:
-            return identity
-        logger.error(
-            f'[LAYER_RECORD] override model {override_model!r} has no scopes '
-            f'entry; identity is unresolved'
-        )
-        return UNRESOLVED
+        identity = _from_model(override_model)
+        if identity.source == 'unresolved':
+            logger.error(
+                f'[LAYER_RECORD] override model {override_model!r} has no scopes '
+                f'entry; identity is unresolved'
+            )
+        return identity
+
+    # The configured model is consulted only when the hardware reports no
+    # model at all. A motor-reported model with no scopes entry (a newer
+    # unit than this release knows) goes unresolved and loud rather than
+    # silently adopting whatever the user last selected.
+    model = motor_model or configured_model
 
     if board_block is not None:
         layers = _parse_rows(board_block.get('Layers', []), catalogue, 'motorconfig')
         filterset = board_block.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''
-        return LayerIdentity(layers=layers, filterset=filterset, source='motorconfig')
+        return LayerIdentity(layers=layers, filterset=filterset, source='motorconfig', model=model)
 
     if not board_config_read_ok:
         logger.error(
@@ -362,15 +377,9 @@ def resolve_layer_identity(
             'instead'
         )
 
-    # The configured model is consulted only when the hardware reports no
-    # model at all. A motor-reported model with no scopes entry (a newer
-    # unit than this release knows) goes unresolved and loud rather than
-    # silently adopting whatever the user last selected.
-    model = motor_model or configured_model
-    if model:
-        identity = _from_model(model, source='scopes')
-        if identity is not None:
-            return identity
+    if not model:
+        return UNRESOLVED
+    identity = _from_model(model)
+    if identity.source == 'unresolved':
         logger.error(f'[LAYER_RECORD] model {model!r} has no scopes entry; identity is unresolved')
-
-    return UNRESOLVED
+    return identity

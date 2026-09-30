@@ -41,6 +41,7 @@ from modules.exceptions import (
     HomingFailedError,
     ObjectiveUnknownError,
     ScopeDisconnectError,
+    ScopeModelUnknownError,
     SettingsSaveRefusedError,
 )
 from modules.manual_capture import ManualCaptureController
@@ -1017,6 +1018,34 @@ class ScopeSession:
         with self.settings_lock:
             self.settings[key] = value
 
+    def select_model(self, model: str) -> None:
+        """Save the operator's scope model for the next start.
+
+        The running scope is not changed: its capabilities are fixed at
+        construction, so re-resolving its layers for the new model would
+        leave one scope carrying two models -- the new one in its layers,
+        the old one in its capabilities and its saved files. The selection
+        takes effect when the scope is next brought up, and on a scope whose
+        motor board reports its own model the board's report still wins
+        there.
+
+        Args:
+            model: A model the release's catalogue lists.
+
+        Raises:
+            ScopeModelUnknownError: the catalogue does not list ``model``;
+                nothing is saved.
+            ConfigError: the catalogue itself has no usable ``Models``
+                section.
+        """
+        from modules import layer_record
+
+        scope_models = layer_record.load_scope_models()
+        if model not in scope_models:
+            raise ScopeModelUnknownError(model, scope_models)
+        self.update_settings('microscope', model)
+        logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -1283,7 +1312,9 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
         from modules import layer_record
 
-        return config_helpers.model_has_turret(layer_record.load_scope_models(), self.settings)
+        return config_helpers.model_has_turret(
+            layer_record.load_scope_models(), self.scope.layer_identity.model
+        )
 
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.

@@ -25,7 +25,7 @@ from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.tiling_config import TilingConfig
-from ui.ui_helpers import submit_reported
+from ui.ui_helpers import run_reported, submit_reported
 
 
 class AdvancedSettings(Popup):
@@ -305,24 +305,32 @@ class AdvancedSettings(Popup):
         if new_model == settings['microscope']:
             return
         gui_logger.select('SCOPE', new_model)
-        settings['microscope'] = new_model
-        # Reconfigure the panel for the new scope through its single owner
-        # (control visibility + read-only model label + stage redraw); the
-        # startup path uses the same method so both reconfigure identically.
-        ctx.motion_settings.ids['microscope_settings_id'].reconfigure_for_scope()
-        # The motion controls follow the attached hardware, so this selection
-        # does not move them. Say that outright: a panel that visibly does
-        # nothing otherwise reads as a broken selector. The wording must not
-        # promise the choice sticks either -- a board that reports its own
-        # model overwrites this value at the next startup.
+        run_reported(
+            lambda: ctx.session.select_model(new_model),
+            self._show_saved_model,
+            'SCOPE',
+        )
+
+    def _show_saved_model(self) -> None:
+        """Show the saved model, and say when it differs from the running one.
+
+        A saved selection changes nothing on screen until the next start,
+        so a panel that stayed silent would read as a broken selector. The
+        wording must not promise the choice sticks either -- a board that
+        reports its own model overwrites it at the next start.
+        """
+        ctx = _app_ctx.ctx
+        saved = ctx.settings['microscope']
+        self.ids['scope_spinner'].text = saved
+        if saved == ctx.lumaview.scope.layer_identity.model:
+            return
         from modules.notification_center import notifications
 
         notifications.info(
             'Microscope',
             'Scope model saved',
-            f'{new_model} is saved as the configured model. The controls on '
-            f'screen follow the microscope actually attached, so this takes '
-            f'effect when you reconnect. A microscope that reports its own '
+            f'{saved} is saved as the configured model and applies the next '
+            f'time LumaViewPro starts. A microscope that reports its own '
             f'model overrides this selection.',
         )
 

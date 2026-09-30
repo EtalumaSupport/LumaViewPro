@@ -34,8 +34,12 @@ _GREEN = LayerRecord(
     id=4, key_name='Green', display_name='Green', led_channel=(1,), excitation_nm=488.0
 )
 
-_IDENTITY = LayerIdentity(layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig')
-_IDENTITY_NO_FILTERSET = LayerIdentity(layers=(_BF, _GREEN), filterset='', source='scopes')
+_IDENTITY = LayerIdentity(
+    layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig', model=None
+)
+_IDENTITY_NO_FILTERSET = LayerIdentity(
+    layers=(_BF, _GREEN), filterset='', source='scopes', model=None
+)
 
 
 @pytest.fixture

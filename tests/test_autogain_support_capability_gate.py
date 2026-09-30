@@ -40,6 +40,7 @@ from unittest.mock import MagicMock
 import modules.app_context as _app_ctx
 from modules.config_ui_getters import camera_autogain_supported
 from drivers.camera_profiles import lookup_profile
+from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.scope_fakes import build_scope
 
@@ -128,7 +129,9 @@ class TestCapabilityMapping:
             profile=lookup_profile(model_name),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )
-        return ScopeCapabilities.from_drivers(motion=motion, led=led, camera=camera)
+        return ScopeCapabilities.from_drivers(
+            motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED
+        )
 
     def test_ids_reports_no_hardware_autogain(self):
         caps = self._caps_for('U3-34LxXCP-M')

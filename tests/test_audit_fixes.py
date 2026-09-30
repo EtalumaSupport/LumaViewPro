@@ -9770,12 +9770,14 @@ class TestAxisTravelLimitsOnCapabilities:
         travel-dependent consumers away from it."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         # tiling_config / motion_settings / stage consumers gate on the
         # capability and fall back to DEFAULT_STAGE_TRAVEL_UM.
@@ -9832,12 +9834,14 @@ class TestOpticsOnCapabilities:
         don't need to special-case the no-hardware path."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert caps.pixel_size_um == 2.0
         assert caps.lens_focal_length_mm == 47.8
@@ -10062,12 +10066,14 @@ class TestCameraMaxFrameSizeOnCapabilities:
     def test_no_camera_yields_zero_max_frame_size(self):
         from drivers.null_motorboard import NullMotionBoard
         from drivers.null_ledboard import NullLEDBoard
+        from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert caps.camera_max_frame_size == (0, 0)
 

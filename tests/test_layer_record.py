@@ -149,7 +149,9 @@ class TestPrecedence:
     def test_motor_model_without_entry_goes_unresolved_not_configured(self, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
-        assert identity == UNRESOLVED
+        assert identity.source == 'unresolved'
+        assert identity.layers == ()
+        assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
     def test_nothing_resolvable_is_the_unresolved_snapshot(self, tmp_path):
@@ -186,7 +188,9 @@ class TestOverride:
     def test_override_of_unknown_model_is_loud_and_unresolved(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T', override_model='LS9999')
-        assert identity == UNRESOLVED
+        assert identity.source == 'unresolved'
+        assert identity.layers == ()
+        assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
 
@@ -249,7 +253,7 @@ class TestSnapshotSemantics:
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'
-        identity = LayerIdentity(layers=(record,), filterset='', source='scopes')
+        identity = LayerIdentity(layers=(record,), filterset='', source='scopes', model=None)
         with pytest.raises(AttributeError):
             identity.filterset = 'X'
 

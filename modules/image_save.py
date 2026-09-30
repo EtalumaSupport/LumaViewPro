@@ -365,7 +365,10 @@ def generate_image_metadata(
         )
 
     now_host = datetime.datetime.now()
-    microscope_model = scope.diagnostics.get_microscope_model()
+    # The model this scope runs as, from its identity -- the one the layers
+    # and capabilities carry. The board's own report is None on a scope
+    # with no motor board (every FX2 model), so it cannot name the scope.
+    microscope_model = scope.layer_identity.model
 
     # Instrument + Plate metadata for OME-XML compatibility (#491).
     # Sourced from diagnostics + runtime_state; failures are non-fatal

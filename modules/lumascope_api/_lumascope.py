@@ -735,16 +735,16 @@ class Lumascope:
             override_model=override_model,
         )
 
-    def refresh_layer_identity(
-        self, configured_model: str | None = None, override_model: str | None = None
-    ) -> 'LayerIdentity':
+    def refresh_layer_identity(self, override_model: str | None = None) -> 'LayerIdentity':
         """Re-resolve layer identity and atomically replace the snapshot.
 
+        Not how a model selection takes effect: the capabilities are fixed
+        at construction, so a running scope that re-resolved its layers for
+        a newly selected model would carry one model in its layers and
+        another in its capabilities and its files. A selection is saved
+        (`ScopeSession.select_model`) and applies at the next start.
+
         Args:
-            configured_model: New settings-selected model to remember and
-                resolve with; None keeps the current one. Only matters on
-                hardware that reports no model of its own -- a
-                motor-reported model still wins.
             override_model: Resolve AS this model for this call only --
                 the lab/engineering escape hatch for exercising another
                 model's identity on whatever is attached. Session-scoped
@@ -755,8 +755,6 @@ class Lumascope:
         Returns:
             The new LayerIdentity snapshot (also on `self.layer_identity`).
         """
-        if configured_model is not None:
-            self._configured_model = configured_model
         self.layer_identity = self._resolve_layer_identity(override_model=override_model)
         return self.layer_identity
 

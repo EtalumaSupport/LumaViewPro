@@ -26,6 +26,7 @@ from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from modules import config_helpers
 from modules.protocol import Protocol
+from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 
@@ -60,7 +61,9 @@ def _caps_with(led) -> ScopeCapabilities:
     motion = MagicMock()
     motion.detect_present_axes.return_value = ()
     motion.get_microscope_model.return_value = ''
-    return ScopeCapabilities.from_drivers(motion=motion, led=led, camera=None)
+    return ScopeCapabilities.from_drivers(
+        motion=motion, led=led, camera=None, layer_identity=UNRESOLVED
+    )
 
 
 def test_capabilities_reports_the_connected_drivers_cap():

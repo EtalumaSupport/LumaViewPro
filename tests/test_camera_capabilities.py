@@ -22,6 +22,7 @@ from drivers.fx2driver import FX2Camera
 from drivers.idscamera import IDSCamera
 from drivers.pyloncamera import PylonCamera
 from drivers.simulated_camera import SimulatedCamera
+from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 
 
@@ -130,6 +131,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(),
+            layer_identity=UNRESOLVED,
         )
         assert caps.is_color_native is False
         assert caps.native_bit_depth == 16
@@ -139,6 +141,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(native_bit_depth=8),
+            layer_identity=UNRESOLVED,
         )
         assert caps.native_bit_depth == 8
 
@@ -150,6 +153,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(is_color_native=True),
+            layer_identity=UNRESOLVED,
         )
         assert caps.is_color_native is True
 
@@ -161,6 +165,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=None,
+            layer_identity=UNRESOLVED,
         )
         assert caps.is_color_native is False
         assert caps.native_bit_depth == 16

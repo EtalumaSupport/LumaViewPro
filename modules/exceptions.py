@@ -147,6 +147,32 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
         self.file = file
 
 
+class ScopeModelUnknownError(Refusal, ValueError):
+    """A scope model was selected that this release's catalogue does not list.
+
+    The selection is the whole identity of a scope that cannot report its
+    own model, so an unlisted one would start the scope with no layers, no
+    optics and no scale. Refused before it is saved, rather than saved and
+    found at the next start.
+
+    Subclasses ValueError because it is a bad argument, like an unknown
+    axis name. The message reaches the person verbatim and names the
+    models the catalogue does list.
+
+    Attributes:
+        model: The model that was refused.
+    """
+
+    title = 'Unknown Scope Model'
+
+    def __init__(self, model: str, known: Iterable[str]):
+        super().__init__(
+            f'{model!r} is not a scope model this version of LumaViewPro knows. '
+            f'Choose one of: {", ".join(sorted(known))}.'
+        )
+        self.model = model
+
+
 class CaptureError(Exception):
     """Image capture, save, or processing failure.
 
