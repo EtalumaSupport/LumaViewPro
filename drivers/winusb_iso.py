@@ -114,6 +114,10 @@ class WINUSB_SETUP_PACKET(Structure):
     ]
 
 
+# A packet descriptor's Status after a successful transfer (usb.h).
+USBD_STATUS_SUCCESS = 0
+
+
 class USBD_ISO_PACKET_DESCRIPTOR(Structure):
     _fields_ = [
         ('Offset', c_ulong),
@@ -339,15 +343,30 @@ class WinUsbIsoReader:
 
     Mirrors the C# ReadISOStream_WinUsb implementation.
     Runs in a dedicated thread; fills a shared bytearray.
+
+    ``on_error`` is called once for each read that fails and for each
+    failed packet inside a read that completed, so the stream's owner can
+    count what never reached the buffer.
     """
 
-    def __init__(self, vid, pid, pipe_id=0x82, alt_interface=3, num_slots=16, packets_per_xfer=256):
+    def __init__(
+        self,
+        vid,
+        pid,
+        *,
+        on_error,
+        pipe_id=0x82,
+        alt_interface=3,
+        num_slots=16,
+        packets_per_xfer=256,
+    ):
         self.vid = vid
         self.pid = pid
         self.pipe_id = pipe_id
         self.alt_interface = alt_interface
         self.num_slots = num_slots
         self.packets_per_xfer = packets_per_xfer
+        self._on_error = on_error
 
         self._dev = None
         self._running = False
@@ -416,11 +435,15 @@ class WinUsbIsoReader:
                     iface, byref(slot.overlapped), byref(transferred), True
                 )  # wait=True
 
-                if ok and transferred.value > 0:
+                if not ok:
+                    self._on_error()
+                elif transferred.value > 0:
                     # Extract data from ISO packets
                     for i in range(slot.packet_count):
                         pkt = slot.packets[i]
-                        if pkt.Length > 0:
+                        if pkt.Status != USBD_STATUS_SUCCESS:
+                            self._on_error()
+                        elif pkt.Length > 0:
                             start = pkt.Offset
                             end = start + pkt.Length
                             chunk = bytes(slot.buffer[start:end])

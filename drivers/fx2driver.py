@@ -1626,6 +1626,7 @@ class FX2Camera(Camera):
             alt_interface=ISO_ALT_INTERFACE,
             num_slots=ISO_NUM_TRANSFERS,
             packets_per_xfer=ISO_NUM_PACKETS,
+            on_error=self.stream_stats.record_usb_error,
         )
         self._winusb_reader.start()
 
@@ -1794,14 +1795,27 @@ class FX2Camera(Camera):
     # -- Reader threads ----------------------------------------------------
 
     def _iso_callback(self, transfer):
-        """libusb1 callback -- called when an ISO transfer completes."""
-        if transfer.getStatus() == usb1.TRANSFER_COMPLETED:
-            with self._iso_buf_lock:
-                for status, buf in transfer.iterISO():
-                    if status == usb1.TRANSFER_COMPLETED and len(buf) > 0:
-                        self._iso_buf.extend(buf)
-        elif transfer.getStatus() == usb1.TRANSFER_CANCELLED:
+        """libusb1 callback -- called when an ISO transfer completes.
+
+        A transfer that fails, and a failed packet inside one that completed,
+        are each counted as a USB error: the packet's bytes are missing from
+        the stream, which is what turns the frame around it into a partial.
+        """
+        status = transfer.getStatus()
+        if status == usb1.TRANSFER_CANCELLED:
             return
+        if status == usb1.TRANSFER_COMPLETED:
+            failed_packets = 0
+            with self._iso_buf_lock:
+                for packet_status, buf in transfer.iterISO():
+                    if packet_status != usb1.TRANSFER_COMPLETED:
+                        failed_packets += 1
+                    elif len(buf) > 0:
+                        self._iso_buf.extend(buf)
+            for _ in range(failed_packets):
+                self.stream_stats.record_usb_error()
+        else:
+            self.stream_stats.record_usb_error()
         # Resubmit for continuous streaming.
         if self._grabbing:
             try:
