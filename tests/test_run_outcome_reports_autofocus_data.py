@@ -143,7 +143,6 @@ class _AfRig:
 
         self.af_runner = AutofocusRunner(
             scope=self.scope,
-            file_io_executor=self.file_io_executor,
         )
         self.af_thread = AutofocusThread(afe=self.af_runner)
         self.af_thread.start()
@@ -373,7 +372,6 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
 
         return AutofocusRunner(
             scope=spec_scope(),
-            file_io_executor=MagicMock(),
         )
 
     def test_the_wait_blocks_until_the_write_completes(self):

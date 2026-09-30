@@ -35,6 +35,9 @@ _ABORTED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test'
 def _started_runner():
     """A runner past prepare()+start(): claim held, lease held, RUNNING.
 
+    Returns the runner and the run start() committed -- the run a cleanup
+    of it names.
+
     The dispatched Future is left UNRESOLVED, which is what start() reads
     as "the run loop is live": a resolved one means the dispatch was
     refused and start() unwinds the run it just committed. Nothing ever
@@ -44,8 +47,8 @@ def _started_runner():
     runner = bare_capture_runner()
     runner.protocol_thread.run_protocol.return_value = Future()
     runner.protocol_thread.aborted = threading.Event()
-    runner.start(runner.prepare(**scr_run_kwargs()))
-    return runner
+    run = runner.start(runner.prepare(**scr_run_kwargs()))
+    return runner, run
 
 
 def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch):
@@ -57,7 +60,7 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
     """
     import modules.sequenced_capture_runner as scr
 
-    runner = _started_runner()
+    runner, run = _started_runner()
 
     def raise_after_the_phase_change(**kwargs):
         kwargs['set_state_fn'](ProtocolState.COMPLETING)
@@ -66,7 +69,7 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
     monkeypatch.setattr(scr, 'run_cleanup', raise_after_the_phase_change)
 
     with pytest.raises(RuntimeError, match='cleanup tail raised'):
-        runner._cleanup(_ABORTED)
+        runner._cleanup(_ABORTED, run)
 
     assert runner._state is ProtocolState.IDLE, (
         'cleanup raised and left the run stranded outside IDLE'
@@ -84,7 +87,7 @@ def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypat
     could not express: a table with no RUNNING -> IDLE models a run that
     always succeeds, and the restore itself would raise inside the block
     whose whole purpose is to run on every path."""
-    runner = _started_runner()
+    runner, run = _started_runner()
 
     # Raises in the drain wait at the head of cleanup's try -- before
     # run_cleanup is reached, so the phase never changes.
@@ -94,7 +97,7 @@ def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypat
     runner._image_writer = writer
 
     with pytest.raises(RuntimeError, match='drain wait raised'):
-        runner._cleanup(_ABORTED)
+        runner._cleanup(_ABORTED, run)
 
     assert runner._state is ProtocolState.IDLE, 'a run that stopped at RUNNING did not end idle'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
@@ -132,7 +135,7 @@ def test_a_live_error_run_reads_as_in_progress():
     wait_for_run_idle return True at shutdown with the teardown still
     running, and reset() / force_reset() silently early-return.
     """
-    runner = _started_runner()
+    runner, _run = _started_runner()
 
     runner._set_state(ProtocolState.ERROR)
 
@@ -142,10 +145,10 @@ def test_a_live_error_run_reads_as_in_progress():
 def test_a_run_that_died_still_ends_idle():
     """ERROR is held through the whole teardown -- cleanup needs it to know
     the run was a fault -- so the restore is what finally ends it."""
-    runner = _started_runner()
+    runner, run = _started_runner()
     runner._set_state(ProtocolState.ERROR)
 
-    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'))
+    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'), run)
 
     assert runner._state is ProtocolState.IDLE, 'a failed run never became idle again'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
@@ -159,7 +162,7 @@ def test_the_cleanup_tail_refuses_the_next_run_by_name():
     ACTIVITY -- a recording, in the message the user read -- rather than
     as the protocol run it actually was.
     """
-    runner = _started_runner()
+    runner, run = _started_runner()
     refusals: list[ProtocolRunRefusedError] = []
     release_lease = runner._release_scan_led_lease
 
@@ -173,7 +176,7 @@ def test_the_cleanup_tail_refuses_the_next_run_by_name():
         release_lease()
 
     runner._release_scan_led_lease = probe_the_tail
-    runner._cleanup(_ABORTED)
+    runner._cleanup(_ABORTED, run)
 
     assert refusals, 'a run starting inside the cleanup tail was not refused at all'
     assert refusals[0].reason == 'already_running', (
@@ -187,10 +190,10 @@ def test_a_cleanup_whose_steps_fail_still_ends_the_run():
     collected into one summary. The run still has to end -- the guarantee
     that used to sit at the bottom of run_cleanup and now sits in the
     finally that outlives a raise."""
-    runner = _started_runner()
+    runner, run = _started_runner()
     runner._cancel_all_scheduled_events = MagicMock(side_effect=RuntimeError('cancel boom'))
 
-    runner._cleanup(_ABORTED)
+    runner._cleanup(_ABORTED, run)
 
     assert runner._state is ProtocolState.IDLE, (
         'a cleanup with a failing step left the run un-ended'

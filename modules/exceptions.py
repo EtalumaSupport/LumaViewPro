@@ -608,6 +608,105 @@ class ImageSaveError(CaptureError):
         self.file_loc = file_loc
 
 
+class RunFilesNotWrittenError(CaptureError):
+    """A build that reads a run's images back found them not all written.
+
+    Raised by the wait a post-run build makes on its run's writes -- the
+    composite merge and the hyperstack build -- so neither builds from a
+    folder that is still filling or that lost images: the artifact would be
+    silently incomplete. Nothing is built.
+
+    Reasons:
+        ``write_batch_timeout``: the run's writes did not finish within the
+            build's bound.
+        ``write_batch_abandoned``: some of the run's writes never ran -- the
+            file writer was recovered, or the app shut down, while they were
+            outstanding.
+        ``write_batch_not_taken``: some of the run's images never reached
+            the file writer -- it was stuck, or had stopped taking work,
+            when they were handed over.
+    """
+
+    title = 'Run Images Not Written'
+
+    def __init__(self, reason: str, *, bound_s: float | None = None):
+        if reason == 'write_batch_timeout':
+            message = (
+                f"The run's images did not finish writing within {bound_s:.0f} s, "
+                'so nothing was built from them.'
+            )
+        elif reason == 'write_batch_abandoned':
+            message = (
+                "Some of the run's images were never written -- the file writer "
+                'was recovered or the app shut down while they were waiting -- '
+                'so nothing was built from the incomplete folder.'
+            )
+        elif reason == 'write_batch_not_taken':
+            message = (
+                "Some of the run's images never reached the file writer -- it was "
+                'stuck, or had stopped taking work, when they were handed over -- '
+                'so nothing was built from the incomplete folder.'
+            )
+        else:
+            raise ValueError(f'unknown reason {reason!r}')
+        super().__init__(message, reason)
+
+
+class RunWriteRefusedError(CaptureError):
+    """A write was handed to a run whose writes have ended.
+
+    A run's writes end when its cleanup closes them, or when a writer
+    recovery or a shutdown abandons them. A write arriving after that
+    belongs to no run: taken, it would count toward the next run's files or
+    land after the finished run said its files were written. The caller
+    says what was not saved.
+
+    Reasons: ``run_ended`` (closed by the run's cleanup),
+    ``writes_abandoned`` (abandoned by a recovery or a shutdown) or
+    ``writer_shut_down`` (the file lane itself no longer takes work).
+    """
+
+    title = 'Not Saved'
+
+    _WHY: ClassVar[dict[str, str]] = {
+        'run_ended': 'the run it belongs to has ended',
+        'writes_abandoned': "the run's remaining writes were given up",
+        'writer_shut_down': 'the file writer has shut down',
+    }
+
+    def __init__(self, reason: str, what: str):
+        super().__init__(f'{what} was not saved: {self._WHY[reason]}.', reason)
+        self.what = what
+
+
+class FileWriterNotStuckError(Refusal, Exception):
+    """File-writer recovery was asked for while nothing is stuck.
+
+    Recovery discards the images still waiting to be written, so it runs
+    only when the write in flight has stopped making progress. A writer that
+    is behind but moving finishes on its own; discarding its images then
+    would be data loss for nothing.
+
+    Attributes:
+        reason: ``'file_writer_not_stuck'``.
+        pending: The writes still outstanding when asked.
+    """
+
+    title = 'File Writer Not Stuck'
+
+    def __init__(self, pending: int):
+        if pending:
+            state = f'{pending} image(s) are still being written and the writer is making progress'
+        else:
+            state = 'nothing is waiting to be written'
+        super().__init__(
+            f'The file writer is not stuck: {state}. Recovery would discard images, '
+            'so it is offered only when a write stops making progress.'
+        )
+        self.reason = 'file_writer_not_stuck'
+        self.pending = pending
+
+
 class FrameListenerNotRegisteredError(CaptureError):
     """The camera driver would not take a frame listener, so it will receive no frames.
 

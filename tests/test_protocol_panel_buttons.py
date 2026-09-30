@@ -411,3 +411,50 @@ def test_each_panel_press_is_recorded_as_what_it_did(app_ctx, engine, monkeypatc
     _live(engine, handle)
     panel.run_autofocus_scan_from_ui()
     assert recorded == ['AF_SCAN', 'ABORT_AF_SCAN']
+
+
+def test_a_finished_runs_files_still_writing_refuse_until_they_land(monkeypatch):
+    """The drain gate reads the finished run's own write batch: closed with
+    a write still held, it refuses and says how many files are left; once
+    the write lands, the same operation goes ahead."""
+    import threading
+
+    import ui.notification_popup as notification_popup
+    from modules.protocol_image_writer import RunWriteBatch
+    from modules.scope_session import ScopeSession
+    from modules.sequential_io_executor import SequentialIOExecutor
+    from tests.scope_fakes import spec_scope
+
+    popups = []
+    monkeypatch.setattr(
+        notification_popup, 'show_notification_popup', lambda **kw: popups.append(kw)
+    )
+    session = ScopeSession(
+        settings={}, scope=spec_scope(), executor_bundle=MagicMock(file_io_executor=MagicMock())
+    )
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session), raising=False)
+    lane = SequentialIOExecutor(name='TEST_FILE')
+    lane.start()
+    try:
+        batch = RunWriteBatch(lane)
+        started = threading.Event()
+        release = threading.Event()
+        batch.submit(
+            lambda: (started.set(), release.wait(5.0)), {}, what='The image', pace_until=None
+        )
+        assert started.wait(5.0)
+        landed = threading.Event()
+        batch.close(lambda outcome: landed.set())
+        session.sequenced_capture_runner._write_batch = batch
+
+        assert ps.require_file_writes_idle('create a new protocol') is False
+        assert len(popups) == 1
+        assert '1 file(s)' in popups[0]['message']
+
+        release.set()
+        assert landed.wait(5.0)
+        assert ps.require_file_writes_idle('create a new protocol') is True
+        assert len(popups) == 1
+    finally:
+        release.set()
+        lane.shutdown(wait=False)

@@ -204,8 +204,12 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
 
     def _cleanup():
         try:
+            # The pass is the current run's: a pass for any other run
+            # returns before touching the LEDs.
             scr.SequencedCaptureRunner._cleanup_inner(
-                stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
+                stub,
+                RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'),
+                stub.run_outcome(),
             )
         except RuntimeError as died:
             # The cleanup this test makes raise, so the undecided path runs.
@@ -326,8 +330,7 @@ def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(monkeypatch):
     )
 
 
-@pytest.mark.parametrize('door', ['protocol_put', 'protocol_put_wait'])
-def test_the_run_door_refuses_the_lender_of_a_borrowed_run(door):
+def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     """A run borrowed inside a diagnostic holds the lane's protocol door. The
     diagnostic still holds the scope, but its own work is not the run's
     and is refused at the door until the run ends."""
@@ -344,19 +347,11 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run(door):
     ran = threading.Event()
     try:
         with acting(diagnostic):
-            if door == 'protocol_put':
-                fut = lane.protocol_put(
-                    IOTask(action=ran.set, silent_on_failure=True), return_future=True
-                )
-                with pytest.raises(HardwareCommandRefusedError):
-                    fut.result(timeout=RESULT_TIMEOUT_S)
-            else:
-                refused = lane.protocol_put_wait(
-                    IOTask(action=ran.set, silent_on_failure=True),
-                    should_abort=lambda: False,
-                    stall_timeout_s=1.0,
-                )
-                assert isinstance(refused, HardwareCommandRefusedError), refused
+            fut = lane.protocol_put(
+                IOTask(action=ran.set, silent_on_failure=True), return_future=True
+            )
+            with pytest.raises(HardwareCommandRefusedError):
+                fut.result(timeout=RESULT_TIMEOUT_S)
         with acting(run):
             ok = lane.protocol_put(IOTask(action=lambda: 'ran'), return_future=True)
         assert ok.result(timeout=RESULT_TIMEOUT_S) == 'ran'

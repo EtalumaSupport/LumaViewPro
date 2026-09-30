@@ -86,7 +86,7 @@ class _Stand:
         }
 
 
-def _build_env(monkeypatch, queue_active=False, run_in_progress=False):
+def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
     """Fake ctx + real bridge; returns (stand, layers) with BF stale 'down'."""
     layers = {}
 
@@ -115,16 +115,15 @@ def _build_env(monkeypatch, queue_active=False, run_in_progress=False):
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: run_in_progress),
         ui_listener_bridge=None,
         scope=scope,
-        # Nothing holds the scope: the run has ended and its files are written.
+        # Nothing holds the scope: the run has ended; its files are written
+        # unless files_draining.
         session=SimpleNamespace(
-            run_lockout=False, exclusive_activity=None, protocol_files_draining=False
+            run_lockout=False, exclusive_activity=None, protocol_files_draining=files_draining
         ),
         scope_display=SimpleNamespace(use_live_image_histogram_equalization=False),
         live_histo_setting=False,
     )
     ctx.protocol_running.set()
-    ctx.file_io_executor.is_protocol_queue_active.return_value = queue_active
-    ctx.file_io_executor.protocol_queue_size.return_value = 1 if queue_active else 0
 
     ctx.ui_listener_bridge = UIListenerBridge(
         scope=scope,
@@ -147,7 +146,7 @@ def _build_env(monkeypatch, queue_active=False, run_in_progress=False):
 
 
 def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch):
-    _stand, layers = _build_env(monkeypatch, queue_active=False)
+    _stand, layers = _build_env(monkeypatch)
 
     ui_helpers.draw_shared_run_displays()
 
@@ -160,7 +159,7 @@ def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch):
 def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch):
     """Writing-files window: lockout flag still set, runner idle. A manual
     step must NOT force the indicator 'down' -- nothing later heals it."""
-    _stand, layers = _build_env(monkeypatch, queue_active=True, run_in_progress=False)
+    _stand, layers = _build_env(monkeypatch, files_draining=True, run_in_progress=False)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'Color': 'BF'}, called_from_protocol=False)

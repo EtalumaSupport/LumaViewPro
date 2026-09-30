@@ -25,6 +25,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
+from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 
@@ -1169,11 +1170,7 @@ class TestIssue602_AFExecutorLED:
         from modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
-        file_ex = SequentialIOExecutor(name='FILE_TEST')
-        af = AutofocusRunner(
-            scope=scope,
-            file_io_executor=file_ex,
-        )
+        af = AutofocusRunner(scope=scope)
         # AF illuminates its own channel at scan start through the LED
         # authority (the AF_ENTER transition, which drives led_on under the
         # hood).
@@ -1193,11 +1190,7 @@ class TestIssue602_AFExecutorLED:
         from modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
-        file_ex = SequentialIOExecutor(name='FILE_TEST')
-        af = AutofocusRunner(
-            scope=scope,
-            file_io_executor=file_ex,
-        )
+        af = AutofocusRunner(scope=scope)
         # AF lights its channel at scan start; a non-success exit must end
         # with that channel dark. AFE.run()'s finally routes the AF-end state
         # through the authority's AF_TO_CAPTURE transition, whose diff offs the
@@ -1240,13 +1233,9 @@ class TestAFPrecisionModeRestoresOn:
 
     def _build_af(self):
         from modules.autofocus_runner import AutofocusRunner
-        from modules.sequential_io_executor import SequentialIOExecutor
 
         scope = build_scope(simulate=True)
-        return AutofocusRunner(
-            scope=scope,
-            file_io_executor=SequentialIOExecutor(name='FILE_PREC'),
-        ), scope
+        return AutofocusRunner(scope=scope), scope
 
     def test_reset_restores_precision_on(self, _mock_heavy_deps):
         from unittest.mock import patch
@@ -1664,6 +1653,8 @@ class TestRule14_A7_HyperstackBuildNotify:
             run_dir=pathlib.Path('.'),
             has_turret=False,
             tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
+            # The run's images are all on disk: the build goes on to load.
+            wait_for_images=lambda: None,
         )
 
         ((exception, kw),) = reported
@@ -1680,16 +1671,20 @@ class TestRule14_A7_HyperstackBuildNotify:
 def _run_cleanup_kwargs(**overrides):
     """Keyword args for protocol_cleanup.run_cleanup with MagicMock deps
     that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
-    override the step or state under test."""
+    override the step or state under test.
+
+    ``protocol`` and ``run_dir`` are not run_cleanup's own arguments: they
+    go into the run's run_complete notice, with the callbacks and ending.
+    """
     from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_cleanup import RunCompleteNotice
     from modules.protocol_state_machine import ProtocolState
 
-    # The real file executor returns an int drop count (0 on a clean run); the
-    # mock must too, or the run-end dropped-capture check compares a MagicMock.
-    file_io_executor = MagicMock()
-    file_io_executor.protocol_dropped_count.return_value = 0
-    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
-
+    callbacks = overrides.pop('callbacks', ProtocolCallbacks())
+    ending = overrides.pop(
+        'ending',
+        RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
+    )
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
         'set_state_fn': MagicMock(),
@@ -1700,21 +1695,21 @@ def _run_cleanup_kwargs(**overrides):
         'autofocus_snapshot': _autofocus_snapshot(states={}),
         'saved_camera_state': {},
         'return_to_position': None,
-        'disable_saving_artifacts': True,
-        'protocol': MagicMock(),
-        'protocol_execution_record': None,
         'scope': MagicMock(),
-        'callbacks': ProtocolCallbacks(),
+        'callbacks': callbacks,
         'apply_led_transition_fn': MagicMock(),
         'default_move_fn': MagicMock(),
         'cancel_scheduled_events_fn': MagicMock(),
         'autofocus_thread': None,
-        'file_io_executor': file_io_executor,
-        'ending': RunEnding(
-            'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
+        'write_batch': RunWriteBatch(MagicMock()),
+        'run_complete': RunCompleteNotice(
+            callbacks,
+            protocol=overrides.pop('protocol', MagicMock()),
+            ending=ending,
+            run_dir=overrides.pop('run_dir', None),
         ),
+        'ending': ending,
     }
-    kwargs['run_dir'] = None
     kwargs.update(overrides)
     return kwargs
 
@@ -1751,19 +1746,16 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             ),
             autofocus_snapshot=_autofocus_snapshot(states={'BF': True}, restore=_raiser('af')),
             saved_camera_state={'tag': 'protocol'},
-            disable_saving_artifacts=False,
-            protocol_execution_record=MagicMock(),
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=_raiser('move'),
         )
         kwargs['scope'].imaging.restore_camera_state.side_effect = RuntimeError('camera boom')
-        kwargs['file_io_executor'].protocol_put_wait.side_effect = RuntimeError('record boom')
         run_cleanup(**kwargs)
 
         assert captured, 'failing cleanup steps must surface a summary notification'
         body = captured[0][2]
-        assert '7 cleanup step(s) failed' in body, (
-            f'all seven induced failures must be collected; got: {body}'
+        assert '6 cleanup step(s) failed' in body, (
+            f'all six induced failures must be collected; got: {body}'
         )
         for step in (
             'Cancel scheduled events',
@@ -1771,7 +1763,6 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             'Restore layer shader',
             'Restore autofocus states',
             'Restore camera gain/exposure',
-            'Complete protocol record',
             'Return to position',
         ):
             assert step in body, f'step "{step}" missing from the summary; got: {body}'
@@ -2933,89 +2924,6 @@ class TestIssue710_LumiLS820PlateViewRestored:
         )
 
 
-class TestIssue642_FilesCompleteCallbackRace:
-    """#642: protocol_complete_callback was wiped by protocol_end() before
-    the dispatch loop could fire it, causing files_complete to never fire
-    when a protocol aborted with an empty queue (e.g. pre-scan disk-space
-    abort). UI consequence: button stuck at "Writing Files... (0)" disabled,
-    user must quit the app.
-
-    Root cause: dispatch loop in sequential_io_executor.py called
-    self.protocol_end() (which clears self.protocol_complete_callback)
-    BEFORE reading the callback to fire it. Race wiped the reference.
-
-    Fix: capture callback BEFORE protocol_end() in the dispatch loop's
-    drain branch. protocol_end() retains its callback-clear behavior for
-    the "premature end" path where callers invoke it directly.
-    """
-
-    def test_complete_callback_fires_when_protocol_finishes_with_empty_queue(self):
-        """Pre-scan abort scenario: protocol_finish set, queue never had tasks."""
-        from modules.sequential_io_executor import SequentialIOExecutor
-        import time
-
-        ex = SequentialIOExecutor(name='TEST_642_EMPTY')
-        ex.start()
-        try:
-            fired = []
-            ex.protocol_start()
-            ex.set_protocol_complete_callback(callback=lambda: fired.append(True))
-            ex.protocol_finish_then_end()
-
-            # Dispatch loop polls protocol_queue with 0.2 s timeout. After timeout,
-            # it sees queue empty + protocol_finish set, fires the callback path.
-            # 1.0 s is ample margin (5x the poll interval).
-            deadline = time.monotonic() + 1.0
-            while time.monotonic() < deadline and not fired:
-                time.sleep(0.05)
-
-            assert fired, (
-                'files_complete callback did not fire after protocol_finish_then_end '
-                'on empty queue. Pre-fix bug: protocol_end() in the dispatch loop '
-                'wiped the callback before it could be fired (issue #642).'
-            )
-        finally:
-            ex.shutdown(wait=True)
-
-    def test_complete_callback_fires_after_queued_tasks_drain(self):
-        """Normal completion: protocol_start, queue task(s), wait for task to run,
-        then protocol_finish_then_end, verify callback fires after queue drains."""
-        from modules.sequential_io_executor import SequentialIOExecutor, IOTask
-        import time
-
-        ex = SequentialIOExecutor(name='TEST_642_DRAIN')
-        ex.start()
-        try:
-            fired = []
-            task_ran = []
-            ex.protocol_start()
-            ex.protocol_put(IOTask(action=lambda: task_ran.append(True)))
-
-            # Wait for task to be picked up + executed before signaling finish.
-            # If we call protocol_finish_then_end before the dispatcher pulls
-            # the task, the dispatcher's queue.Empty branch fires first and
-            # ends the protocol with the task still in queue (test artifact,
-            # not the bug we're testing).
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline and not task_ran:
-                time.sleep(0.05)
-            assert task_ran, 'Queued task did not execute within 2 s.'
-
-            ex.set_protocol_complete_callback(callback=lambda: fired.append(True))
-            ex.protocol_finish_then_end()
-
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline and not fired:
-                time.sleep(0.05)
-
-            assert fired, (
-                'files_complete callback did not fire after queue drained '
-                'via protocol_finish_then_end (issue #642).'
-            )
-        finally:
-            ex.shutdown(wait=True)
-
-
 class TestAOC1_SaturationCheckShortCircuit:
     """AOC-1: lumascope_api.get_image saturation check uses
     `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
@@ -3184,7 +3092,7 @@ def _bare_protocol_writer(**overrides):
         'scope': MagicMock(),
         'callbacks': ProtocolCallbacks(),
         'aborted': threading.Event(),
-        'file_io_executor': MagicMock(),
+        'write_batch': RunWriteBatch(MagicMock()),
         'abort_fn': lambda: None,
         'fatal_abort_event': threading.Event(),
         'ending': EndingLatch(),
@@ -3216,17 +3124,11 @@ def _make_capture_runner(**overrides):
     """
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
-    # The real file executor returns an int drop count (0 on a clean run); the
-    # mock must too, or run-end cleanup compares a MagicMock against an int.
-    file_io_executor = MagicMock()
-    file_io_executor.protocol_dropped_count.return_value = 0
-    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
-
     kwargs = {
         'scope': MagicMock(),
         'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
         'protocol_thread': MagicMock(),
-        'file_io_executor': file_io_executor,
+        'file_io_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
     }
@@ -3276,7 +3178,8 @@ def test_not_saving_capture_builds_record_task_without_crash():
     call write_capture directly rather than through capture()."""
     from unittest.mock import MagicMock
 
-    writer = _bare_protocol_writer()
+    file_io_executor = MagicMock()
+    writer = _bare_protocol_writer(write_batch=RunWriteBatch(file_io_executor))
     scope = writer._scope
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
@@ -3285,7 +3188,7 @@ def test_not_saving_capture_builds_record_task_without_crash():
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
 
-    # Must not raise; the file IO executor is a stub so the queued task is not run.
+    # Must not raise; the file lane is a stub so the queued task is not run.
     writer.capture(
         save_folder='/tmp',
         step=_protocol_step(),
@@ -3293,7 +3196,7 @@ def test_not_saving_capture_builds_record_task_without_crash():
         protocol=protocol,
         enable_image_saving=False,
     )
-    assert writer._file_io_executor.protocol_put_wait.called
+    assert file_io_executor.put.called
 
 
 def test_global_fps_cap_bounds_the_disk_estimate():
@@ -3861,20 +3764,15 @@ class TestProtocolStepPanelToggleIdempotent:
 
 
 class TestPF2_FileIoExecutorClearedOnAbort:
-    """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
-    pending queue was NOT cleared -- only io_executor's was. Queued IOTasks
-    hold captured_image references; on a slow drain these can pin GB of
-    memory and lock the next protocol-start until the drain completes.
+    """PF-2 once cleared the file lane's pending writes on an abort (ERROR
+    at cleanup entry), so queued frames would not pin memory or hold the
+    next protocol-start. That discarded images the run had captured and
+    validated. Now (D6) an image a run captured is written however the run
+    ends: cleanup leaves the run's writes to its batch on an abort as on a
+    normal end, and clears only the IO and CAMERA lanes.
 
-    Distinct from normal completion, where draining is correct (writes user
-    data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
-    entry -- that's an abort path; anything else (COMPLETING, IDLE) is
-    normal end.
-
-    Fix: capture is_aborted from initial state BEFORE the COMPLETING
-    transition, then call file_io_executor.clear_protocol_pending() in the
-    aborted branch alongside the existing io/protocol clear calls. Drain
-    path is unchanged for normal completion.
+    The state is still read BEFORE the COMPLETING transition: an ERROR
+    run stays in ERROR rather than being relabelled as a normal end.
     """
 
     def test_initial_state_captured_before_completing_transition(self):
@@ -3909,22 +3807,40 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         )
 
     def test_file_io_cleared_on_abort_only(self):
-        """On abort (ERROR at entry), file_io_executor pending writes are
-        dropped; on normal end they drain. io_executor clears in both."""
+        """On abort (ERROR at entry) and on normal end alike, the run's
+        pending writes are left to be written, never dropped (D6).
+        io_executor clears in both."""
         from modules.protocol_cleanup import run_cleanup
         from modules.protocol_state_machine import ProtocolState
 
-        aborted = _run_cleanup_kwargs(get_state_fn=MagicMock(return_value=ProtocolState.ERROR))
+        def _with_one_write_held(**overrides):
+            # One captured frame handed to the run's batch and still queued
+            # on the (stub) file lane when cleanup runs.
+            file_io_executor = MagicMock()
+            batch = RunWriteBatch(file_io_executor)
+            batch.submit(lambda: None, {}, what='A captured frame', pace_until=None)
+            kwargs = _run_cleanup_kwargs(write_batch=batch, **overrides)
+            return kwargs, file_io_executor
+
+        aborted, aborted_lane = _with_one_write_held(
+            get_state_fn=MagicMock(return_value=ProtocolState.ERROR)
+        )
         run_cleanup(**aborted)
-        assert aborted['file_io_executor'].clear_protocol_pending.called, (
-            "abort cleanup must clear file_io_executor's pending queue "
-            '(queued frames pin memory and block the next protocol-start)'
+        assert aborted['write_batch'].pending == 1 and aborted['write_batch'].outcome is None, (
+            'abort cleanup must leave the captured frame to be written (D6), not abandon it'
+        )
+        assert not aborted_lane.clear_protocol_pending.called, (
+            "abort cleanup must not clear the file lane's queue: the frame "
+            'the run captured is written however the run ends (D6)'
         )
         assert aborted['scope'].io_lane().clear_protocol_pending.called
 
-        normal = _run_cleanup_kwargs()
+        normal, normal_lane = _with_one_write_held()
         run_cleanup(**normal)
-        assert not normal['file_io_executor'].clear_protocol_pending.called, (
+        assert normal['write_batch'].pending == 1 and normal['write_batch'].outcome is None, (
+            'normal completion must drain pending writes to disk, not drop them'
+        )
+        assert not normal_lane.clear_protocol_pending.called, (
             'normal completion must drain pending writes to disk, not drop them'
         )
         assert normal['scope'].io_lane().clear_protocol_pending.called, (
@@ -10499,7 +10415,7 @@ class TestAutoGainArmedInScanIterate:
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step(Auto_Gain=True), n_scans=2)
-        runner._run_loop_executor.run_loop()
+        runner._run_loop_executor.run_loop(runner.run_outcome())
         assert runner._scan_count == 2, 'both scans must complete'
         assert len(self._queued_ag_applies(runner)) == 2, (
             'each scan must arm AG once -- the armed-step guard must reset '
@@ -12702,17 +12618,19 @@ class TestPS11VideoCancelledRecordsRow:
         import modules.protocol_image_writer as piw
 
         record = MagicMock()
-        writer = _bare_protocol_writer(execution_record=record)
+        # The file lane takes the run's writes and holds them: each is caught
+        # here, as the batch hands it over, not run.
+        submitted = []
+        file_io_executor = MagicMock()
+        file_io_executor.put.side_effect = lambda task, **kw: submitted.append(task) or True
+        writer = _bare_protocol_writer(
+            execution_record=record, write_batch=RunWriteBatch(file_io_executor)
+        )
         writer._scope.capabilities.has_turret = False
 
         fake_recorder = MagicMock()
         fake_recorder.run_blocking.return_value = piw.protocol_recording.NO_FRAMES
         monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
-
-        submitted = []
-        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
-            submitted.append(task) or True
-        )
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
@@ -12749,18 +12667,20 @@ class TestVideoCameraLostFeedsStrikeCounter:
         import modules.protocol_image_writer as piw
 
         record = MagicMock()
-        writer = _bare_protocol_writer(execution_record=record)
+        # The file lane takes the run's writes and holds them: each is caught
+        # here, as the batch hands it over, not run.
+        submitted = []
+        file_io_executor = MagicMock()
+        file_io_executor.put.side_effect = lambda task, **kw: submitted.append(task) or True
+        writer = _bare_protocol_writer(
+            execution_record=record, write_batch=RunWriteBatch(file_io_executor)
+        )
         writer._scope.capabilities.has_turret = False
         writer._consecutive_capture_failures = preset_failures
 
         fake_recorder = MagicMock()
         fake_recorder.run_blocking.return_value = outcome
         monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
-
-        submitted = []
-        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
-            submitted.append(task) or True
-        )
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
@@ -12910,13 +12830,14 @@ class TestCaptureFailureAbortNotificationOrdering:
         import modules.notification_center as nc
 
         order = []
+        file_io_executor = MagicMock()
+        # The lane takes the record write (a truthy answer; None would be a
+        # refused lane) and says when.
+        file_io_executor.put.side_effect = lambda *a, **k: order.append('record') or True
         writer = _bare_protocol_writer(
-            file_io_executor=MagicMock(),
+            write_batch=RunWriteBatch(file_io_executor),
             leds_off_fn=lambda: order.append('leds_off'),
             abort_fn=lambda: order.append('abort'),
-        )
-        writer._file_io_executor.protocol_put_wait.side_effect = lambda *a, **k: order.append(
-            'record'
         )
         scope = writer._scope
         # The objective the frame is taken with, read at capture.

@@ -30,6 +30,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
+from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
@@ -284,7 +285,7 @@ class TestOneRunOneEncoding:
             scope=scope,
             callbacks=ProtocolCallbacks(),
             aborted=threading.Event(),
-            file_io_executor=MagicMock(),
+            write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),

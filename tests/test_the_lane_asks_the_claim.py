@@ -446,12 +446,12 @@ class TestRunCleanupIsTheRunsOwnWork:
         runner = session.sequenced_capture_runner
         seen = {}
         monkeypatch.setattr(
-            runner, '_cleanup_inner', lambda ending: seen.setdefault('t', current_taking())
+            runner, '_cleanup_inner', lambda ending, run: seen.setdefault('t', current_taking())
         )
         held = session.activity_claim.try_claim('protocol', run_trigger_source='test')
         runner._held_claim = held
         try:
-            t = threading.Thread(target=runner._cleanup, args=(object(),))
+            t = threading.Thread(target=runner._cleanup, args=(object(), object()))
             t.start()
             t.join(_WAIT_S)
             assert seen['t'] is held

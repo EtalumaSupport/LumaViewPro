@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import os
+from collections.abc import Callable
 import pathlib
 
 import numpy as np
@@ -21,7 +22,10 @@ logger = logging.getLogger('lvp_logger')
 
 
 def build_hyperstacks_for_run(
-    run_dir: pathlib.Path, has_turret: bool, tiling_configs_file_loc: pathlib.Path
+    run_dir: pathlib.Path,
+    has_turret: bool,
+    tiling_configs_file_loc: pathlib.Path,
+    wait_for_images: Callable[[], None],
 ) -> None:
     """Build per-well hyperstacks from a finished run's folder, and tell the person.
 
@@ -30,6 +34,13 @@ def build_hyperstacks_for_run(
     a headless / L2 run builds the same stacks a GUI run does against the
     tiling config its session was built with. Runs on the caller's
     (background) thread.
+
+    ``wait_for_images`` blocks until the run's images are all on disk and
+    raises when they will not be -- the bound expired, or some were
+    abandoned. It is waited on after the announcement, so a build waiting
+    on a slow disk is not a silent hang, and its raise is answered here
+    like any other: a stack built from a folder still filling would
+    silently miss planes.
 
     Nobody waits on this build, so this is where its outcome is reported:
     announced as it starts, so a multi-minute build is not a silent hang,
@@ -47,6 +58,7 @@ def build_hyperstacks_for_run(
         operation_key=key,
     )
     try:
+        wait_for_images()
         result = builder.load_folder(
             path=run_dir,
             tiling_configs_file_loc=tiling_configs_file_loc,

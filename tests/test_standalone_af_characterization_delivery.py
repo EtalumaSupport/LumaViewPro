@@ -132,7 +132,6 @@ class TestStandaloneAfDeliversCharacterizationData:
 
         af_runner = AutofocusRunner(
             scope=scope,
-            file_io_executor=file_io_executor,
         )
         af_thread = AutofocusThread(afe=af_runner)
         af_thread.start()

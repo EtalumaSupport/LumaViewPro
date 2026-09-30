@@ -254,24 +254,18 @@ def scope():
     s.disconnect()
 
 
-def _make_executors(file_queue_maxsize=0):
+def _make_executors():
     """Set up + tear down the executor set (a generator: ``yield from`` it).
 
     No 'autofocus' executor: the AF-off protocol path uses a mocked AF runner
     (autofocus_thread / autofocus_runner below), so a real AF worker would be
     dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
-
-    file_queue_maxsize=0 keeps the file worker's protocol queue unbounded
-    (the historical default); the wedged-writer test (s11) passes 1 so the
-    queue can be filled to make the blocking write submit stall for real.
     """
     from modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(name='TEST_IO'),
-        'file_io': SequentialIOExecutor(
-            name='TEST_FILE', protocol_queue_maxsize=file_queue_maxsize
-        ),
+        'file_io': SequentialIOExecutor(name='TEST_FILE'),
         'camera': SequentialIOExecutor(name='TEST_CAMERA'),
     }
     for e in execs.values():
@@ -313,7 +307,7 @@ def _make_runner(scope, execs):
     """A real SequencedCaptureRunner with real executors and a mocked AF
     runner -- faithful for AF-off scenarios (production does not invoke the AF
     runner when Auto_Focus is False). Takes the executor set as an argument so
-    a test can substitute e.g. a bounded file-IO executor (s11)."""
+    a test can substitute its own."""
     from modules.coord_transformations import CoordinateTransformer
     from modules.labware_loader import WellPlateLoader
 
@@ -644,7 +638,6 @@ def _af_runner(scope):
 
     r = AutofocusRunner(
         scope=scope,
-        file_io_executor=MagicMock(),
     )
     r._objective_loader = MagicMock()
     r._objective_loader.get_objective_info.return_value = {
@@ -813,22 +806,6 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def bounded_file_executors():
-    """Executor set whose file-IO worker has a 1-slot bounded protocol queue.
-
-    Production bounds the file queue too (the registry passes 32); maxsize=1
-    makes the full-queue condition reachable with one wedge task plus one
-    filler instead of 32 in-flight writes.
-    """
-    yield from _make_executors(file_queue_maxsize=1)
-
-
-@pytest.fixture
-def bounded_runner(scope, bounded_file_executors):
-    return _make_runner(scope, bounded_file_executors)
-
-
 def _build_two_scan_protocol(specs):
     """A protocol whose period is near zero, so the next scan starts as soon
     as the run loop's pacing check passes -- multi-scan runs finish in test
@@ -841,28 +818,32 @@ def _build_two_scan_protocol(specs):
     return protocol
 
 
-def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_path, monkeypatch):
+def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, monkeypatch):
     """A wedged file writer mid-run declares a stall: the capture fails, a
     fatal 'File Writer Stalled' notification fires, the run aborts, and the
     abort's cleanup leaves no LED lit on the sample. No capture is ever
-    silently dropped -- the old queue-full drop path is unreachable by
-    design now that the write submit blocks for a slot.
+    silently dropped -- the frame the wedge refused is counted in the
+    run's write batch as abandoned.
 
-    Drives the REAL wedge path: a bounded file queue (maxsize=1) with the
-    worker parked on a wedge task and the single slot occupied by a filler,
-    so the write's blocking submit finds no slot and no task ever retires.
-    The stall budget is shrunk so the wedge declares in test time."""
+    Drives the REAL wedge path: the run's write backlog shrunk to one, the
+    file worker parked on a wedge task and the backlog's single place taken
+    by a filler write of the run's own, so the capture's paced submit finds
+    no room and no write ever lands. Production bounds the backlog at 32;
+    one makes the full backlog reachable with one filler instead of 32
+    in-flight writes. The stall budget is shrunk so the wedge declares in
+    test time."""
     import modules.protocol_image_writer as piw
     from modules.notification_center import Severity, notifications
-    from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
+    from modules.sequential_io_executor import ENQUEUED, IOTask
 
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.5)
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
 
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    file_io = bounded_runner.file_io_executor
+    file_io = runner.file_io_executor
     wedge_started = threading.Event()
     wedge_release = threading.Event()
     installed = threading.Event()
@@ -876,17 +857,21 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
 
     def _capture_and_wait_with_wedge(*args, **kwargs):
         # Runs on the protocol worker right before the grab -- i.e. before
-        # this step's write is submitted, and only once the run is in session
-        # (protocol_put drops tasks outside one). First call installs the
-        # wedge: the worker parks on _wedge_task and a no-op filler occupies
-        # the single queue slot, so the write's blocking submit can never get
-        # a slot and the stall declares. Event-gated, no sleeps; results are
+        # this step's write is submitted, and only once the run's write batch
+        # exists. First call installs the wedge: the worker parks on
+        # _wedge_task and a no-op filler write of the run's takes the
+        # backlog's single place, so the write's paced submit can never get
+        # room and the stall declares. Event-gated, no sleeps; results are
         # recorded (not asserted) here because a raise on this thread would
         # be classified as a transient scan failure, not a test failure.
         if not installed.is_set():
-            install_results.append(file_io.protocol_put(IOTask(action=_wedge_task)))
+            install_results.append(file_io.put(IOTask(action=_wedge_task)))
             install_results.append(wedge_started.wait(timeout=10))
-            install_results.append(file_io.protocol_put(IOTask(action=lambda: None)))
+            install_results.append(
+                runner.write_batch().submit(
+                    lambda: None, {}, what='The filler write', pace_until=None
+                )
+            )
             installed.set()
         return real_capture_and_wait(*args, **kwargs)
 
@@ -900,7 +885,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
 
     try:
         completed, result = _run_protocol(
-            bounded_runner,
+            runner,
             _build_two_scan_protocol([('A1', 'Green', {})]),
             tmp_path,
             max_scans=2,
@@ -919,12 +904,16 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
     assert result.get('ending').reason == 'file_writer_stalled', (
         f'the run must name the fault that killed it; got {result.get("ending")!r}'
     )
-    assert install_results == [PROTOCOL_ENQUEUED, True, PROTOCOL_ENQUEUED], (
+    assert install_results == [ENQUEUED, True, ENQUEUED], (
         f'wedge install did not follow the expected sequence: {install_results}'
     )
-    # The old contract dropped the capture silently; the new one never does.
-    assert file_io.protocol_dropped_count() == 0, (
-        'back-pressure must not silently drop a capture, even against a wedged writer'
+    # The old contract dropped the capture silently; the new one never does:
+    # the frame the wedge refused is counted, and the run's files end
+    # abandoned once the unparked filler lands.
+    batch = runner.write_batch()
+    assert batch.wait_complete(10), "the run's write batch never completed"
+    assert batch.outcome == 'abandoned', (
+        'a frame refused by a wedged writer must be counted abandoned, never silently dropped'
     )
     stall_notes = [n for n in fired if n.title == 'File Writer Stalled']
     assert len(stall_notes) == 1, f'expected one fatal stall notification, saw {fired}'

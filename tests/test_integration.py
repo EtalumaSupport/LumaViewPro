@@ -301,7 +301,6 @@ def af_executor(scope, executors):
     """Create a SequencedCaptureRunner with real AutofocusRunner for AF tests."""
     af = AutofocusRunner(
         scope=scope,
-        file_io_executor=executors['file_io'],
     )
 
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
@@ -599,7 +598,6 @@ class TestIntegrationAutofocus:
 
         af = AutofocusRunner(
             scope=scope,
-            file_io_executor=executors['file_io'],
         )
 
         # Simulate the multi-channel scenario: camera is at Green settings
@@ -1191,7 +1189,6 @@ class TestAbortedAutofocusRestoresLeds:
 
         af = AutofocusRunner(
             scope=scope,
-            file_io_executor=executors['file_io'],
         )
         abort = threading.Event()
         abort.set()  # abort lands before the first AF iteration

@@ -10,8 +10,9 @@ Three layers of readiness:
   runner._step_executor.scan_iterate() / scan_loop() directly.
 - run_loop_ready_runner(): additionally RUNNING state, zero period,
   go_to_step callback, and a mocked _cleanup -- drive
-  runner._run_loop_executor.run_loop() synchronously on the test
-  thread (cleanup behavior is covered separately on run_cleanup).
+  runner._run_loop_executor.run_loop(runner.run_outcome()) synchronously
+  on the test thread (cleanup behavior is covered separately on
+  run_cleanup).
 
 autofocus_snapshot() builds the per-layer autofocus states and their
 restorer that prepare() requires, so the 20-odd drive sites carry one
@@ -74,11 +75,16 @@ def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
     fixed sleep or a queue-only wait answers half of it.
     """
     deadline = time.monotonic() + timeout
-    while executor.run_in_progress() or executor.file_io_executor.is_protocol_queue_active():
+    while executor.run_in_progress() or _files_draining(executor):
         if time.monotonic() > deadline:
             return False
         time.sleep(0.02)
     return True
+
+
+def _files_draining(executor) -> bool:
+    batch = executor.write_batch()
+    return batch is not None and batch.draining
 
 
 def _noop_restore(*, layer, value):
@@ -156,16 +162,11 @@ def bare_capture_runner(**overrides):
         camera=kwargs.pop('camera_executor', None),
     )
     runner = SequencedCaptureRunner(**kwargs)
-    runner.file_io_executor.is_protocol_queue_active.return_value = False
     # A run takes the camera only once the camera lane is idle; a bare mock
     # answers "busy" and "stalled" with truthy mocks, so the default lane
     # states the idle answer. A test about the lane passes its own executor.
     runner.camera_executor.is_busy.return_value = False
     runner.camera_executor.in_flight_task_stalled.return_value = False
-    # The real executor returns an int drop count (0 on a clean run); the mock
-    # must too, or run-end cleanup compares a MagicMock against an int.
-    runner.file_io_executor.protocol_dropped_count.return_value = 0
-    runner.file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
     return runner
 
 
@@ -248,6 +249,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     _cleanup mocked out (its behavior is covered on run_cleanup)."""
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_state_machine import ProtocolState
+    from modules.run_outcome import PendingRunOutcome
 
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()
@@ -268,5 +270,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # answers the arm with a mock, which the arm take cannot apply, so the
     # default snapshot states the common case: no standing arm.
     runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
+    # The run the loop is dispatched for: every cleanup it asks for names it.
+    runner._run_outcome = PendingRunOutcome()
     runner._set_state(ProtocolState.RUNNING)
     return runner

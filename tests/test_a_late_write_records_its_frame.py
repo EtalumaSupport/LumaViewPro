@@ -20,6 +20,7 @@ on an inserted step and keeps its old value when a step is moved.
 
 import datetime
 import pathlib
+import threading
 import time
 from types import SimpleNamespace
 
@@ -113,17 +114,19 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None):
 
             monkeypatch.setattr(protocol_image_writer.ProtocolImageWriter, 'capture', _observed)
 
+        # The run's files are read once the run says they are written: a
+        # file that merely exists may still be mid-write, and one read in
+        # its first few hundred bytes has no metadata at all.
+        files_written = threading.Event()
         outcome = runner.run_single_scan(
             protocol=_protocol(steps),
             parent_dir=str(run_parent),
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+            callbacks={'files_complete': lambda **kw: files_written.set()},
         )
         result = outcome.wait(timeout_s=120.0)
         assert result is not None and result.status == 'completed', result
-
-        deadline = time.monotonic() + FILES_TIMEOUT_S
-        while len(list(run_parent.rglob('*.tiff'))) < len(steps) and time.monotonic() < deadline:
-            time.sleep(0.05)
+        assert files_written.wait(FILES_TIMEOUT_S), "the run's files were never written"
 
     files = {}
     for step in steps:

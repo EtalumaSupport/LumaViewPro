@@ -67,6 +67,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
+from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope, swap_lanes
@@ -283,23 +284,49 @@ def _run_to_completion(executor, protocol, tmp_path):
 
 
 def _wait_for_file_queue_drain(executor, timeout=5.0):
+    """Wait until the last run's files have landed: its write batch, the
+    store prepare()'s files_writing gate reads."""
+    batch = executor.write_batch()
+    if batch is not None and not batch.wait_complete(timeout):
+        raise TimeoutError("the last run's files did not land in time")
+
+
+def _wait_for_session_files_written(session, timeout=5.0):
+    """The Session's answer to the same question, for an L2 caller."""
     deadline = time.monotonic() + timeout
-    while executor.file_io_executor.is_protocol_queue_active():
+    while session.protocol_files_draining:
         if time.monotonic() > deadline:
-            raise TimeoutError('file_io_executor did not drain in time')
+            raise TimeoutError("the last run's files did not land in time")
         time.sleep(0.05)
 
 
 def _wait_for_executors_out_of_protocol_mode(executor, timeout=5.0):
-    """protocol_finish drains asynchronously (dispatcher cycle), so poll."""
+    """protocol_finish drains asynchronously (dispatcher cycle), so poll.
+
+    Only the IO lane enters run mode; a run's file writes are its batch's.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not executor._io_executor.is_protocol_running() and not (
-            executor.file_io_executor.is_protocol_running()
-        ):
+        if not executor._io_executor.is_protocol_running():
             return True
         time.sleep(0.05)
     return False
+
+
+def _a_closed_batch_still_writing(*, stuck_write=None):
+    """The last run's write batch, closed with one write outstanding.
+
+    A real batch over a stand-in lane that never runs the write, so the
+    batch stays draining; ``stuck_write`` names a write in flight past the
+    stall threshold, for the stalled answer.
+    """
+    lane = MagicMock()
+    lane.in_flight_task_stalled.return_value = stuck_write is not None
+    lane.describe_running_task.return_value = stuck_write
+    batch = RunWriteBatch(lane)
+    batch.submit(lambda: None, {}, what='a capture', pace_until=None)
+    batch.close(lambda outcome: None)
+    return batch
 
 
 def _capture_notifications(monkeypatch):
@@ -382,7 +409,7 @@ class TestHeadlessRefusalDoesNotHang:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            _wait_for_file_queue_drain(session)
+            _wait_for_session_files_written(session)
 
             # A refused run raises out of run_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -727,22 +754,17 @@ class TestRefusalNotifyOnceFunnel:
             return _make_single_step_protocol()
 
         def files_writing(mp):
-            mp.setattr(executor.file_io_executor, 'is_protocol_queue_active', lambda: True)
+            mp.setattr(executor, '_write_batch', _a_closed_batch_still_writing())
             return _make_single_step_protocol()
 
         def files_writing_stalled(mp):
-            # The stalled branch nests under the queue-active gate: both
-            # probes must fire for the stalled refusal to be reachable.
-            mp.setattr(executor.file_io_executor, 'is_protocol_queue_active', lambda: True)
+            # The stalled branch nests under the draining gate: the last
+            # run's batch must be draining AND its write in flight stuck
+            # for the stalled refusal to be reachable.
             mp.setattr(
-                executor.file_io_executor,
-                'protocol_drain_stalled',
-                lambda threshold_s: True,
-            )
-            mp.setattr(
-                executor.file_io_executor,
-                'describe_running_task',
-                lambda: "write_capture 'A1_BF' 45s in flight",
+                executor,
+                '_write_batch',
+                _a_closed_batch_still_writing(stuck_write="write_capture 'A1_BF' 45s in flight"),
             )
             return _make_single_step_protocol()
 

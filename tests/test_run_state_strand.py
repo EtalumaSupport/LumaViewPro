@@ -165,7 +165,7 @@ class TestClaimRefusalLeavesNoState:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            while session.file_io_executor.is_protocol_queue_active():
+            while session.protocol_files_draining:
                 assert time.monotonic() < deadline, 'first run never finished writing its files'
                 time.sleep(0.02)
 

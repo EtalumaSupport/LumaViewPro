@@ -27,18 +27,19 @@ from modules.lumascope_api.illumination import (
 )
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.exceptions import RunWriteRefusedError
 
 if TYPE_CHECKING:
     from modules.lumascope_api.illumination import LedLease
+    from modules.protocol_image_writer import RunWriteBatch
 
 _af_log = logging.getLogger('LVP.autofocus')
 
 # How long a sweep waits for its queued characterization write to reach disk
 # before reporting that it wrote nothing. Budget row: af_data_write_wait_s in
-# PERFORMANCE_BUDGETS.md. Only a sweep that ASKED to save waits at all, and an
-# aborting run cancels the write rather than running it, which resolves the
-# wait at once -- so this bound is paid only by a save that is genuinely slow.
+# PERFORMANCE_BUDGETS.md. Only a sweep that ASKED to save waits at all -- an
+# aborting run's included, since a run writes what it produced however it
+# ends -- so this bound is paid only by a save that is genuinely slow.
 AF_DATA_WRITE_WAIT_S = 5.0
 
 
@@ -54,11 +55,9 @@ class AutofocusRunner:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
-        file_io_executor: SequentialIOExecutor,
         ui_update_func=None,
     ):
         self._scope = scope
-        self._file_io_executor = file_io_executor
         self.ui_update_func = ui_update_func
 
         # Set by run() before the loop starts; consulted by _iterate
@@ -154,6 +153,7 @@ class AutofocusRunner:
         keep_led_on: bool = False,
         *,
         led_lease: 'LedLease',
+        write_batch: 'RunWriteBatch | None' = None,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -166,8 +166,8 @@ class AutofocusRunner:
                 'move_position' -- called per Z move on the UI thread.
                 The 'complete' hook from the prior API has been retired;
                 completion is signalled via the AutofocusThread Future.
-            save_results_to_file: if True, queue a save of AF results
-                to results_dir on file_io_executor at AF end.
+            save_results_to_file: if True, save the AF results to
+                results_dir at AF end, as one of the run's writes.
             run_trigger_source: free-form string recorded in saved data.
             results_dir: required when save_results_to_file=True.
             led_color, led_illumination, camera_gain, camera_exposure:
@@ -179,6 +179,9 @@ class AutofocusRunner:
             led_lease: the LED lease of the run AF executes inside -- AF
                 takes a child lease under it. Every AF runs inside a run,
                 an interactive one as a one-step run.
+            write_batch: the write batch of that run; required when
+                save_results_to_file, so the save is counted among the run's
+                writes and lands before the run says its files are written.
 
         Returns:
             best_focus_position (float) on success, or None when the AF
@@ -197,6 +200,12 @@ class AutofocusRunner:
 
         if save_results_to_file and results_dir is None:
             raise ValueError('Cannot save autofocus results to file if results_dir is None')
+
+        if save_results_to_file and write_batch is None:
+            raise ValueError(
+                "Cannot save autofocus results without the run's write batch: a save "
+                'that belongs to no run could land after its run said its files were written'
+            )
 
         self._reset_state()
         with self._callbacks_lock:
@@ -219,6 +228,7 @@ class AutofocusRunner:
         self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
+        self._write_batch = write_batch
         # Per-run timestamped subdir under the caller's results_dir.
         # Eager mkdir so aborted runs still leave a directory marker
         # and successive runs do not collide on filenames.
@@ -414,13 +424,23 @@ class AutofocusRunner:
                     try:
                         # Keep the waiter: the sweep reports what it WROTE, so
                         # it has to outlive the queueing and be awaited before
-                        # run() returns (see _await_data_write below).
-                        self._data_write_future = self._file_io_executor.protocol_put(
-                            IOTask(action=self._save_autofocus_data),
+                        # run() returns (see _await_data_write below). Never
+                        # paced: a full backlog must not delay the restore
+                        # below, which puts the LED, camera and Z back.
+                        self._data_write_future = self._write_batch.submit(
+                            self._save_autofocus_data,
+                            {},
+                            what='The autofocus data',
+                            pace_until=None,
                             return_future=True,
                         )
-                    except Exception as ex:
-                        logger.warning(f'[AF] Failed to queue autofocus data save: {ex}')
+                    except RunWriteRefusedError as ex:
+                        logger.warning(f'[AF] Autofocus data not saved: {ex}')
+                    except Exception:
+                        # Broad on purpose: the restore chain below must run.
+                        logger.exception(
+                            "[AF] Autofocus data not saved: handing it to the run's writes failed"
+                        )
 
                 # Restore LED + camera + Z precision regardless of exit path
                 # so the invariant "Z precision ON + pre-AF camera + LED off
@@ -1053,6 +1073,7 @@ class AutofocusRunner:
         self._best_focus_position = None
         self._saved_data_path = None
         self._data_write_future = None
+        self._write_batch = None
         self._last_pass = False
         self._params = {}
         self._run_trigger_source = None
@@ -1075,9 +1096,10 @@ class AutofocusRunner:
         Bounded, and a bound that expires is not silent: the answer then
         stays None, which is wrong-but-honest in the safe direction, and
         the log says a write outlived its window rather than leaving a
-        reader to wonder. An aborting run cancels the queued task rather
-        than running it, and the cancellation resolves this wait
-        immediately -- so the abort path does not pay the bound.
+        reader to wonder. A save the run's writes gave up on resolves the
+        waiter with no result; a lane that drops the save -- a shutdown
+        clearing its queue, or a stuck writer replaced -- cancels it. Either
+        resolves this wait at once.
 
         A refused submit returns no waiter at all, which needs no wait:
         nothing was queued, and saved_data_path() correctly stays None.
@@ -1089,11 +1111,11 @@ class AutofocusRunner:
         try:
             fut.result(timeout=AF_DATA_WRITE_WAIT_S)
         except concurrent.futures.CancelledError:
-            # The expected end of an aborting run: it discarded the queued
-            # write on purpose, so there is no data file and nothing wrong.
-            logger.info(
-                '[AF] autofocus characterization write was discarded with the '
-                'run; this sweep reports no data file'
+            # The lane dropped the save before it ran: a shutdown cleared
+            # its queue, or a stuck writer was replaced.
+            logger.warning(
+                "[AF] autofocus characterization write was given up with the run's "
+                'writes; this sweep reports no data file'
             )
         except concurrent.futures.TimeoutError:
             logger.warning(

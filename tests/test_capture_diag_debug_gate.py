@@ -19,6 +19,7 @@ import numpy as np
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
+from modules.protocol_image_writer import RunWriteBatch
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
@@ -32,7 +33,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         scope=MagicMock(),
         callbacks=ProtocolCallbacks(),
         aborted=threading.Event(),
-        file_io_executor=MagicMock(),
+        write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),

@@ -184,7 +184,6 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
             activity_claim=ActivityClaim(),
             autofocus_runner=MagicMock(),
         )
-        runner.file_io_executor.is_protocol_queue_active.return_value = False
         scope = runner._scope
         scope.capabilities.axes = ['X', 'Y', 'Z', 'T']
         per_axis = {

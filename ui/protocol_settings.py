@@ -2,7 +2,6 @@
 import logging
 import os
 import pathlib
-import threading
 import time
 import typing
 
@@ -59,12 +58,9 @@ def _offer_wedged_writer_recovery():
     queue untouched (the gates keep refusing and will re-offer)."""
     from ui.notification_popup import show_confirmation_popup
 
-    ctx = _app_ctx.ctx
-    file_io_executor = ctx.file_io_executor
-    pending = file_io_executor.protocol_queue_size()
-    stuck = file_io_executor.describe_running_task()
-
-    session = ctx.session
+    session = _app_ctx.ctx.session
+    pending = session.protocol_files_pending
+    stuck = session.protocol_files_stuck_write
 
     def _recover():
         logger.warning('[LVP Main  ] User confirmed wedged-writer recovery')
@@ -88,31 +84,28 @@ def _offer_wedged_writer_recovery():
 
 
 def require_file_writes_idle(operation: str) -> bool:
-    """One gate for operations that must wait for the protocol file queue.
+    """One gate for operations that must wait for a finished run's file writes.
 
-    Returns True when the queue is idle so the operation may proceed.
+    Returns True when no run's writes are draining so the operation may proceed.
     Healthy drain: refuse with the live pending count -- the writes will
     finish. Stalled drain (the in-flight write ran past the writer's fatal
     stall budget): offer discard-and-unlock recovery instead of an
     unfulfillable "please wait"; the operation is still refused this click
     and the user retries once unlocked.
     """
-    from modules.protocol_image_writer import WRITE_STALL_FATAL_S
-
-    ctx = _app_ctx.ctx
-    file_io_executor = ctx.file_io_executor
-    if not file_io_executor.is_protocol_queue_active():
+    session = _app_ctx.ctx.session
+    if not session.protocol_files_draining:
         return True
-    if file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
+    if session.protocol_files_stalled:
         logger.warning(
             f'[LVP Main  ] Cannot {operation} - file writer stalled on '
-            f'{file_io_executor.describe_running_task()}; offering recovery'
+            f'{session.protocol_files_stuck_write}; offering recovery'
         )
         _offer_wedged_writer_recovery()
     else:
         from ui.notification_popup import show_notification_popup
 
-        pending = file_io_executor.protocol_queue_size()
+        pending = session.protocol_files_pending
         logger.warning(
             f'[LVP Main  ] Cannot {operation} - {pending} file(s) still being written to disk'
         )
@@ -198,12 +191,6 @@ class ProtocolSettings(FloatLayout):
         # Create trigger for debounced UI updates to prevent memory leaks
         self._update_step_ui_trigger = Clock.create_trigger(self._do_update_step_ui, 0.05)
 
-        # Thread-safe flag to prevent duplicate file completion handlers
-        self._scan_files_completed_event = threading.Event()
-        # The finished run's directory, held only between that run's
-        # completion callback and whichever path completes its file
-        # drain. Never read to answer what is running now.
-        self._pending_run_dir = None
         # The handle each of this panel's run buttons' last start returned,
         # by trigger: what that button's Stop names. The engine answers
         # whether it is still the live run.
@@ -211,7 +198,6 @@ class ProtocolSettings(FloatLayout):
         # The drain display's tick: one pending at a time, however many
         # redraws ask for it.
         self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
-        self._file_write_status_event = None
 
         # source_path: use ctx if available, otherwise derive from install-aware defaults
         ctx = _app_ctx.ctx
@@ -1759,55 +1745,10 @@ class ProtocolSettings(FloatLayout):
 
     def _protocol_run_complete(self, **kwargs):
         self.reset_autofocus_ui()
-        # Reset completion event for this run (thread-safe)
-        self._scan_files_completed_event.clear()
-        # Nothing left to write: the engine fires files_complete right
-        # after this, and that handler is the one dispatcher.
-        if not _app_ctx.ctx.session.protocol_files_draining:
-            return
-        # Held for the poll below, which is this leg's completion backstop
-        # and knows no run of its own: a successor committed in the gap
-        # before the file lane reports its drain clears the pending
-        # files-complete callback without firing it, and the finished
-        # run's post-processing would then never run at all.
-        self._pending_run_dir = kwargs.get('run_dir')
-        self._file_write_status_event = Clock.schedule_interval(
-            self._update_protocol_write_status,
-            0.5,
-        )
-
-    def _update_protocol_write_status(self, dt):
-        """The completion backstop: once the drain ends, complete the finished run.
-
-        Whichever of this and the files-complete callback arrives first
-        completes the run; the other is absorbed by the double-call guard.
-        Both name the SAME run, which is what makes the duplication
-        harmless rather than a source of wrong answers.
-        """
-        if _app_ctx.ctx.session.protocol_files_draining:
-            return
-        if self._file_write_status_event:
-            Clock.unschedule(self._file_write_status_event)
-            self._file_write_status_event = None
-            self._protocol_files_complete(run_dir=self._pending_run_dir)
 
     def _protocol_files_complete(self, **kwargs):
-        """Called when ALL files are written to disk for protocol run."""
-        ctx = _app_ctx.ctx
-
-        # Guard against multiple calls using thread-safe event
-        if self._scan_files_completed_event.is_set():
-            return
-        self._scan_files_completed_event.set()
-
-        # Cancel the backstop if still scheduled
-        if getattr(self, '_file_write_status_event', None):
-            Clock.unschedule(self._file_write_status_event)
-            self._file_write_status_event = None
-
-        # Auto-run post_processing plugins that opted in.
-        self._dispatch_post_processing_auto_run(ctx, **kwargs)
-        self._pending_run_dir = None
+        """Called once per run, after its run_complete, when its files are done."""
+        self._dispatch_post_processing_auto_run(_app_ctx.ctx, **kwargs)
 
     def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
         """Fire post_processing plugins opted into
@@ -1837,6 +1778,7 @@ class ProtocolSettings(FloatLayout):
             input_dir=run_dir_str,
             manifest=manifest,
             output_dir=run_dir_str,
+            files=kwargs['files'],
         )
 
     def run_protocol_from_ui(self):

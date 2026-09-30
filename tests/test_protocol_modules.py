@@ -20,6 +20,8 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
+from modules.protocol_image_writer import RunWriteBatch
+from modules.sequential_io_executor import ENQUEUED
 from modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
@@ -347,40 +349,21 @@ def test_cleanup_never_reaches_a_settings_module_global():
 
 
 class _FakeExecutor:
-    """Minimal stand-in for SequentialIOExecutor used in cleanup tests."""
+    """Minimal stand-in for SequentialIOExecutor used in cleanup tests.
+
+    One instance per lane. IO and CAMERA use the run-mode members; FILE
+    uses ``put``, which a run's write batch submits its writes through.
+    """
 
     def __init__(self):
         self.protocol_ended = False
         self.protocol_pending_cleared = False
-        self._protocol_queue_active = False
-        self._complete_callback = None
-        self._finish_called = False
-        self._dropped = 0
-
-    def protocol_dropped_count(self):
-        return self._dropped
-
-    def protocol_backpressure_blocked_s(self):
-        return 0.0
 
     def protocol_end(self):
         self.protocol_ended = True
 
     def clear_protocol_pending(self):
         self.protocol_pending_cleared = True
-
-    def is_protocol_queue_active(self):
-        return self._protocol_queue_active
-
-    def protocol_queue_size(self):
-        # Mirror the real executor: a count consistent with the active flag.
-        return 1 if self._protocol_queue_active else 0
-
-    def set_protocol_complete_callback(self, callback, cb_args=None, cb_kwargs=None):
-        self._complete_callback = callback
-
-    def protocol_finish_then_end(self):
-        self._finish_called = True
 
     def wait_for_idle(self, timeout: float = 1.0) -> bool:
         # No worker thread in this stub; nothing in flight to wait for.
@@ -391,10 +374,27 @@ class _FakeExecutor:
     def protocol_put(self, task):
         task.action()
 
-    def protocol_put_wait(self, task, *, should_abort, stall_timeout_s, return_future=False):
-        # Mirror protocol_put: no queue in this stub, so the blocking
-        # variant runs the task inline and can never wedge.
-        task.action()
+    def put(self, task, return_future=False):
+        # No queue in this stub: the task runs inline, so a write handed
+        # to a batch on this lane has landed by the time put returns.
+        task.action(*task.args, **task.kwargs)
+        return ENQUEUED
+
+
+class _HeldFileLane:
+    """A FILE lane that takes a write and holds it until the test runs it."""
+
+    def __init__(self):
+        self.held = []
+
+    def put(self, task, return_future=False):
+        self.held.append(task)
+        return ENQUEUED
+
+    def run_held(self):
+        while self.held:
+            task = self.held.pop(0)
+            task.action(*task.args, **task.kwargs)
 
 
 class TestRunCleanup:
@@ -411,12 +411,21 @@ class TestRunCleanup:
             validate_transition(state[0], s)
             state[0] = s
 
+        from modules.protocol_cleanup import RunCompleteNotice
+
         io_exec = _FakeExecutor()
         # autofocus_thread replaces autofocus_io_executor in Stage B2;
         # MagicMock so the cleanup tests can assert abort() was called.
         af_thread = MagicMock()
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
+        # The run's run_complete notice is built from the run's own
+        # callbacks and ending, so an override of either reaches it too.
+        callbacks = overrides.pop('callbacks', ProtocolCallbacks())
+        ending = overrides.pop(
+            'ending',
+            RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
+        )
 
         defaults = {
             'get_state_fn': get_state,
@@ -428,20 +437,17 @@ class TestRunCleanup:
             'autofocus_snapshot': autofocus_snapshot(states={}),
             'saved_camera_state': None,
             'return_to_position': None,
-            'disable_saving_artifacts': True,
-            'protocol': None,
-            'protocol_execution_record': None,
             'scope': MagicMock(),
-            'callbacks': ProtocolCallbacks(),
+            'callbacks': callbacks,
             'apply_led_transition_fn': lambda transition, ctx: None,
             'default_move_fn': lambda **kw: None,
             'cancel_scheduled_events_fn': lambda: None,
             'autofocus_thread': af_thread,
-            'file_io_executor': file_exec,
-            'ending': RunEnding(
-                'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
+            'write_batch': RunWriteBatch(file_exec),
+            'run_complete': RunCompleteNotice(
+                callbacks, protocol=None, ending=ending, run_dir=None
             ),
-            'run_dir': None,
+            'ending': ending,
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a
@@ -488,29 +494,6 @@ class TestRunCleanup:
         camera.put.assert_not_called()
         camera.protocol_put.assert_not_called()
 
-    def test_dropped_captures_surface_a_run_end_notification(self):
-        from modules.protocol_cleanup import run_cleanup
-        from unittest.mock import patch
-
-        args, _ = self._make_cleanup_args()
-        args['file_io_executor']._dropped = 3
-        with patch('modules.notification_center.notifications') as notif:
-            run_cleanup(**args)
-        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
-        assert drop_warnings, 'a nonzero dropped-capture count must warn the user at run end'
-        assert '3' in str(drop_warnings[0]), 'the notification must state how many were dropped'
-
-    def test_no_dropped_captures_no_drop_notification(self):
-        from modules.protocol_cleanup import run_cleanup
-        from unittest.mock import patch
-
-        args, _ = self._make_cleanup_args()
-        args['file_io_executor']._dropped = 0
-        with patch('modules.notification_center.notifications') as notif:
-            run_cleanup(**args)
-        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
-        assert not drop_warnings, 'a clean run must not claim dropped captures'
-
     def test_cleanup_fires_run_complete_callback(self):
         from modules.protocol_cleanup import run_cleanup
 
@@ -520,17 +503,39 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert len(completed) == 1
 
-    def test_cleanup_fires_files_complete_when_no_queue(self):
-        from modules.protocol_cleanup import run_cleanup
+    def test_files_complete_is_the_closed_batchs_not_cleanups(self):
+        """run_cleanup sends run_complete and never files_complete: the run's
+        files are complete when its batch is -- closed, with nothing
+        outstanding. The runner closes the batch after cleanup, and a batch
+        with nothing outstanding completes at the close: files_complete once,
+        after run_complete.
+        """
+        from types import SimpleNamespace
 
-        files_done = []
+        from modules.protocol_cleanup import run_cleanup
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        fired = []
         cb = ProtocolCallbacks(
-            run_complete=lambda protocol=None, **kwargs: None,
-            files_complete=lambda protocol=None, **kwargs: files_done.append(True),
+            run_complete=lambda protocol=None, **kwargs: fired.append('run_complete'),
+            files_complete=lambda protocol=None, **kwargs: fired.append('files_complete'),
         )
         args, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
-        assert len(files_done) == 1
+        assert fired == ['run_complete'], 'cleanup must leave files_complete to the batch'
+
+        # The runner's close, on a runner that saves no record.
+        runner = SimpleNamespace(
+            _disable_saving_artifacts=True,
+            _protocol_execution_record=None,
+            _callbacks=cb,
+            _protocol=None,
+            _run_dir=None,
+            _on_run_idle=None,
+            LOGGER_NAME='TEST',
+        )
+        SequencedCaptureRunner._close_run_writes(runner, args['write_batch'], args['run_complete'])
+        assert fired == ['run_complete', 'files_complete']
 
     def test_cleanup_handles_missing_callbacks_gracefully(self):
         from modules.protocol_cleanup import run_cleanup
@@ -617,9 +622,8 @@ class TestRunCleanup:
     def test_cleanup_holds_error_through_the_teardown(self):
         """A run that died holds ERROR for the whole teardown.
 
-        ERROR is what tells the rest of cleanup this was a fault (it is
-        what drops the suspect write queue), and the run still holds the
-        scope while it unwinds. The caller's finally is what returns it
+        ERROR is what tells the rest of cleanup this was a fault, and the
+        run still holds the scope while it unwinds. The caller's finally is what returns it
         to IDLE, once everything has been handed back.
         """
         from modules.protocol_cleanup import run_cleanup
@@ -636,17 +640,22 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert state[0] == ProtocolState.ERROR
 
-    def test_pending_writes_dropped_only_on_error_abort(self):
-        """The pending FILE-write queue is cleared only on an ERROR-state abort.
-        A non-ERROR end/abort (user Stop) deliberately DRAINS pending writes so
-        already-captured frames are not discarded. Pins that decision against the
-        opposite recommendation (drop on every abort).
+    def test_pending_writes_are_written_however_the_run_aborts(self):
+        """An image the run captured is written, however the run ends: an
+        ERROR abort (hardware fault) keeps its pending writes exactly as a
+        user Stop does. Cleanup ends no write; the held write is still the
+        batch's after cleanup, and lands when the lane reaches it.
         """
         from modules.protocol_cleanup import run_cleanup
 
-        # ERROR abort (hardware fault): pending file writes are dropped.
+        # ERROR abort (hardware fault): the pending write is kept.
         err_state = [ProtocolState.ERROR]
-        args, _ = self._make_cleanup_args()
+        err_lane = _HeldFileLane()
+        written = []
+        args, _ = self._make_cleanup_args(write_batch=RunWriteBatch(err_lane))
+        args['write_batch'].submit(
+            lambda: written.append('error'), {}, what='The image e', pace_until=None
+        )
         args['get_state_fn'] = lambda: err_state[0]
 
         def set_err_state(s):
@@ -660,17 +669,25 @@ class TestRunCleanup:
 
         args['set_state_fn'] = set_err_state
         run_cleanup(**args)
-        assert args['file_io_executor'].protocol_pending_cleared, (
-            'an ERROR-state abort must drop the pending file-write queue'
+        assert args['write_batch'].pending == 1, (
+            'an ERROR-state abort must keep the pending file write, not drop it'
         )
+        err_lane.run_held()
+        assert written == ['error'] and args['write_batch'].pending == 0
 
         # Non-ERROR end/abort (user Stop, RUNNING -> COMPLETING -> IDLE): pending
         # writes drain, not dropped.
-        args2, _ = self._make_cleanup_args()
+        stop_lane = _HeldFileLane()
+        args2, _ = self._make_cleanup_args(write_batch=RunWriteBatch(stop_lane))
+        args2['write_batch'].submit(
+            lambda: written.append('stop'), {}, what='The image s', pace_until=None
+        )
         run_cleanup(**args2)
-        assert not args2['file_io_executor'].protocol_pending_cleared, (
+        assert args2['write_batch'].pending == 1, (
             'a non-ERROR (user Stop) abort must drain pending writes, not drop them'
         )
+        stop_lane.run_held()
+        assert written == ['error', 'stop'] and args2['write_batch'].pending == 0
 
 
 # ===========================================================================
@@ -690,7 +707,7 @@ class TestProtocolImageWriterWriteCapture:
             scope=MagicMock(),
             callbacks=ProtocolCallbacks(),
             aborted=threading.Event(),
-            file_io_executor=_FakeExecutor(),
+            write_batch=RunWriteBatch(_FakeExecutor()),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),
@@ -987,53 +1004,15 @@ class TestProtocolRecordReconciliation:
         rec.complete()
         assert len(fired) == 1, 'a failed row write must register as a shortfall'
 
-    def test_abort_skips_reconciliation(self, tmp_path, monkeypatch):
-        # On abort the run deliberately drops pending writes, so a gap is
-        # expected, not a fault -- reconcile=False suppresses the warning.
+    def test_an_aborted_run_is_reconciled_too(self, tmp_path, monkeypatch):
+        # An aborted run writes every image it captured, as any other run
+        # does, so a gap on abort is a real shortfall, not an expected one:
+        # the record reconciles however the run ended.
         fired = self._capture_warnings(monkeypatch)
         rec = self._make_record(tmp_path)
         rec.note_capture_attempt()
         rec.note_capture_attempt()
         rec.note_capture_attempt()
         self._add_row(rec, 'a')
-        rec.complete(reconcile=False)
-        assert fired == [], 'aborted runs must not warn about an expected gap'
-
-
-def test_protocol_dropped_count_resets_per_run_and_counts_overflow():
-    """The per-run drop total resets at protocol_start and counts one per
-    overflow, so the run's owner can report exactly this run's lost captures.
-    """
-    from modules.sequential_io_executor import (
-        SequentialIOExecutor,
-        IOTask,
-        PROTOCOL_QUEUE_FULL,
-    )
-
-    ex = SequentialIOExecutor(name='TEST_DROP_COUNT', protocol_queue_maxsize=2)
-    ex.start()
-    try:
-        ex.protocol_start()
-        assert ex.protocol_dropped_count() == 0
-        # The worker signals once it is actually running the blocking task, so
-        # the queue is provably empty before we fill it -- no sleep-based race.
-        running = threading.Event()
-        block = threading.Event()
-
-        def blocker():
-            running.set()
-            block.wait(5)
-
-        ex.protocol_put(IOTask(action=blocker))
-        assert running.wait(2), 'worker never picked up the blocking task'
-        ex.protocol_put(IOTask(action=lambda: None))  # fill to maxsize (2)
-        ex.protocol_put(IOTask(action=lambda: None))
-        r1 = ex.protocol_put(IOTask(action=lambda: None))  # overflow -> dropped
-        r2 = ex.protocol_put(IOTask(action=lambda: None))
-        assert r1 == PROTOCOL_QUEUE_FULL and r2 == PROTOCOL_QUEUE_FULL
-        assert ex.protocol_dropped_count() == 2
-        block.set()
-        ex.protocol_start()  # a fresh run zeroes the count
-        assert ex.protocol_dropped_count() == 0
-    finally:
-        ex.shutdown(wait=True)
+        rec.complete()
+        assert len(fired) == 1, 'an aborted run with a gap must warn like any other run'

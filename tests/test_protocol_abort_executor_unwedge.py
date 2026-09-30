@@ -102,23 +102,26 @@ def test_end_protocol_mode_is_noop_when_not_in_protocol_mode():
 
 def test_cleanup_skip_path_ends_executor_protocol_mode():
     """When run-in-progress is already clear, _cleanup_inner takes the skip
-    path and must still end every lane's protocol-mode -- otherwise an abort
+    path and must still end every protocol-mode lane -- otherwise an abort
     that cleared the run flag without ending them leaves the workers wedged.
-    The camera lane is fenced with the same verb as IO, so it is ended too."""
+    The camera lane is fenced with the same verb as IO, so it is ended too.
+    The file lane never enters protocol-mode: a run's writes are counted in
+    the run's own write batch instead."""
     io = SequentialIOExecutor(name='IO')
-    file_io = SequentialIOExecutor(name='FILE')
     camera = SequentialIOExecutor(name='CAMERA')
     io.protocol_start()
-    file_io.protocol_start()
     camera.protocol_start()
+    # The pass belongs to the runner's current run; a pass for any other
+    # run returns before touching a lane.
+    run = object()
 
     # Not live -> _cleanup_inner takes the early-return branch.
     # The skip path releases the scan's LED lease before ending protocol-mode;
     # stub it as a no-op since this test is about executor teardown, not LEDs.
     stub = SimpleNamespace(
+        run_outcome=lambda: run,
         _is_run_live=lambda: False,
         _io_executor=io,
-        file_io_executor=file_io,
         camera_executor=camera,
         _release_scan_led_lease=lambda: None,
         _release_activity_claim=lambda: None,
@@ -130,9 +133,8 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
     # The ending feeds the end-reason plumbing on the full cleanup path;
     # the skip path under test never reads it.
     SequencedCaptureRunner._cleanup_inner(
-        stub, RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+        stub, RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'), run
     )
 
     assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
-    assert file_io.protocol_finish.is_set(), 'file executor not signalled out of protocol-mode'
     assert camera.protocol_finish.is_set(), 'camera executor not signalled out of protocol-mode'

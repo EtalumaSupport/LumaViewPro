@@ -29,7 +29,8 @@ from modules.notification_center import notifications
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED
+from modules.protocol_cleanup import RunCompleteNotice
+from modules.protocol_image_writer import RunWriteBatch
 from tests.protocol_drives import autofocus_snapshot
 
 from tests.test_audit_fixes import _bare_protocol_writer
@@ -53,8 +54,13 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     orig_set = fatal_event.set
     fatal_event.set = lambda: (order.append('fatal'), orig_set())[1]
 
+    # The writer is stuck: the backlog is full (a bound of 0 is full at
+    # once) past the stall budget, and the write in flight is stalled, so
+    # the run's batch answers the submit wedged.
+    monkeypatch.setattr('modules.protocol_image_writer.WRITE_BACKLOG_BOUND', 0)
+    monkeypatch.setattr('modules.protocol_image_writer.WRITE_STALL_FATAL_S', 0.0)
     file_io_executor = MagicMock()
-    file_io_executor.protocol_put_wait.return_value = PROTOCOL_QUEUE_WEDGED
+    file_io_executor.in_flight_task_stalled.return_value = True
     file_io_executor.describe_running_task.return_value = "write_capture 'x' 32s in flight"
 
     record = MagicMock()
@@ -62,7 +68,7 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     record.add_step.side_effect = lambda **kw: order.append('row')
 
     writer = _bare_protocol_writer(
-        file_io_executor=file_io_executor,
+        write_batch=RunWriteBatch(file_io_executor),
         execution_record=record,
         abort_fn=lambda: order.append('abort'),
         fatal_abort_event=fatal_event,
@@ -119,7 +125,7 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 
     warnings = []
     monkeypatch.setattr(notifications, 'warning', lambda *a, **k: warnings.append(a))
-    record.complete(reconcile=True)
+    record.complete()
     assert len(warnings) == 1, (
         'complete() must stay un-latched: it does no filesystem I/O and its '
         'reconcile warning is the only surviving report of the lost row'
@@ -140,7 +146,8 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
-    file_io_executor = _FakeExecutor()
+    callbacks = ProtocolCallbacks()
+    ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
 
     swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
     run_cleanup(
@@ -153,18 +160,15 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         autofocus_snapshot=autofocus_snapshot(states={}),
         saved_camera_state=None,
         return_to_position=None,
-        disable_saving_artifacts=True,
-        protocol=None,
-        protocol_execution_record=None,
         scope=scope,
-        callbacks=ProtocolCallbacks(),
+        callbacks=callbacks,
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
         default_move_fn=lambda **kw: None,
         cancel_scheduled_events_fn=lambda: None,
         autofocus_thread=af_thread,
-        file_io_executor=file_io_executor,
-        ending=RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'),
-        run_dir=None,
+        write_batch=RunWriteBatch(_FakeExecutor()),
+        run_complete=RunCompleteNotice(callbacks, protocol=None, ending=ending, run_dir=None),
+        ending=ending,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1

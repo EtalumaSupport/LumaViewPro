@@ -18,7 +18,7 @@ from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 from modules.exceptions import describe_unknown_positions
-from modules.run_outcome import RunEnding
+from modules.run_outcome import PendingRunOutcome, RunEnding
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -54,11 +54,17 @@ class ProtocolRunLoop:
     def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
-    def run_loop(self) -> None:
-        """Main entry point -- wraps inner loop with crash recovery."""
+    def run_loop(self, run: PendingRunOutcome) -> None:
+        """Main entry point -- wraps inner loop with crash recovery.
+
+        ``run`` is the run this loop was dispatched for. Every cleanup the
+        loop asks for names it, so a cleanup that arrives after the run
+        ended -- the safety net below, on a thread the next run may already
+        be waiting behind -- can only ever end this run, never the next.
+        """
         crash = None
         try:
-            self._run_loop_inner()
+            self._run_loop_inner(run)
         except Exception as ex:
             logger.error(
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
@@ -81,7 +87,8 @@ class ProtocolRunLoop:
                     'run_loop_crashed',
                     'Protocol Crashed',
                     'The run loop exited without cleaning up.',
-                )
+                ),
+                run,
             )
 
     def _inter_scan_wait_follows(self) -> bool:
@@ -149,7 +156,7 @@ class ProtocolRunLoop:
         first_step = p._protocol.step(idx=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
-    def _run_loop_inner(self):
+    def _run_loop_inner(self, run: PendingRunOutcome):
         """Inner run loop body."""
         p = self._p
         last_connection_check = time.monotonic()
@@ -175,7 +182,7 @@ class ProtocolRunLoop:
             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                 p._set_state(ProtocolState.ERROR)
             p.abort_run_fatal(stalled.reason, stalled.title, stalled.message)
-            p._cleanup(stalled)
+            p._cleanup(stalled, run)
             return
 
         while p._is_run_live() and not p._aborted.is_set():
@@ -208,13 +215,13 @@ class ProtocolRunLoop:
                         if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                             p._set_state(ProtocolState.ERROR)
                         p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                        p._cleanup(ending)
+                        p._cleanup(ending, run)
                         break
 
                 # Check if we've completed all scans
                 remaining_scans = p.remaining_scans()
                 if remaining_scans <= 0:
-                    p._cleanup(RUN_COMPLETED)
+                    p._cleanup(RUN_COMPLETED, run)
                     break
 
                 # Check if enough time has elapsed for the next scan
@@ -391,7 +398,7 @@ class ProtocolRunLoop:
                         except ValueError:
                             pass
                     p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                    p._cleanup(ending)
+                    p._cleanup(ending, run)
                     break
 
                 # A lost axis position is not transient: nothing in a run
@@ -423,7 +430,7 @@ class ProtocolRunLoop:
                         except ValueError:
                             pass
                     p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                    p._cleanup(ending)
+                    p._cleanup(ending, run)
                     break
 
                 # Transient: log warning, do NOT increment scan_count,
@@ -462,7 +469,7 @@ class ProtocolRunLoop:
                         'failed', 'consecutive_scan_failures', 'Protocol Aborted', message
                     )
                     p._ending.set_if_unset(ending)
-                    p._cleanup(ending)
+                    p._cleanup(ending, run)
                     break
 
                 # The failed scan may have died with a channel lit (an
@@ -478,4 +485,4 @@ class ProtocolRunLoop:
         # Ensure cleanup runs when exiting the while loop. The while
         # condition goes false on an abort (aborted set) or when the run
         # flag cleared; name which one so subscribers see the truth.
-        p._cleanup(RUN_STOPPED if p._aborted.is_set() else RUN_COMPLETED)
+        p._cleanup(RUN_STOPPED if p._aborted.is_set() else RUN_COMPLETED, run)

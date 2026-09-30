@@ -158,7 +158,12 @@ def test_every_vocabulary_entry_has_a_producer():
 
 
 def test_no_cleanup_call_states_an_ending_without_one():
-    """_cleanup takes exactly one argument: the ending. Never a bare call."""
+    """_cleanup takes exactly two arguments: the ending and the run it ends.
+
+    Never a bare call, and never a stated None for the run: a cleanup that
+    names no run cannot tell its own run from a successor on the same
+    runner.
+    """
     offenders = []
     for path in MODULES.glob('*.py'):
         tree = ast.parse(path.read_text())
@@ -167,13 +172,18 @@ def test_no_cleanup_call_states_an_ending_without_one():
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr == '_cleanup'
-                and (len(node.args) != 1 or node.keywords)
+                and (
+                    len(node.args) != 2
+                    or node.keywords
+                    or (isinstance(node.args[1], ast.Constant) and node.args[1].value is None)
+                )
             ):
                 offenders.append(f'{path.name}:{node.lineno}')
     assert not offenders, (
-        f'these cleanup calls do not pass exactly one ending: {offenders} -- '
-        f'a defaulted or omitted ending lets a failure report itself as a '
-        f'normal completion to every run_complete subscriber'
+        f'these cleanup calls do not pass exactly one ending and the run it ends: '
+        f'{offenders} -- a defaulted or omitted ending lets a failure report itself '
+        f'as a normal completion to every run_complete subscriber, and a cleanup '
+        f'that names no run can end a successor as if it were its own'
     )
 
 
@@ -229,7 +239,7 @@ def _stop_stub(trigger='test', signals_inline_cleanup=False):
         _run_outcome=PendingRunOutcome(),
         _ending=EndingLatch(),
         _signal_abort_locked=lambda: signals_inline_cleanup,
-        _cleanup=cleaned.append,
+        _cleanup=lambda ending, run: cleaned.append(ending),
         LOGGER_NAME='TEST',
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
@@ -286,11 +296,15 @@ class TestAStartFailureCarriesItsCause:
 
         cleaned = []
         stub = SimpleNamespace(
-            _run_dir=None, _ending=EndingLatch(), _cleanup=cleaned.append, LOGGER_NAME='TEST'
+            _run_dir=None,
+            _ending=EndingLatch(),
+            _cleanup=lambda ending, run: cleaned.append(ending),
+            LOGGER_NAME='TEST',
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
             RunStartError('capture_location_unusable', 'Run failed to start', 'Pick a folder.'),
+            PendingRunOutcome(),
         )
 
         ending = stub._ending.get()
@@ -303,10 +317,12 @@ class TestAStartFailureCarriesItsCause:
         import modules.sequenced_capture_runner as scr
 
         stub = SimpleNamespace(
-            _run_dir=None, _ending=EndingLatch(), _cleanup=lambda e: None, LOGGER_NAME='TEST'
+            _run_dir=None, _ending=EndingLatch(), _cleanup=lambda e, run: None, LOGGER_NAME='TEST'
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
-            stub, RuntimeError('SerialException: device reports readiness but returned no data')
+            stub,
+            RuntimeError('SerialException: device reports readiness but returned no data'),
+            PendingRunOutcome(),
         )
 
         ending = stub._ending.get()
@@ -318,32 +334,63 @@ class TestAStartFailureCarriesItsCause:
 
 
 class TestACleanupPassThatDoesNotOwnTheRun:
-    def test_settles_nothing_and_releases_nothing(self):
-        """The second pass of every normal run arrives after the owner's pass
-        has already released. Its releases key on runner-lifetime state, so
-        acting here can hand away a claim a SUCCESSOR run has taken.
-        """
-        import modules.sequenced_capture_runner as scr
-
-        touched = []
-        stub = SimpleNamespace(
-            _is_run_live=lambda: False,  # this pass does not own the run
+    @staticmethod
+    def _pass_stub(touched, current_run, *, run_live):
+        return SimpleNamespace(
+            run_outcome=lambda: current_run,
+            _is_run_live=lambda: run_live,
+            LOGGER_NAME='TEST',
             camera_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('camera')),
             _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
-            file_io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('file')),
             _settle_run_outcome=lambda ending: touched.append('settled'),
+            _close_run_writes=lambda *a: touched.append('batch'),
             _release_scan_led_lease=lambda: touched.append('lease'),
             _release_activity_claim=lambda: touched.append('claim'),
         )
 
+    def test_settles_nothing_and_releases_nothing(self):
+        """The second pass of every normal run arrives after the owner's pass
+        has already released. Its releases key on runner-lifetime state, so
+        acting here can hand away a claim a SUCCESSOR run has taken.
+
+        The run is still the runner's but already ended: the pass ends the
+        IO and CAMERA lanes' protocol mode and nothing else. The FILE lane
+        has no run mode to end, and the run's batch was closed by the pass
+        that owned the run.
+        """
+        import modules.sequenced_capture_runner as scr
+
+        touched = []
+        run = PendingRunOutcome()
+        stub = self._pass_stub(touched, run, run_live=False)  # already ended
+
         scr.SequencedCaptureRunner._cleanup_inner(
-            stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x')
+            stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x'), run
         )
 
-        assert touched == ['camera', 'io', 'file'], (
+        assert touched == ['camera', 'io'], (
             f'a pass that does not own the run touched more than the executors '
             f'it must always end: {touched}'
         )
+
+    def test_a_pass_for_a_replaced_run_touches_nothing(self):
+        """A late pass for run N arriving while run N+1 is live on the same
+        runner: every lane, the batch, the outcome and the claim are N+1's,
+        and the pass touches none of them.
+        """
+        import modules.sequenced_capture_runner as scr
+
+        touched = []
+        successor = PendingRunOutcome()
+        stub = self._pass_stub(touched, successor, run_live=True)  # N+1 is live
+
+        scr.SequencedCaptureRunner._cleanup_inner(
+            stub,
+            RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x'),
+            PendingRunOutcome(),
+        )
+
+        assert touched == [], f'a pass for a replaced run touched the live run: {touched}'
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +410,8 @@ def _cleanup_stub(latched=None, forced_dark=False):
     # before calling it, so every attribute it reads must exist. Only the ones
     # this test reasons about are pinned; the rest are inert.
     stub = MagicMock()
+    # The run this cleanup is for is the runner's current run.
+    stub.run_outcome.return_value = PendingRunOutcome()
     stub._is_run_live = lambda: True
     stub._ending = latch
     stub._fatal_abort_event = fatal
@@ -381,7 +430,7 @@ def _run_cleanup_args(monkeypatch, stub, stated):
         return True
 
     monkeypatch.setattr(scr, 'run_cleanup', _fake_run_cleanup)
-    scr.SequencedCaptureRunner._cleanup_inner(stub, stated)
+    scr.SequencedCaptureRunner._cleanup_inner(stub, stated, stub.run_outcome())
     return seen
 
 
@@ -469,7 +518,7 @@ class TestTheRunLoopsOwnEndings:
         loop = runner._run_loop_executor
         loop._run_loop_inner = MagicMock(side_effect=RuntimeError('the loop died here'))
 
-        loop.run_loop()
+        loop.run_loop(runner.run_outcome())
 
         ending = runner._ending.get()
         assert (ending.status, ending.reason) == ('failed', 'run_loop_crashed')
@@ -499,7 +548,7 @@ class TestTheRunLoopsOwnEndings:
         runner._video_max_fps = 30.0
         monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
 
-        runner._run_loop_executor.run_loop()
+        runner._run_loop_executor.run_loop(runner.run_outcome())
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'

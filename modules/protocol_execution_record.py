@@ -100,14 +100,14 @@ class ProtocolExecutionRecord:
         """
         self._capture_attempts += 1
 
-    def complete(self, reconcile: bool = True):
-        """Finalize the record. When *reconcile* is True, warn the user if
-        fewer rows were written than captures attempted.
+    def complete(self) -> None:
+        """Finalize the record, warning the user if fewer rows were written
+        than captures attempted.
 
-        *reconcile* is False on an aborted run: abort deliberately drops
-        pending writes, so a shortfall there is expected, not a fault.
+        Reconciled on every ending: a run writes every image it captured
+        however it ends, so a shortfall is always a fault.
         """
-        if reconcile and self._mode == 'to_file':
+        if self._mode == 'to_file':
             missing = self._capture_attempts - self._rows_written
             if missing > 0:
                 logger.error(

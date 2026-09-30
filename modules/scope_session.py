@@ -37,6 +37,7 @@ from modules.exceptions import (
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
+    FileWriterNotStuckError,
     HardwareCommandRefusedError,
     HomingFailedError,
     ObjectiveUnknownError,
@@ -54,6 +55,11 @@ from modules.scheduler import Scheduler, ThreadingTimerScheduler
 # window of one autofocus inside a characterization. Per
 # PERFORMANCE_BUDGETS.md row diagnostic_exit_run_idle_wait_s.
 DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S = 120.0
+
+# How long shutdown lets a finished run's images finish writing before it
+# gives up on them and takes the file lane down. Budget row:
+# shutdown_run_files_wait_s in PERFORMANCE_BUDGETS.md.
+_SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -231,7 +237,6 @@ class ScopeSession:
             settings_snapshot=self.get_settings_snapshot,
             engineering_mode=self.engineering_mode,
         )
-        self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
         # The run engine and its autofocus pair are SESSION-composed:
         # one SequencedCaptureRunner per session, shared by the GUI,
@@ -389,14 +394,20 @@ class ScopeSession:
 
     @property
     def protocol_files_draining(self) -> bool:
-        """True while a run's file writer still holds pending work."""
-        return self.file_io_executor.is_protocol_queue_active()
+        """True from the end of a run until its last file is written.
+
+        False while the run is live -- the run's own state answers then --
+        and once its files are all on disk or given up on.
+        """
+        batch = self.sequenced_capture_runner.write_batch()
+        return batch is not None and batch.draining
 
     @property
     def protocol_files_pending(self) -> int:
-        """How many of a run's file writes are still to finish, the one in
-        flight included; 0 when nothing is draining."""
-        return self.file_io_executor.protocol_queue_size()
+        """How many of a finished run's file writes are still to finish, the
+        one in flight included; 0 when nothing is draining."""
+        batch = self.sequenced_capture_runner.write_batch()
+        return batch.pending if batch is not None and batch.draining else 0
 
     @property
     def protocol_files_stalled(self) -> bool:
@@ -406,7 +417,14 @@ class ScopeSession:
         new run is refused for cannot disagree."""
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
-        return self.file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S)
+        return self.protocol_files_draining and self.sequenced_capture_runner.write_batch().stalled(
+            WRITE_STALL_FATAL_S
+        )
+
+    @property
+    def protocol_files_stuck_write(self) -> str:
+        """The write in flight on the file lane, named for a stall report."""
+        return self.file_io_executor.describe_running_task()
 
     @property
     def run_lockout(self) -> bool:
@@ -568,7 +586,6 @@ class ScopeSession:
 
         autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
             scope=scope,
-            file_io_executor=executor_bundle.file_io_executor,
             ui_update_func=af_ui_update_func,
         )
 
@@ -783,18 +800,14 @@ class ScopeSession:
         logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
 
     @staticmethod
-    def _build_autofocus_pair(*, scope, file_io_executor, ui_update_func=None):
+    def _build_autofocus_pair(*, scope, ui_update_func=None):
         """Real AF runner + started AF thread for a factory-built session,
         so every host gets the same wiring; ``ui_update_func`` is the
         host's Z-position renderer, None for a host with no display."""
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
 
-        autofocus_runner = AutofocusRunner(
-            scope=scope,
-            file_io_executor=file_io_executor,
-            ui_update_func=ui_update_func,
-        )
+        autofocus_runner = AutofocusRunner(scope=scope, ui_update_func=ui_update_func)
         autofocus_thread = AutofocusThread(afe=autofocus_runner)
         autofocus_thread.start()
         return autofocus_runner, autofocus_thread
@@ -803,32 +816,43 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
-    def recover_file_writer(self) -> bool:
-        """Discard pending protocol file writes and unlock a wedged writer.
+    def recover_file_writer(self) -> int:
+        """Give up on a finished run's unwritten images and unlock a stuck writer.
 
         L2 counterpart of the GUI's stalled-writer recovery: when a
         protocol run's file writer stops making progress, every
         subsequent run is refused with the ``files_writing_stalled``
         reason until the writer is recovered or the app restarts. This
-        method is that recovery for headless / REST / SDK callers:
-        pending (unsaved) writes are discarded, protocol mode ends, and
-        a worker stuck mid-write is abandoned and replaced.
+        method is that recovery for headless / REST / SDK callers: the
+        run's outstanding images are given up on and counted, and the
+        worker stuck mid-write is abandoned and replaced. Nothing else
+        queued on the lane is discarded.
 
         Returns:
-            True: the recovery was dispatched.
+            How many of the run's images were given up on.
 
         Raises:
             HardwareCommandRefusedError: a run or a diagnostic holds the
-                scope. The pending writes are that run's own captures, and
-                ending protocol mode under it discards them mid-run.
+                scope. The outstanding writes are that run's own captures.
+            FileWriterNotStuckError: no write has stopped making progress;
+                the writer will finish on its own, and recovering would
+                lose images for nothing.
         """
+        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
         holder = self.activity_claim.owner
         if holder in SCOPE_HOLDING_KINDS:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'recover_file_writer', holder
             )
-        self.file_io_executor.recover_wedged_protocol_queue()
-        return True
+        batch = self.sequenced_capture_runner.write_batch()
+        if batch is None or not batch.stalled(WRITE_STALL_FATAL_S):
+            raise FileWriterNotStuckError(batch.pending if batch is not None else 0)
+        # Given up on first, so the stuck write returning later counts
+        # nothing and the writes queued behind it skip their turn.
+        abandoned = batch.abandon('File writer recovery')
+        self.file_io_executor.replace_stuck_worker()
+        return abandoned
 
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         import modules.config_helpers as config_helpers
@@ -1981,6 +2005,19 @@ class ScopeSession:
                         'The session shut down before the run reported.',
                     ),
                 )
+            # A finished run's images still being written get a bounded
+            # chance to land before the lanes go down below; whatever is
+            # still outstanding then is given up on and counted, never
+            # cleared silently with the lane's queue. A run still live has
+            # not closed its writes, so nothing can complete them during a
+            # wait: they are given up on at once.
+            batch = runner.write_batch()
+            if (
+                batch is not None
+                and batch.outcome is None
+                and not (batch.draining and batch.wait_complete(_SHUTDOWN_RUN_FILES_WAIT_S))
+            ):
+                batch.abandon('Session shutdown')
         # The session owns its scheduler: a session over a caller's scope
         # still ends its own timers (a live health check outliving the
         # session would fire into torn-down state).

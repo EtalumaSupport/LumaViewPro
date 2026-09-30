@@ -1,19 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for protocol write-queue back-pressure + wedge watchdog (#740).
+"""Regression tests for protocol write back-pressure + wedge watchdog (#740).
 
 The bounded file-IO queue used to DROP a capture (PROTOCOL_QUEUE_FULL) when
 the single write worker fell behind -- already-grabbed frames silently never
 reached disk. The contract is now back-pressure: the capture path BLOCKS
-until a slot frees, pacing the run to disk drain, and a worker that stops
-retiring tasks entirely is declared wedged -- a loud fatal abort naming the
-stuck task instead of an unbounded silent wait. The post-run half: a wedged
-writer used to hold every "please wait - files are still being written" gate
-closed forever; drain-stall detection now distinguishes wedged from slow,
-and recovery discards pending writes and replaces the stuck worker.
+until the run's write backlog has room, pacing the run to disk drain, and a
+worker that stops retiring writes entirely is declared wedged -- a loud
+fatal abort naming the stuck write instead of an unbounded silent wait. The
+post-run half: a wedged writer used to hold every "please wait - files are
+still being written" gate closed forever; the run's write batch
+distinguishes wedged from slow, and recovery gives up on the run's
+outstanding writes, counting them, and replaces the stuck worker -- it
+clears no queue.
 
-All tests drive the production classes: a real SequentialIOExecutor with a
-small bounded protocol queue and an event-gated wedge task (no sleeps for
-synchronization; bounded waits only where the assertion IS "it blocks").
+All tests drive the production classes: a real SequentialIOExecutor, the
+run's RunWriteBatch with its backlog bound shrunk, and an event-gated wedge
+task (no sleeps for synchronization; bounded waits only where the assertion
+IS "it blocks").
 """
 
 import pathlib
@@ -24,27 +27,27 @@ import pytest
 
 import modules.protocol_image_writer as piw
 from modules.notification_center import Severity, notifications
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequential_io_executor import (
+    ENQUEUED,
     IOTask,
-    PROTOCOL_ENQUEUED,
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
 
 
 @pytest.fixture
-def bounded_executor():
-    """Started executor with a 2-slot bounded protocol queue, in session."""
-    ex = SequentialIOExecutor(name='TEST_BP', protocol_queue_maxsize=2)
+def file_lane():
+    """A started file lane."""
+    ex = SequentialIOExecutor(name='TEST_BP')
     ex.start()
-    ex.protocol_start()
     yield ex
     ex.shutdown(wait=True)
 
 
 def _park_worker(ex):
     """Occupy the worker with an event-gated wedge task; returns the release
-    event once the worker is provably parked (so queue fills are race-free)."""
+    event once the worker is provably parked (so backlog fills are race-free)."""
     started = threading.Event()
     release = threading.Event()
 
@@ -52,54 +55,55 @@ def _park_worker(ex):
         started.set()
         release.wait(timeout=60)
 
-    assert ex.protocol_put(IOTask(action=_wedge)) is PROTOCOL_ENQUEUED
+    assert ex.put(IOTask(action=_wedge)) is ENQUEUED
     assert started.wait(2), 'worker never picked up the wedge task'
     return release
 
 
-def test_backpressure_blocks_instead_of_dropping(bounded_executor):
-    """A submit against a full queue BLOCKS until a slot frees -- no
-    PROTOCOL_QUEUE_FULL, no drop row -- and the task then runs.
+def _fill(batch, count):
+    """Take ``count`` places in the run's backlog with writes queued behind
+    the parked worker."""
+    for _ in range(count):
+        assert batch.submit(lambda: None, {}, what='A filler', pace_until=None) is ENQUEUED
+
+
+def test_backpressure_blocks_instead_of_dropping(file_lane, monkeypatch):
+    """A submit against a full backlog BLOCKS until a write lands -- no
+    drop -- and the write then runs.
     Pre-fix: protocol_put returned PROTOCOL_QUEUE_FULL immediately."""
-    ex = bounded_executor
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 2)
+    ex = file_lane
+    batch = RunWriteBatch(ex)
     release = _park_worker(ex)
-    assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
-    assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
+    _fill(batch, 2)
 
     ran = threading.Event()
     submitted = threading.Event()
     results = []
 
     def _submit():
-        results.append(
-            ex.protocol_put_wait(
-                IOTask(action=ran.set),
-                should_abort=lambda: False,
-                stall_timeout_s=30.0,
-            )
-        )
+        results.append(batch.submit(ran.set, {}, what='The image', pace_until=lambda: False))
         submitted.set()
 
     t = threading.Thread(target=_submit, daemon=True)
     t.start()
-    assert not submitted.wait(0.6), 'submit returned against a full queue instead of blocking'
+    assert not submitted.wait(0.6), 'submit returned against a full backlog instead of blocking'
 
     release.set()
-    assert submitted.wait(5), 'submit never completed after the queue drained'
-    assert results == [PROTOCOL_ENQUEUED]
-    assert ran.wait(5), 'the blocked-then-enqueued task never ran'
-    assert ex.protocol_dropped_count() == 0
+    assert submitted.wait(5), 'submit never completed after the backlog drained'
+    assert results == [ENQUEUED]
+    assert ran.wait(5), 'the blocked-then-enqueued write never ran'
 
 
 def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypatch):
-    """ProtocolImageWriter.capture against a full real queue: blocks, then
+    """ProtocolImageWriter.capture against a full real backlog: blocks, then
     returns True with the write executed and NO capture_failed_queue_full
     row. Pre-fix: recorded the drop row and returned False immediately."""
     from unittest.mock import MagicMock
 
-    ex = SequentialIOExecutor(name='TEST_BP_WRITER', protocol_queue_maxsize=2)
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 2)
+    ex = SequentialIOExecutor(name='TEST_BP_WRITER')
     ex.start()
-    ex.protocol_start()
     saved = threading.Event()
     monkeypatch.setattr(
         piw,
@@ -107,7 +111,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
         lambda *a, **k: saved.set() or pathlib.Path(tmp_path / 'frame.tiff'),
     )
     record = MagicMock()
-    writer = _bare_protocol_writer(file_io_executor=ex, execution_record=record)
+    writer = _bare_protocol_writer(write_batch=RunWriteBatch(ex), execution_record=record)
     scope = writer._scope
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
@@ -119,8 +123,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
 
     try:
         release = _park_worker(ex)
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
+        _fill(writer._write_batch, 2)
 
         done = threading.Event()
         results = []
@@ -138,10 +141,10 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
 
         t = threading.Thread(target=_capture, daemon=True)
         t.start()
-        assert not done.wait(0.6), 'capture returned against a full queue instead of pacing'
+        assert not done.wait(0.6), 'capture returned against a full backlog instead of pacing'
 
         release.set()
-        assert done.wait(10), 'capture never completed after the queue drained'
+        assert done.wait(10), 'capture never completed after the backlog drained'
         assert results == [True]
         assert saved.wait(10), 'the paced write never reached save_image'
         dropped_rows = [
@@ -150,46 +153,40 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
             if c.kwargs.get('capture_result_file_name') == 'capture_failed_queue_full'
         ]
         assert dropped_rows == [], 'a paced write must not be recorded as a queue-full drop'
-        assert ex.protocol_dropped_count() == 0
     finally:
         ex.shutdown(wait=True)
 
 
-def test_blocked_submit_honors_abort_promptly():
+def test_blocked_submit_honors_abort_promptly(file_lane, monkeypatch):
     """An abort signalled while a submit is blocked unblocks it within one
-    poll interval; the return is the cancelled outcome (None), not a wedge."""
-    ex = SequentialIOExecutor(name='TEST_BP_ABORT', protocol_queue_maxsize=1)
-    ex.start()
-    ex.protocol_start()
+    poll interval, and the frame is handed over -- never dropped, and not a
+    wedge -- so it is written once the backlog drains."""
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
+    ex = file_lane
+    batch = RunWriteBatch(ex)
+    release = _park_worker(ex)
+    _fill(batch, 1)
+
+    aborted = threading.Event()
+    submitted = threading.Event()
+    ran = threading.Event()
+    results = []
+
+    def _submit():
+        results.append(batch.submit(ran.set, {}, what='The image', pace_until=aborted.is_set))
+        submitted.set()
+
+    t = threading.Thread(target=_submit, daemon=True)
+    t.start()
     try:
-        release = _park_worker(ex)
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
-
-        aborted = threading.Event()
-        submitted = threading.Event()
-        results = []
-
-        def _submit():
-            results.append(
-                ex.protocol_put_wait(
-                    IOTask(action=lambda: None),
-                    should_abort=aborted.is_set,
-                    stall_timeout_s=30.0,
-                )
-            )
-            submitted.set()
-
-        t = threading.Thread(target=_submit, daemon=True)
-        t.start()
         assert not submitted.wait(0.6), 'submit returned before any abort was signalled'
 
         aborted.set()
         assert submitted.wait(1.0), 'abort did not unblock the waiting submit within a poll'
-        assert results == [None]
-        assert ex.protocol_dropped_count() == 0
-        release.set()
+        assert results == [ENQUEUED], 'an aborted run must hand its captured frame over'
     finally:
-        ex.shutdown(wait=True)
+        release.set()
+    assert ran.wait(5), 'the frame handed over at the abort was never written'
 
 
 def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch):
@@ -200,14 +197,14 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     from unittest.mock import MagicMock
 
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.4)
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
 
-    ex = SequentialIOExecutor(name='TEST_BP_WEDGE', protocol_queue_maxsize=1)
+    ex = SequentialIOExecutor(name='TEST_BP_WEDGE')
     ex.start()
-    ex.protocol_start()
     aborts = []
     record = MagicMock()
     writer = _bare_protocol_writer(
-        file_io_executor=ex,
+        write_batch=RunWriteBatch(ex),
         execution_record=record,
         abort_fn=lambda: aborts.append(1),
     )
@@ -227,7 +224,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
     notifications.add_listener(listener, min_severity=Severity.CRITICAL)
     try:
         release = _park_worker(ex)
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
+        _fill(writer._write_batch, 1)
 
         result = writer.capture(
             save_folder=tmp_path,
@@ -253,18 +250,20 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         ex.shutdown(wait=True)
 
 
-def test_drain_stalled_and_recovery_unlocks_and_replaces_worker():
-    """Post-run lockout half: a wedged worker keeps is_protocol_queue_active
-    True forever. protocol_drain_stalled distinguishes that wedge from a
-    healthy drain; recover_wedged_protocol_queue drains pending writes,
-    clears the lockout gate, releases the deferred protocol-complete
-    callback, and a replacement worker serves fresh tasks. The abandoned
-    worker's late completion must touch no executor state."""
+def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
+    """Post-run lockout half: a wedged worker keeps the finished run's
+    files draining forever. The batch's stall answer distinguishes that
+    wedge from a healthy drain; recovery gives up on the run's outstanding
+    writes, counting them, which completes the batch as abandoned and
+    clears the lockout; the stuck worker is replaced, and nothing queued
+    on the lane is discarded -- the replacement serves it. The abandoned
+    worker's late completion counts nothing and touches no executor
+    state."""
     import time as _time
 
-    ex = SequentialIOExecutor(name='TEST_BP_RECOVER', protocol_queue_maxsize=4)
+    ex = SequentialIOExecutor(name='TEST_BP_RECOVER')
     ex.start()
-    ex.protocol_start()
+    batch = RunWriteBatch(ex)
     fired = []
     listener = fired.append
     notifications.add_listener(listener, min_severity=Severity.WARNING)
@@ -277,29 +276,34 @@ def test_drain_stalled_and_recovery_unlocks_and_replaces_worker():
             release.wait(timeout=60)
             raise RuntimeError('stuck write finally failed')
 
-        assert ex.protocol_put(IOTask(action=_wedge_then_raise)) is PROTOCOL_ENQUEUED
+        assert (
+            batch.submit(_wedge_then_raise, {}, what='The stuck image', pace_until=None) is ENQUEUED
+        )
         assert started.wait(2), 'worker never picked up the wedge task'
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
+        queued_ran = threading.Event()
+        assert ex.put(IOTask(action=queued_ran.set)) is ENQUEUED
 
-        # Post-run shape: cleanup deferred files_complete and signalled drain.
-        deferred = threading.Event()
-        ex.set_protocol_complete_callback(deferred.set)
-        ex.protocol_finish_then_end()
+        # Post-run shape: the run's cleanup closed its writes.
+        outcomes = []
+        batch.close(outcomes.append)
 
-        assert not ex.protocol_drain_stalled(3600.0), (
-            'an in-flight task under its stall threshold must read as draining, not wedged'
+        assert not batch.stalled(3600.0), (
+            'an in-flight write under its stall threshold must read as draining, not wedged'
         )
         deadline = _time.monotonic() + 2.0
-        while not ex.protocol_drain_stalled(0.05) and _time.monotonic() < deadline:
+        while not batch.stalled(0.05) and _time.monotonic() < deadline:
             _time.sleep(0.01)
-        assert ex.protocol_drain_stalled(0.05), 'the aging in-flight task never read as stalled'
-        assert ex.is_protocol_queue_active(), 'precondition: the lockout gate is held'
+        assert batch.stalled(0.05), 'the aging in-flight write never read as stalled'
+        assert batch.draining, 'precondition: the lockout gate is held'
 
         orphan_thread = ex._worker_thread
-        ex.recover_wedged_protocol_queue()
+        abandoned = batch.abandon('File writer recovery')
+        ex.replace_stuck_worker()
 
-        assert not ex.is_protocol_queue_active(), 'recovery must clear the lockout gate'
-        assert deferred.wait(2), 'recovery must release the deferred protocol-complete callback'
+        assert abandoned == 1, 'recovery must count the write it gave up on'
+        assert not batch.draining, 'recovery must clear the lockout gate'
+        assert outcomes == ['abandoned'], "the run's files must end abandoned, never written"
+        assert queued_ran.wait(2), 'recovery must not discard work queued behind the stuck write'
 
         ran = threading.Event()
         ex.put(IOTask(action=ran.set))
@@ -307,64 +311,60 @@ def test_drain_stalled_and_recovery_unlocks_and_replaces_worker():
 
         # Let the abandoned worker finish (and raise); its guarded epilogue
         # must not fire a stale task-failure popup or clobber the
-        # replacement's state.
+        # replacement's state, and its write must not count again.
         release.set()
         orphan_thread.join(2)
         assert not orphan_thread.is_alive(), 'abandoned worker must exit after its stuck call'
         assert not any('task failed' in n.title for n in fired), (
             f'abandoned worker fired a stale task-failure popup: {fired}'
         )
-        assert not ex.is_protocol_queue_active(), (
-            'abandoned worker clobbered executor state after recovery'
+        assert batch.pending == 0 and batch.outcome == 'abandoned', (
+            'the abandoned write counted again when its stuck call returned'
         )
+        assert outcomes == ['abandoned'], 'the batch completed twice'
     finally:
         release.set()
         notifications.remove_listener(listener)
         ex.shutdown(wait=True)
 
 
-def test_backpressure_blocked_time_accumulates_and_resets_per_run():
+def test_backpressure_blocked_time_accumulates_and_resets_per_run(file_lane, monkeypatch):
     """The demand-relative slow-disk signal: time spent blocked waiting for
-    a write slot accumulates across a run and resets at protocol_start."""
-    ex = SequentialIOExecutor(name='TEST_BP_SLOW', protocol_queue_maxsize=1)
-    ex.start()
-    ex.protocol_start()
+    room in the backlog accumulates across a run, and the next run's batch
+    starts at zero."""
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
+    ex = file_lane
+    batch = RunWriteBatch(ex)
+    release = _park_worker(ex)
     try:
-        release = _park_worker(ex)
-        assert ex.protocol_put(IOTask(action=lambda: None)) is PROTOCOL_ENQUEUED
+        _fill(batch, 1)
 
         aborted = threading.Event()
         submitted = threading.Event()
 
         def _submit():
-            ex.protocol_put_wait(
-                IOTask(action=lambda: None),
-                should_abort=aborted.is_set,
-                stall_timeout_s=30.0,
-            )
+            batch.submit(lambda: None, {}, what='The image', pace_until=aborted.is_set)
             submitted.set()
 
         t = threading.Thread(target=_submit, daemon=True)
         t.start()
-        assert not submitted.wait(0.7), 'submit returned against a full queue instead of blocking'
+        assert not submitted.wait(0.7), 'submit returned against a full backlog instead of blocking'
         aborted.set()
         assert submitted.wait(1.0)
 
-        assert ex.protocol_backpressure_blocked_s() >= 0.5, (
-            'blocked-enqueue time must accumulate while waiting for a slot'
-        )
-        release.set()
-        ex.protocol_start()
-        assert ex.protocol_backpressure_blocked_s() == 0.0, (
-            'a fresh run must not inherit the previous run blocked-wait total'
-        )
+        assert batch.blocked_s >= 0.5, 'blocked-enqueue time must accumulate while waiting for room'
     finally:
-        ex.shutdown(wait=True)
+        release.set()
+    assert RunWriteBatch(ex).blocked_s == 0.0, (
+        'a fresh run must not inherit the previous run blocked-wait total'
+    )
 
 
 def test_run_cleanup_surfaces_slow_write_warning(monkeypatch):
     """Run-end summary fires the sustained-slow-write warning when the run's
     blocked-wait total crossed the threshold, and stays silent otherwise."""
+    from unittest.mock import MagicMock
+
     from modules.notification_center import notifications as nc_notifications
     from modules.protocol_cleanup import run_cleanup
     from tests.test_audit_fixes import _run_cleanup_kwargs
@@ -372,9 +372,8 @@ def test_run_cleanup_surfaces_slow_write_warning(monkeypatch):
     captured = []
     monkeypatch.setattr(nc_notifications, 'warning', lambda *a, **k: captured.append(a))
 
-    kwargs = _run_cleanup_kwargs()
-    kwargs['file_io_executor'].protocol_backpressure_blocked_s.return_value = 45.0
-    run_cleanup(**kwargs)
+    slow_batch = MagicMock(spec=RunWriteBatch, blocked_s=45.0, pending=0)
+    run_cleanup(**_run_cleanup_kwargs(write_batch=slow_batch))
     assert any(a[1] == 'Very Slow File Writes' for a in captured), (
         f'45s of blocked writes must surface the slow-write warning; saw {captured}'
     )
@@ -400,11 +399,15 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     from tests.test_audit_fixes import _make_capture_runner
 
     runner = _make_capture_runner()
-    runner.file_io_executor.is_protocol_queue_active.return_value = True
-    runner.file_io_executor.protocol_drain_stalled.return_value = True
-    runner.file_io_executor.describe_running_task.return_value = (
-        "write_capture 'B2_BF' 45s in flight"
-    )
+    lane = runner.file_io_executor
+    lane.put.return_value = ENQUEUED
+    lane.in_flight_task_stalled.return_value = True
+    lane.describe_running_task.return_value = "write_capture 'B2_BF' 45s in flight"
+    # The last run ended with one write still to land: its files are draining.
+    last_run = RunWriteBatch(lane)
+    last_run.submit(lambda: None, {}, what='The image B2_BF', pace_until=None)
+    last_run.close(lambda outcome: None)
+    runner._write_batch = last_run
 
     def _prepare():
         runner.prepare(
@@ -423,24 +426,42 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     assert excinfo.value.reason == 'files_writing_stalled'
     assert 'B2_BF' in excinfo.value.message, 'the refusal must name the stuck write'
 
-    runner.file_io_executor.protocol_drain_stalled.return_value = False
+    lane.in_flight_task_stalled.return_value = False
     with _pytest.raises(ProtocolRunRefusedError) as excinfo:
         _prepare()
     assert excinfo.value.reason == 'files_writing'
 
 
 def test_session_recover_file_writer_passthrough():
-    """L2 parity: a Session recovers a wedged writer through its bundle's
-    FILE lane."""
+    """L2 parity: a Session recovers a wedged writer -- the last run's
+    stuck writes given up on and counted, the FILE lane's worker replaced
+    -- and refuses when nothing is stuck, since recovery would lose images
+    for nothing."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
+    from modules.exceptions import FileWriterNotStuckError
     from modules.scope_session import ScopeSession
 
     bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
     session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
-    assert session.recover_file_writer() is True
-    bundle.file_io_executor.recover_wedged_protocol_queue.assert_called_once()
+
+    with pytest.raises(FileWriterNotStuckError) as refused:
+        session.recover_file_writer()
+    assert refused.value.reason == 'file_writer_not_stuck'
+    bundle.file_io_executor.replace_stuck_worker.assert_not_called()
+
+    lane = bundle.file_io_executor
+    lane.put.return_value = ENQUEUED
+    lane.in_flight_task_stalled.return_value = True
+    stuck = RunWriteBatch(lane)
+    stuck.submit(lambda: None, {}, what='The image', pace_until=None)
+    stuck.close(lambda outcome: None)
+    session.sequenced_capture_runner._write_batch = stuck
+
+    assert session.recover_file_writer() == 1
+    bundle.file_io_executor.replace_stuck_worker.assert_called_once()
+    assert stuck.outcome == 'abandoned'
 
 
 def test_blank_labware_has_no_wells_and_fabricates_no_index():

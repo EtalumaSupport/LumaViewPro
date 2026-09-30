@@ -21,6 +21,7 @@ from unittest import mock
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
@@ -91,7 +92,7 @@ def test_iterate_callback_reports_per_scan_remaining_count():
         deferred.append(callback)
 
     with mock.patch('modules.protocol_run_loop._schedule_ui', _capture):
-        loop._run_loop_inner()
+        loop._run_loop_inner(PendingRunOutcome())
 
     # Two scans ran, so two iterate-pre callbacks were scheduled.
     assert len(deferred) == 2
@@ -132,7 +133,7 @@ def test_scan_pacing_waits_on_monotonic_period():
         ),
         mock.patch('modules.protocol_run_loop.time.sleep', _abort_on_sleep),
     ):
-        loop._run_loop_inner()
+        loop._run_loop_inner(PendingRunOutcome())
 
     for cb in deferred:
         cb(0)

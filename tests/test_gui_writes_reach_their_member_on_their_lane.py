@@ -253,9 +253,9 @@ def test_the_wedged_writer_recovery_goes_through_the_session(ctx, boundary, monk
 
     monkeypatch.setattr(notification_popup, 'show_confirmation_popup', _popup)
     monkeypatch.setattr(protocol_settings, 'run_reported', boundary.run_reported)
-    ctx.file_io_executor = SimpleNamespace(
-        protocol_queue_size=lambda: 3, describe_running_task=lambda: 'write x'
-    )
+    # The offer names what the Session reports about the run's stuck write.
+    ctx.session.protocol_files_pending = 3
+    ctx.session.protocol_files_stuck_write = 'write x'
 
     protocol_settings._offer_wedged_writer_recovery()
     confirm = next(v for k, v in offered.items() if callable(v))

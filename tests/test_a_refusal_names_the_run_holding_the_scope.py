@@ -16,9 +16,12 @@ landing, so naming it there is naming the right run.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -78,7 +81,14 @@ class TestTheRefusalNamesTheHolder:
     ):
         """The just-finished run, which is the one still writing."""
         executor._run_trigger_source = 'zstack'
-        monkeypatch.setattr(executor.file_io_executor, 'is_protocol_queue_active', lambda: True)
+        # The finished run's write batch, closed with a write still to land:
+        # a real batch over a stand-in lane that never runs it.
+        lane = MagicMock()
+        lane.in_flight_task_stalled.return_value = False
+        still_writing = RunWriteBatch(lane)
+        still_writing.submit(lambda: None, {}, what='a capture', pace_until=None)
+        still_writing.close(lambda outcome: None)
+        monkeypatch.setattr(executor, '_write_batch', still_writing)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             _start_a_scan(executor, tmp_path)

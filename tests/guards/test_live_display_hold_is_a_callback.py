@@ -25,6 +25,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
+from modules.protocol_image_writer import RunWriteBatch
 import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
@@ -47,7 +48,7 @@ def _writer(callbacks):
         scope=spec_scope(),
         callbacks=callbacks,
         aborted=threading.Event(),
-        file_io_executor=MagicMock(),
+        write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
@@ -128,7 +129,7 @@ class TestTheHoldFiresThroughTheCallback:
 
         _capture_one_still(writer)
 
-        assert writer._file_io_executor.protocol_put_wait.called, 'the save itself must still run'
+        assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
 
 class TestTheGuiHelperIsLateBound:
@@ -171,7 +172,7 @@ class TestTheGuiHelperIsLateBound:
         _capture_one_still(writer)
 
         assert any('hold_protocol_saved_image' in line for line in debug_lines), debug_lines
-        assert writer._file_io_executor.protocol_put_wait.called, 'the save itself must still run'
+        assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
     def test_the_helper_reaches_the_live_display(self, monkeypatch):
         from ui.ui_helpers import live_display_callbacks

@@ -29,6 +29,7 @@ from tests.ast_seams import parse_module
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
 
+from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 
 
@@ -119,7 +120,7 @@ class TestTheWriterIsHandedTheMode:
             'scope': MagicMock(),
             'callbacks': ProtocolCallbacks(),
             'aborted': threading.Event(),
-            'file_io_executor': MagicMock(),
+            'write_batch': RunWriteBatch(MagicMock()),
             'abort_fn': lambda: None,
             'fatal_abort_event': threading.Event(),
             'ending': EndingLatch(),

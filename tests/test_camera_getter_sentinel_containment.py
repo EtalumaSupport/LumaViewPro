@@ -37,6 +37,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
+from modules.protocol_image_writer import RunWriteBatch
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules import layer_record
@@ -666,7 +667,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         scope=scope,
         callbacks=ProtocolCallbacks(),
         aborted=_threading.Event(),
-        file_io_executor=MagicMock(),
+        write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
         fatal_abort_event=_threading.Event(),
         ending=EndingLatch(),

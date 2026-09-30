@@ -58,7 +58,8 @@ try:
     print('status:', settled.status, settled.reason)
     run_dir = runner.run_dir()
     deadline = time.time() + 90
-    while time.time() < deadline and session.file_io_executor.is_protocol_queue_active():
+    # Until the run has let go of the scope AND its files have landed.
+    while time.time() < deadline and session.run_lockout:
         time.sleep(0.5)
     imgs = images_under(run_dir)
     print('run_dir:', run_dir)

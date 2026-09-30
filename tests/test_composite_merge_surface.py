@@ -116,7 +116,7 @@ class TestAFailedMergeTellsTheUserOnce:
             return real_save(*args, **kwargs)
 
         monkeypatch.setattr(piw, 'save_image', _slow_save)
-        monkeypatch.setattr(scr, '_MERGE_DRAIN_BOUND_S', 0.05)
+        monkeypatch.setattr(scr, '_POST_RUN_WRITES_WAIT_S', 0.05)
         with (
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             _bus_at_popup_threshold() as seen,
@@ -124,5 +124,5 @@ class TestAFailedMergeTellsTheUserOnce:
         ):
             runner.run_composite(sequence_name='drain', parent_dir=str(tmp_path))
 
-        assert excinfo.value.reason == 'merge_timeout'
+        assert excinfo.value.reason == 'write_batch_timeout'
         self._assert_one_failure_notice(seen)

@@ -188,6 +188,14 @@ class TestTheFlagAndTheClaimEndTogether:
         held = runner._activity_claim.try_claim('protocol', run_trigger_source='test')
         assert held
         runner._held_claim = held
+        # The run start() would have committed, with its writes: the
+        # cleanup names it, and closes its batch on the way out.
+        from modules.protocol_image_writer import RunWriteBatch
+        from modules.run_outcome import PendingRunOutcome
+
+        run = PendingRunOutcome()
+        runner._run_outcome = run
+        runner._write_batch = RunWriteBatch(runner.file_io_executor)
         assert runner.run_in_progress()
 
         def _boom(**_kwargs):
@@ -199,7 +207,9 @@ class TestTheFlagAndTheClaimEndTogether:
         from modules.run_outcome import RunEnding
 
         with pytest.raises(RuntimeError, match='cleanup died'):
-            runner._cleanup_inner(RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'))
+            runner._cleanup_inner(
+                RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'), run
+            )
 
         assert not runner.run_in_progress(), (
             'a run that released the scope still reports itself in progress'

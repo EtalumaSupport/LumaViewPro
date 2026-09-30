@@ -212,6 +212,7 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
         input_dir='/in',
         manifest={'k': 'v'},
         output_dir='/out',
+        files='written',
     )
 
     assert len(calls) == 1
@@ -253,6 +254,7 @@ def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
         input_dir='/in',
         manifest={},
         output_dir='/out',
+        files='written',
     )
 
     assert calls == ['runs_after']
@@ -270,6 +272,7 @@ def test_auto_run_dispatcher_handles_no_ctx_plugins():
         input_dir='/in',
         manifest={},
         output_dir='/out',
+        files='written',
     )
     # No assertion needed -- absence of exception is the contract.
 
@@ -290,6 +293,7 @@ def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
         input_dir='/in',
         manifest={},
         output_dir='/out',
+        files='written',
     )
     assert calls == []
 

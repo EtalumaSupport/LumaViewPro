@@ -575,7 +575,7 @@ Unlike `run_autofocus`, the slices are the product: the run saves its images (un
 
 `return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. See the `ProtocolRunner` source for optional callbacks, image-output config, etc. `files_complete` fires once per run, after its last image write lands, as `files_complete(protocol=..., run_dir=..., files=...)`: `files` is `'written'`, or `'abandoned'` when some of the run's images never reached the disk. A callback written for the earlier two-argument form must accept `files`.
 
 **How a run ends.** Every run that commits returns a handle; `handle.wait(timeout_s=...)` blocks until the run settles and hands back its outcome. `runner.wait_for_completion(timeout=None)` answers the same thing for the **last run this runner committed**. Both give back `None` when the bound expires, and `wait_for_completion` gives back `None` at once when the last call was refused or no run has ever been committed -- a refused start ran nothing, so there is no outcome to report and an older run's result would be a stale answer.
 
@@ -588,10 +588,10 @@ The two vocabularies are deliberately separate. A run that aborted names why in 
 A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
 
 ```python
-session.recover_file_writer()   # discards pending unsaved writes, unlocks the writer
+session.recover_file_writer()   # gives up on the run's unsaved images, unlocks the writer
 ```
 
-Recovery is deliberate data loss: pending writes from the wedged run are discarded (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns `True` once the recovery is dispatched.
+Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
@@ -649,6 +649,7 @@ session.protocol_files_pending   # how many of those writes are left (0 when not
                                  # the count changes between transitions, the listener fires only on them
 session.protocol_files_stalled   # the drain's write in flight has stopped progressing, judged by the
                                  # same threshold that refuses a new run (files_writing_stalled)
+session.protocol_files_stuck_write  # the write in flight, named for a stall report
 session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
@@ -1771,7 +1772,11 @@ a rival run holding the scope, or files still draining -- and
 refusal's `str()` is the sentence written for a person, as for any run.
 
 **`CaptureError.reason` is a failure code, not a refusal.** It names what
-went wrong after the run committed (`merge_timeout`, `merge_failed`,
+went wrong after the run committed (`write_batch_timeout` -- the run's
+images did not finish writing within the merge's bound --
+`write_batch_abandoned` -- some were given up on by a writer recovery or a
+shutdown -- `write_batch_not_taken` -- some never reached the file writer,
+which was stuck or had stopped taking work --, `merge_failed`,
 `aborted`, the composite builder's own codes such as `no_data`,
 `excluded_inputs` or `post_processing_incomplete`, ...) and is not a member of the refusal family: a refusal means
 nothing changed, while a `CaptureError` means the run ran and did not

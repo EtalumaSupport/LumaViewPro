@@ -12,23 +12,19 @@ from __future__ import annotations
 import pathlib
 import threading
 from concurrent.futures import CancelledError
-from functools import partial
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
     resolve_end_state,
 )
+from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_outcome import RunEnding
-from modules.sequential_io_executor import (
-    IOTask,
-    PROTOCOL_QUEUE_WEDGED,
-    SLOW_WRITE_BLOCKED_WARN_S,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,8 +34,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
     from modules.protocol_callbacks import ProtocolCallbacks
-    from modules.protocol_execution_record import ProtocolExecutionRecord
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from modules.protocol_image_writer import RunWriteBatch
 
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -109,11 +104,92 @@ def _schedule_cleanup_ui(
     _schedule_ui(_guarded, 0)
 
 
-# Stall budget for queueing the run-record completion task. Short: on the
-# normal path the queue is draining (the put unblocks within one write), and
-# cleanup must not hang behind a wedged writer for the writer's own longer
-# fatal budget just to file the record.
-_RECORD_COMPLETE_STALL_S = 2.0
+class RunCompleteNotice:
+    """The run's one ``run_complete``, sent by whichever path reaches it first.
+
+    Cleanup sends it once the run's state is put back. A cleanup that raises
+    before then would leave it unsent, and the subscribers -- the GUI's
+    auto-run among them -- would never hear the run end; the run's
+    files-written completion then sends it, ahead of ``files_complete``, so
+    every subscriber hears ``run_complete`` exactly once and before the
+    files.
+    """
+
+    def __init__(
+        self,
+        callbacks: ProtocolCallbacks,
+        *,
+        protocol: Protocol,
+        ending: RunEnding,
+        run_dir: pathlib.Path | None,
+    ):
+        self._callbacks = callbacks
+        self._protocol = protocol
+        self._ending = ending
+        self._run_dir = run_dir
+        self._lock = threading.Lock()
+        self._sent = False
+
+    def send(
+        self,
+        cleanup_errors: list[str] | None = None,
+        summary_sent: threading.Event | None = None,
+    ) -> None:
+        """Schedule ``run_complete`` unless it was already; later calls do nothing.
+
+        Cleanup passes its error list and summary flag so a failure inside the
+        callback joins the one cleanup summary; a send after cleanup passes
+        neither, and the callback reports its own failure.
+        """
+        with self._lock:
+            if self._sent:
+                return
+            self._sent = True
+        if not self._callbacks.run_complete:
+            return
+        if summary_sent is None:
+            cleanup_errors, summary_sent = [], threading.Event()
+            summary_sent.set()
+        _schedule_cleanup_ui(
+            lambda dt: self._callbacks.run_complete(
+                protocol=self._protocol,
+                status=self._ending.status,
+                ending=self._ending,
+                run_dir=self._run_dir,
+            ),
+            'Run-complete callback',
+            cleanup_errors,
+            summary_sent,
+        )
+
+
+def schedule_files_complete(
+    callbacks: ProtocolCallbacks,
+    *,
+    protocol: Protocol,
+    run_dir: pathlib.Path | None,
+    files: str,
+) -> None:
+    """Schedule the run's one ``files_complete``, after its cleanup summary.
+
+    ``files`` is the run's write outcome: ``'written'``, or ``'abandoned'``
+    when some of its images never reached the disk.
+    """
+    if not callbacks.files_complete:
+        return
+    summary_sent = threading.Event()
+    summary_sent.set()
+    _schedule_cleanup_ui(
+        lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir, files=files),
+        'Files-complete callback',
+        [],
+        summary_sent,
+    )
+
+
+# How long cleanup waits for an in-flight autofocus to unwind: its restore,
+# plus the wait for its data write that ends it.
+_AF_UNWIND_WAIT_S = 5.0 + AF_DATA_WRITE_WAIT_S
 
 
 def run_cleanup(
@@ -134,9 +210,6 @@ def run_cleanup(
     autofocus_snapshot: AutofocusSnapshot,
     saved_camera_state: dict,
     return_to_position: dict | None,
-    disable_saving_artifacts: bool,
-    protocol: Protocol,
-    protocol_execution_record: ProtocolExecutionRecord | None,
     # Dependencies
     scope: Lumascope,
     callbacks: ProtocolCallbacks,
@@ -146,26 +219,26 @@ def run_cleanup(
     cancel_scheduled_events_fn: Callable[[], None],
     # IO executors; the IO and CAMERA lanes are the scope's
     autofocus_thread: AutofocusThread | None,
-    file_io_executor: SequentialIOExecutor,
+    # THIS run's writes: read for the run-end summary. Its completion --
+    # the record's, and files_complete -- is the batch's, once the last
+    # write lands.
+    write_batch: RunWriteBatch,
+    # THIS run's run_complete, built with the run's own protocol, ending
+    # and directory by value: a successor started after the run releases
+    # its buttons would otherwise have replaced the runner's fields, and a
+    # subscriber would process the successor's directory as this run's.
+    run_complete: RunCompleteNotice,
     logger_name: str = 'SequencedCaptureRunner',
-    # How the run ended, and why. Terminal outcome the run_complete
-    # subscribers receive.
+    # How the run ended, and why.
     ending: RunEnding,
-    # THIS run's output directory, handed to the completion callbacks by
-    # value. Required, not read back off the runner: a successor started
-    # in the gap between the run releasing its buttons and a subscriber
-    # running would have replaced the runner's field, and the subscriber
-    # would process the successor's directory as the finished run's.
-    run_dir: pathlib.Path | None,
 ) -> bool:
-    """Core cleanup logic -- restores state, fires callbacks, ends executors.
+    """Core cleanup logic -- restores state, sends run_complete, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``. ending is
-    required so the cleanup site states the run's true terminal outcome;
-    its status ('completed', 'aborted', 'failed', 'failed_at_start')
-    reaches every run_complete subscriber as the ``status`` kwarg, and
-    the whole record reaches them as ``ending`` -- the reason, title and
-    message the site that ended the run wrote.
+    required so the cleanup site states the run's true terminal outcome.
+    The run's writes are not ended here: they are the run's batch's, which
+    the caller closes on every path out, and which writes every image the
+    run captured however the run ended.
 
     Returns True when the RUN_END LED transition actually applied -- the
     run's LED end-state is decided. False (or a raise anywhere in here)
@@ -173,18 +246,6 @@ def run_cleanup(
     the lease: a lit channel with no owner to turn it off cooks the
     sample, and the lease release itself deliberately leaves LEDs as-is.
     """
-    # Capture the abort state BEFORE the COMPLETING transition below. Only a
-    # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
-    # on a hardware fault the queued frames are suspect, and letting them drain
-    # can pin memory and lock the next protocol-start. Every other abort path
-    # (user Stop, disk-full, 3-strike camera) leaves ERROR unset, so its pending
-    # writes DRAIN to disk instead of being dropped. Considered routing those
-    # through is_aborted too so Stop returns control instantly; rejected -- an
-    # already-captured frame must not be discarded because the user stopped the
-    # run; preserving the captured data wins over the faster stop. Revisit if
-    # draining a large pending queue on Stop becomes a real usability problem.
-    is_aborted = get_state_fn() == ProtocolState.ERROR
-
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
     if get_state_fn() not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
         set_state_fn(ProtocolState.COMPLETING)
@@ -220,7 +281,9 @@ def run_cleanup(
     # would lose the race -- worst case an AF LED left on overnight.
     # The AF Future resolves only after that finally chain finishes,
     # so waiting on it (bounded, so a wedged AF run cannot block
-    # cleanup) guarantees the LED restore below runs last.
+    # cleanup) guarantees the LED restore below runs last. The chain
+    # ends by waiting for the sweep's data write, which an aborted run
+    # still makes, so the bound covers that wait on top of the unwind.
     # A run that failed during start() never dispatched anything, so a live
     # AF future here belongs to SOMEONE ELSE -- most likely the very holder
     # whose lease refusal failed this run. Aborting it would steal the
@@ -232,12 +295,12 @@ def run_cleanup(
             try:
                 # Returns the run's exception (normally AutofocusAborted)
                 # without raising it; raises TimeoutError on the bound.
-                _af_future.exception(timeout=5.0)
+                _af_future.exception(timeout=_AF_UNWIND_WAIT_S)
             except TimeoutError:
                 logger.warning(
                     f'[{logger_name}] Cleanup: autofocus still unwinding '
-                    'after 5.0 s; its exit path restores LED/camera state '
-                    'when it finishes'
+                    f'after {_AF_UNWIND_WAIT_S:.1f} s; its exit path restores '
+                    'LED/camera state when it finishes'
                 )
             except Exception as ex:
                 logger.warning(
@@ -428,48 +491,6 @@ def run_cleanup(
 
     io_executor.clear_protocol_pending()
     camera_executor.clear_protocol_pending()
-    if is_aborted:
-        # Drop pending writes only on an ERROR-state abort. Drain (the
-        # COMPLETING-path default) writes everything queued to disk before
-        # releasing memory -- correct on normal completion AND on a user Stop
-        # (don't discard captured frames), but on a hardware disconnect/error the
-        # frames are suspect and the user wants control back without waiting for
-        # many GB to slowly drain.
-        file_io_executor.clear_protocol_pending()
-        logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
-
-    # --- Complete protocol execution record ---
-    # Ordering invariant: this enqueue must run AFTER the abort-path clear
-    # above. Enqueued before it, the completion task itself was cancelled by
-    # the clear, so an aborted run's record silently never finalized. After
-    # the clear, an aborted run's queue has room and the put returns
-    # immediately even when the worker is stuck mid-write.
-    try:
-        if not disable_saving_artifacts and protocol_execution_record is not None:
-            # On a clean finish, reconcile attempted captures against rows
-            # written and warn on any shortfall. On abort, pending writes were
-            # dropped on purpose above, so a shortfall is expected -- skip it.
-            # Blocking put: the old fire-and-forget enqueue ignored the
-            # queue-full return, so a backed-up queue silently lost the
-            # record completion.
-            _record_put = file_io_executor.protocol_put_wait(
-                IOTask(
-                    action=partial(protocol_execution_record.complete, reconcile=not is_aborted)
-                ),
-                should_abort=lambda: False,
-                stall_timeout_s=_RECORD_COMPLETE_STALL_S,
-            )
-            if _record_put is PROTOCOL_QUEUE_WEDGED:
-                logger.error(
-                    f'[{logger_name}] Cleanup: run-record completion could not '
-                    f'be queued -- the file writer is stalled on '
-                    f"{file_io_executor.describe_running_task()}; this run's "
-                    f'execution record will not be finalized'
-                )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
-        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
-
     # The run is NOT ended here. The phase returns to IDLE in the caller's
     # finally, after the activity claim is released -- one writer, on a
     # path that runs even when a step in here raises. Ending the run from
@@ -505,36 +526,13 @@ def run_cleanup(
     # report itself instead of appending where nobody will read.
     summary_sent.set()
 
-    # Surface silently-dropped captures. A full write queue discards an
-    # already-grabbed frame, so a nonzero count is images the user expected
-    # that are permanently absent from disk. A throttled log was the only prior
-    # signal; the run-terminal summary is the reliable surface because mid-run
-    # popups are suppressed. Fires on aborted runs too -- a queue-full drop
-    # during capture is unintended loss, distinct from an abort's deliberate
-    # drop of pending writes.
-    dropped_captures = file_io_executor.protocol_dropped_count()
-    if dropped_captures > 0:
-        try:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Protocol',
-                'Protocol Captures Dropped',
-                f'{dropped_captures} captured image(s) could not be saved because '
-                'the file writer fell behind the camera. Those images are lost '
-                'from this run. Reduce the capture rate (fewer channels or '
-                'Z-steps, or a slower scan) or use a faster save drive.',
-            )
-        except Exception as ex:
-            logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
-
     # Sustained-slow-write warning, demand-relative: the time this run's
     # capture loop spent blocked waiting for a write slot. An absolute MB/s
     # floor false-fires on healthy machines (PERFORMANCE_BUDGETS.md
     # protocol_write_backpressure_wait_s), so the trigger is the run's own
     # unmet demand. Surfaced at run end because mid-run non-fatal popups are
-    # suppressed; the first crossing already logged from the executor.
-    blocked_s = file_io_executor.protocol_backpressure_blocked_s()
+    # suppressed; the first crossing already logged from the run's write batch.
+    blocked_s = write_batch.blocked_s
     if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
         try:
             from modules.notification_center import notifications
@@ -548,60 +546,10 @@ def run_cleanup(
         except Exception as ex:
             logger.error(f'[PROTOCOL] Failed to surface slow-write notification: {ex}')
 
-    # --- Fire completion callbacks ---
-    _file_queue_active = file_io_executor.is_protocol_queue_active()
-    # Log the pending-write count so a post-run read shows HOW MANY files were
-    # still draining at protocol end, not just that the queue was non-empty.
+    # --- run_complete now; files_complete comes with the run's last write ---
     logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')
-    _file_queue_depth = file_io_executor.protocol_queue_size()
-    logger.info(
-        f'[{logger_name}] Cleanup: file queue active={_file_queue_active} '
-        f'pending_writes={_file_queue_depth}'
-    )
-    if _file_queue_active:
-        if callbacks.run_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(
-                    protocol=protocol, status=ending.status, ending=ending, run_dir=run_dir
-                ),
-                'Run-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        if callbacks.files_complete:
-            file_io_executor.set_protocol_complete_callback(
-                callback=lambda: _schedule_cleanup_ui(
-                    lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir),
-                    'Files-complete callback',
-                    cleanup_errors,
-                    summary_sent,
-                )
-            )
-        file_io_executor.protocol_finish_then_end()
-        logger.info(
-            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete now, files_complete deferred)'
-        )
-    else:
-        if callbacks.run_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(
-                    protocol=protocol, status=ending.status, ending=ending, run_dir=run_dir
-                ),
-                'Run-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        if callbacks.files_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir),
-                'Files-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        file_io_executor.protocol_finish_then_end()
-        logger.info(
-            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'
-        )
+    logger.info(f'[{logger_name}] Cleanup: pending_writes={write_batch.pending}')
+    run_complete.send(cleanup_errors, summary_sent)
 
     # Map the footprint right after a protocol run. No-op unless the memory
     # profiler is enabled.

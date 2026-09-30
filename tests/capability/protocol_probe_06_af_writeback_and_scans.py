@@ -96,7 +96,8 @@ try:
     print('status:', s.status, s.reason)
     rd = runner.run_dir()
     deadline = time.time() + 90
-    while time.time() < deadline and session.file_io_executor.is_protocol_queue_active():
+    # Until the run has let go of the scope AND its files have landed.
+    while time.time() < deadline and session.run_lockout:
         time.sleep(0.5)
     imgs = sorted(p.name for p in pathlib.Path(rd).rglob('*') if p.suffix.lower() == '.tiff')
     print('images:', len(imgs), imgs[:8])

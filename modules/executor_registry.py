@@ -13,7 +13,7 @@ too; the bundle holds them beside the ones it builds:
                   one executor to prevent concurrent motor-board access)
     CAMERA      -- the scope's: camera-config / settings writes
                   (CAMERA_WORKER thread)
-    FILE        -- file IO; protocol_queue bounded at 32 (F-2)
+    FILE        -- file IO; a run's writes are paced by the run's own batch
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
     PROTOCOL    -- protocol orchestration (bare Thread, no queue)
     WORKER_POOL -- priority-aware executor (not a device lane: it may wait
@@ -51,11 +51,6 @@ from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
 from modules.scope_display_thread import ScopeDisplayThread
 from modules.sequential_io_executor import SequentialIOExecutor
-
-
-# F-2: file_io_executor's protocol_queue is bounded at 32. See
-# lumaviewpro.py F-2 commit message + LVP_PERF_FINDINGS_INDEX_2026-04-30.
-_FILE_IO_PROTOCOL_QUEUE_MAXSIZE = 32
 
 
 @dataclass
@@ -146,13 +141,9 @@ def create_default(
         thread it built, those started. The session that holds the bundle
         tears it down in ``ScopeSession.shutdown()``.
     """
-    # F-2: bounded protocol_queue prevents a save thread that falls
-    # behind from letting the queue grow without bound.
-    file_io_executor = SequentialIOExecutor(
-        name='FILE',
-        ui_dispatcher=ui_dispatcher,
-        protocol_queue_maxsize=_FILE_IO_PROTOCOL_QUEUE_MAXSIZE,
-    )
+    # No run mode and no bound: a run's writes are counted and paced by the
+    # run's own write batch, on this lane's one ordinary queue.
+    file_io_executor = SequentialIOExecutor(name='FILE', ui_dispatcher=ui_dispatcher)
     # Thread is constructed here but NOT started. The host starts it once
     # its display widget and this thread are both reachable through the
     # provider; starting earlier races that wiring and silently no-ops.

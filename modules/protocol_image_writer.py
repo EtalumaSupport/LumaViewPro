@@ -25,16 +25,23 @@ import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
-from modules.exceptions import CameraSettingRejected, ObjectiveUnknownError
+from modules.exceptions import (
+    CameraSettingRejected,
+    ObjectiveUnknownError,
+    RunFilesNotWrittenError,
+    RunWriteRefusedError,
+)
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
 from modules.run_outcome import EndingLatch, RunEnding
-from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED, IOTask
+from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pandas as pd
 
     from modules.image_mode import ImageCaptureConfig
@@ -53,6 +60,333 @@ if TYPE_CHECKING:
 # frozen-looking run. A running task that declared a longer
 # slow_task_threshold_sec raises the bar for itself. Bench-tunable.
 WRITE_STALL_FATAL_S = 30.0
+
+# How many of a run's writes may wait on the disk before a capture waits for
+# room. The run paces to the disk instead of holding an unbounded backlog of
+# full frames in memory. Read at each submit, so a test can shrink it.
+WRITE_BACKLOG_BOUND = 32
+
+# How often a paced submit re-checks for room, for the run's abort and for a
+# stuck writer: short enough that an abort mid-wait is honored promptly, long
+# enough that a full backlog does not busy-spin.
+_PACING_POLL_S = 0.25
+
+# Cumulative time a run's captures spent waiting for room past which the save
+# disk is called out as too slow for the run's own demand. Demand-relative on
+# purpose: an absolute MB/s floor false-fires on healthy machines (a measured
+# healthy bench sustains under 1.5 MB/s -- see PERFORMANCE_BUDGETS.md
+# protocol_write_backpressure_wait_s), while time the capture loop spent
+# waiting for room is unmet demand by definition. Consumed by the run-end
+# summary in protocol_cleanup; the first crossing also logs here.
+SLOW_WRITE_BLOCKED_WARN_S = 30.0
+
+# Returned by a paced submit that gave up: the backlog stayed full past the
+# stall budget AND the write in flight has run past its stall threshold -- the
+# writer is stuck, not slow. The write was not taken; the caller owns the loud
+# abort.
+WRITER_WEDGED = object()
+
+
+class _Write:
+    """One write's place in its run's batch, given up exactly once.
+
+    Given up when the write finishes -- however it finishes -- or when the
+    batch is abandoned around it, whichever comes first. The second of the
+    two finds it already given up and counts nothing, so a write abandoned
+    while stuck that later returns cannot count twice.
+    """
+
+    __slots__ = ('settled',)
+
+    def __init__(self):
+        self.settled = False
+
+
+class RunWriteBatch:
+    """Every write one run hands to the disk, from hand-over to landing.
+
+    A run's writes share the file lane with everything else it serves, so
+    the lane cannot say which writes are a run's, or when THAT run's writes
+    are done; asked, it can only answer for whatever is queued, and the
+    answer drifts across runs. The batch is the run's own account: created
+    with the run, closed by the run's cleanup, and complete once closed with
+    nothing outstanding. Completion happens once, with its outcome --
+    ``written``, or ``abandoned`` when a recovery or a shutdown gave up on
+    outstanding writes or a stuck writer refused one -- and runs the
+    actions the run's cleanup handed to ``close``.
+
+    Nothing is ever discarded while completion is reported: a write handed
+    over either runs or is counted as abandoned.
+    """
+
+    def __init__(self, file_io_executor: SequentialIOExecutor):
+        self._executor = file_io_executor
+        # One lock for submit, settle, close and abandon; the condition wakes
+        # a paced submit when a write lands.
+        self._cond = threading.Condition()
+        self._outstanding: set[_Write] = set()
+        self._closed = False
+        self._abandoned = False
+        # A write the writer never took -- found stuck by a paced submit, or
+        # refused by a lane that stopped taking work -- rather than one a
+        # recovery or a shutdown gave up on; a build told of the loss names
+        # which happened.
+        self._not_taken = False
+        self._lost = 0
+        self._on_complete = None
+        self._outcome: str | None = None
+        self._completed = threading.Event()
+        self._blocked_s = 0.0
+        self._slow_warned = False
+
+    @property
+    def pending(self) -> int:
+        """Writes handed over and not yet landed."""
+        with self._cond:
+            return len(self._outstanding)
+
+    @property
+    def outcome(self) -> str | None:
+        """``'written'`` or ``'abandoned'`` once complete; None before."""
+        return self._outcome
+
+    @property
+    def draining(self) -> bool:
+        """True from the run's end until its last write lands.
+
+        False while the run is live, even with writes outstanding: the
+        run's own state answers for it then.
+        """
+        return self._closed and not self._completed.is_set()
+
+    @property
+    def blocked_s(self) -> float:
+        """Seconds this run's captures spent waiting for room in the backlog."""
+        return self._blocked_s
+
+    def stalled(self, threshold_s: float) -> bool:
+        """True while writes are outstanding and the write in flight has run
+        past the stall threshold -- stuck, not slow."""
+        return (
+            not self._completed.is_set()
+            and self.pending > 0
+            and self._executor.in_flight_task_stalled(threshold_s)
+        )
+
+    def describe_stuck_write(self) -> str:
+        """The write in flight, named for a stall report."""
+        return self._executor.describe_running_task()
+
+    def submit(
+        self,
+        action: Callable[..., object],
+        kwargs: dict,
+        *,
+        what: str,
+        pace_until: Callable[[], bool] | None,
+        slow_task_threshold_sec: float | None = None,
+        return_future: bool = False,
+    ) -> object:
+        """Hand one write to the disk as part of this run.
+
+        Args:
+            action: The write.
+            kwargs: Its arguments.
+            what: What the write saves, as a person reads it, for a refusal.
+            pace_until: A zero-argument callable; while the backlog is full
+                the submit waits for room until it returns True, then hands
+                the write over anyway -- a write the run already made is
+                never dropped for being late. None hands it over at once,
+                over the bound if need be: a write whose caller must not
+                wait.
+            slow_task_threshold_sec: The write's own stall threshold, when
+                longer than the lane's.
+            return_future: Return the write's waiter.
+
+        Returns:
+            The write's waiter when ``return_future``, else the lane's
+            enqueued sentinel; ``WRITER_WEDGED`` when a paced submit found
+            the writer stuck -- the write was not taken, and it counts as
+            abandoned.
+
+        Raises:
+            RunWriteRefusedError: the run's writes have ended (closed or
+                abandoned), or the lane is shut down.
+        """
+        write = _Write()
+        with self._cond:
+            self._refuse_if_ended(what)
+            if pace_until is not None:
+                waited_from = time.monotonic()
+                wedged = False
+                while len(self._outstanding) >= WRITE_BACKLOG_BOUND and not pace_until():
+                    wait_started = time.monotonic()
+                    self._cond.wait(_PACING_POLL_S)
+                    self._blocked_s += time.monotonic() - wait_started
+                    self._refuse_if_ended(what)
+                    if time.monotonic() - waited_from >= WRITE_STALL_FATAL_S and (
+                        self._executor.in_flight_task_stalled(WRITE_STALL_FATAL_S)
+                    ):
+                        self._lost += 1
+                        self._not_taken = True
+                        wedged = True
+                        break
+                if wedged:
+                    logger.error(
+                        f'[Protocol-Writer] Write backlog full and the writer stuck on '
+                        f'{self._executor.describe_running_task()}; {what} was not taken'
+                    )
+                    return WRITER_WEDGED
+                if not self._slow_warned and self._blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
+                    self._slow_warned = True
+                    logger.warning(
+                        f'[Protocol-Writer] Capture has spent {self._blocked_s:.0f}s this run '
+                        f'waiting for the save disk -- writes are not keeping up with '
+                        f'capture demand'
+                    )
+            self._outstanding.add(write)
+        task = IOTask(
+            action=self._counted(action, write),
+            kwargs=kwargs,
+            silent_on_failure=True,
+            slow_task_threshold_sec=slow_task_threshold_sec,
+        )
+        result = self._executor.put(task, return_future=return_future)
+        if result is None:
+            # The lane refused it -- shut down or disabled. It will never run.
+            with self._cond:
+                self._not_taken = True
+            self._settle(write, lost=True)
+            raise RunWriteRefusedError('writer_shut_down', what)
+        return result
+
+    def close(self, on_complete: Callable[[str], None]) -> None:
+        """End the run's writes; ``on_complete(outcome)`` runs once the last lands.
+
+        Called once, by the run's cleanup, on every path out of it. A write
+        handed over after this is refused. When nothing is outstanding the
+        completion runs now, on the caller's thread.
+        """
+        with self._cond:
+            if self._closed:
+                raise RuntimeError("a run's writes were closed twice")
+            self._closed = True
+            self._on_complete = on_complete
+            due = self._take_completion_locked()
+        if due is not None:
+            self._complete(*due)
+
+    def abandon(self, cause: str) -> int:
+        """Give up on every outstanding write; returns how many.
+
+        Each is counted now and never again: one still stuck in flight that
+        returns later counts nothing, and one not yet started skips when its
+        turn comes. The batch completes ``abandoned`` once closed. A batch
+        already complete abandons nothing.
+        """
+        with self._cond:
+            if self._outcome is not None:
+                return 0
+            count = len(self._outstanding)
+            for write in self._outstanding:
+                write.settled = True
+            self._outstanding.clear()
+            self._lost += count
+            self._abandoned = True
+            self._cond.notify_all()
+            due = self._take_completion_locked()
+        logger.warning(
+            f"[Protocol-Writer] {cause}: {count} of the run's write(s) abandoned; "
+            'their images are not on disk'
+        )
+        if due is not None:
+            self._complete(*due)
+        return count
+
+    def wait_complete(self, timeout_s: float) -> bool:
+        """Block until the batch completes, up to ``timeout_s``; True if it did."""
+        return self._completed.wait(timeout=timeout_s)
+
+    def wait_until_written(self, timeout_s: float) -> None:
+        """Block until every write of the run has landed.
+
+        For a build that reads the run's images back off disk.
+
+        Raises:
+            RunFilesNotWrittenError: ``write_batch_timeout`` when the bound
+                expired first; ``write_batch_abandoned`` when a recovery or a
+                shutdown gave up on some writes; ``write_batch_not_taken``
+                when the writer never took some -- stuck, or no longer
+                taking work.
+        """
+        if not self._completed.wait(timeout=timeout_s):
+            raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
+        if self._outcome != 'written':
+            raise RunFilesNotWrittenError(
+                'write_batch_abandoned' if self._abandoned else 'write_batch_not_taken'
+            )
+
+    def _refuse_if_ended(self, what: str) -> None:
+        if self._abandoned:
+            raise RunWriteRefusedError('writes_abandoned', what)
+        if self._closed:
+            raise RunWriteRefusedError('run_ended', what)
+
+    def _counted(self, action, write: _Write):
+        # functools.wraps keeps the action's name, which is what a stall
+        # report prints to say which write is stuck.
+        @functools.wraps(action)
+        def _run(*args, **kwargs):
+            if write.settled:
+                # Abandoned before its turn came.
+                return None
+            try:
+                return action(*args, **kwargs)
+            finally:
+                self._settle(write)
+
+        return _run
+
+    def _settle(self, write: _Write, *, lost: bool = False) -> None:
+        with self._cond:
+            already = write.settled
+            if not already:
+                write.settled = True
+                self._outstanding.discard(write)
+                if lost:
+                    self._lost += 1
+                self._cond.notify_all()
+            due = None if already else self._take_completion_locked()
+        # A lost write that was already given up on never ran, and the
+        # abandon has counted and logged it.
+        if already and not lost:
+            logger.warning(
+                '[Protocol-Writer] A write finished after its run gave up on it; '
+                'it is not counted, and its file may be on disk'
+            )
+        if due is not None:
+            self._complete(*due)
+
+    def _take_completion_locked(self):
+        if not self._closed or self._outstanding or self._outcome is not None:
+            return None
+        self._outcome = 'abandoned' if (self._abandoned or self._lost) else 'written'
+        return self._on_complete, self._outcome
+
+    def _complete(self, on_complete, outcome: str) -> None:
+        # Complete BEFORE the actions: one of them is the run-state edge,
+        # and a listener re-reading the levels on it must already read the
+        # drain as over -- no later edge would correct it.
+        self._completed.set()
+        # Outside the lock: the actions schedule callbacks and read state
+        # that must not wait on a write landing.
+        try:
+            on_complete(outcome)
+        except Exception:
+            # Runs on whichever thread landed the last write -- often the
+            # file lane's worker, which would otherwise report this as that
+            # write failing.
+            logger.exception("[Protocol-Writer] The run's files-written actions raised")
 
 
 class CapturedFrame(NamedTuple):
@@ -92,7 +426,10 @@ class ProtocolImageWriter:
         scope: Lumascope,
         callbacks: ProtocolCallbacks,
         aborted: threading.Event,
-        file_io_executor: SequentialIOExecutor,
+        # THIS run's write batch, created with the run. Every write the
+        # writer makes is the run's and is counted there, so what the run
+        # owes the disk is answered per run, never by the shared lane.
+        write_batch: RunWriteBatch,
         abort_fn,  # callable -- bound to protocol_thread.abort
         # THIS run's fatal-abort flag, allocated fresh per run by the runner.
         # Per-run, not runner-lifetime: queued write tasks keep draining after
@@ -140,7 +477,7 @@ class ProtocolImageWriter:
         self._scope = scope
         self._callbacks = callbacks
         self._aborted = aborted
-        self._file_io_executor = file_io_executor
+        self._write_batch = write_batch
         self._abort_fn = abort_fn
         self._fatal_abort_event = fatal_abort_event
         self._ending = ending
@@ -156,17 +493,6 @@ class ProtocolImageWriter:
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
-        # Still-image writes this run has handed to the file queue but not
-        # yet seen land. A post-run step that reads the run's frames back
-        # off disk needs a per-RUN answer; the executor's queue predicate
-        # answers for whatever is queued, so waiting on it would hold this
-        # run's post-step open across the next run's writes. A writer is
-        # built per run, so the count is naturally run-scoped -- the same
-        # reason the video steps carry their own counters.
-        self._still_pending = 0
-        self._still_pending_lock = threading.Lock()
-        self._still_drained = threading.Event()
-        self._still_drained.set()
 
     def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
@@ -216,40 +542,6 @@ class ProtocolImageWriter:
         discard); frames already on disk stay."""
         for step in self._video_steps:
             step.discard_pending()
-
-    @property
-    def still_pending_writes(self) -> int:
-        """Still-image writes this run owes the disk."""
-        with self._still_pending_lock:
-            return self._still_pending
-
-    def _owe_still_write(self) -> None:
-        with self._still_pending_lock:
-            self._still_pending += 1
-            self._still_drained.clear()
-
-    def _settle_still_write(self) -> None:
-        """Retire one owed write, however it ended.
-
-        Called from the write task's own finally, so a failed or raising
-        write settles exactly like a successful one: a debt that outlives
-        its write would hold a post-run step open for the whole of its
-        bound waiting on a frame that is never coming.
-        """
-        with self._still_pending_lock:
-            self._still_pending -= 1
-            if self._still_pending <= 0:
-                self._still_pending = 0
-                self._still_drained.set()
-
-    def wait_for_still_writes(self, timeout_s: float) -> bool:
-        """Block until this run's still-image writes land. Bounded.
-
-        Returns False on expiry rather than raising or waiting forever: a
-        wedged writer is exactly the case a post-run step must survive, and
-        the caller turns the False into its own typed outcome.
-        """
-        return self._still_drained.wait(timeout=timeout_s)
 
     def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
         """Block until every video step's drain and finish complete.
@@ -435,26 +727,25 @@ class ProtocolImageWriter:
         name,
         slow_task_threshold_sec: float | None = None,
     ) -> bool:
-        """One owner for enqueueing a write_capture task onto the bounded
-        file queue.
+        """One owner for handing a write_capture task to the run's batch.
 
-        Blocks (back-pressure) instead of dropping when the queue is full:
-        the run paces to disk drain, so a grabbed frame is never silently
-        lost. Abort stays responsive via the writer's aborted event, polled
-        between slot attempts.
+        Waits for room instead of dropping when the run's backlog is full:
+        the run paces to the disk, so a grabbed frame is never silently
+        lost. An abort ends the wait by handing the frame over anyway -- a
+        frame the run captured is written however the run ends.
 
         The step-identity kwargs (step, indices, timestamp, name) are
         normalized onto every write task so the execution-record row and any
         stall report can always name the step and its file -- some legs
         historically omitted them and their failures logged as 'unknown'.
 
-        Returns True when the task was handed to the executor (or the
-        executor declined it because no protocol is in session -- the
-        run-teardown race the non-blocking path also tolerated). False only
-        when the run is over: the wait was cancelled by an abort, or the
+        Returns True when the batch took the write. False only when the
         writer was declared wedged -- in which case this method has already
         fired the fatal user notification, recorded the lost capture, and
-        aborted the run.
+        aborted the run; the batch counts the frame as abandoned.
+
+        Raises:
+            RunWriteRefusedError: the run's writes have already ended.
         """
         kwargs.setdefault('step', step)
         kwargs.setdefault('step_index', step_index)
@@ -462,74 +753,45 @@ class ProtocolImageWriter:
         kwargs.setdefault('capture_time', capture_time)
         kwargs.setdefault('name', name)
 
-        # The debt is settled by the task itself rather than inside
-        # write_capture, so it retires on every ending -- including a raise
-        # that never reaches write_capture's own epilogue. functools.wraps
-        # keeps the action's name, which is what a stall report prints to
-        # say which write is stuck.
-        @functools.wraps(self.write_capture)
-        def _write_and_settle(**task_kwargs):
-            try:
-                return self.write_capture(**task_kwargs)
-            finally:
-                self._settle_still_write()
-
-        # Owed before the hand-off, never after: a task the worker picks up
-        # immediately would otherwise run and settle a debt not yet counted,
-        # driving the count negative and marking the run drained early.
-        self._owe_still_write()
-        result = self._file_io_executor.protocol_put_wait(
-            IOTask(
-                action=_write_and_settle,
-                kwargs=kwargs,
-                silent_on_failure=True,
-                slow_task_threshold_sec=slow_task_threshold_sec,
-            ),
-            should_abort=self._aborted.is_set,
-            stall_timeout_s=WRITE_STALL_FATAL_S,
+        result = self._write_batch.submit(
+            self.write_capture,
+            kwargs,
+            what=f'The image {name}',
+            pace_until=self._aborted.is_set,
+            slow_task_threshold_sec=slow_task_threshold_sec,
         )
-        if result is PROTOCOL_QUEUE_WEDGED or result is None:
-            # Every non-acceptance lands here: a wedged queue, a wait
-            # cancelled by abort, and a refused submit (disabled executor or
-            # no run in session), which returns a bare None. The executor
-            # never took the task, so nothing will run its finally -- retire
-            # the debt here or the run ends owing a write that cannot arrive
-            # and the post-run step waits out its whole bound.
-            self._settle_still_write()
-        if result is PROTOCOL_QUEUE_WEDGED:
-            stuck = self._file_io_executor.describe_running_task()
-            self._abort_run_fatal(
-                'file_writer_stalled',
-                'Protocol',
-                'File Writer Stalled',
-                f'Saving stopped making progress ({stuck}), so the protocol '
-                f'was stopped to avoid losing more captures. Check that the '
-                f'save drive is connected and responsive, then run the '
-                f'protocol again. A partial file from the stuck write may '
-                f'remain on disk and stay locked until the writer releases '
-                f'it.',
-            )
-            # The record shares the dead save target; latch it so this row
-            # attempt (and any later one) is a loud no-op instead of a
-            # synchronous write blocking THIS thread against the dead disk
-            # until the OS gives up -- which is what used to delay the abort
-            # (and the LED-off behind it) by the whole OS timeout. The
-            # writer_stalled row is lost; its only trace is this run's
-            # cleanup error log, accepted.
-            if self._execution_record is not None:
-                self._execution_record.mark_target_unresponsive()
-            self._record_dropped_capture(
-                step=step,
-                step_index=step_index,
-                scan_count=scan_count,
-                capture_time=capture_time,
-                name=name,
-                reason='writer_stalled',
-            )
-            return False
-        # None with the abort flag set is a cancelled wait; a bare None is
-        # the executor declining outside a session (tolerated, as before).
-        return not (result is None and self._aborted.is_set())
+        if result is not WRITER_WEDGED:
+            return True
+        stuck = self._write_batch.describe_stuck_write()
+        self._abort_run_fatal(
+            'file_writer_stalled',
+            'Protocol',
+            'File Writer Stalled',
+            f'Saving stopped making progress ({stuck}), so the protocol '
+            f'was stopped to avoid losing more captures. Check that the '
+            f'save drive is connected and responsive, then run the '
+            f'protocol again. A partial file from the stuck write may '
+            f'remain on disk and stay locked until the writer releases '
+            f'it.',
+        )
+        # The record shares the dead save target; latch it so this row
+        # attempt (and any later one) is a loud no-op instead of a
+        # synchronous write blocking THIS thread against the dead disk
+        # until the OS gives up -- which is what used to delay the abort
+        # (and the LED-off behind it) by the whole OS timeout. The
+        # writer_stalled row is lost; its only trace is this run's
+        # cleanup error log, accepted.
+        if self._execution_record is not None:
+            self._execution_record.mark_target_unresponsive()
+        self._record_dropped_capture(
+            step=step,
+            step_index=step_index,
+            scan_count=scan_count,
+            capture_time=capture_time,
+            name=name,
+            reason='writer_stalled',
+        )
+        return False
 
     def _well_label(self, step) -> str | None:
         """The well a step's position lies in, on the plate the run moves against.

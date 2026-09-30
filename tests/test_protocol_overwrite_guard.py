@@ -33,6 +33,7 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
+from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
 
 
@@ -76,7 +77,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         scope=MagicMock(),
         callbacks=ProtocolCallbacks(),
         aborted=threading.Event(),
-        file_io_executor=MagicMock(),
+        write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),

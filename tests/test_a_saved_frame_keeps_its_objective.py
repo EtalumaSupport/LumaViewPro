@@ -17,7 +17,6 @@ through to the real writer.
 import datetime
 import pathlib
 import threading
-import time
 
 import pandas as pd
 
@@ -113,18 +112,19 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
 
         monkeypatch.setattr(protocol_image_writer, 'save_image', _held_until_the_turret_moves)
 
+        # A run's outcome does not wait for its still writes to land, and a
+        # file that merely exists may still be mid-write: read the files once
+        # the run says they are written.
+        files_written = threading.Event()
         outcome = runner.run_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+            callbacks={'files_complete': lambda **kw: files_written.set()},
         )
         result = outcome.wait(timeout_s=60.0)
         assert result is not None and result.status == 'completed', result
-
-        # A run's outcome does not wait for its still writes to land.
-        deadline = time.monotonic() + MOVE_TIMEOUT_S
-        while len(list(run_parent.rglob('*.tiff'))) < 2 and time.monotonic() < deadline:
-            time.sleep(0.05)
+        assert files_written.wait(MOVE_TIMEOUT_S), "the run's files were never written"
 
         binning = session.scope.imaging.get_binning_size()
         capabilities = session.scope.capabilities

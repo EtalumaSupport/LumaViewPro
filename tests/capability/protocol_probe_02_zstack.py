@@ -168,7 +168,8 @@ try:
     run_dir = runner.run_dir()
     print('run_dir:', run_dir)
     deadline = time.time() + 90
-    while time.time() < deadline and session.file_io_executor.is_protocol_queue_active():
+    # Until the run has let go of the scope AND its files have landed.
+    while time.time() < deadline and session.run_lockout:
         time.sleep(0.5)
     files = sorted(p for p in pathlib.Path(run_dir).rglob('*') if p.is_file())
     imgs = [p for p in files if p.suffix.lower() in ('.tiff', '.tif')]

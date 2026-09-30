@@ -88,10 +88,9 @@ def _an_ended_run(executor, tmp_path):
     assert not executor.is_live_run(run)
     # Its files drain after it ends, and the next start is refused until
     # they have landed -- the designed two-phase completion.
-    deadline = time.monotonic() + COMPLETION_TIMEOUT
-    while executor.file_io_executor.is_protocol_queue_active():
-        assert time.monotonic() < deadline, "the first run's files never finished writing"
-        time.sleep(0.05)
+    assert executor.write_batch().wait_complete(COMPLETION_TIMEOUT), (
+        "the first run's files never finished writing"
+    )
     return run
 
 
@@ -202,6 +201,28 @@ class TestTeardownAuthority:
         executor.force_reset(reason='app shutdown')
 
         assert done.wait(timeout=COMPLETION_TIMEOUT), 'force_reset did not unwind the run'
+
+    def test_force_reset_unwinds_a_run_whose_protocol_thread_died(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        """With no run loop left to unwind the run, force_reset runs the
+        cleanup itself, for the live run: app close is the last chance to
+        release the scope, and a cleanup that did not know which run it
+        ended would leave it held for good."""
+        monkeypatch.setattr(executor, '_run_loop_under_claim', lambda run: None)
+        done = threading.Event()
+        _start_run(executor, tmp_path, done)
+        deadline = time.monotonic() + 5.0
+        while executor.protocol_thread.is_running:
+            assert time.monotonic() < deadline, 'the run loop never ended'
+            time.sleep(0.01)
+        assert executor.run_in_progress(), 'the run ended without its cleanup'
+
+        executor.force_reset(reason='app shutdown')
+
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'force_reset left the run live'
+        assert not executor.run_in_progress()
+        assert done.is_set(), 'the run ended without run_complete'
 
 
 class TestTheRunIsRequired:

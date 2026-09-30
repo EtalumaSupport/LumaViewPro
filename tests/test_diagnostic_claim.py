@@ -23,7 +23,6 @@ def _make_session():
     scope = spec_scope()
     scope.capabilities.has_xy_stage = True
     file_io_executor = MagicMock()
-    file_io_executor.is_protocol_queue_active.return_value = False
     return ScopeSession(
         settings={},
         scope=scope,

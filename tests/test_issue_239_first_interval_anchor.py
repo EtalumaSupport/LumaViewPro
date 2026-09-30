@@ -22,6 +22,7 @@ import pytest
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
@@ -106,7 +107,7 @@ def _run(clock, parent):
         mock.patch('modules.protocol_run_loop.time.sleep', clock.sleep),
         mock.patch('modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: None),
     ):
-        loop._run_loop_inner()
+        loop._run_loop_inner(PendingRunOutcome())
 
 
 def test_first_interval_is_never_shorter_than_period():

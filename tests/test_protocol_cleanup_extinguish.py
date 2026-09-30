@@ -24,7 +24,7 @@ import pytest
 
 import modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
-from modules.run_outcome import RunEnding
+from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.scope_fakes import build_scope
 
 LAYER = 'Blue'
@@ -48,9 +48,13 @@ def _make_runner_stub(scope, *, lease):
     MagicMock base so run_cleanup's kwarg expressions (state fns, executor
     handles) resolve; the load-bearing slots are set explicitly because
     auto-created mock attributes are truthy and would defeat the
-    lease-held gate.
+    lease-held gate. The stub's current run is the run its cleanup is for,
+    so the pass owns the run; the batch close in cleanup's finally lands on
+    an inert mock slot.
     """
     stub = MagicMock()
+    run = PendingRunOutcome()
+    stub.run_outcome = lambda: run
     stub._scope = scope
     stub._led_lease = lease
     stub._image_writer = None
@@ -67,7 +71,7 @@ def _make_runner_stub(scope, *, lease):
 def _run_cleanup_inner(stub, ending=None):
     if ending is None:
         ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
-    scr.SequencedCaptureRunner._cleanup_inner(stub, ending)
+    scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome())
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):

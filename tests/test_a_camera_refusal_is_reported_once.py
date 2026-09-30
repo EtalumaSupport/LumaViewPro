@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
+from modules.protocol_image_writer import RunWriteBatch
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
@@ -161,7 +162,7 @@ class TestTheRunReportsAndCarriesOn:
             scope=spec_scope(),
             callbacks=ProtocolCallbacks(),
             aborted=threading.Event(),
-            file_io_executor=MagicMock(),
+            write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),

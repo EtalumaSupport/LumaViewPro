@@ -890,12 +890,15 @@ def run_protocol_complete_processors(
     input_dir: str,
     manifest: dict,
     output_dir: str,
+    files: str,
 ) -> None:
     """Invoke every post_processing plugin that opted in via
     PluginSpec.auto_run_on_protocol_complete=True.
 
     Called once per protocol run after all output files are written
-    to disk. Each plugin's processor runs in turn; per-plugin
+    to disk. ``files`` is the run's write outcome; on ``'abandoned'`` --
+    some images never reached the disk -- nothing runs, since a plugin
+    reading the folder as whole would build from a partial one. Each plugin's processor runs in turn; per-plugin
     exceptions are caught and logged so one failure does not block
     others or the rest of the completion handler. ProcessorResult is
     logged at INFO on success, WARNING on reported failure.
@@ -906,6 +909,12 @@ def run_protocol_complete_processors(
     benefit uniformly.
     """
     if ctx is None or not hasattr(ctx, 'plugins'):
+        return
+    if files != 'written':
+        logger.warning(
+            f"[Plugins ] Post-processing auto-run skipped for {input_dir}: the run's "
+            f'images were not all written ({files})'
+        )
         return
     for spec, processor in ctx.plugins.post_processing.handlers():
         if not spec.auto_run_on_protocol_complete:
