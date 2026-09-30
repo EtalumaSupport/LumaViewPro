@@ -854,28 +854,10 @@ class IDSCamera(Camera):
                 logger.debug(f'[CAM Class ] descriptor read ignored: {e}')
         return None, read_faulted
 
-    def _schedule_async_teardown(self) -> None:
-        """Run disconnect() (the SDK close/destroy) on a daemon thread.
-
-        IDS's own callbacks may reconfigure the stream inline, but never close or
-        destroy the device on the callback thread -- so the lightweight
-        _mark_disconnected runs inline while the close/destroy defers here. The
-        _async_teardown_started latch makes this one-shot under concurrent
-        triggers (the callback and the poll-loop fallback).
-        """
-        with self._state_lock:
-            if self._async_teardown_started:
-                return
-            self._async_teardown_started = True
-
-        def _run_teardown():
-            try:
-                time.sleep(0.05)  # let the SDK callback return before close/destroy
-                self.disconnect()
-            except Exception as e:
-                logger.debug(f'[CAM Class ] async teardown ignored: {e}')
-
-        threading.Thread(target=_run_teardown, name='IDSAsyncTeardown', daemon=True).start()
+    # _schedule_async_teardown() inherited from Camera: IDS's own callbacks may
+    # reconfigure the stream inline, but never close or destroy the device on
+    # the callback thread, so the close/destroy runs on the base's teardown
+    # thread while _mark_disconnected runs inline.
 
     def is_connected(self) -> bool:
         if self.active in (False, None):

@@ -309,6 +309,7 @@ class Camera(ABC):
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None
         self._device_removed = False
+        self._async_teardown_started = False
         self._device_serial = None
         # Camera-side timestamp tick rate (Hz). Set by the driver at init
         # if the camera supports a Timestamp chunk; None for cameras
@@ -459,6 +460,44 @@ class Camera(ABC):
             self._device_removed = True
         if was_connected:
             _cam_log.error('[CAM Class ] Camera disconnected')
+
+    def _schedule_async_teardown(self) -> None:
+        """Run disconnect() on a daemon thread of its own, once per removal.
+
+        Called with ``_mark_disconnected`` by whatever noticed the removal: an
+        SDK callback, a presence probe, a grab loop. None of those threads may
+        tear the camera down itself -- an SDK callback that closes its own
+        device deadlocks or aborts natively, and a grab loop cannot join
+        itself -- so the teardown runs here, after a short delay that lets
+        the caller return first.
+
+        One-shot while a teardown is in flight: a second trigger (a callback
+        racing a probe) is a no-op. The latch re-arms when the teardown ends,
+        so a removal after a later reconnect is torn down too; a trigger
+        arriving after the teardown still finds the camera marked removed.
+        """
+        with self._state_lock:
+            if self._async_teardown_started:
+                return
+            self._async_teardown_started = True
+
+        def _run_teardown():
+            try:
+                time.sleep(0.05)
+                _cam_log.info('[CAM Class ] removal teardown: calling disconnect()')
+                self.disconnect()
+            except BaseException as e:
+                # Nothing above this daemon thread can act on the failure, so
+                # it is reported here, where an operator reading the log sees
+                # that the camera was not released cleanly.
+                _cam_log.warning(f'[CAM Class ] removal teardown failed: {type(e).__name__}: {e}')
+            finally:
+                with self._state_lock:
+                    self._async_teardown_started = False
+
+        threading.Thread(
+            target=_run_teardown, name=f'{type(self).__name__}RemovalTeardown', daemon=True
+        ).start()
 
     @abstractmethod
     def connect(self) -> bool:

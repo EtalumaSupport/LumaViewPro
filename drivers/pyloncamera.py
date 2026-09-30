@@ -274,58 +274,12 @@ class PylonCamera(Camera):
 
     # _mark_disconnected() inherited from Camera base class
 
-    def _schedule_async_teardown(self) -> None:
-        """Spawn a daemon thread that runs disconnect() in a safe context.
-
-        Used from OnImageGrabbed (and any other Pylon-callback path)
-        when we detect device removal. The SDK callback thread MUST
-        NOT call StopGrabbing on itself -- it deadlocks or triggers
-        a native abort (pypylon issue #225). Spawning a daemon thread
-        lets the callback return to the SDK immediately while teardown
-        runs in a Python-owned context where Close() / DestroyDevice()
-        are safe to call.
-
-        Idempotent: a second call while a teardown thread is already
-        running is a no-op (the in-flight thread does the work).
-        Re-entrant safe via _async_teardown_started flag under
-        _state_lock.
-        """
-        with self._state_lock:
-            if getattr(self, '_async_teardown_started', False):
-                return
-            self._async_teardown_started = True
-
-        def _run_teardown():
-            try:
-                # Small delay so the in-flight OnImageGrabbed callback
-                # that scheduled us has time to return to the SDK
-                # before we touch the camera handle from outside.
-                time.sleep(0.05)
-                _cam_log.info(
-                    '[CAM Class ] async teardown after device removal: '
-                    'calling disconnect() from daemon thread'
-                )
-                # disconnect() does the full safe sequence:
-                # stop_grabbing -> wait_for_acquisition_idle -> Close
-                # -> DetachDevice -> DestroyDevice, each independently
-                # guarded.
-                self.disconnect()
-            except BaseException as e:
-                # Best-effort log of the teardown failure. If logging
-                # itself raises, suppress -- daemon thread death must
-                # not leak. Done daemon, so process exit is fine if
-                # everything below also fails.
-                _log_safely(f'async teardown raised {type(e).__name__}: {e}')
-            finally:
-                with self._state_lock:
-                    self._async_teardown_started = False
-
-        t = threading.Thread(
-            target=_run_teardown,
-            name='PylonAsyncTeardown',
-            daemon=True,
-        )
-        t.start()
+    # _schedule_async_teardown() inherited from Camera: the Pylon callback
+    # thread must never call StopGrabbing on itself -- it deadlocks or aborts
+    # natively (pypylon issue #225) -- so OnImageGrabbed and the removal
+    # callback hand the teardown to the base's thread. disconnect() then runs
+    # stop_grabbing -> wait_for_acquisition_idle -> Close -> DetachDevice ->
+    # DestroyDevice, each independently guarded.
 
     def _query_dynamic_capabilities(self):
         """Query Pylon SDK for gain/exposure ranges and merge into profile."""
