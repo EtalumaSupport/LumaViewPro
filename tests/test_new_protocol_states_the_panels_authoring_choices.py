@@ -52,7 +52,6 @@ def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dic
     )
     session = SimpleNamespace(get_sequenced_capture_config=get_sequenced_capture_config)
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
-    monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
 
     _Panel(tiling, use_zstacking).new_protocol()
 
@@ -106,7 +105,6 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog)
             lambda category, title, message, **_: shown.append((title, message)),
         )
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=session.scope, session=session))
-        monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
 
         with caplog.at_level(logging.WARNING):
             _Panel('1x1', False).new_protocol()
@@ -116,3 +114,27 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog)
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
     finally:
         session.shutdown()
+
+
+def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch):
+    """Building a protocol writes nothing the drain holds, and the API does
+    not refuse it: the drain is no reason for the GUI to say no."""
+    built = SimpleNamespace(
+        protocols=SimpleNamespace(
+            create_protocol=MagicMock(
+                side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
+            )
+        )
+    )
+    session = SimpleNamespace(
+        get_sequenced_capture_config=lambda **choices: {},
+        protocol_files_draining=True,
+        protocol_files_stalled=False,
+        protocol_files_pending=3,
+        protocol_files_stuck_write='',
+    )
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=built, session=session))
+
+    _Panel('1x1', False).new_protocol()
+
+    assert built.protocols.create_protocol.called, 'New Protocol was refused by a drain'

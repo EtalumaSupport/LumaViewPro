@@ -103,7 +103,6 @@ def ctx(monkeypatch):
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
-    monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
     monkeypatch.setattr(ps.common_utils, 'get_opened_layer', lambda _settings: 'Green')
     monkeypatch.setattr(ps, 'get_active_layer_config', lambda layer: (layer, {}))
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)

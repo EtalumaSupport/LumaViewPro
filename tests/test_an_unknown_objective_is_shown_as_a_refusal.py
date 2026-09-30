@@ -78,7 +78,6 @@ class TestNewProtocol:
         session = MagicMock()
         session.get_sequenced_capture_config.side_effect = error
         monkeypatch.setattr(app_ctx_module, 'ctx', SimpleNamespace(session=session), raising=False)
-        monkeypatch.setattr(ps, 'require_file_writes_idle', lambda _action: True)
         stand = SimpleNamespace(
             ids={
                 'tiling_size_spinner': SimpleNamespace(text='1x1'),

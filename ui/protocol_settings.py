@@ -55,7 +55,7 @@ def _offer_wedged_writer_recovery():
     """Modal offering discard-and-unlock recovery for a stalled file writer.
 
     Names the stuck write and the cost of recovery; declining leaves the
-    queue untouched (the gates keep refusing and will re-offer)."""
+    queue untouched, and a run start's refusal carries the same recovery."""
     from ui.notification_popup import show_confirmation_popup
 
     session = _app_ctx.ctx.session
@@ -81,42 +81,6 @@ def _offer_wedged_writer_recovery():
         cancel_text='Keep waiting',
         on_confirm=_recover,
     )
-
-
-def require_file_writes_idle(operation: str) -> bool:
-    """One gate for operations that must wait for a finished run's file writes.
-
-    Returns True when no run's writes are draining so the operation may proceed.
-    Healthy drain: refuse with the live pending count -- the writes will
-    finish. Stalled drain (the in-flight write ran past the writer's fatal
-    stall budget): offer discard-and-unlock recovery instead of an
-    unfulfillable "please wait"; the operation is still refused this click
-    and the user retries once unlocked.
-    """
-    session = _app_ctx.ctx.session
-    if not session.protocol_files_draining:
-        return True
-    if session.protocol_files_stalled:
-        logger.warning(
-            f'[LVP Main  ] Cannot {operation} - file writer stalled on '
-            f'{session.protocol_files_stuck_write}; offering recovery'
-        )
-        _offer_wedged_writer_recovery()
-    else:
-        from ui.notification_popup import show_notification_popup
-
-        pending = session.protocol_files_pending
-        logger.warning(
-            f'[LVP Main  ] Cannot {operation} - {pending} file(s) still being written to disk'
-        )
-        show_notification_popup(
-            title='Operation Blocked',
-            message=(
-                f'Please wait - {pending} file(s) from the previous scan '
-                f'are still being written to disk.'
-            ),
-        )
-    return False
 
 
 _ABORT_BACKGROUND = './data/icons/abort_protocol_background.png'
@@ -194,9 +158,6 @@ class ProtocolSettings(FloatLayout):
     scan_held = BooleanProperty(False)
     protocol_held = BooleanProperty(False)
     autofocus_scan_held = BooleanProperty(False)
-    # Drawn by draw_protocol_buttons: a finished run's files are draining
-    # with no run live, so each of the three starts would only be refused.
-    files_draining = BooleanProperty(False)
 
     def __init__(self, **kwargs):
 
@@ -779,18 +740,14 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
-        # The click, before any of the four ways this returns without building
+        # The click, before any of the ways this returns without building
         # anything. Every refusal below does notify, but the notification text
-        # is shared -- the file-writes gate says the same words for five
-        # different buttons, and the builder's refusal is shared by nine
-        # callers -- so without this line the bundle shows a refusal and no
-        # way to tell which button provoked it. Recorded once at the top
-        # rather than at each return: one line gives the attribution, and the
-        # reason arrives in the notification that follows.
+        # is shared -- the builder's refusal is shared by nine callers -- so
+        # without this line the bundle shows a refusal and no way to tell
+        # which button provoked it. Recorded once at the top rather than at
+        # each return: one line gives the attribution, and the reason arrives
+        # in the notification that follows.
         gui_logger.button('NEW_PROTOCOL')
-
-        if not require_file_writes_idle('create a new protocol'):
-            return
 
         # New Protocol resets each step to its channel's saved focus baseline.
         # A per-(well, channel) Z carry-over from the prior in-memory protocol
@@ -1512,10 +1469,9 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         engine = ctx.sequenced_capture_runner
         session = ctx.session
-        # A finished run's writes still going, with no run live: every
-        # start would be refused for them, so the kv disables all three.
-        post_run_drain = session.protocol_files_draining and not session.is_protocol_running
-        self.files_draining = post_run_drain
+        # A finished run's writes still going. A start pressed now is the
+        # engine's to refuse; the button that started the run shows the count.
+        draining = session.protocol_files_draining
 
         for trigger, look in _PANEL_RUN_BUTTONS.items():
             button = self.ids[look.button_id]
@@ -1534,7 +1490,7 @@ class ProtocolSettings(FloatLayout):
                 continue
 
             button.state = 'normal'
-            if post_run_drain and run is not None and run is engine.run_outcome():
+            if draining and run is not None and run is engine.run_outcome():
                 button.text = (
                     'File writer stalled'
                     if session.protocol_files_stalled
@@ -1545,7 +1501,7 @@ class ProtocolSettings(FloatLayout):
             if look.idle_background is not None:
                 button.background_down = look.idle_background
 
-        if post_run_drain:
+        if draining:
             self._drain_tick_trigger()
         else:
             self._wedge_recovery_offered = False
@@ -1574,7 +1530,6 @@ class ProtocolSettings(FloatLayout):
         self,
         trigger: str,
         log_stop: typing.Callable[[], None] | None,
-        operation: str,
         build_start: typing.Callable[[], typing.Callable[[], None]],
     ) -> None:
         """Start this button's run, or stop the one it started.
@@ -1591,10 +1546,6 @@ class ProtocolSettings(FloatLayout):
             if log_stop is not None:
                 log_stop()
             self._submit_panel_request(trigger, lambda: runner.reset(run), stop=True)
-            return
-
-        if not require_file_writes_idle(operation):
-            self.draw_protocol_buttons()
             return
 
         self._submit_panel_request(trigger, build_start())
@@ -1646,7 +1597,6 @@ class ProtocolSettings(FloatLayout):
         self._press_panel_run(
             'autofocus_scan',
             lambda: gui_logger.protocol_action('ABORT_AF_SCAN'),
-            'start the autofocus scan',
             self._autofocus_scan_start,
         )
 
@@ -1727,7 +1677,6 @@ class ProtocolSettings(FloatLayout):
         self._press_panel_run(
             'scan',
             lambda: gui_logger.protocol_action('ABORT_SCAN'),
-            'start the scan',
             self._scan_start,
         )
 
@@ -1800,7 +1749,6 @@ class ProtocolSettings(FloatLayout):
         self._press_panel_run(
             'protocol',
             lambda: gui_logger.protocol_action('ABORT_PROTOCOL'),
-            'start the protocol run',
             self._protocol_start,
         )
 

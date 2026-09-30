@@ -10,7 +10,6 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.debounce import debounce
 from modules.run_outcome import PendingRunOutcome
-from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
@@ -340,14 +339,6 @@ class VerticalControl(BoxLayout):
         run = self._autofocus_run
         if ctx.sequenced_capture_runner.is_live_run(run):
             self._stop_autofocus(run)
-            return
-
-        # The post-run file drain outlives the run by design: writes keep
-        # landing after the run itself has ended, so it needs a gate of its
-        # own here rather than riding on the run's. The gate helper owns the
-        # stalled-writer recovery popup.
-        if not require_file_writes_idle('start autofocus'):
-            self.draw_autofocus_button()
             return
 
         member = ctx.session.create_protocol_runner()

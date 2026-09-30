@@ -78,7 +78,6 @@ class _Panel(ps.ProtocolSettings):
         self.scan_pending = False
         self.protocol_pending = False
         self.autofocus_scan_pending = False
-        self.files_draining = False
 
 
 @pytest.fixture
@@ -126,7 +125,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
     pool.put.side_effect = _put
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     for name, value in (
-        ('require_file_writes_idle', lambda operation: True),
         ('get_image_capture_config_from_ui', lambda: {}),
         ('get_auto_gain_settings', lambda: {}),
         ('is_image_saving_enabled', lambda: True),
@@ -309,7 +307,7 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, held
     assert panel.scan_pending is False, "the request's own redraw brings the button back"
 
 
-def test_a_finished_runs_drain_shows_its_count_and_disables_all_three(app_ctx, engine, session):
+def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     panel = _Panel()
     finished = PendingRunOutcome()
     panel._runs_started_here['protocol'] = finished
@@ -321,7 +319,6 @@ def test_a_finished_runs_drain_shows_its_count_and_disables_all_three(app_ctx, e
 
     assert panel.ids['run_protocol_btn'].text == 'Writing Files... (7)'
     assert panel.ids['run_scan_btn'].text == 'Run One Scan'
-    assert panel.files_draining is True, 'every start would be refused while the files drain'
     panel._drain_tick_trigger.assert_called_once()
 
     session.protocol_files_stalled = True
@@ -332,7 +329,6 @@ def test_a_finished_runs_drain_shows_its_count_and_disables_all_three(app_ctx, e
     session.protocol_files_stalled = False
     panel.draw_protocol_buttons()
     assert panel.ids['run_protocol_btn'].text == 'Run Full Protocol'
-    assert panel.files_draining is False
 
 
 def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session):
@@ -345,7 +341,6 @@ def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session
 
     panel.draw_protocol_buttons()
 
-    assert panel.files_draining is False
     assert panel.ids['run_scan_btn'].state == 'down'
 
 
@@ -415,51 +410,24 @@ def test_each_panel_press_is_recorded_as_what_it_did(app_ctx, engine, monkeypatc
     assert recorded == ['AF_SCAN', 'ABORT_AF_SCAN']
 
 
-def test_a_finished_runs_files_still_writing_refuse_until_they_land(monkeypatch):
-    """The drain gate reads the finished run's own write batch: closed with
-    a write still held, it refuses and says how many files are left; once
-    the write lands, the same operation goes ahead."""
-    import threading
-
-    import ui.notification_popup as notification_popup
-    from modules.protocol_image_writer import RunWriteBatch
-    from modules.scope_session import ScopeSession
-    from modules.sequential_io_executor import SequentialIOExecutor
-    from tests.scope_fakes import spec_scope
-
-    popups = []
-    monkeypatch.setattr(
-        notification_popup, 'show_notification_popup', lambda **kw: popups.append(kw)
+def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
+    app_ctx, engine, session, shown
+):
+    """A finished run's files draining is no reason for the panel to say no:
+    the press reaches the engine, whose refusal every client gets, and it is
+    shown once."""
+    session.protocol_files_draining = True
+    session.protocol_files_pending = 3
+    engine.prepare.side_effect = ProtocolRunRefusedError(
+        'files_writing', 'Files Still Writing', 'The last run is still writing its files.'
     )
-    session = ScopeSession(
-        settings={}, scope=spec_scope(), executor_bundle=MagicMock(file_io_executor=MagicMock())
-    )
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session), raising=False)
-    lane = SequentialIOExecutor(name='TEST_FILE')
-    lane.start()
-    try:
-        batch = RunWriteBatch(lane)
-        started = threading.Event()
-        release = threading.Event()
-        batch.submit(
-            lambda: (started.set(), release.wait(5.0)), {}, what='The image', pace_until=None
-        )
-        assert started.wait(5.0)
-        landed = threading.Event()
-        batch.close(lambda outcome: landed.set())
-        session.sequenced_capture_runner._write_batch = batch
+    panel = _Panel()
 
-        assert ps.require_file_writes_idle('create a new protocol') is False
-        assert len(popups) == 1
-        assert '1 file(s)' in popups[0]['message']
+    panel.run_scan_from_ui()
 
-        release.set()
-        assert landed.wait(5.0)
-        assert ps.require_file_writes_idle('create a new protocol') is True
-        assert len(popups) == 1
-    finally:
-        release.set()
-        lane.shutdown(wait=False)
+    assert engine.prepare.called, 'the press never reached the engine'
+    assert [n.title for n in shown] == ['Files Still Writing']
+    assert not engine.start.called
 
 
 def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, session):

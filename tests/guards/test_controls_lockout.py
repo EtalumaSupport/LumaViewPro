@@ -243,7 +243,7 @@ class TestStandaloneAfLockout:
             'engineering AF-data save rides on'
         )
 
-    def test_start_ordered_after_every_refusal_gate(self):
+    def test_start_ordered_after_its_own_stop(self):
         ast, node = self._starter_def()
         first_line: dict[str, int] = {}
         for sub in ast.walk(node):
@@ -253,17 +253,12 @@ class TestStandaloneAfLockout:
                     if isinstance(sub.func, ast.Attribute)
                     else getattr(sub.func, 'id', '')
                 )
-                if name in ('is_live_run', 'require_file_writes_idle', 'run_autofocus'):
+                if name in ('is_live_run', 'run_autofocus'):
                     first_line.setdefault(name, sub.lineno)
-        assert (
-            0
-            < first_line.get('is_live_run', 0)
-            < first_line.get('require_file_writes_idle', 0)
-            < first_line.get('run_autofocus', 0)
-        ), (
-            'the own-run stop gate and the files-idle gate must run before '
-            'the member starts the run; a start ahead of them runs an '
-            f'autofocus the press should have stopped or refused. Found: {first_line}'
+        assert 0 < first_line.get('is_live_run', 0) < first_line.get('run_autofocus', 0), (
+            'the own-run stop must be decided before the member starts the run; '
+            'a start ahead of it runs an autofocus the press should have stopped. '
+            f'Found: {first_line}'
         )
 
 

@@ -107,7 +107,6 @@ def pressed(monkeypatch, held):
             worker_pool=pool,
         ),
     )
-    monkeypatch.setattr(vc, 'require_file_writes_idle', lambda operation: True)
     monkeypatch.setattr(vc, 'live_display_callbacks', dict)
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda _settings: 'Green')
@@ -360,3 +359,15 @@ def test_the_button_greys_while_anything_else_holds_the_scope(pressed):
         assert pressed.button.autofocus_held is held
 
     assert asked == [own, own], 'the button must ask about the run it started'
+
+
+def test_a_press_during_a_finished_runs_drain_reaches_the_api(pressed):
+    """A finished run's files draining is the API's to refuse, not the button's."""
+    import modules.app_context as app_context
+
+    app_context.ctx.session.protocol_files_draining = True
+    app_context.ctx.session.protocol_files_pending = 3
+
+    pressed.button.run_autofocus_from_ui()
+
+    pressed.member.run_autofocus.assert_called_once()

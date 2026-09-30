@@ -1,38 +1,27 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression: a run-starting click that gets refused must tell the user WHY.
+"""No run starter in the GUI refuses a click: every refusal is the API's.
 
 Contract
 --------
-A refused starter resets its button cosmetics, which is visible but mute:
-the button pops back up, saying the click did not take but never what is
-holding the scope. Two gates in these same ladders (the file-drain gate
-and the protocol-validity gate) already raise a popup, so before this
-guard existed the explanation a user got depended on which gate happened
-to fire first -- an implementation accident deciding what the user is
-told.
+A run-starting button hands its press to the engine through the boundary,
+and whatever the engine refuses it raises, once, to the one reporter -- so a
+REST or SDK caller gets the same refusal with the same words, and the GUI
+decides nothing. The only branch a starter takes before the engine answers
+is its own Stop: whether the run this button started is still live is the
+engine's answer (``is_live_run``), and a press on it stops that run.
 
-So: any branch in a run starter that resets button cosmetics and returns
-must also raise a user-facing notification. A branch that resets nothing
-is not a refusal -- it is a rapid-double-click re-entry guard, where
-silence is correct and a popup would be noise -- and that distinction is
-what this guard keys on, so the exclusions fall out of the rule instead
-of being listed by hand.
-
-A refusal answers a button press, so a human is present by construction
-and must be told regardless of what kind of run is in flight. The
-engine's own funnel posts its refusal solicited, which reaches the user
-during a run of any kind; a starter's direct popup is for the branches
-that refuse in the GUI without ever asking the engine, where no funnel
-has run.
+Any other early return in a starter is a refusal the GUI made for itself:
+a gate that repeats one the API already raises (the file-drain gate this
+guard replaced was one), or one only the GUI enforces, which REST would
+never see. Either way it fails the build.
 
 Test approach
 -------------
 The Kivy UI classes cannot be instantiated headlessly (ids, _app_ctx,
-worker pool), so the call-site half of the contract is locked by AST over
-the starter roster, the same way the sibling guards in
-test_protocol_start_refusal_ui_gate.py and test_controls_lockout.py do
-it. The message half IS directly testable, because the two helpers are
-plain functions, so those get real behavioural tests.
+worker pool), so the rule is held by AST over the starter roster, the same
+way the sibling guards in test_protocol_start_refusal_ui_gate.py and
+test_controls_lockout.py do it. The classifier is proven on planted
+branches, so a clean roster is not a vacuous pass.
 """
 
 from __future__ import annotations
@@ -42,40 +31,13 @@ import ast
 from tests.ast_seams import parse_module
 
 
-# Every starter that can refuse a run-or-capture-starting click. Wider
-# than test_protocol_start_refusal_ui_gate.py's UI_STARTERS, which lists
-# only the four that drive a sequenced run: a refusal can also come from
-# the standalone autofocus button and from composite capture.
-REFUSAL_STARTERS = (
+# Every button that starts a run or capture from the GUI.
+RUN_STARTERS = (
     # The protocol panel's Scan, Protocol and Autofocus Scan buttons share one press.
     ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
     ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
     ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
-)
-
-# Calls that reset a starter's pre-gate button cosmetics. The inline form
-# (`btn.state = 'normal'`) is handled separately -- keying on the helper
-# NAMES alone is what let a silent site hide during this fix's own census.
-COSMETICS_RESETS = frozenset(
-    {
-        'run_refused_func',
-        'run_not_started_func',
-        # The panel and the Autofocus button draw from the engine; after a
-        # refused press, the redraw is what hands the toggle back.
-        'draw_protocol_buttons',
-        'draw_autofocus_button',
-    }
-)
-
-# The canonical ways a starter tells the user. Closed by Rule 35: one
-# capability, three spellings, not a growing list of exempt sites.
-NOTIFIERS = frozenset(
-    {
-        'show_notification_popup',
-        'require_file_writes_idle',
-        '_offer_wedged_writer_recovery',
-    }
 )
 
 
@@ -98,115 +60,86 @@ def _called_names(node: ast.AST) -> set[str]:
                 out.add(func.id)
             elif isinstance(func, ast.Attribute):
                 out.add(func.attr)
-                if isinstance(func.value, ast.Name):
-                    out.add(f'{func.value.id}.{func.attr}')
     return out
 
 
-def _resets_cosmetics(statements: list[ast.stmt]) -> bool:
-    for stmt in statements:
-        if _called_names(stmt) & COSMETICS_RESETS:
-            return True
-        for sub in ast.walk(stmt):
-            # The inline form: `some_btn.state = 'normal'`.
-            if isinstance(sub, ast.Assign):
-                for target in sub.targets:
-                    if (
-                        isinstance(target, ast.Attribute)
-                        and target.attr == 'state'
-                        and isinstance(sub.value, ast.Constant)
-                        and sub.value.value == 'normal'
-                    ):
-                        return True
-    return False
+def _returning_branches(method: ast.FunctionDef):
+    """Yield (if-node, branch) for each branch of an ``if`` that returns.
 
-
-def _refusal_branches(method: ast.FunctionDef):
-    """Yield (lineno, branch) for each branch that refuses and returns."""
+    Only the starter's own body counts: a nested function (the start closure
+    handed to the pool) runs on the engine's side of the boundary.
+    """
+    nested = {
+        sub
+        for node in ast.walk(method)
+        if isinstance(node, (ast.FunctionDef, ast.Lambda)) and node is not method
+        for sub in ast.walk(node)
+    }
     for node in ast.walk(method):
-        if not isinstance(node, ast.If):
+        if not isinstance(node, ast.If) or node in nested:
             continue
         for branch in (node.body, node.orelse):
-            if not branch:
-                continue
-            returns = any(isinstance(stmt, ast.Return) for stmt in branch)
-            if returns and _resets_cosmetics(branch):
+            if any(isinstance(stmt, ast.Return) for stmt in branch):
                 yield node, branch
 
 
-def test_every_refusing_branch_in_a_starter_explains_itself():
-    """The guard. A ninth silent gate fails the build.
+def _is_own_stop(node: ast.If) -> bool:
+    return 'is_live_run' in _called_names(node.test)
 
-    Eight hand-written per-site tests would pin eight sites and answer
-    nothing about a ninth; this is the Rule 50 shape -- the illegal state
-    is caught by construction rather than by remembering to add a test.
-    """
-    silent = []
-    checked = 0
-    for rel_path, class_name, method_name in REFUSAL_STARTERS:
+
+def _refusals(method: ast.FunctionDef) -> list[int]:
+    return [node.lineno for node, _branch in _returning_branches(method) if not _is_own_stop(node)]
+
+
+def test_no_run_starter_refuses_a_click():
+    """The guard: a starter's only early return is its own Stop."""
+    refusing = []
+    stops = 0
+    for rel_path, class_name, method_name in RUN_STARTERS:
         method = _method_node(rel_path, class_name, method_name)
-        for node, branch in _refusal_branches(method):
-            checked += 1
-            body_names: set[str] = set()
-            for stmt in branch:
-                body_names |= _called_names(stmt)
-            notifies = bool(body_names & NOTIFIERS) or any(
-                name.startswith('notifications.') for name in body_names
-            )
-            # The drain and validity gates notify inside the helper called
-            # in the branch's TEST, not in its body.
-            notifies = notifies or bool(_called_names(node.test) & NOTIFIERS)
-            if not notifies:
-                silent.append(f'{rel_path}:{node.lineno} in {class_name}.{method_name}')
+        stops += sum(1 for node, _ in _returning_branches(method) if _is_own_stop(node))
+        refusing += [
+            f'{rel_path}:{line} in {class_name}.{method_name}' for line in _refusals(method)
+        ]
 
-    assert checked, 'derivation found no refusing branches -- the AST shapes drifted'
-    assert not silent, (
-        'a refused click resets the button and says nothing, so the user is '
-        'left to guess and clicks again: ' + ', '.join(silent)
+    assert stops == len(RUN_STARTERS), (
+        f'found {stops} own-run Stop branches across {len(RUN_STARTERS)} starters -- '
+        'the AST shapes drifted, so a clean result would mean nothing'
+    )
+    assert not refusing, (
+        'a run starter refuses a click itself instead of handing the press to '
+        'the engine, whose refusal every client sees: ' + ', '.join(refusing)
     )
 
 
-def test_the_guard_would_catch_a_silent_branch():
-    """The guard's own falsifier.
-
-    A guard that cannot fail is not a guard. This feeds the classifier a
-    branch that resets cosmetics and returns without notifying, and
-    requires it to be reported.
-    """
+def test_the_guard_catches_a_gate_and_a_silent_return():
+    """The guard's own falsifier: a gate that notifies and one that says
+    nothing are both refusals the GUI made."""
     module = ast.parse(
         'class X:\n'
         '    def starter(self):\n'
-        '        if blocked:\n'
-        '            run_refused_func()\n'
-        '            logger.warning("nope")\n'
+        '        if files_draining():\n'
+        '            show_notification_popup(title="Wait")\n'
         '            return\n'
+        '        if not ready:\n'
+        '            return\n'
+        '        start()\n'
     )
     method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
-    found = list(_refusal_branches(method))
-    assert len(found) == 1, 'the classifier no longer recognises a refusing branch'
-    _node, branch = found[0]
-    names: set[str] = set()
-    for stmt in branch:
-        names |= _called_names(stmt)
-    assert not (names & NOTIFIERS), 'the fixture branch is supposed to be silent'
+    assert _refusals(method) == [3, 6]
 
 
-def test_a_double_click_guard_is_not_treated_as_a_refusal():
-    """Silence is correct where nothing was refused.
-
-    A re-entry guard swallows the second half of a rapid double-click. It
-    resets no cosmetics, and a popup there would be noise -- so the rule
-    must not drag it in. This is the distinction that keeps the exclusion
-    derivable instead of a hand-maintained list.
-    """
+def test_the_guard_leaves_the_own_run_stop_alone():
     module = ast.parse(
         'class X:\n'
         '    def starter(self):\n'
-        '        if already_starting:\n'
-        '            logger.warning("ignored -- already starting")\n'
+        '        if engine.is_live_run(self._run):\n'
+        '            engine.reset(self._run)\n'
         '            return\n'
+        '        def _start():\n'
+        '            if nothing_to_do:\n'
+        '                return\n'
+        '        submit(_start)\n'
     )
     method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
-    assert not list(_refusal_branches(method)), (
-        'a re-entry guard that resets nothing was classified as a refusal'
-    )
+    assert _refusals(method) == [], 'the own Stop or the pool-side closure was read as a refusal'

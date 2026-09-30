@@ -1601,7 +1601,7 @@
 			height: '30dp' if self.visible else 0
 			opacity: 1 if self.visible else 0
 			font_size: '12sp'
-			disabled: (not self.visible) or root.autofocus_scan_held or root.autofocus_scan_pending or root.files_draining
+			disabled: (not self.visible) or root.autofocus_scan_held or root.autofocus_scan_pending
 			visible: True
 			on_release: root.run_autofocus_scan_from_ui()
 
@@ -1620,7 +1620,7 @@
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
-			disabled: root.scan_held or root.scan_pending or root.files_draining
+			disabled: root.scan_held or root.scan_pending
 			on_release: root.run_scan_from_ui()
 
 		RoundedToggleButton:
@@ -1631,7 +1631,7 @@
 			height: '60dp'
 			halign: 'center'
 			font_size: '12sp'
-			disabled: root.protocol_held or root.protocol_pending or root.files_draining
+			disabled: root.protocol_held or root.protocol_pending
 			on_release: root.run_protocol_from_ui()
 			background_down: 'atlas://data/images/defaulttheme/button_pressed'
 

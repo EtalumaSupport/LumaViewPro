@@ -114,14 +114,15 @@ def test_each_run_button_greys_while_anything_else_holds_the_scope():
 
 
 def test_no_run_button_decides_its_own_lock():
-    """held_by_other already answers a recording, live or draining: a second
-    term for it on a toggle is a second answer to one question."""
+    """held_by_other already answers a recording, live or draining, and a
+    finished run's drain is the API's to refuse: a second term for either on
+    a toggle is a second answer to one question."""
     from tests.ast_seams import REPO_ROOT
 
     kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
     second_answers = {
         wid: line.strip()
         for wid in HELD_FLAGS
-        if any(term in (line := _disabled_line(kv, wid)) for term in ('app.',))
+        if any(term in (line := _disabled_line(kv, wid)) for term in ('app.', 'files_draining'))
     }
     assert not second_answers, f'run buttons locked by a term of their own: {second_answers}'

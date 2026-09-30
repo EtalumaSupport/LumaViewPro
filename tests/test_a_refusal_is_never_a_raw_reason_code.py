@@ -205,7 +205,6 @@ class TestARefusedProtocolCreation:
         )
         session = SimpleNamespace(get_sequenced_capture_config=lambda **choices: {})
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
-        monkeypatch.setattr(ps, 'require_file_writes_idle', lambda operation: True)
 
         _ProtocolSettingsStarter().new_protocol()
 
