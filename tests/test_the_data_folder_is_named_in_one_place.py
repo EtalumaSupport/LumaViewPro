@@ -14,6 +14,7 @@ import ast
 import pathlib
 
 from modules.path_utils import data_folder_name, read_version
+from tests.ast_seams import parse_module
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -63,3 +64,25 @@ def test_no_reader_of_the_folder_builds_its_name_itself():
             assert len(lines) == 1, f'path_utils builds the name once, in data_folder_name: {lines}'
         else:
             assert lines == [], f'{rel_path} builds the folder name itself at {lines}'
+
+
+def test_the_logger_reads_the_version_through_the_one_reader():
+    # The logger runs at import, before any test can stand in for its file,
+    # so its read is asked of its source: a module-level call of read_version,
+    # and no open() of version.txt at module level.
+    tree = parse_module('lvp_logger.py')
+    module_level = [n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+    calls = {
+        getattr(c.func, 'id', getattr(c.func, 'attr', None))
+        for n in module_level
+        for c in ast.walk(n)
+        if isinstance(c, ast.Call)
+    }
+    opens_version = [
+        c.lineno
+        for n in module_level
+        for c in ast.walk(n)
+        if isinstance(c, ast.Constant) and c.value == 'version.txt'
+    ]
+    assert 'read_version' in calls
+    assert opens_version == [], f'lvp_logger reads version.txt itself at {opens_version}'

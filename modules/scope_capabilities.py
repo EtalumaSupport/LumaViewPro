@@ -74,7 +74,7 @@ def _declared_optics(scope_models: Mapping, model: str) -> dict[str, float]:
     bad value degrades the scale rather than aborting scope bring-up.
     """
     entry = scope_models.get(model) if model else None
-    raw = entry.get('Optics', {}) if isinstance(entry, dict) else {}
+    raw = entry.get('Optics', {}) if entry is not None else {}
     try:
         return {key: float(raw[key]) for key in ('PixelSize', 'LensFocalLength') if key in raw}
     except (ValueError, TypeError, AttributeError) as e:

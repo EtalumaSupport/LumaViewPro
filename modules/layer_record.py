@@ -137,8 +137,9 @@ _REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_n
 
 
 # The fields every model entry states, with their types. A missing or
-# mistyped one is a warning, not a refusal: `entry_axes` reads the three
-# flags tolerantly, so the warning is where a bad entry shows.
+# mistyped one is a warning, not a refusal: `entry_axes` reads a missing
+# flag as absent and a mistyped one by its truth, so the warning is where
+# such an entry shows.
 _MODEL_ENTRY_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
 
 
@@ -156,7 +157,8 @@ def load_scope_models(data_file: str | None = None) -> Mapping:
     ``data_file`` None reads the installation's own folder.
 
     Raises:
-        InstallationFileError: the file is unusable or has no Models section.
+        InstallationFileError: the file is unusable, has no Models section,
+            or has a model entry that is not an object.
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
     models = read_installation_file(path).get('Models')
@@ -165,9 +167,13 @@ def load_scope_models(data_file: str | None = None) -> Mapping:
             path, f'has no usable Models section (found {type(models).__name__})'
         )
     for model, entry in models.items():
+        # Every reader of an entry asks it for its fields, so one that is
+        # not an object would fail wherever it was first read.
         if not isinstance(entry, dict):
-            logger.warning(f"[LAYER_RECORD] model '{model}' should be an object in {path}")
-            continue
+            raise InstallationFileError(
+                path,
+                f'has a model {model!r} whose entry is a {type(entry).__name__}, not an object',
+            )
         for field, expected_type in _MODEL_ENTRY_FIELDS.items():
             if field not in entry:
                 logger.warning(f"[LAYER_RECORD] model '{model}' missing '{field}' in {path}")

@@ -295,7 +295,8 @@ class Lumascope:
 
         Raises:
             InstallationFileError: a file is missing, unreadable, or not the
-                shape its reader needs, naming the file.
+                shape its reader needs, naming the file; or the release's
+                layer vocabulary is unusable.
         """
         from modules import labware_loader, layer_record, objectives_loader
 
@@ -308,6 +309,10 @@ class Lumascope:
                 resolve_data_file('scopes.json', source_path=source_path)
             )
         )
+        # The release's layer vocabulary is process-wide, not this folder's,
+        # but the identity resolved after the lanes start needs it: asked
+        # here, a broken one refuses before anything is started.
+        layer_record.release_catalogue()
         return read_installation_file(
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )

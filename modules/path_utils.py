@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 
@@ -142,7 +143,14 @@ def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
         return version, build_timestamp
     except FileNotFoundError:
         return '', ''
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as e:
+        # Present but unreadable is not the source-tree case above: say so.
+        # This runs while the logger module is still being imported, before
+        # any handler exists, so the record reaches stderr through logging's
+        # last-resort handler.
+        logging.getLogger('LVP.modules.path_utils').warning(
+            f'version.txt at {version_file} could not be read: {e}'
+        )
         return '', ''
 
 
