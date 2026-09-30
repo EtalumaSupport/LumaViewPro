@@ -35,8 +35,31 @@ from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
+from ui.ui_helpers import submit_reported
 
 logger = logging.getLogger('LVP.ui.post_processing')
+
+
+def _submit_post_processing(build, show, label: str) -> None:
+    """Run a post-processing build off the GUI thread, then show what it made.
+
+    The build runs on the file lane through the GUI boundary, which reports
+    a refusal or failure once, as the request of the person who pressed the
+    button. *show* then gets the complete result, or None when the build
+    raised: its outcome has already been told, and the progress popup has
+    nothing left to say.
+    """
+    produced = {}
+
+    def _build():
+        produced['result'] = build()
+
+    submit_reported(
+        _build,
+        lambda: show(produced.get('result')),
+        label,
+        lane=_app_ctx.ctx.file_io_executor,
+    )
 
 
 class QuickEnhanceControls(BoxLayout):
@@ -193,7 +216,6 @@ class StitchControls(BoxLayout):
         stitching_mode = self._MODE_VALUES.get(mode_label, Stitcher.QUALITY_MODE)
         gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
-        status_map = {True: 'Success', False: 'FAILED'}
         popup.title = f'{mode_label} Stitch'
         popup.text = (
             f'Running {mode_label} Stitch.\n'
@@ -206,28 +228,18 @@ class StitchControls(BoxLayout):
         stitcher = Stitcher(
             has_turret=ctx.lumaview.scope.capabilities.has_turret,
         )
-        ctx.file_io_executor.put(
-            IOTask(
-                action=stitcher.load_folder,
-                args=(
-                    pathlib.Path(path),
-                    pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-                    popup,
-                ),
-                kwargs={'stitching_mode': stitching_mode},
-                callback=self.stitcher_callback,
-                cb_args=(popup, status_map),
-                pass_result=True,
-            )
+        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
+        _submit_post_processing(
+            lambda: stitcher.load_folder(
+                pathlib.Path(path), tiling, popup, stitching_mode=stitching_mode
+            ),
+            lambda result: self.stitcher_callback(popup, result),
+            'RUN_STITCHER',
         )
 
-    def stitcher_callback(self, popup, status_map, result=None, exception=None):
+    def stitcher_callback(self, popup, result):
         if result is None:
-            popup.text = (
-                'Stitching could not be completed. No console error is shown here.\n'
-                'Open Support > Logs and search for "Stitcher:" for the diagnostic details.'
-            )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            popup.dismiss()
             return
 
         if result.get('degraded'):
@@ -239,24 +251,7 @@ class StitchControls(BoxLayout):
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
-        final_text = f'Stitching images - {status_map[result["status"]]}'
-        if result['status'] is False:
-            # Show what the post-processor decided. It writes a message for
-            # every refusal it can issue -- a folder holding only derived
-            # outputs, output names that would collide, an unreadable source
-            # format -- and picking which of those the user is allowed to read
-            # is how a deliberate, explainable refusal reached them as
-            # "could not be completed". The log pointer is the fallback for a
-            # failure carrying no message, not the default.
-            final_text = result.get('message') or (
-                'Stitching could not be completed for one or more tile groups.\n'
-                'No console error is shown here. Open Support > Logs and search for "Stitcher:".'
-            )
-            popup.text = final_text
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        popup.text = final_text
+        popup.text = 'Stitching images - Success'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
@@ -288,23 +283,15 @@ class ZProjectionControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        status_map = {True: 'Success', False: 'FAILED'}
         popup.text = 'Generating Z-Projection images...'
 
         zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.capabilities.has_turret)
-        ctx.file_io_executor.put(
-            IOTask(
-                action=zproj.load_folder,
-                args=(
-                    pathlib.Path(path),
-                    pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-                    popup,
-                ),
-                kwargs={'method': self.ids['zprojection_method_spinner'].text},
-                callback=self.zprojection_callback,
-                cb_args=(popup, status_map),
-                pass_result=True,
-            )
+        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
+        method = self.ids['zprojection_method_spinner'].text
+        _submit_post_processing(
+            lambda: zproj.load_folder(pathlib.Path(path), tiling, popup, method=method),
+            lambda result: self.zprojection_callback(popup, result),
+            'RUN_ZPROJECTION',
         )
 
     def log_zprojection_method(self) -> None:
@@ -320,55 +307,13 @@ class ZProjectionControls(BoxLayout):
         """
         gui_logger.select('ZPROJECTION_METHOD', self.ids['zprojection_method_spinner'].text)
 
-    def zprojection_callback(self, popup, status_map, result=None, exception=None):
-        from modules.notification_center import notifications
-
-        popup.progress = 100
+    def zprojection_callback(self, popup, result):
         if result is None:
-            # On failure the notification is the single user-facing
-            # surface; leaving the failure text on the progress popup as
-            # well stacked two popups for one failure.
-            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
-            notifications.warning(
-                'Z-Projection',
-                'Z-Projection failed',
-                'Z-Projection task returned no result. Check lumaviewpro.log '
-                'for details and retry.',
-            )
+            popup.dismiss()
             return
-
-        if result['status'] is False:
-            # Same single-surface contract as the no-result branch above.
-            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
-            message = result.get('message') or (
-                'Z-Projection could not be completed. Check lumaviewpro.log for details.'
-            )
-            if result.get('reason') == 'no_data':
-                # The one genuine bad-folder case: nothing in the folder to
-                # project. Naming this by the reason that means it, rather than
-                # by everything it is not, keeps the folder advice off refusals
-                # it does not fit -- an unreadable source format or a folder of
-                # derived outputs are not answered by picking another folder,
-                # and a reason added later would inherit that advice by default.
-                notifications.warning(
-                    'Z-Projection',
-                    'No Z-Stack data found',
-                    f'{message}. Pick a folder that contains a Z-stack '
-                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                    f'whose protocol included Z-stack steps.',
-                )
-            else:
-                notifications.warning(
-                    'Z-Projection',
-                    'Z-Projection failed',
-                    message,
-                )
-            return
-
-        popup.text = f'Generating Z-Projection images - {status_map[result["status"]]}'
+        popup.progress = 100
+        popup.text = 'Generating Z-Projection images - Success'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
-        return
 
 
 class CompositeGenControls(BoxLayout):
@@ -382,7 +327,6 @@ class CompositeGenControls(BoxLayout):
     def run_composite_gen(self, popup, path):
         gui_logger.button('RUN_COMPOSITE_GEN', f'path={path}')
         ctx = _app_ctx.ctx
-        status_map = {True: 'Success', False: 'FAILED'}
         popup.title = 'Composite Image Generation'
         popup.text = 'Generating composite images...'
         popup.progress = 0
@@ -412,40 +356,25 @@ class CompositeGenControls(BoxLayout):
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
-        ctx.file_io_executor.put(
-            IOTask(
-                action=composite_gen.load_folder,
-                args=(
-                    pathlib.Path(path),
-                    pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-                    popup,
-                ),
-                kwargs={
-                    'output_format': output_format,
-                    'brightness_thresholds_percent': brightness_thresholds_percent,
-                },
-                callback=self.composite_gen_callback,
-                cb_args=(popup, status_map),
-                pass_result=True,
-            )
+        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
+        _submit_post_processing(
+            lambda: composite_gen.load_folder(
+                pathlib.Path(path),
+                tiling,
+                popup,
+                output_format=output_format,
+                brightness_thresholds_percent=brightness_thresholds_percent,
+            ),
+            lambda result: self.composite_gen_callback(popup, result),
+            'RUN_COMPOSITE_GEN',
         )
 
-    def composite_gen_callback(self, popup, status_map, result=None, exception=None):
+    def composite_gen_callback(self, popup, result):
         if result is None:
-            popup.text = 'Generating composite images - FAILED'
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            popup.dismiss()
             return
-
-        final_text = f'Generating composite images - {status_map[result["status"]]}'
-        if result['status'] is False:
-            final_text += f'\n{result["message"]}'
-            popup.text = final_text
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        popup.text = final_text
+        popup.text = 'Generating composite images - Success'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
-        return
 
 
 class VideoCreationControls(BoxLayout):
@@ -459,7 +388,6 @@ class VideoCreationControls(BoxLayout):
     def run_video_gen(self, popup, path) -> None:
         gui_logger.button('RUN_VIDEO_GEN', f'path={path}')
         ctx = _app_ctx.ctx
-        status_map = {True: 'Success', False: 'FAILED'}
 
         popup.title = 'Video Builder'
         popup.text = 'Generating video(s)...'
@@ -486,7 +414,7 @@ class VideoCreationControls(BoxLayout):
                 'Video generation frames/second must be >= 1 fps '
                 "(or blank for the recording's own rate)"
             )
-            final_text = f'Generating video(s) - {status_map[False]}'
+            final_text = 'Generating video(s) - FAILED'
             final_text += f'\n{msg}'
             popup.text = final_text
             logger.error(f'{msg}')
@@ -497,22 +425,17 @@ class VideoCreationControls(BoxLayout):
             has_turret=ctx.lumaview.scope.capabilities.has_turret,
         )
 
-        ctx.file_io_executor.put(
-            IOTask(
-                action=video_builder.build_from_folder,
-                args=(
-                    pathlib.Path(path),
-                    pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
-                    popup,
-                ),
-                kwargs={
-                    'frames_per_sec': fps,
-                    'enable_timestamp_overlay': enable_timestamp_overlay,
-                },
-                callback=self.video_builder_callback,
-                cb_args=(popup, status_map),
-                pass_result=True,
-            )
+        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
+        _submit_post_processing(
+            lambda: video_builder.build_from_folder(
+                pathlib.Path(path),
+                tiling,
+                popup,
+                frames_per_sec=fps,
+                enable_timestamp_overlay=enable_timestamp_overlay,
+            ),
+            lambda result: self.video_builder_callback(popup, result),
+            'RUN_VIDEO_GEN',
         )
 
     def log_video_gen_fps(self) -> None:
@@ -535,23 +458,12 @@ class VideoCreationControls(BoxLayout):
         state_down = self.ids['enable_timestamp_overlay_btn'].state == 'down'
         gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY_BTN', state_down)
 
-    def video_builder_callback(self, popup, status_map, result=None, exception=None):
+    def video_builder_callback(self, popup, result):
         if result is None:
-            popup.text = 'Generating video(s) - FAILED'
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            popup.dismiss()
             return
-
-        final_text = f'Generating video(s) - {status_map[result["status"]]}'
-        if result['status'] is False:
-            final_text += f'\n{result["message"]}'
-            popup.text = final_text
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        final_text = f'Generating video(s) - {status_map[result["status"]]}'
-        popup.text = final_text
+        popup.text = 'Generating video(s) - Success'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
-        return
 
 
 # ============================================================================

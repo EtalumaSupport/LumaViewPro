@@ -33,6 +33,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from modules.common_utils import PostFunction
+from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -286,11 +287,11 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
     post_record.file_exists_in_records.return_value = False
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff'])
 
-    result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
-    assert result['status'] is False
-    assert result['reason'] == 'collision'
-    assert 'No ZProject was generated' in result['message']
+    assert refused.value.reason == 'collision'
+    assert 'No ZProject was generated' in str(refused.value)
     assert processor.algorithm_calls == [], 'nothing may be generated when every group collides'
     assert processor.records_added == []
 
@@ -298,19 +299,21 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
 def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, monkeypatch):
     # Per-group refusal: the colliding pair is refused (their artifact
     # would be indistinguishable) while the clean group still generates
-    # and is recorded. The operation succeeds with a note naming the
-    # refusal so an already-captured folder stays post-processable.
+    # and is recorded, so an already-captured folder stays post-processable;
+    # the build did not make everything asked of it, so it raises, naming
+    # the refused groups and carrying the one it made.
     processor = _FakePostProcessor()
     post_record = MagicMock()
     post_record.file_exists_in_records.return_value = False
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', 'B2_Green_zproj.tiff'])
 
-    result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
-    assert result['status'] is True
-    assert result['message'].startswith('Success.')
-    assert 'refused' in result['message']
-    assert 'A1_BF_zproj.tiff' in result['message']
+    assert 'refused' in str(incomplete.value)
+    assert 'A1_BF_zproj.tiff' in str(incomplete.value)
+    assert len(incomplete.value.produced_paths) == 1
+    assert incomplete.value.produced_paths[0].endswith('B2_Green_zproj.tiff')
     assert processor.algorithm_calls == ['B2_Green_zproj.tiff'], 'only the clean group may generate'
     assert len(processor.records_added) == 1
     assert str(processor.records_added[0]).endswith('B2_Green_zproj.tiff')
@@ -784,37 +787,6 @@ def test_same_base_same_objective_still_refused_at_run_start():
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
     assert 'Steps 1, 2' in collision_errors[0]
-
-
-# ---------------------------------------------------------------------------
-# UI routing: a 'collision' refusal surfaces its own message, never the
-# generic "No Z-Stack data found" folder advice.
-# ---------------------------------------------------------------------------
-
-
-def test_zprojection_callback_routes_collision_to_failure_message():
-    import ast
-
-    src_path = REPO / 'ui' / 'post_processing.py'
-    tree = ast.parse(src_path.read_text())
-    method = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == 'ZProjectionControls':
-            for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == 'zprojection_callback':
-                    method = child
-    assert method is not None, 'ZProjectionControls.zprojection_callback not found'
-    src = ast.unparse(method)
-    # Folder advice is attached to the ONE reason that means a bad folder.
-    # It used to be attached to everything that was not an error or a
-    # collision, so an unreadable source format was answered with "pick a
-    # folder that contains a Z-stack run" -- advice that does not fit the
-    # refusal -- and any reason added later inherited it by default.
-    assert "result.get('reason') == 'no_data'" in src, (
-        'the pick-a-different-folder advice must be gated on the no_data reason, '
-        'not applied to every refusal that is not an error or a collision'
-    )
-    assert 'Pick a folder that contains a Z-stack' in src, 'the bad-folder case keeps its advice'
 
 
 # ---------------------------------------------------------------------------

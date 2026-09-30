@@ -618,7 +618,7 @@ Per recording (one per well per scan), the run produces:
 - `recording_manifest.json` in that folder -- the measured truth: delivered frame count, measured frame rate, per-frame timestamps, and the recording's end reason. Downstream consumers (including Create Video's `auto` rate) read the manifest, not the configured rate;
 - one variable-frame-rate MP4 per recording;
 - when the recording is saved as frames, each frame's TIFF carries its own record of when it arrived: the plate position (`plate_pos_mm`, `x_pos`, `y_pos`) and Z (`z_pos_um`) as the scope tracked them, each absent when the scope did not know it; `stage_moving`, true when any axis was moving or homing at delivery; and `channel`, the channel that lit the frame. These are the same keys a still capture writes, and the frame is false-coloured as its recorded channel;
-- after the run completes, one OME-TIFF hyperstack per (well, scan): `T` = frame capture order, `C` = channel, per-plane `DeltaT` from the frames' own timestamps. Hyperstacks build at run completion on every host -- headless and REST runs included, no GUI involved.
+- after the run completes, one OME-TIFF hyperstack per (well, scan): `T` = frame capture order, `C` = channel, per-plane `DeltaT` from the frames' own timestamps. Hyperstacks build at run completion on every host -- headless and REST runs included, no GUI involved. Nothing waits on that build, so its outcome is told as a notification: "Saving Hyperstacks" as it starts, replaced by "Hyperstacks Saved" with the count and folder, or by what went wrong -- including a build that saved only some of its stacks, which names the ones missing and where the rest are.
 
 A manual frames recording with the hyperstack output format on builds one OME-TIFF hyperstack from its frames, `T` = frame order, with each plane's position from the frame's own record (an axis the scope did not know on any frame is omitted from every plane, as the OME writer refuses to invent one). It is built only when one channel lit the whole recording: the stage and the LEDs stay open to L2 callers while a manual recording runs, and a channel change mid-recording leaves frames no single T x C cube can hold, so the build refuses, the `Hyperstack Not Built` notification carries the builder's reason, and the frames stand with their true per-frame channels.
 
@@ -1763,7 +1763,8 @@ refusal's `str()` is the sentence written for a person, as for any run.
 
 **`CaptureError.reason` is a failure code, not a refusal.** It names what
 went wrong after the run committed (`merge_timeout`, `merge_failed`,
-`aborted`, ...) and is not a member of the refusal family: a refusal means
+`aborted`, the composite builder's own codes such as `no_data`,
+`excluded_inputs` or `post_processing_incomplete`, ...) and is not a member of the refusal family: a refusal means
 nothing changed, while a `CaptureError` means the run ran and did not
 produce the artifact.
 

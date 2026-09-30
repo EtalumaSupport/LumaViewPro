@@ -44,6 +44,7 @@ import logging
 import pathlib
 from typing import Any
 
+from modules.exceptions import CaptureError
 from modules.plugins import PluginSpec, ProcessorResult
 
 
@@ -116,6 +117,12 @@ def _stitcher_processor(
 
     stitcher = Stitcher(has_turret=has_turret)
 
+    metadata = {
+        'input_dir': str(input_path),
+        'output_dir': str(output_dir) if output_dir else '',
+        'has_turret': has_turret,
+        'tiling_configs_file_loc': str(tiling_cfg),
+    }
     try:
         result = stitcher.load_folder(
             path=input_path,
@@ -127,26 +134,24 @@ def _stitcher_processor(
             f'[Plugins ] stitcher: load_folder raised {type(e).__name__}: {e}',
             exc_info=True,
         )
+        # A typed outcome is written for the person and says what was
+        # produced; only an untyped one is named by its class.
+        if isinstance(e, CaptureError):
+            message = str(e)
+        else:
+            message = f'Stitching failed -- {type(e).__name__}: {e}'
         return ProcessorResult(
             success=False,
-            message=f'Stitching failed -- {type(e).__name__}: {e}',
-            metadata={'input_dir': str(input_path)},
+            outputs=tuple(getattr(e, 'produced_paths', ())),
+            message=message,
+            metadata=metadata,
         )
 
-    status = bool(result.get('status', False))
-    message = str(result.get('message', '')) or (
-        'Stitching complete.' if status else 'Stitching failed.'
-    )
     return ProcessorResult(
-        success=status,
-        outputs=(),
-        message=message,
-        metadata={
-            'input_dir': str(input_path),
-            'output_dir': str(output_dir) if output_dir else '',
-            'has_turret': has_turret,
-            'tiling_configs_file_loc': str(tiling_cfg),
-        },
+        success=True,
+        outputs=tuple(result.get('artifact_paths', ())),
+        message=str(result.get('message', '')) or 'Stitching complete.',
+        metadata=metadata,
     )
 
 

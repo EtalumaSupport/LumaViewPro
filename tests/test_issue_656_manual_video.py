@@ -157,14 +157,18 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
     assert _frame_count(out) == 3
 
 
-def test_build_from_folder_empty_returns_status_false(tmp_path):
+def test_build_from_folder_empty_is_refused(tmp_path):
+    import pytest
+
+    from modules.exceptions import PostProcessingRefusedError
+
     folder = tmp_path / 'empty'
     folder.mkdir()
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
-    # No manual frames -> falls through to load_folder, which reports no
-    # protocol data / no images rather than raising.
-    assert result['status'] is False
+    # No manual frames -> falls through to load_folder, which refuses a
+    # folder holding no protocol data.
+    with pytest.raises(PostProcessingRefusedError):
+        builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
 
 
 def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch):

@@ -20,8 +20,10 @@ unattended-notification surface carries the same census.
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from modules.common_utils import PostFunction
+from modules.exceptions import PostProcessingRefusedError
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
@@ -79,19 +81,6 @@ def _drive(processor, tmp_path, monkeypatch, images_df, popup=None):
     return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, popup=popup)
 
 
-def _capture_notifications(monkeypatch):
-    import modules.protocol_post_processor as ppp
-
-    captured = []
-    for method in ('notice', 'info', 'warning', 'error', 'critical'):
-        monkeypatch.setattr(
-            ppp.notifications,
-            method,
-            lambda category, title, message, _m=method, **kw: captured.append((_m, title, message)),
-        )
-    return captured
-
-
 def _mixed_group_df():
     """One 2-image group (eligible) + one 1-image group (skipped today)."""
     return pd.DataFrame(
@@ -118,14 +107,13 @@ def test_success_message_carries_single_image_skip_census(tmp_path, monkeypatch)
 
 
 def test_unattended_completion_carries_the_census(tmp_path, monkeypatch):
-    captured = _capture_notifications(monkeypatch)
+    # The unattended build's completion notice is composed from the result's
+    # accounting note, so the census must ride there, not only in the message.
     result = _drive(_FakePostProcessor(), tmp_path, monkeypatch, _mixed_group_df(), popup=None)
 
     assert result['status'] is True
-    completions = [c for c in captured if c[0] == 'notice' and c[1].endswith('Saved')]
-    assert len(completions) == 1
-    assert 'single' in completions[0][2].lower(), (
-        f'unattended completion must carry the skip census; got: {completions[0][2]!r}'
+    assert 'single' in result['accounting_note'].lower(), (
+        f'the result must carry the skip census; got: {result["accounting_note"]!r}'
     )
 
 
@@ -152,10 +140,10 @@ def test_stitcher_empty_result_names_the_composite_exclusion(tmp_path, monkeypat
     df = pd.DataFrame(rows)
 
     stitcher = Stitcher(has_turret=False)
-    result = _drive(stitcher, tmp_path, monkeypatch, df, popup=MagicMock())
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _drive(stitcher, tmp_path, monkeypatch, df, popup=MagicMock())
 
-    assert result['status'] is False
-    message = result['message']
+    message = str(refused.value)
     assert 'composite' in message.lower(), (
         f'empty-result message must name the composite exclusion; got: {message!r}'
     )
@@ -174,9 +162,9 @@ def test_empty_result_census_is_generic_across_subclasses(tmp_path, monkeypatch)
         ]
     )
     processor = _FakePostProcessor(drop_flag=PostFunction.VIDEO.value)
-    result = _drive(processor, tmp_path, monkeypatch, df, popup=MagicMock())
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _drive(processor, tmp_path, monkeypatch, df, popup=MagicMock())
 
-    assert result['status'] is False
-    assert 'video' in result['message'].lower(), (
-        f'empty-result message must name the dropped category; got: {result["message"]!r}'
+    assert 'video' in str(refused.value).lower(), (
+        f'empty-result message must name the dropped category; got: {str(refused.value)!r}'
     )

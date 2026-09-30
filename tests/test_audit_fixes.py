@@ -1638,24 +1638,26 @@ class TestRule14_A7_HyperstackBuildNotify:
     """A7: a hyperstack build failure must notify (Rule 14)."""
 
     def test_hyperstack_build_exception_notifies(self, monkeypatch):
-        """A raising StackBuilder.load_folder must log the traceback AND
-        pop 'Hyperstack build failed' -- without the popup the user only
-        ever sees the optimistic 'Saving Hyperstacks' info. The boundary
-        handler lives in build_hyperstacks_for_run, which the runner's
-        background build thread calls; exercising it directly exercises
-        the same handler that thread runs."""
+        """A raising StackBuilder.load_folder must reach the one reporter --
+        without it the user only ever sees the optimistic 'Saving
+        Hyperstacks' notice. The reporter logs the traceback and shows the
+        failure under the build's operation key, so it replaces that
+        notice. The boundary handler lives in build_hyperstacks_for_run,
+        which the runner's background build thread calls; exercising it
+        directly exercises the same handler that thread runs."""
         import pathlib
 
         import modules.stack_builder as stack_builder_module
         from modules.notification_center import notifications
 
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: captured.append(args))
-        monkeypatch.setattr(notifications, 'info', lambda *a, **k: None)
-        logger_mock = MagicMock()
-        monkeypatch.setattr(stack_builder_module, 'logger', logger_mock)
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
+        )
+        monkeypatch.setattr(notifications, 'notice', lambda *a, **k: None)
+        failure = RuntimeError('corrupt tile map')
         builder = MagicMock()
-        builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
+        builder.return_value.load_folder.side_effect = failure
         monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
 
         stack_builder_module.build_hyperstacks_for_run(
@@ -1664,13 +1666,10 @@ class TestRule14_A7_HyperstackBuildNotify:
             tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
         )
 
-        assert captured, 'the build failure must surface the failure popup'
-        assert captured[0][1] == 'Hyperstack build failed', (
-            f'notification title must name the failed operation; got {captured[0]}'
-        )
-        assert logger_mock.exception.called, (
-            'the build failure must land in the main log with a traceback'
-        )
+        ((exception, kw),) = reported
+        assert exception is failure
+        assert kw['solicited'] is False
+        assert kw['operation_key'] == builder.return_value.operation_key
 
 
 # ---------------------------------------------------------------------------

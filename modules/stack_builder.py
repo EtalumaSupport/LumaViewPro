@@ -23,32 +23,51 @@ logger = logging.getLogger('lvp_logger')
 def build_hyperstacks_for_run(
     run_dir: pathlib.Path, has_turret: bool, tiling_configs_file_loc: pathlib.Path
 ) -> None:
-    """Build per-well hyperstacks from a finished run's folder.
+    """Build per-well hyperstacks from a finished run's folder, and tell the person.
 
     The below-UI entry point the run trigger calls: config and paths come
     from the caller, never the live UI or the process's script root, so
     a headless / L2 run builds the same stacks a GUI run does against the
-    tiling config its session was built with.
-    load_folder emits its own start / done / failed notifications on the
-    unattended (popup-less) path; the backstop below covers only faults
-    before or around the build. Runs on the caller's (background) thread.
+    tiling config its session was built with. Runs on the caller's
+    (background) thread.
+
+    Nobody waits on this build, so this is where its outcome is reported:
+    announced as it starts, so a multi-minute build is not a silent hang,
+    then answered -- the stacks saved, or what went wrong in its own words
+    -- under the same operation key, so the answer replaces the
+    announcement rather than opening beside it.
     """
-    logger.info('Building OME-TIFF Hyperstacks from captured data')
+    builder = StackBuilder(has_turret=has_turret)
+    key = builder.operation_key
+    notifications.notice(
+        'Post-processing',
+        'Saving Hyperstacks',
+        'Building hyperstacks from the run. This can take several minutes; '
+        'a message will confirm completion.',
+        operation_key=key,
+    )
     try:
-        StackBuilder(has_turret=has_turret).load_folder(
+        result = builder.load_folder(
             path=run_dir,
             tiling_configs_file_loc=tiling_configs_file_loc,
         )
-        logger.info('Hyperstack creation complete')
     except Exception as ex:
-        # Background-thread boundary: without this the user never sees a
-        # result for the build the completion notice announced.
-        logger.exception(f'Error building hyperstacks: {ex}')
-        notifications.error(
-            'Post-processing',
-            'Hyperstack build failed',
-            'Could not create hyperstacks. See the log for details; source files are untouched.',
+        notifications.report_outcome(
+            ex,
+            solicited=False,
+            category='Post-processing',
+            fault_title='Hyperstacks Not Saved',
+            operation_key=key,
         )
+        return
+    if result.get('degraded'):
+        body = result['message']
+    else:
+        body = (
+            f'{result["new_count"]} hyperstack(s) saved to {result["output_root"]}.'
+            f'{result["accounting_note"]}'
+        )
+    notifications.notice('Post-processing', 'Hyperstacks Saved', body, operation_key=key)
 
 
 class StackBuilder(ProtocolPostProcessor):

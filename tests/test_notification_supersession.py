@@ -190,17 +190,31 @@ class TestBothEndsNameTheSameOperation:
         Walks the AST rather than the text, so a reformatted or line-wrapped
         call still counts and a mention inside a comment does not.
         """
-        tree = parse_module('modules/protocol_post_processor.py')
+        tree = parse_module('modules/stack_builder.py')
+        (boundary,) = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'build_hyperstacks_for_run'
+        ]
+        key_names = {
+            target.id
+            for node in ast.walk(boundary)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == 'operation_key'
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
         from_the_property = 0
         hand_spelled = []
-        for node in ast.walk(tree):
+        for node in ast.walk(boundary):
             if not isinstance(node, ast.Call):
                 continue
             for keyword in node.keywords:
                 if keyword.arg != 'operation_key':
                     continue
                 value = keyword.value
-                if isinstance(value, ast.Attribute) and value.attr == '_unattended_operation_key':
+                if isinstance(value, ast.Name) and value.id in key_names:
                     from_the_property += 1
                 else:
                     hand_spelled.append(node.lineno)

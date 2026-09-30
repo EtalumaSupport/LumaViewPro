@@ -366,6 +366,79 @@ class HyperstackRefusedError(CaptureError):
         self.message = message
 
 
+class PostProcessingRefusedError(Refusal, CaptureError):
+    """A folder cannot yield the post-processed output asked of it.
+
+    Nothing broke: the folder holds no images, no groups this operation can
+    combine, only derived outputs, only groups whose outputs would share a
+    name, source images in a format the operation cannot re-read, or
+    protocol data that could not be loaded. The message says which, in words
+    written for the person, and what to do.
+
+    Attributes:
+        operation: The operation's name as a person reads it ("Stitch").
+        reason: Machine-readable refusal code.
+    """
+
+    # Refused for lack of Z-stack data, a z-projection names the thing the
+    # folder is missing and where such a folder lives, rather than leaving
+    # the person to guess which folder would have worked.
+    _NO_ZSTACK_ADVICE = (
+        ' Pick a folder that contains a Z-stack run -- look under '
+        "'Manual/Z-Stacks/<timestamp>/' for a manual Z-stack, or a "
+        "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
+    )
+
+    def __init__(self, *, operation: str, reason: str, message: str):
+        zstack_missing = operation == 'Z-Projection' and reason == 'no_data'
+        if zstack_missing:
+            message = f'{message}{self._NO_ZSTACK_ADVICE}'
+        super().__init__(message, reason)
+        self.operation = operation
+        self.title = 'No Z-Stack Data Found' if zstack_missing else f'{operation} Not Possible'
+
+
+class PostProcessingFailedError(CaptureError):
+    """A post-processing build did not produce everything it was asked for.
+
+    Raised whether nothing or only part was produced: a group that failed,
+    a group refused because its output would share a name with another's,
+    or frames a video could not add. What WAS produced rides along, so a
+    caller that keeps artifacts keeps them, and no caller can read an
+    incomplete build as a complete one.
+
+    Attributes:
+        operation: The operation's name as a person reads it ("Stitch").
+        produced_paths: Every artifact that was written.
+        output_root: The folder the artifacts went under, or None.
+        errors: Every failed group's error, in order.
+    """
+
+    def __init__(
+        self,
+        *,
+        operation: str,
+        missing: str,
+        produced_paths: Iterable[str] = (),
+        output_root: 'str | None' = None,
+        errors: Iterable[str] = (),
+    ):
+        produced_paths = tuple(produced_paths)
+        if produced_paths:
+            saved = f'{len(produced_paths)} output(s) were saved to {output_root}.'
+        else:
+            saved = 'Nothing was saved.'
+        super().__init__(
+            f'{missing} {saved} Check the log for the cause.',
+            'post_processing_incomplete' if produced_paths else 'post_processing_failed',
+        )
+        self.operation = operation
+        self.produced_paths = produced_paths
+        self.output_root = output_root
+        self.errors = tuple(errors)
+        self.title = f'{operation} Incomplete' if produced_paths else f'{operation} Failed'
+
+
 class RecordingStoppedError(CaptureError):
     """A manual recording was stopped before anyone asked it to stop.
 

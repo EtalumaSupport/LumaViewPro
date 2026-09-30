@@ -19,9 +19,11 @@ Three parts, matching the fix:
 import pathlib
 
 import pandas as pd
+import pytest
 
 from modules import config_helpers
 from modules.composite_generation import CompositeGeneration
+from modules.exceptions import PostProcessingRefusedError
 from modules.protocol_runner import ProtocolRunner
 
 # pin-justified: kv is declarative source with no headless seam; the kv
@@ -120,12 +122,12 @@ def test_composite_rejects_jpg_source_with_clear_message():
     df = pd.DataFrame({'Filepath': ['A1_Green_0000.jpg', 'A1_Red_0000.jpg']})
     # No record stub needed: the JPG guard returns before the record is used.
     _stub_helper(comp, df)
-    result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
-    assert result['status'] is False
-    assert result['reason'] == 'unsupported_source_format'
-    assert 'JPG' in result['message']
-    assert 'TIFF' in result['message']
-    assert 'A1_Green_0000.jpg' in result['message']
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+    assert refused.value.reason == 'unsupported_source_format'
+    assert 'JPG' in str(refused.value)
+    assert 'TIFF' in str(refused.value)
+    assert 'A1_Green_0000.jpg' in str(refused.value)
 
 
 def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
@@ -133,12 +135,12 @@ def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
     df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']})
     _stub_helper(comp, df)
 
-    result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
 
-    assert result['status'] is False
-    assert result['reason'] == 'unsupported_source_format'
-    assert 'A1_Red_0000.jpg' in result['message']
-    assert 'A1_Blue_0000.jpg' not in result['message']
+    assert refused.value.reason == 'unsupported_source_format'
+    assert 'A1_Red_0000.jpg' in str(refused.value)
+    assert 'A1_Blue_0000.jpg' not in str(refused.value)
 
 
 def test_composite_does_not_trip_guard_for_tiff_source():
@@ -147,8 +149,10 @@ def test_composite_does_not_trip_guard_for_tiff_source():
     _stub_helper(comp, df, record=_RecordStub())
     # Isolate the format guard from downstream grouping: a TIFF scan must get
     # PAST the guard. Stub the grouping so the test asserts only that the
-    # JPG-source rejection is not returned.
+    # JPG-source rejection is not the answer: with no groups, the folder is
+    # refused for having nothing to combine instead.
     comp._filter_ignored_types = lambda df: df
     comp._get_groups = lambda df: []
-    result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
-    assert 'saved as JPG' not in result.get('message', '')
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+    assert refused.value.reason != 'unsupported_source_format'

@@ -111,10 +111,15 @@ class TestPostProcessingEmptyResultMessages:
             'root_path': pathlib.Path('.'),
             'protocol_post_record': None,
         }
-        result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
-        assert result['status'] is False
-        assert 'No image files were found in the selected folder' in result['message']
-        assert 'captured scan images' in result['message']
+        import pytest
+
+        from modules.exceptions import PostProcessingRefusedError
+
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        assert refused.value.reason == 'no_images'
+        assert 'No image files were found in the selected folder' in str(refused.value)
+        assert 'captured scan images' in str(refused.value)
 
     def test_helper_empty_message_actionable(self):
         # pin-justified: the user-facing message wording is the contract.

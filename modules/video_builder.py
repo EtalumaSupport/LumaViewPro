@@ -281,18 +281,11 @@ class VideoBuilder(ProtocolPostProcessor):
 
         total_dropped = skipped + video.dropped_frames
         if total_dropped > 0:
+            # The count rides the group's metadata to the build, which says
+            # the video is short to whoever asked for it.
             logger.warning(
                 f'[{self._name}] {total_dropped} of {total_frames} frames missing '
                 'from output (unreadable source or encode failure)'
-            )
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Create Video',
-                'Video Frames Missing',
-                f'{total_dropped} of {total_frames} frames could not be added to '
-                f'"{output_file_loc}". The video is shorter than the source set. '
-                'Check the log for the cause.',
             )
 
         logger.debug(f'[{self._name}] - Complete')
@@ -532,13 +525,11 @@ class VideoBuilder(ProtocolPostProcessor):
         # 10,000 (five digits sort beside four); order numerically.
         frame_paths.sort(key=lambda p: recording_frames.frame_number(p.name))
         if not frame_paths:
-            return {
-                'status': False,
-                'message': (
-                    'No recorded video frames were found in the selected folder. '
-                    'Check that the folder contains a manual "Frames" recording.'
-                ),
-            }
+            raise self._refuse(
+                'no_data',
+                'No recorded video frames were found in the selected folder. '
+                'Check that the folder contains a manual "Frames" recording.',
+            )
 
         # Manual frames are saved as mono with no protocol record. Build the
         # minimal dataframe _create_video needs and drive the one canonical
@@ -562,25 +553,41 @@ class VideoBuilder(ProtocolPostProcessor):
         )
         output_file_loc = pathlib.Path(f'{path.name}.mp4')
 
-        try:
-            result = self._create_video(
-                path=path,
-                df=df,
-                frames_per_sec=frames_per_sec,
-                enable_timestamp_overlay=enable_timestamp_overlay,
-                output_file_loc=output_file_loc,
-                popup=popup,
-                total_groups=1,
-                current_group=1,
-            )
-        except Exception as e:
-            logger.exception(f'[{self._name}] Manual-recording video build failed')
-            return {'status': False, 'message': str(e)}
+        result = self._create_video(
+            path=path,
+            df=df,
+            frames_per_sec=frames_per_sec,
+            enable_timestamp_overlay=enable_timestamp_overlay,
+            output_file_loc=output_file_loc,
+            popup=popup,
+            total_groups=1,
+            current_group=1,
+        )
 
         if popup is not None:
             popup.progress = 100
 
+        # The same contract as a protocol folder's build: only a complete
+        # video returns; a failed or short one raises with what was written.
         if not result['status']:
-            return {'status': False, 'message': result.get('error') or 'Video generation failed.'}
-
+            raise self._incomplete(
+                group_errors=[f'{output_file_loc}: {result.get("error") or "the encode failed"}'],
+                attempted=1,
+                refused_count=0,
+                colliding_names=set(),
+                dropped_frames=0,
+                artifact_paths=[],
+                output_root=str(path),
+            )
+        dropped = result.get('metadata', {}).get('dropped_frames', 0)
+        if dropped:
+            raise self._incomplete(
+                group_errors=[],
+                attempted=1,
+                refused_count=0,
+                colliding_names=set(),
+                dropped_frames=dropped,
+                artifact_paths=[str(result['actual_output_file_loc'])],
+                output_root=str(path),
+            )
         return {'status': True, 'message': 'Success'}

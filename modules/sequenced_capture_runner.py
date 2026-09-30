@@ -1880,31 +1880,28 @@ class SequencedCaptureRunner:
             try:
                 from modules.composite_generation import CompositeGeneration
 
-                # The loader is told the run owns the surface: its own
-                # unattended-batch notices would otherwise open a modal at
-                # start and another at the end of every composite.
                 result = CompositeGeneration(has_turret=has_turret).load_folder(
                     path=run_dir,
                     tiling_configs_file_loc=tiling_configs_file_loc,
                     output_format=output_format,
                     brightness_thresholds_percent=thresholds,
-                    announce=False,
                 )
             except Exception as ex:
                 logger.error(f'[{self.LOGGER_NAME}] Composite merge raised', exc_info=True)
-                _fail('merge_error', f'The merge failed with {type(ex).__name__}: {ex}')
+                # A typed outcome says why in its own reason and words; only
+                # an exception that carries neither is named by its class.
+                reason = getattr(ex, 'reason', None)
+                if reason:
+                    _fail(reason, str(ex))
+                else:
+                    _fail('merge_error', f'The merge failed with {type(ex).__name__}: {ex}')
                 return
             paths = result.get('artifact_paths') or []
-            if result.get('status') and paths:
+            if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
                 outcome.resolve(token, merged=True, artifact_path=paths[0], merge_reason='')
-            elif result.get('status'):
-                _fail('merge_failed', 'The merge finished without producing a composite file.')
             else:
-                _fail(
-                    result.get('reason') or 'merge_failed',
-                    result.get('message') or 'See lumaviewpro.log for details.',
-                )
+                _fail('merge_failed', 'The merge finished without producing a composite file.')
 
         return self._spawn_post_run_step(
             name='composite-merge',

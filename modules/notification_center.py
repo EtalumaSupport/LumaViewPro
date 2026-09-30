@@ -330,6 +330,7 @@ class NotificationCenter:
         category: str,
         log_only: bool = False,
         fault_title: str = 'Operation failed',
+        operation_key: str = '',
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
 
@@ -349,6 +350,11 @@ class NotificationCenter:
         in its own words when its type writes them for a person and in a
         generic sentence when it does not, under its ``title`` or
         ``fault_title``. A quiet outcome is never shown.
+
+        ``operation_key`` names the operation this outcome answers when an
+        earlier notice announced it, so the outcome replaces that notice
+        instead of opening beside it. A refusal given none replaces the last
+        refusal shown.
 
         Each half happens once per exception object, whoever reports it and
         from whichever thread. Shown once means delivered once: a post that
@@ -388,7 +394,7 @@ class NotificationCenter:
                 exception.title,
                 str(exception),
                 solicited=solicited,
-                operation_key=REFUSAL_OPERATION_KEY,
+                operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=getattr(exception, 'reason', None) or '',
             )
         else:
@@ -398,7 +404,9 @@ class NotificationCenter:
                 else _UNTYPED_FAULT_BODY
             )
             title = getattr(exception, 'title', None) or fault_title
-            delivered = self.error(category, title, body, solicited=solicited)
+            delivered = self.error(
+                category, title, body, solicited=solicited, operation_key=operation_key
+            )
         if not delivered:
             # A suppressed post was never seen, so it has not spent the one
             # show: the person's own later request for this outcome shows it.

@@ -84,12 +84,14 @@ try:
 
     empty = _common.SCRATCH / 'empty_folder'
     empty.mkdir(exist_ok=True)
-    res = ZProjector(has_turret=False).load_folder(
-        path=empty,
-        tiling_configs_file_loc=pathlib.Path('data/tiling.json'),
-        popup=None,
-        announce=False,
-    )
+    try:
+        res = ZProjector(has_turret=False).load_folder(
+            path=empty,
+            tiling_configs_file_loc=pathlib.Path('data/tiling.json'),
+            popup=None,
+        )
+    except Exception as refused:
+        res = f'{type(refused).__name__}: {refused}'
     print('ZProjector.load_folder on an empty folder (no Kivy) ->', res)
 finally:
     s.shutdown()
