@@ -2203,7 +2203,7 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					text: 'Lumascope Model: ' + root.current_scope_model
+					text: 'Lumascope Model: ' + root.current_scope_model + (' (' + root.next_start_model + ' at next start)' if root.next_start_model else '')
 					tooltip_text: 'Current scope model. Change it in Advanced Settings.'
 					halign: 'left'
 					valign: 'middle'

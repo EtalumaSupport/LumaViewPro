@@ -168,6 +168,7 @@ A scope's model is fixed for its lifetime: `identity.model`, `scope.capabilities
 
 ```python
 session.select_model('LS560')   # saved to settings['microscope']; raises ScopeModelUnknownError if the catalogue lacks it
+session.model_at_next_start     # 'LS560' until the next bring-up; None when the saved model is the one running
 ```
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.

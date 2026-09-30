@@ -107,11 +107,11 @@ class _CoalescingApplier:
 
 
 class MicroscopeSettings(BoxLayout):
-    # Current scope model name, shown read-only in the panel. The selector
-    # that changes it lives in Advanced Settings; this reflects the settings
-    # SSOT and is refreshed in set_ui_features_for_scope (the one place a
-    # scope change reconfigures the UI).
+    # The model the scope runs as, and a model saved for the next start,
+    # shown read-only in the panel. The selector lives in Advanced Settings;
+    # both are the API's answers, set in show_scope_model.
     current_scope_model = StringProperty('')
+    next_start_model = StringProperty('')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -666,14 +666,18 @@ class MicroscopeSettings(BoxLayout):
         self.set_ui_features_for_scope()
         ctx.stage.full_redraw()
 
+    def show_scope_model(self) -> None:
+        """Show the model the scope runs as, and one saved for the next start."""
+        ctx = _app_ctx.ctx
+        self.current_scope_model = ctx.lumaview.scope.layer_identity.model or ''
+        self.next_start_model = ctx.session.model_at_next_start or ''
+
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
 
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
 
-        # The model the scope runs as, not the stored selection: a selection
-        # saved in Advanced Settings applies only at the next start.
-        microscope_settings.current_scope_model = ctx.lumaview.scope.layer_identity.model or ''
+        microscope_settings.show_scope_model()
 
         # Which motion hardware exists is asked of the drivers, never of the
         # selected model. scopes.json describes the model picked in Advanced

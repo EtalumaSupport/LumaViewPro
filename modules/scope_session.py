@@ -1046,6 +1046,17 @@ class ScopeSession:
         self.update_settings('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
 
+    @property
+    def model_at_next_start(self) -> str | None:
+        """The saved model when it is not the one running, else None.
+
+        What ``select_model`` saved waits for the next bring-up, so until
+        then the scope runs as one model and the settings name another; a
+        caller shows this rather than comparing the two itself.
+        """
+        saved = self.settings['microscope']
+        return None if saved == self.scope.layer_identity.model else saved
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
