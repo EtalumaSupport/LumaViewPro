@@ -94,8 +94,10 @@ def _schedule_cleanup_ui(
                 notifications.warning(
                     'Protocol',
                     'Protocol cleanup issues',
-                    f'Your images were saved, but one cleanup step did not '
-                    f'finish: {step_label}.\n'
+                    # Says nothing of the images: this runs for any step
+                    # after the run, whether or not its files were all
+                    # written, and the files are told on their own.
+                    f'One step after the run did not finish: {step_label}.\n'
                     'Check LED state, camera settings, and stage position.',
                 )
             except Exception as notify_ex:

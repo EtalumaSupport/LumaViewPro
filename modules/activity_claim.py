@@ -273,8 +273,7 @@ class ActivityClaim:
             held = HeldClaim(self)
             self._held = held
             self._holder = ActivityHolder(kind=owner, run_trigger_source=run_trigger_source)
-        if self._on_transition is not None:
-            self._on_transition()
+        self._announce()
         return held
 
     def refusing_holder(
@@ -344,5 +343,23 @@ class ActivityClaim:
                 )
             self._held = None
             self._holder = None
-        if self._on_transition is not None:
+        self._announce()
+
+    def _announce(self) -> None:
+        """Tell the listener the holder changed; a raise stays here.
+
+        The claim is already settled when this runs. A listener's raise
+        carried out to the taker would leave the scope held by a taking the
+        taker never received, which nothing can release; carried out to a
+        releaser, it would skip what the releaser does next -- a run's return
+        to IDLE, a recording's drained signal. So it is reported here, where
+        it happened, and the transition completes.
+        """
+        if self._on_transition is None:
+            return
+        try:
             self._on_transition()
+        except Exception as ex:
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(ex, solicited=False, category='Run State')

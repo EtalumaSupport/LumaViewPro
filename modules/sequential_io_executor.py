@@ -383,17 +383,19 @@ class IOTask:
         self.cb_args = cb_args
         self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
 
-    def on_complete(self, result, exception):
+    def on_complete(self, result: object, exception: BaseException | None) -> None:
         if self.callback is None:
             return
 
-        def _safe_callback(dt):
+        def _safe_callback(dt: float) -> None:
+            # The task is done and its waiter answered; a callback's raise
+            # has no caller left to reach, so it is reported here.
             try:
                 self.callback(*cb_args, **cb_kwargs)
-            except Exception:
-                logger.error(
-                    f'[IOTask    ] Callback {self.callback} raised exception', exc_info=True
-                )
+            except Exception as ex:
+                from modules.notification_center import notifications
+
+                notifications.report_outcome(ex, solicited=False, category='IOTask')
 
         if self.pass_result:
             # Only copy when we need to mutate
@@ -440,7 +442,7 @@ SequentialIOExecutor
 """
 
 
-def _direct_dispatch(func, timeout=0):
+def _direct_dispatch(func: Callable, timeout: float = 0) -> None:
     """Default UI dispatcher: call function directly (no GUI scheduling).
 
     Used when no Kivy Clock is available (tests, headless, REST API).
@@ -449,10 +451,10 @@ def _direct_dispatch(func, timeout=0):
     if callable(func):
         try:
             func(0)  # Call with dummy dt=0 (same as Clock passes)
-        except Exception as e:
-            import logging as _log
+        except Exception as ex:
+            from modules.notification_center import notifications
 
-            _log.getLogger('LVP').debug(f'_direct_dispatch error: {e}')
+            notifications.report_outcome(ex, solicited=False, category='IOTask')
 
 
 class _PriorityFifoQueue:

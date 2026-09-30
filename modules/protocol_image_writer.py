@@ -416,11 +416,13 @@ class RunWriteBatch:
         # that must not wait on a write landing.
         try:
             on_complete(outcome)
-        except Exception:
+        except Exception as ex:
             # Runs on whichever thread landed the last write -- often the
             # file lane's worker, which would otherwise report this as that
-            # write failing.
-            logger.exception("[Protocol-Writer] The run's files-written actions raised")
+            # write failing. No caller waits on it, so it is reported here.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(ex, solicited=False, category='Protocol')
 
 
 class CapturedFrame(NamedTuple):

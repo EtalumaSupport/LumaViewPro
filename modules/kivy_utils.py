@@ -8,8 +8,6 @@ Non-GUI contexts (tests, headless, REST) get direct invocation.
 
 from collections.abc import Callable
 
-from lvp_logger import logger
-
 # Global UI dispatcher -- set by lumaviewpro.py at startup to
 # Clock.schedule_once. Default is direct invocation.
 _ui_dispatcher = None
@@ -38,11 +36,14 @@ def schedule_ui(func: Callable, timeout: float = 0) -> None:
         if callable(func):
             try:
                 func(0)
-            except Exception:
+            except Exception as ex:
                 # Deliberately more forgiving than the GUI branch, which
                 # re-raises: a REST or headless caller must not be killed
                 # by one bad UI callback. The failure still has to be
                 # visible -- discarding it made a throwing protocol or
                 # recording callback produce no record at all, so the run
-                # looked like it had succeeded.
-                logger.exception('[KivyUtils] scheduled UI callback failed')
+                # looked like it had succeeded -- and it is reported, not
+                # only logged, since no caller waits on a scheduled one.
+                from modules.notification_center import notifications
+
+                notifications.report_outcome(ex, solicited=False, category='UI')

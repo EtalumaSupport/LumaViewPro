@@ -1943,6 +1943,8 @@ class SequencedCaptureRunner:
         Never raises: it runs in cleanup's finally ahead of the releases, and
         a raise there would leak the claim and refuse every future run.
         """
+        from modules.notification_center import notifications
+
         record = None if self._disable_saving_artifacts else self._protocol_execution_record
         callbacks = self._callbacks
         protocol = self._protocol
@@ -1959,24 +1961,33 @@ class SequencedCaptureRunner:
                 f'{write_batch.written} written, {write_batch.not_written} not written'
                 + (f' ({reason})' if reason else '')
             )
+            # Each on its own: a raise in one must not skip the rest -- a
+            # caller never told its files are done, or a Session reading the
+            # drain as live for good. No caller waits here, so a raise is
+            # reported where it stops.
+            actions = []
             if record is not None:
-                try:
-                    record.complete()
-                except Exception:
-                    logger.error(
-                        f'[{self.LOGGER_NAME}] Completing the run record failed', exc_info=True
-                    )
-            run_complete.send()
-            schedule_files_complete(callbacks, protocol=protocol, run_dir=run_dir, files=outcome)
+                actions.append(record.complete)
+            actions.append(run_complete.send)
+            actions.append(
+                lambda: schedule_files_complete(
+                    callbacks, protocol=protocol, run_dir=run_dir, files=outcome
+                )
+            )
             # The drain's end is a run-state change: the Session re-reads
             # its levels, as it does when the run itself goes idle.
             if on_run_state is not None:
-                on_run_state()
+                actions.append(on_run_state)
+            for action in actions:
+                try:
+                    action()
+                except Exception as ex:
+                    notifications.report_outcome(ex, solicited=False, category='Protocol')
 
         try:
             write_batch.close(_files_written)
-        except Exception:
-            logger.error(f"[{self.LOGGER_NAME}] Closing the run's writes failed", exc_info=True)
+        except Exception as ex:
+            notifications.report_outcome(ex, solicited=False, category='Protocol')
 
     def _cleanup_inner(self, ending: RunEnding, run: PendingRunOutcome):
         from modules.notification_center import notifications

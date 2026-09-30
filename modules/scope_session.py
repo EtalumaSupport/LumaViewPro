@@ -481,12 +481,18 @@ class ScopeSession:
 
     def notify_run_state(self) -> None:
         """Notify every run-state listener (level semantics: listeners
-        re-read the derivations; an extra notification is harmless)."""
+        re-read the derivations; an extra notification is harmless).
+
+        Each listener's raise is reported and the rest are still told: no
+        caller waits on a notification, so this is where its fault stops.
+        """
+        from modules.notification_center import notifications
+
         for listener in list(self._run_state_listeners):
             try:
                 listener()
-            except Exception:
-                logger.exception('[ScopeSession] run-state listener failed')
+            except Exception as ex:
+                notifications.report_outcome(ex, solicited=False, category='Run State')
 
     # ------------------------------------------------------------------
     # Factory helpers
