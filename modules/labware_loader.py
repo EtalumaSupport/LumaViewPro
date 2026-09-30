@@ -5,7 +5,7 @@ import logging
 import pathlib
 
 import modules.labware as labware
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, InstallationFileError
 from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.labware_loader')
@@ -45,7 +45,7 @@ def canonical_plate_name(plate_key: object) -> object:
     return _LABWARE_ALIASES.get(plate_key, plate_key)
 
 
-def _validate_labware(labware: dict, filepath: str) -> None:
+def _validate_labware(labware: dict, filepath: pathlib.Path) -> None:
     """Validate labware.json: check structure and required fields per entry.
 
     Only 'Wellplate' entries require the full columns/rows/dimensions/spacing/
@@ -53,7 +53,9 @@ def _validate_labware(labware: dict, filepath: str) -> None:
     validated beyond type.
     """
     if not isinstance(labware, dict):
-        raise ValueError(f'labware.json at {filepath}: expected dict, got {type(labware).__name__}')
+        raise InstallationFileError(
+            filepath, f'is a {type(labware).__name__}, not a catalogue of labware'
+        )
     for category, items in labware.items():
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
@@ -101,16 +103,11 @@ class LabwareLoader:
             with open(filepath) as read_file:
                 self.labware = json.load(read_file)
         except FileNotFoundError as e:
-            logger.error(f'[Labware   ] labware.json not found at {filepath}')
-            raise RuntimeError(
-                f'Required file labware.json not found at {filepath}. '
-                'Please reinstall or restore from backup.'
-            ) from e
+            raise InstallationFileError(filepath, 'is missing') from e
         except json.JSONDecodeError as e:
-            logger.error(f'[Labware   ] labware.json is corrupt: {e}')
-            raise RuntimeError(
-                f'labware.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
+            raise InstallationFileError(filepath, f'is not valid JSON ({e})') from e
+        except OSError as e:
+            raise InstallationFileError(filepath, f'cannot be read ({e})') from e
 
         _validate_labware(self.labware, filepath)
 

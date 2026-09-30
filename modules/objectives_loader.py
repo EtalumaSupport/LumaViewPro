@@ -6,7 +6,7 @@ import pathlib
 
 import pandas as pd
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, InstallationFileError
 from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
@@ -34,15 +34,17 @@ _REQUIRED_OBJECTIVE_FIELDS = {
 }
 
 
-def _validate_objectives(objectives: dict, filepath: str) -> None:
-    """Validate objectives.json structure: each entry must have required fields."""
+def _validate_objectives(objectives: dict, filepath: pathlib.Path) -> None:
+    """Refuse a catalogue whose shape no lookup can use; warn on an entry missing a field."""
     if not isinstance(objectives, dict):
-        raise ValueError(
-            f'objectives.json at {filepath}: expected dict, got {type(objectives).__name__}'
+        raise InstallationFileError(
+            filepath, f'is a {type(objectives).__name__}, not a catalogue of objectives'
         )
     for obj_id, obj in objectives.items():
         if not isinstance(obj, dict):
-            raise ValueError(f"objectives.json: objective '{obj_id}' must be a dict")
+            raise InstallationFileError(
+                filepath, f'has an entry {obj_id!r} that is not an objective'
+            )
         for field, expected_type in _REQUIRED_OBJECTIVE_FIELDS.items():
             if field not in obj:
                 logger.warning(f"[Objectives] '{obj_id}' missing field '{field}' in {filepath}")
@@ -60,24 +62,20 @@ class ObjectiveLoader:
             with open(filepath) as read_file:
                 self._objectives = json.load(read_file)
         except FileNotFoundError as e:
-            logger.error(f'[Objectives] objectives.json not found at {filepath}')
-            raise RuntimeError(
-                f'Required file objectives.json not found at {filepath}. '
-                'Please reinstall or restore from backup.'
-            ) from e
+            raise InstallationFileError(filepath, 'is missing') from e
         except json.JSONDecodeError as e:
-            logger.error(f'[Objectives] objectives.json is corrupt: {e}')
-            raise RuntimeError(
-                f'objectives.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
+            raise InstallationFileError(filepath, f'is not valid JSON ({e})') from e
+        except OSError as e:
+            raise InstallationFileError(filepath, f'cannot be read ({e})') from e
 
         _validate_objectives(self._objectives, filepath)
         if DEFAULT_PROPOSED_OBJECTIVE_ID not in self._objectives:
-            raise ConfigError(
-                f'objectives.json at {filepath} has no {DEFAULT_PROPOSED_OBJECTIVE_ID!r}, '
-                'the objective the objective question proposes by default'
+            raise InstallationFileError(
+                filepath,
+                f'has no {DEFAULT_PROPOSED_OBJECTIVE_ID!r}, the objective the objective '
+                'question proposes by default',
             )
-        self._generate_short_names()
+        self._generate_short_names(filepath)
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
 
     def _create_short_name_from_objective_id(self, objective_id: str) -> str:
@@ -106,18 +104,23 @@ class ObjectiveLoader:
 
         return tmp
 
-    def _generate_short_names(self):
+    def _generate_short_names(self, filepath: pathlib.Path):
         # Generate short name to be used for protocol step names
         for objective_key, objective_info in self._objectives.items():
             if 'short_name' not in objective_info:
                 short_name = self._create_short_name_from_objective_id(objective_id=objective_key)
                 self._objectives[objective_key]['short_name'] = short_name
 
-        # Confirm there are no collisions
-        short_names = [v['short_name'] for v in self._objectives.values()]
-        short_names_set = set(short_names)
-        if len(short_names_set) < len(short_names):
-            raise Exception('Duplicate short names for objectives were generated')
+        # Two objectives with one short name would write their files under one name.
+        owners: dict[str, str] = {}
+        for objective_key, objective_info in self._objectives.items():
+            other = owners.setdefault(objective_info['short_name'], objective_key)
+            if other != objective_key:
+                raise InstallationFileError(
+                    filepath,
+                    f'names {other!r} and {objective_key!r} with one short name '
+                    f'{objective_info["short_name"]!r}',
+                )
 
     def get_objective_info(self, objective_id: str | None) -> dict:
         """The catalogue entry for one objective, or a refusal naming why not.

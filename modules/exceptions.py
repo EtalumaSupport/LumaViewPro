@@ -5,6 +5,7 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+import pathlib
 from collections.abc import Iterable
 from typing import ClassVar
 
@@ -49,6 +50,30 @@ class ConfigError(Exception):
     """Application configuration or settings error."""
 
     pass
+
+
+class InstallationFileError(Exception):
+    """A file the installation ships is missing, unreadable, or not the shape its reader needs.
+
+    The installation is at fault, not the user's settings, so this is
+    deliberately not a ``ConfigError``: a host that answers a ``ConfigError``
+    by falling back to the shipped settings template would replace good
+    settings and still fail on the same file. The reader raises it and logs
+    nothing; whoever catches it logs it once.
+
+    Attributes:
+        file_path: The file that could not be used.
+    """
+
+    title = 'Installation File Unusable'
+
+    def __init__(self, file_path, problem: str):
+        file_path = pathlib.Path(file_path)
+        super().__init__(
+            f'{file_path.name} in {file_path.parent} {problem}; reinstall LumaViewPro or '
+            'restore the file'
+        )
+        self.file_path = file_path
 
 
 class ObjectiveUnknownError(Refusal, ConfigError):
