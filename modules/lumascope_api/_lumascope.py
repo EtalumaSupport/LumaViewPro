@@ -7,7 +7,6 @@ from lvp_logger import logger
 
 # Import Lumascope Hardware files
 from drivers.motorboard import MotorBoard
-from drivers.motorconfig import load_motorconfig_defaults
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
@@ -51,7 +50,7 @@ from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import CameraSettingRejected, ScopeDisconnectError
-from modules.path_utils import get_source_root, resolve_data_file
+from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
@@ -519,7 +518,7 @@ class Lumascope:
         # the bring-up with nothing to tear down. It is read on every model:
         # the motor probe below runs on every model, and a board it finds
         # takes these defaults.
-        motorconfig_defaults = load_motorconfig_defaults(
+        motorconfig_defaults = read_installation_file(
             resolve_data_file('motorconfig_defaults.json')
         )
         # Whether the selected model is a manual scope, so a probe that finds
@@ -1381,7 +1380,7 @@ class Lumascope:
         instance._read_catalogues(get_source_root(source_path))
         # Read before anything is started, as __init__ does: a missing
         # install file stops the diagnostic with nothing to tear down.
-        motorconfig_defaults = load_motorconfig_defaults(
+        motorconfig_defaults = read_installation_file(
             resolve_data_file('motorconfig_defaults.json')
         )
         # Shared state-slot init (audit #35) -- same call __init__ makes.

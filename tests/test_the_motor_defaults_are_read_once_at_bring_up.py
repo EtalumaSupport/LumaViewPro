@@ -20,6 +20,7 @@ import pytest
 
 import modules.lumascope_api._lumascope as lumascope_module
 from drivers.motorconfig import MotorConfig
+from modules.exceptions import InstallationFileError
 from modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import build_scope
@@ -41,9 +42,9 @@ def _defaults_at(monkeypatch, path):
 @pytest.mark.parametrize(
     ('content', 'says'),
     [
-        (None, 'not found'),
-        ('{"Axis Travel Limit": ', 'unreadable'),
-        ('[1, 2]', 'not an object'),
+        (None, 'is missing'),
+        ('{"Axis Travel Limit": ', 'is not valid JSON'),
+        ('[1, 2]', 'not a JSON object'),
     ],
     ids=['missing', 'corrupt', 'not-an-object'],
 )
@@ -54,10 +55,10 @@ def test_a_bad_defaults_file_stops_the_bring_up_naming_it(monkeypatch, tmp_path,
     _defaults_at(monkeypatch, path)
     threads_before = set(threading.enumerate())
 
-    with pytest.raises(RuntimeError, match=says) as refused:
+    with pytest.raises(InstallationFileError, match=says) as refused:
         _session()
 
-    assert str(path) in str(refused.value)
+    assert refused.value.file_path == path
     # Refused before anything was started, so nothing is left running.
     assert set(threading.enumerate()) <= threads_before
 
@@ -68,7 +69,7 @@ def test_a_bad_defaults_file_stops_the_bring_up_on_every_model(monkeypatch, tmp_
     # defaults, so a scope with no motors is not exempt.
     _defaults_at(monkeypatch, tmp_path / 'motorconfig_defaults.json')
 
-    with pytest.raises(RuntimeError, match=r'motorconfig_defaults\.json'):
+    with pytest.raises(InstallationFileError, match=r'motorconfig_defaults\.json'):
         _session(model)
 
 

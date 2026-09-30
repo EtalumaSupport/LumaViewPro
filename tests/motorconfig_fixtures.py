@@ -5,7 +5,6 @@ A motor driver takes the defaults table as a required argument, so a test
 that builds one hands it this.
 """
 
-from drivers.motorconfig import load_motorconfig_defaults
-from modules.path_utils import resolve_data_file
+from modules.path_utils import read_installation_file, resolve_data_file
 
-SHIPPED_MOTOR_DEFAULTS = load_motorconfig_defaults(resolve_data_file('motorconfig_defaults.json'))
+SHIPPED_MOTOR_DEFAULTS = read_installation_file(resolve_data_file('motorconfig_defaults.json'))

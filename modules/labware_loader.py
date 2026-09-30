@@ -1,12 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import json
 import logging
 import pathlib
 
 import modules.labware as labware
-from modules.exceptions import ConfigError, InstallationFileError
-from modules.path_utils import resolve_data_file
+from modules.exceptions import ConfigError
+from modules.path_utils import read_installation_file, resolve_data_file
 
 logger = logging.getLogger('LVP.modules.labware_loader')
 
@@ -52,10 +51,6 @@ def _validate_labware(labware: dict, filepath: pathlib.Path) -> None:
     offset schema. Slide and Petri dish have simpler structures and are not
     validated beyond type.
     """
-    if not isinstance(labware, dict):
-        raise InstallationFileError(
-            filepath, f'is a {type(labware).__name__}, not a catalogue of labware'
-        )
     for category, items in labware.items():
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
@@ -99,15 +94,7 @@ class LabwareLoader:
 
         # Load all Possible Labware from JSON
         filepath = resolve_data_file('labware.json', source_path=source_path)
-        try:
-            with open(filepath) as read_file:
-                self.labware = json.load(read_file)
-        except FileNotFoundError as e:
-            raise InstallationFileError(filepath, 'is missing') from e
-        except json.JSONDecodeError as e:
-            raise InstallationFileError(filepath, f'is not valid JSON ({e})') from e
-        except OSError as e:
-            raise InstallationFileError(filepath, f'cannot be read ({e})') from e
+        self.labware = read_installation_file(filepath)
 
         _validate_labware(self.labware, filepath)
 

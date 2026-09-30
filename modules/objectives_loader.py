@@ -1,13 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import json
 import logging
 import pathlib
 
 import pandas as pd
 
 from modules.exceptions import ConfigError, InstallationFileError
-from modules.path_utils import resolve_data_file
+from modules.path_utils import read_installation_file, resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
@@ -36,10 +35,6 @@ _REQUIRED_OBJECTIVE_FIELDS = {
 
 def _validate_objectives(objectives: dict, filepath: pathlib.Path) -> None:
     """Refuse a catalogue whose shape no lookup can use; warn on an entry missing a field."""
-    if not isinstance(objectives, dict):
-        raise InstallationFileError(
-            filepath, f'is a {type(objectives).__name__}, not a catalogue of objectives'
-        )
     for obj_id, obj in objectives.items():
         if not isinstance(obj, dict):
             raise InstallationFileError(
@@ -98,15 +93,7 @@ def objective_short_name(objective_id: str) -> str:
 class ObjectiveLoader:
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         filepath = resolve_data_file('objectives.json', source_path=source_path)
-        try:
-            with open(filepath) as read_file:
-                self._objectives = json.load(read_file)
-        except FileNotFoundError as e:
-            raise InstallationFileError(filepath, 'is missing') from e
-        except json.JSONDecodeError as e:
-            raise InstallationFileError(filepath, f'is not valid JSON ({e})') from e
-        except OSError as e:
-            raise InstallationFileError(filepath, f'cannot be read ({e})') from e
+        self._objectives = read_installation_file(filepath)
 
         _validate_objectives(self._objectives, filepath)
         if DEFAULT_PROPOSED_OBJECTIVE_ID not in self._objectives:

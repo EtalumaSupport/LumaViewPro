@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
+
+from modules.exceptions import InstallationFileError
 
 
 MAX_COLLISION_SUFFIX = 999
@@ -170,6 +173,32 @@ def resolve_data_file(
 ) -> pathlib.Path:
     """Resolve a file under the writable data/ directory."""
     return get_source_root(source_path).joinpath('data', *parts)
+
+
+def read_installation_file(path: str | pathlib.Path) -> dict:
+    """The JSON object in a file the installation ships, or a refusal naming the file.
+
+    The one reader for these files, so every one of them fails the same
+    way: the installation is at fault, not the user's settings, and a
+    caller that answered a settings error by falling back to the shipped
+    template would replace good settings and still fail on the same file.
+
+    Raises:
+        InstallationFileError: the file is missing, unreadable, not JSON,
+            or holds something other than a JSON object.
+    """
+    try:
+        with open(path, encoding='utf-8') as read_file:
+            contents = json.load(read_file)
+    except FileNotFoundError as e:
+        raise InstallationFileError(path, 'is missing') from e
+    except json.JSONDecodeError as e:
+        raise InstallationFileError(path, f'is not valid JSON ({e})') from e
+    except (OSError, UnicodeDecodeError) as e:
+        raise InstallationFileError(path, f'cannot be read ({e})') from e
+    if not isinstance(contents, dict):
+        raise InstallationFileError(path, f'holds a {type(contents).__name__}, not a JSON object')
+    return contents
 
 
 def resolve_script_file(*parts: str) -> pathlib.Path:

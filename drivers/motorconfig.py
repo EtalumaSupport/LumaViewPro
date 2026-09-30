@@ -8,8 +8,6 @@ for any missing keys.
 """
 
 import copy
-import json
-import pathlib
 import types
 from collections.abc import Mapping
 from typing import ClassVar
@@ -38,36 +36,6 @@ def read_only_axes_config(axes_config: dict) -> Mapping:
             for axis, config in axes_config.items()
         }
     )
-
-
-def load_motorconfig_defaults(defaults_file: pathlib.Path) -> dict:
-    """The shipped motor defaults, read once by whoever brings the scope up.
-
-    A missing or unreadable file raises, naming it. Every value a motor
-    board does not report itself -- travel limits, microsteps per mm, ramp
-    parameters -- comes from here, and an empty table let a board come up
-    converting positions and bounding moves by hardcoded fallbacks with
-    only a log line to say so.
-    """
-    try:
-        with open(defaults_file, encoding='utf-8') as fp:
-            defaults = json.load(fp)
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            f'Required file motorconfig_defaults.json not found at {defaults_file}. '
-            'Please reinstall or restore from backup.'
-        ) from e
-    except (OSError, ValueError) as e:
-        raise RuntimeError(
-            f'motorconfig_defaults.json at {defaults_file} is unreadable ({e}). '
-            'Please restore from backup or reinstall.'
-        ) from e
-    if not isinstance(defaults, dict):
-        raise RuntimeError(
-            f'motorconfig_defaults.json at {defaults_file} holds a '
-            f'{type(defaults).__name__}, not an object. Please restore from backup or reinstall.'
-        )
-    return defaults
 
 
 class MotorConfig:
