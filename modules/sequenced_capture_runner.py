@@ -1950,6 +1950,15 @@ class SequencedCaptureRunner:
         on_run_state = self._on_run_idle
 
         def _files_written(outcome: str) -> None:
+            # One line per run, when its last write lands: a run's images
+            # keep landing after the run ends, and this is the one place
+            # that knows they are all in.
+            reason = write_batch.not_written_reason
+            logger.info(
+                f"[{self.LOGGER_NAME}] The run's files are {outcome} in {run_dir}: "
+                f'{write_batch.written} written, {write_batch.not_written} not written'
+                + (f' ({reason})' if reason else '')
+            )
             if record is not None:
                 try:
                     record.complete()

@@ -133,6 +133,7 @@ class RunWriteBatch:
         # which happened.
         self._not_taken = False
         self._lost = 0
+        self._written = 0
         self._on_complete = None
         self._outcome: str | None = None
         self._completed = threading.Event()
@@ -149,6 +150,34 @@ class RunWriteBatch:
     def outcome(self) -> str | None:
         """``'written'`` or ``'incomplete'`` once complete; None before."""
         return self._outcome
+
+    @property
+    def written(self) -> int:
+        """Writes that landed."""
+        return self._written
+
+    @property
+    def not_written(self) -> int:
+        """Writes counted not written: given up on, never taken, or failed."""
+        return self._lost
+
+    @property
+    def not_written_reason(self) -> str | None:
+        """Why some of the run's images are not on disk; None when none is missing.
+
+        ``write_batch_abandoned`` when a recovery or a shutdown gave up on
+        some writes; ``write_batch_not_taken`` when the writer never took
+        some -- stuck, or no longer taking work; ``write_batch_save_failed``
+        when a save ran and failed. A run with more than one names the first
+        of these.
+        """
+        if self._abandoned:
+            return 'write_batch_abandoned'
+        if self._not_taken:
+            return 'write_batch_not_taken'
+        if self._lost:
+            return 'write_batch_save_failed'
+        return None
 
     @property
     def draining(self) -> bool:
@@ -312,22 +341,12 @@ class RunWriteBatch:
 
         Raises:
             RunFilesNotWrittenError: ``write_batch_timeout`` when the bound
-                expired first; ``write_batch_abandoned`` when a recovery or a
-                shutdown gave up on some writes; ``write_batch_not_taken``
-                when the writer never took some -- stuck, or no longer
-                taking work; ``write_batch_save_failed`` when a save ran and
-                failed. A run with more than one names the first of these.
+                expired first; otherwise ``not_written_reason``.
         """
         if not self._completed.wait(timeout=timeout_s):
             raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
         if self._outcome != 'written':
-            if self._abandoned:
-                reason = 'write_batch_abandoned'
-            elif self._not_taken:
-                reason = 'write_batch_not_taken'
-            else:
-                reason = 'write_batch_save_failed'
-            raise RunFilesNotWrittenError(reason)
+            raise RunFilesNotWrittenError(self.not_written_reason)
 
     def _refuse_if_ended(self, what: str) -> None:
         if self._abandoned:
@@ -364,7 +383,9 @@ class RunWriteBatch:
             if not already:
                 write.settled = True
                 self._outstanding.discard(write)
-                if lost is not None:
+                if lost is None:
+                    self._written += 1
+                else:
                     self._lost += 1
                     if lost == 'not_taken':
                         self._not_taken = True
