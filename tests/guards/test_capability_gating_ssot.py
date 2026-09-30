@@ -32,7 +32,7 @@ DUPLICATED_FLAGS = ('XYStage', 'Turret', 'Focus')
 
 def _caps_for(motion):
     return ScopeCapabilities.from_drivers(
-        motion=motion, led=None, camera=None, layer_identity=UNRESOLVED
+        motion=motion, led=None, camera=None, layer_identity=UNRESOLVED, scope_models={}
     )
 
 

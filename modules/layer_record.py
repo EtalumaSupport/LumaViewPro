@@ -22,12 +22,13 @@ here would take down a scope whose camera and stage are fine.
 
 from __future__ import annotations
 
-import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError
-from modules.path_utils import resolve_data_file
+from modules.exceptions import ConfigError, InstallationFileError
+from modules.path_utils import read_installation_file, resolve_data_file
 
 
 @dataclass(frozen=True)
@@ -104,8 +105,8 @@ UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=N
 
 # The release catalogue is loaded once per process: it ships with the
 # release (the file is version-paired), so nothing invalidates it at
-# runtime. Tests point the resolver at fixture files explicitly and may
-# replace this cache to exercise a different vocabulary.
+# runtime. Tests hand the resolver a vocabulary explicitly and may
+# replace this cache to exercise a different one.
 _CATALOGUE_CACHE: tuple[str, ...] | None = None
 
 
@@ -113,19 +114,19 @@ def release_catalogue() -> tuple[str, ...]:
     """The release's layer vocabulary (stable key names, display order).
 
     The single source every vocabulary consumer derives from -- layer
-    lists, protocol validation, metadata channel acceptance.
+    lists, protocol validation, metadata channel acceptance. Read from
+    the installation's own folder, not a scope's: the settings bring-up
+    needs it before any scope exists.
+
+    Raises:
+        InstallationFileError: the installation's ``scopes.json`` is
+            unusable or states no layer order. Nothing is cached, so the
+            next call reads the file again.
     """
     global _CATALOGUE_CACHE
     if _CATALOGUE_CACHE is None:
-        catalogue = load_layer_catalogue(load_scopes_data())
-        if not catalogue:
-            # A failed load stays uncached: memoizing it would turn one
-            # transient bad context (a data root that resolved wrongly
-            # for a single call) into an empty vocabulary for the whole
-            # process, long after the context recovered. The load itself
-            # already said what went wrong.
-            return catalogue
-        _CATALOGUE_CACHE = catalogue
+        path = resolve_data_file('scopes.json')
+        _CATALOGUE_CACHE = load_layer_catalogue(read_installation_file(path), path)
     return _CATALOGUE_CACHE
 
 
@@ -135,40 +136,46 @@ def release_catalogue() -> tuple[str, ...]:
 _REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_nm')
 
 
-def load_scopes_data(data_file: str | None = None) -> dict:
-    """Load the scopes data file, returning {} (loudly) when unreadable.
-
-    `data_file` exists so tests and tools can point the whole identity
-    machinery at a fixture file; production callers pass nothing.
-    """
-    path = data_file if data_file is not None else resolve_data_file('scopes.json')
-    try:
-        with open(path, encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, ValueError) as e:
-        logger.error(f'[LAYER_RECORD] scopes data unreadable at {path}: {e}')
-        return {}
+# The fields every model entry states, with their types. A missing or
+# mistyped one is a warning, not a refusal: `entry_axes` reads the three
+# flags tolerantly, so the warning is where a bad entry shows.
+_MODEL_ENTRY_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
 
 
-def load_scope_models(data_file: str | None = None) -> dict:
+def load_scope_models(data_file: str | None = None) -> Mapping:
     """The model catalogue -- scopes.json's `Models` section -- or a refusal.
 
-    The identity resolver above tolerates an unreadable file: an empty
-    catalogue resolves no identity, and LED use then fails by name. The
-    settings-to-scope bring-up cannot tolerate it: with no catalogue the
-    declared model has no entry, `model_has_turret` answers False, and a
-    turret scope whose board is not talking is configured as turretless --
-    answering with its stored objective instead of the one in the light
-    path. So a missing or malformed
-    section refuses here, naming the file, instead of returning {}.
+    The scope reads it once, from the folder it was started on, before
+    anything is started, and everything else reads the scope's copy. With
+    no catalogue the declared model has no entry, `model_has_turret`
+    answers False, and a turret scope whose board is not talking is
+    configured as turretless -- answering with its stored objective
+    instead of the one in the light path. So an unusable file or a
+    missing section refuses, naming the file.
+
+    ``data_file`` None reads the installation's own folder.
+
+    Raises:
+        InstallationFileError: the file is unusable or has no Models section.
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
-    models = load_scopes_data(data_file).get('Models')
+    models = read_installation_file(path).get('Models')
     if not isinstance(models, dict):
-        raise ConfigError(
-            f'scopes.json at {path} has no usable Models section '
-            f'(found {type(models).__name__}); reinstall or restore the file'
+        raise InstallationFileError(
+            path, f'has no usable Models section (found {type(models).__name__})'
         )
+    for model, entry in models.items():
+        if not isinstance(entry, dict):
+            logger.warning(f"[LAYER_RECORD] model '{model}' should be an object in {path}")
+            continue
+        for field, expected_type in _MODEL_ENTRY_FIELDS.items():
+            if field not in entry:
+                logger.warning(f"[LAYER_RECORD] model '{model}' missing '{field}' in {path}")
+            elif not isinstance(entry[field], expected_type):
+                logger.warning(
+                    f"[LAYER_RECORD] model '{model}'.'{field}' should be "
+                    f'{expected_type.__name__}, got {type(entry[field]).__name__} in {path}'
+                )
     return models
 
 
@@ -209,19 +216,24 @@ def entry_expects_motion(entry: dict | None) -> bool:
     return entry is None or bool(entry_axes(entry))
 
 
-def load_layer_catalogue(scopes_data: dict) -> tuple[str, ...]:
-    """The release's layer vocabulary, in display order.
+def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[str, ...]:
+    """The release's layer vocabulary, in display order, or a refusal naming ``path``.
 
     The catalogue is the single authored order: a layer's id IS its
     position here, and every identity row (model or per-unit block) must
     name a catalogued key to resolve. Deriving the order from the
     per-model row lists instead would make id assignment depend on which
-    model happens to be listed first, so the order is stated once.
+    model happens to be listed first, so the order is stated once. An
+    empty vocabulary would let the settings check pass with no layers to
+    check, so a missing one refuses.
+
+    Raises:
+        InstallationFileError: ``LayerOrder`` is missing, empty, or not a
+            list of names.
     """
     raw = scopes_data.get('LayerOrder')
     if not isinstance(raw, list) or not raw or not all(isinstance(k, str) for k in raw):
-        logger.error(f'[LAYER_RECORD] LayerOrder missing, empty, or malformed: {raw!r}')
-        return ()
+        raise InstallationFileError(path, f'has no usable LayerOrder (found {raw!r})')
     return tuple(raw)
 
 
@@ -315,8 +327,9 @@ def resolve_layer_identity(
     board_config_read_ok: bool,
     motor_model: str | None,
     configured_model: str | None,
+    models: Mapping,
+    catalogue: tuple[str, ...],
     override_model: str | None = None,
-    data_file: str | None = None,
 ) -> LayerIdentity:
     """Resolve the unit's layer identity from the first authoritative source.
 
@@ -336,13 +349,12 @@ def resolve_layer_identity(
     as an error here (the one place both facts are in hand) and the
     model rung answers, so the scope stays usable while the failure
     stays visible.
+
+    Reads nothing: ``models`` is the scope's model catalogue and
+    ``catalogue`` the release's layer vocabulary, each read once by its
+    owner, so rows are resolved against the one vocabulary every layer
+    list in the process uses.
     """
-    scopes_data = load_scopes_data(data_file)
-    catalogue = load_layer_catalogue(scopes_data)
-    models = scopes_data.get('Models')
-    if not isinstance(models, dict):
-        logger.error(f'[LAYER_RECORD] scopes data has no Models section: {sorted(scopes_data)!r}')
-        models = {}
 
     def _from_model(model: str) -> LayerIdentity:
         entry = models.get(model)

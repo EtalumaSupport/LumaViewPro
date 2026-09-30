@@ -132,6 +132,7 @@ class TestScopeCapabilitiesIntegration:
             led=self._stub_led(),
             camera=self._stub_camera(),
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.is_color_native is False
         assert caps.native_bit_depth == 16
@@ -142,6 +143,7 @@ class TestScopeCapabilitiesIntegration:
             led=self._stub_led(),
             camera=self._stub_camera(native_bit_depth=8),
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.native_bit_depth == 8
 
@@ -154,6 +156,7 @@ class TestScopeCapabilitiesIntegration:
             led=self._stub_led(),
             camera=self._stub_camera(is_color_native=True),
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.is_color_native is True
 
@@ -166,6 +169,7 @@ class TestScopeCapabilitiesIntegration:
             led=self._stub_led(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.is_color_native is False
         assert caps.native_bit_depth == 16

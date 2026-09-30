@@ -35,6 +35,7 @@ from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
+from tests.installation_fixtures import copy_installation_files
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
@@ -382,8 +383,7 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
         shutil.copy(repo_root / 'data' / 'tiling.json', data_dir / 'tiling.json')
         # The factory builds the session's helpers from this root and
         # refuses to configure the scope without them.
-        for name in ('objectives.json', 'labware.json'):
-            shutil.copy(repo_root / 'data' / name, data_dir / name)
+        copy_installation_files(data_dir)
 
         loads = []
 

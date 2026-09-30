@@ -30,14 +30,12 @@ properties, not frozen snapshot fields.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
-from modules.path_utils import resolve_data_file
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
@@ -64,33 +62,27 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
         return fallback
 
 
-def _scopes_json_optics(model: str) -> dict[str, float]:
-    """Return the numeric Optics block declared for `model` in scopes.json.
+def _declared_optics(scope_models: Mapping, model: str) -> dict[str, float]:
+    """Return the numeric Optics block the model catalogue declares for `model`.
 
-    The Lumascope Classic line has no motorconfig, so scopes.json is its
-    declared optics source (keyed by scope model). Returns an empty mapping
-    when the file, the model entry, or the Optics block is absent -- the
-    caller then falls through to the next source in the resolution order. A
-    non-numeric or unreadable entry is logged and treated as absent so a
-    corrupt data file degrades the scale rather than aborting scope bring-up.
+    The Lumascope Classic line has no motorconfig, so the catalogue is its
+    declared optics source (keyed by scope model). A model with no entry,
+    or an entry with no Optics block, is a legitimate resolution-order
+    branch (the LS850T sources optics from motorconfig; an unknown scope
+    has none): an empty mapping tells the caller to fall through to the
+    next source. A non-numeric entry is logged and treated as absent so a
+    bad value degrades the scale rather than aborting scope bring-up.
     """
-    if not model:
-        return {}
+    entry = scope_models.get(model) if model else None
+    raw = entry.get('Optics', {}) if isinstance(entry, dict) else {}
     try:
-        with open(resolve_data_file('scopes.json'), encoding='utf-8') as f:
-            scopes = json.load(f)
-        # A model with no scopes.json entry, or an entry with no Optics block,
-        # is a legitimate resolution-order branch (the LS850T sources optics
-        # from motorconfig; an unknown scope has none) -- an empty mapping tells
-        # the caller to fall through to the next source, not a missing value.
-        raw = scopes.get('Models', {}).get(model, {}).get('Optics', {})
         return {key: float(raw[key]) for key in ('PixelSize', 'LensFocalLength') if key in raw}
-    except (OSError, ValueError, TypeError) as e:
-        logger.warning(f'[CAPABILITIES] scopes.json Optics unreadable for {model!r}: {e}')
+    except (ValueError, TypeError, AttributeError) as e:
+        logger.warning(f'[CAPABILITIES] catalogue Optics unusable for {model!r}: {e}')
         return {}
 
 
-def _resolve_pixel_size_um(motorconfig, model: str, camera) -> float | None:
+def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
     """Resolve image pixel pitch (um) from the first real source.
 
     Order: motorconfig Optics (LS820/850/850T) -> scopes.json Optics
@@ -102,7 +94,7 @@ def _resolve_pixel_size_um(motorconfig, model: str, camera) -> float | None:
         mc = _probe('motorconfig.pixel_size', motorconfig.pixel_size, None)
         if mc is not None:
             return float(mc)
-    optics_px = _scopes_json_optics(model).get('PixelSize')
+    optics_px = optics.get('PixelSize')
     if optics_px is not None:
         return optics_px
     if camera is not None:
@@ -115,7 +107,7 @@ def _resolve_pixel_size_um(motorconfig, model: str, camera) -> float | None:
     return None
 
 
-def _resolve_lens_focal_length_mm(motorconfig, model: str) -> float | None:
+def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     """Resolve tube-lens focal length (mm) from the first real source.
 
     Order: motorconfig Optics (LS820/850/850T) -> scopes.json Optics
@@ -126,7 +118,7 @@ def _resolve_lens_focal_length_mm(motorconfig, model: str) -> float | None:
         mc = _probe('motorconfig.lens_focal_length', motorconfig.lens_focal_length, None)
         if mc is not None:
             return float(mc)
-    optics_fl = _scopes_json_optics(model).get('LensFocalLength')
+    optics_fl = optics.get('LensFocalLength')
     if optics_fl is not None:
         return optics_fl
     return None
@@ -249,6 +241,7 @@ class ScopeCapabilities:
         led: LEDBoardProtocol,
         camera: object | None,
         layer_identity: LayerIdentity,
+        scope_models: Mapping,
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
@@ -268,6 +261,8 @@ class ScopeCapabilities:
             camera: A camera object or None.
             layer_identity: The scope's resolved identity; its model is
                 the capabilities' model, so the two cannot disagree.
+            scope_models: The scope's model catalogue, read once at its
+                construction; the model's declared optics come from it.
         """
         # Motion
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
@@ -276,8 +271,9 @@ class ScopeCapabilities:
         # Optics (read once at boot; motorconfig is loaded once at driver
         # init and is immutable for the run).
         motorconfig = getattr(motion, 'motorconfig', None)
-        pixel_size_um = _resolve_pixel_size_um(motorconfig, model, camera)
-        lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, model)
+        optics = _declared_optics(scope_models, model)
+        pixel_size_um = _resolve_pixel_size_um(motorconfig, optics, camera)
+        lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, optics)
 
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())

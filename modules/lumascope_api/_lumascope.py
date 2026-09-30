@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import types
 import warnings
 
 from lvp_logger import logger
@@ -281,25 +282,35 @@ class Lumascope:
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
-    def _read_catalogues(self, source_path: 'str | os.PathLike') -> None:
-        """Read the installation's labware and objective catalogues once, from ``source_path``.
+    def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
+        """Read the installation's files once, from ``source_path``; return the motor defaults.
 
-        The scope is their one owner. Its runtime state, protocol
-        construction, the session and the run all read these two objects,
-        so no two parts of one session can disagree about which plates or
-        objectives exist. Both are read-only after construction, so every
-        thread may share them.
+        The scope is the one owner of the labware, objective and model
+        catalogues. Its runtime state, protocol construction, the session,
+        the run and the GUI all read these objects, so no two parts of one
+        session can disagree about which plates, objectives or models
+        exist. All are read-only after construction, so every thread may
+        share them. The motor defaults are returned rather than kept: the
+        motor driver takes them, and nothing else reads them.
 
         Raises:
-            InstallationFileError: a catalogue file is missing, unreadable,
-                or not the shape its loader needs, naming the file.
+            InstallationFileError: a file is missing, unreadable, or not the
+                shape its reader needs, naming the file.
         """
-        from modules import labware_loader, objectives_loader
+        from modules import labware_loader, layer_record, objectives_loader
 
         # A string, the type the session's source_path has always had.
         self.source_path = str(source_path)
         self.wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
+        self.scope_models = types.MappingProxyType(
+            layer_record.load_scope_models(
+                resolve_data_file('scopes.json', source_path=source_path)
+            )
+        )
+        return read_installation_file(
+            resolve_data_file('motorconfig_defaults.json', source_path=source_path)
+        )
 
     def _init_minimal(self, simulated: bool, ui_dispatcher=None) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
@@ -352,13 +363,13 @@ class Lumascope:
 
     @staticmethod
     def _build_simulated_motor_board(
-        model: str, sim_tier: str, motorconfig_defaults: dict
+        model: str, axes: frozenset[str], sim_tier: str, motorconfig_defaults: dict
     ) -> MotorBoardProtocol:
         """The simulated scope's motor board, on the tier asked for.
 
-        Both tiers ask the catalogue which axes the model has: a model
-        with no axes has no motor board, so it gets the null driver on
-        either tier. The fast tier goes through the registry's simulator
+        ``axes`` are the ones the catalogue gives the model: a model with
+        none has no motor board, so it gets the null driver on either
+        tier. The fast tier goes through the registry's simulator
         selection with those axes. The firmware tier builds the production
         driver by name against the emulator: a model with axes whose
         emulator does not come up raises, because the registry's auto path
@@ -367,9 +378,6 @@ class Lumascope:
         """
         if sim_tier not in SIMULATOR_TIERS:
             raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
-        from modules.layer_record import load_scope_models, model_axes
-
-        axes = model_axes(load_scope_models(), model)
         if not axes:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
@@ -396,7 +404,9 @@ class Lumascope:
         return board
 
     @staticmethod
-    def _build_simulated_led_board(model: str, sim_tier: str) -> LEDBoardProtocol:
+    def _build_simulated_led_board(
+        model: str, axes: frozenset[str], sim_tier: str
+    ) -> LEDBoardProtocol:
         """The simulated scope's LED board, on the tier asked for.
 
         The catalogue names no LED board, so the model's axes stand in for
@@ -409,9 +419,7 @@ class Lumascope:
         tier is the one the motor board was just built on, which refused
         any tier that is not one of the two.
         """
-        from modules.layer_record import load_scope_models, model_axes
-
-        if sim_tier == 'fast' or not model_axes(load_scope_models(), model):
+        if sim_tier == 'fast' or not axes:
             board = led_registry.create('auto', simulate=True)
             logger.info(f'[SCOPE API ] Using SIMULATED LED Board (model={model})')
             return board
@@ -509,28 +517,28 @@ class Lumascope:
             _fire_pre_release_warning()
         self._fx2_debug_wire = fx2_debug_wire
 
-        # Read before anything is started, like the motor defaults below: a
-        # missing or unusable catalogue stops the bring-up with nothing to
-        # tear down.
-        self._read_catalogues(get_source_root(source_path))
+        # Read before anything is started, so a missing or unusable
+        # installation file stops the bring-up with nothing to tear down.
+        # The motor defaults are read on every model: the motor probe below
+        # runs on every model, and a board it finds takes them.
+        motorconfig_defaults = self._read_catalogues(get_source_root(source_path))
+        from modules.layer_record import entry_expects_motion, model_axes
 
-        # Read before anything is started, so a missing install file stops
-        # the bring-up with nothing to tear down. It is read on every model:
-        # the motor probe below runs on every model, and a board it finds
-        # takes these defaults.
-        motorconfig_defaults = read_installation_file(
-            resolve_data_file('motorconfig_defaults.json')
-        )
-        # Whether the selected model is a manual scope, so a probe that finds
-        # no motor board says so as expected rather than warning on every
-        # start. The probe still runs: a board it finds corrects a wrongly
-        # selected model. Read here, before anything is started, for the same
-        # reason as the defaults.
-        if not simulate:
-            from modules.layer_record import entry_expects_motion, load_scope_models
+        # Decided here, before anything is started, for the same reason: a
+        # model the catalogue does not list refuses before a lane exists.
+        if simulate:
+            from modules.settings_init import settings
 
+            default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
+            model = sim_model or configured_model or default_model
+            sim_axes = model_axes(self.scope_models, model)
+        else:
+            # Whether the selected model is a manual scope, so a probe that
+            # finds no motor board says so as expected rather than warning
+            # on every start. The probe still runs: a board it finds corrects
+            # a wrongly selected model.
             motor_absence_expected = not entry_expects_motion(
-                load_scope_models().get(configured_model)
+                self.scope_models.get(configured_model)
             )
 
         # Shared state-slot init (audit #35) -- transformers, locks,
@@ -554,12 +562,8 @@ class Lumascope:
         # falls back to NullMotionBoard if all fail, so no manual
         # try/except needed.
         if simulate:
-            from modules.settings_init import settings
-
-            default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
-            model = sim_model or configured_model or default_model
             self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
-                model, sim_tier, motorconfig_defaults
+                model, sim_axes, sim_tier, motorconfig_defaults
             )
         else:
             self._motion_driver = motor_registry.create(
@@ -585,7 +589,9 @@ class Lumascope:
         # ----- LED Control Board -----
         # Same selection as motion: the simulated board on the session's tier.
         if simulate:
-            self._led_driver: LEDBoardProtocol = self._build_simulated_led_board(model, sim_tier)
+            self._led_driver: LEDBoardProtocol = self._build_simulated_led_board(
+                model, sim_axes, sim_tier
+            )
         else:
             self._led_driver = led_registry.create('auto', debug_wire=fx2_debug_wire)
 
@@ -668,6 +674,7 @@ class Lumascope:
             led=self._led_driver,
             camera=self._camera_driver,
             layer_identity=self.layer_identity,
+            scope_models=self.scope_models,
         )
 
         # ----- Sub-API wiring -----
@@ -790,7 +797,7 @@ class Lumascope:
 
     def _resolve_layer_identity(self, override_model: str | None = None):
         """Run the identity resolver against the current drivers and config."""
-        from modules.layer_record import resolve_layer_identity
+        from modules.layer_record import release_catalogue, resolve_layer_identity
 
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
@@ -805,6 +812,8 @@ class Lumascope:
             board_config_read_ok=read_ok,
             motor_model=motor_model,
             configured_model=self._configured_model,
+            models=self.scope_models,
+            catalogue=release_catalogue(),
             override_model=override_model,
         )
 
@@ -1375,14 +1384,11 @@ class Lumascope:
             Lumascope: Instance with led/motion connected, camera=None.
         """
         instance = cls.__new__(cls)
-        # The same read __init__ makes, first: one construction path for the
-        # catalogues on every scope.
-        instance._read_catalogues(get_source_root(source_path))
-        # Read before anything is started, as __init__ does: a missing
-        # install file stops the diagnostic with nothing to tear down.
-        motorconfig_defaults = read_installation_file(
-            resolve_data_file('motorconfig_defaults.json')
-        )
+        # The same read __init__ makes, first, before anything is started:
+        # one construction path for the installation's files on every
+        # scope, and a missing one stops the diagnostic with nothing to
+        # tear down.
+        motorconfig_defaults = instance._read_catalogues(get_source_root(source_path))
         # Shared state-slot init (audit #35) -- same call __init__ makes.
         instance._init_minimal(simulated=False)
 
@@ -1425,6 +1431,7 @@ class Lumascope:
             led=instance._led_driver,
             camera=None,
             layer_identity=instance.layer_identity,
+            scope_models=instance.scope_models,
         )
 
         # Sub-API wiring -- diagnostic instances are first-class enough

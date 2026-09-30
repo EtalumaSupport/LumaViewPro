@@ -97,6 +97,8 @@ if __name__ == '__main__':
 
     memory_profile.start(source_path)
 
+    from modules.exceptions import InstallationFileError
+
     try:
         from modules.settings_init import load_lvp_settings
 
@@ -106,6 +108,12 @@ if __name__ == '__main__':
 
         settings = initialized_settings
 
+    # The settings check reads the release's layer vocabulary from the
+    # installation's scopes.json; a broken file there is the installation's
+    # fault, and saying "settings" would send the user to the wrong file.
+    except InstallationFileError as e:
+        logger.critical(f'[LVP Main  ] {e.title} -- cannot continue. {e}')
+        sys.exit(1)
     except Exception as e:  # grain: ignore NAKED_EXCEPT
         logger.critical(f'[LVP Main  ] Failed to load settings -- cannot continue. {e}')
         sys.exit(1)

@@ -21,7 +21,7 @@ import time
 import pytest
 
 import tests.ast_seams as ast_seams
-from modules.exceptions import ConfigError
+from modules.exceptions import InstallationFileError
 from tests.scope_fakes import build_scope
 
 
@@ -38,22 +38,22 @@ class TestScopeModelsCatalogue:
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Layers': []}))
-        with pytest.raises(ConfigError) as info:
+        with pytest.raises(InstallationFileError, match='Models') as info:
             load_scope_models(str(path))
-        assert 'Models' in str(info.value) and str(path) in str(info.value)
+        assert info.value.file_path == path
 
     def test_a_models_section_that_is_not_a_dict_refuses(self, tmp_path):
         from modules.layer_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Models': ['LS850T']}))
-        with pytest.raises(ConfigError):
+        with pytest.raises(InstallationFileError):
             load_scope_models(str(path))
 
     def test_an_unreadable_file_refuses_instead_of_returning_empty(self, tmp_path):
         from modules.layer_record import load_scope_models
 
-        with pytest.raises(ConfigError):
+        with pytest.raises(InstallationFileError):
             load_scope_models(str(tmp_path / 'missing.json'))
 
 

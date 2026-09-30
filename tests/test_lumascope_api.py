@@ -468,6 +468,7 @@ class TestFrameValidityDuringHoming:
             led=scope._led_driver,
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
+            scope_models=scope.scope_models,
         )
         captured = {}
 
@@ -992,6 +993,7 @@ class TestScopeCapabilities:
             led=scope._led_driver,
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
+            scope_models=scope.scope_models,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -1008,6 +1010,7 @@ class TestScopeCapabilities:
             led=scope._led_driver,
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
+            scope_models=scope.scope_models,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -1023,6 +1026,7 @@ class TestScopeCapabilities:
             led=NullLEDBoard(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.axes == ()
         assert caps.has_focus is False
@@ -1040,13 +1044,18 @@ class TestScopeCapabilities:
             led=NullLEDBoard(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert len(caps.led_channels) == 6
         assert caps.led_channels == (0, 1, 2, 3, 4, 5)
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""
-        from modules.layer_record import resolve_layer_identity
+        from modules.layer_record import (
+            load_scope_models,
+            release_catalogue,
+            resolve_layer_identity,
+        )
         from modules.scope_capabilities import ScopeCapabilities
 
         class FourChannelLED(SimulatedLEDBoard):
@@ -1062,7 +1071,10 @@ class TestScopeCapabilities:
                 board_config_read_ok=True,
                 motor_model=None,
                 configured_model='LS620',
+                models=load_scope_models(),
+                catalogue=release_catalogue(),
             ),
+            scope_models=load_scope_models(),
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}

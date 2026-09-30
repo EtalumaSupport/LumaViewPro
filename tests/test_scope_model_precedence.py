@@ -152,29 +152,3 @@ class TestTheBringUpAdoptsTheReportedModel:
         finally:
             session.shutdown()
             session.scope.disconnect()
-
-    def test_the_catalogue_refusal_precedes_any_write_to_the_callers_dict(
-        self, tmp_path, monkeypatch
-    ):
-        from modules import layer_record
-        from modules.exceptions import ConfigError
-
-        scope = _sim_scope(sim_model='LS850T')
-        raw = complete_settings(live_folder=str(tmp_path), microscope='LS850')
-        raw['turret_objectives'] = {'1': '10x Oly', '2': None, '3': None, '4': None}
-        session = ScopeSession.create(settings=raw, scope=scope, warn_pre_release=False)
-        monkeypatch.setattr(
-            layer_record,
-            'load_scope_models',
-            lambda *a, **k: (_ for _ in ()).throw(ConfigError('no Models')),
-        )
-        try:
-            with pytest.raises(ConfigError):
-                session.configure_scope()
-            assert session.settings['microscope'] == 'LS850', 'nothing was written past the refusal'
-            assert list(session.settings['turret_objectives']) == ['1', '2', '3', '4'], (
-                'the slot keys were not normalized past the refusal'
-            )
-        finally:
-            session.shutdown()
-            scope.disconnect()

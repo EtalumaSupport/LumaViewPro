@@ -20,9 +20,10 @@ from modules.layer_record import (
     LayerIdentity,
     LayerRecord,
     load_layer_catalogue,
-    load_scopes_data,
     resolve_layer_identity,
 )
+from modules.exceptions import InstallationFileError
+from modules.path_utils import read_installation_file
 
 CATALOGUE = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
@@ -78,7 +79,10 @@ def resolve(data_file, **kwargs):
         'configured_model': None,
     }
     defaults.update(kwargs)
-    return resolve_layer_identity(data_file=data_file, **defaults)
+    data = read_installation_file(data_file)
+    return resolve_layer_identity(
+        models=data['Models'], catalogue=load_layer_catalogue(data, data_file), **defaults
+    )
 
 
 class TestCatalogue:
@@ -100,19 +104,12 @@ class TestCatalogue:
         identity = resolve(path, motor_model='M')
         assert [r.id for r in identity.layers] == sorted(r.id for r in identity.layers)
 
-    def test_missing_layer_order_is_loud_and_empty(self, tmp_path):
+    def test_missing_layer_order_refuses_naming_the_file(self, tmp_path):
         path = tmp_path / 'scopes_fixture.json'
         path.write_text(json.dumps({'LS850T': {'Layers': LS850T_ROWS}}), encoding='utf-8')
-        _mock_logger.reset_mock()
-        catalogue = load_layer_catalogue(load_scopes_data(str(path)))
-        assert catalogue == ()
-        assert 'LayerOrder' in errors_logged()
-
-    def test_unreadable_file_is_loud_and_empty(self, tmp_path):
-        _mock_logger.reset_mock()
-        data = load_scopes_data(str(tmp_path / 'missing.json'))
-        assert data == {}
-        assert 'unreadable' in errors_logged()
+        with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
+            load_layer_catalogue(read_installation_file(path), path)
+        assert refused.value.file_path == path
 
 
 class TestPrecedence:

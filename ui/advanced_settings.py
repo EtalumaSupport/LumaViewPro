@@ -293,8 +293,8 @@ class AdvancedSettings(Popup):
         ctx.stage.show_protocol_steps(enable=enabled)
 
     def load_scopes(self):
-        scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
-        self.ids['scope_spinner'].values = list(scopes.keys())
+        # The scope's own model catalogue, read once at its construction.
+        self.ids['scope_spinner'].values = list(_app_ctx.ctx.session.scope.scope_models)
 
     def select_scope(self):
         ctx = _app_ctx.ctx

@@ -29,6 +29,8 @@ def _resolve(**kwargs):
         'board_config_read_ok': True,
         'motor_model': None,
         'configured_model': None,
+        'models': layer_record.load_scope_models(),
+        'catalogue': layer_record.release_catalogue(),
     }
     args.update(kwargs)
     return layer_record.resolve_layer_identity(**args)

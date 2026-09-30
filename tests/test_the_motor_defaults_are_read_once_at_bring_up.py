@@ -8,8 +8,8 @@ the working directory and run on an empty table when it was not there, so
 a scope started from another folder converted positions and bounded moves
 by hardcoded fallbacks with only a log line to say so.
 
-Now the bring-up reads it once, through the same resolver as the model
-catalogue, and hands it to the motor drivers. A missing or unreadable
+Now the scope reads it once, from the folder it was started on, beside
+the catalogues, and hands it to the motor drivers. A missing or unreadable
 file stops the bring-up, naming the file.
 """
 
@@ -18,25 +18,35 @@ import threading
 
 import pytest
 
-import modules.lumascope_api._lumascope as lumascope_module
 from drivers.motorconfig import MotorConfig
 from modules.exceptions import InstallationFileError
 from modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scope_fakes import build_scope
+from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
 
 
-def _session(model: str = 'LS850T') -> ScopeSession:
+def _session(root, model: str = 'LS850T') -> ScopeSession:
     return ScopeSession.create(
         complete_settings(microscope=model),
         simulate=True,
+        source_path=str(root),
         warn_pre_release=False,
     )
 
 
-def _defaults_at(monkeypatch, path):
-    monkeypatch.setattr(lumascope_module, 'resolve_data_file', lambda *parts: path)
+def _install_with_defaults(tmp_path, content):
+    """An installation folder whose motor defaults hold ``content`` (None: missing)."""
+    data = tmp_path / 'data'
+    data.mkdir()
+    copy_installation_files(data)
+    path = data / 'motorconfig_defaults.json'
+    if content is None:
+        path.unlink()
+    else:
+        path.write_text(content, encoding='utf-8')
+    return tmp_path, path
 
 
 @pytest.mark.parametrize(
@@ -48,15 +58,12 @@ def _defaults_at(monkeypatch, path):
     ],
     ids=['missing', 'corrupt', 'not-an-object'],
 )
-def test_a_bad_defaults_file_stops_the_bring_up_naming_it(monkeypatch, tmp_path, content, says):
-    path = tmp_path / 'motorconfig_defaults.json'
-    if content is not None:
-        path.write_text(content, encoding='utf-8')
-    _defaults_at(monkeypatch, path)
+def test_a_bad_defaults_file_stops_the_bring_up_naming_it(tmp_path, content, says):
+    root, path = _install_with_defaults(tmp_path, content)
     threads_before = set(threading.enumerate())
 
     with pytest.raises(InstallationFileError, match=says) as refused:
-        _session()
+        _session(root)
 
     assert refused.value.file_path == path
     # Refused before anything was started, so nothing is left running.
@@ -64,13 +71,13 @@ def test_a_bad_defaults_file_stops_the_bring_up_naming_it(monkeypatch, tmp_path,
 
 
 @pytest.mark.parametrize('model', ['LS620', 'LS850T'])
-def test_a_bad_defaults_file_stops_the_bring_up_on_every_model(monkeypatch, tmp_path, model):
+def test_a_bad_defaults_file_stops_the_bring_up_on_every_model(tmp_path, model):
     # The motor probe runs on every model, and a board it finds takes the
     # defaults, so a scope with no motors is not exempt.
-    _defaults_at(monkeypatch, tmp_path / 'motorconfig_defaults.json')
+    root, _path = _install_with_defaults(tmp_path, None)
 
     with pytest.raises(InstallationFileError, match=r'motorconfig_defaults\.json'):
-        _session(model)
+        _session(root, model)
 
 
 def test_the_defaults_are_found_from_any_working_directory(monkeypatch, tmp_path):

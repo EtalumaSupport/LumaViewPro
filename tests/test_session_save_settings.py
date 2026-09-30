@@ -15,6 +15,7 @@ import pytest
 import modules.settings_init as settings_init
 from modules.exceptions import SettingsSaveRefusedError
 from modules.scope_session import ScopeSession
+from tests.installation_fixtures import copy_installation_files
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIPPED_TEMPLATE = os.path.join(REPO_ROOT, 'data', 'settings.json')
@@ -28,8 +29,7 @@ def session(tmp_path, monkeypatch):
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
     # The factory builds the session's helpers from this root and refuses
     # to configure the scope without them.
-    for name in ('objectives.json', 'labware.json'):
-        shutil.copy(os.path.join(os.path.dirname(SHIPPED_TEMPLATE), name), data / name)
+    copy_installation_files(data)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
     return ScopeSession.create(

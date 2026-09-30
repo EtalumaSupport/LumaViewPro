@@ -4012,6 +4012,7 @@ from tests.camera_fakes import (
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
 from tests.scope_fakes import build_scope, give_stub_lanes, swap_lanes
+from tests.installation_fixtures import copy_installation_files
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -9731,6 +9732,7 @@ class TestAxisTravelLimitsOnCapabilities:
             led=NullLEDBoard(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         # tiling_config / motion_settings / stage consumers gate on the
         # capability and fall back to DEFAULT_STAGE_TRAVEL_UM.
@@ -9795,6 +9797,7 @@ class TestOpticsOnCapabilities:
             led=NullLEDBoard(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.pixel_size_um is None
         assert caps.lens_focal_length_mm is None
@@ -10027,6 +10030,7 @@ class TestCameraMaxFrameSizeOnCapabilities:
             led=NullLEDBoard(),
             camera=None,
             layer_identity=UNRESOLVED,
+            scope_models={},
         )
         assert caps.camera_max_frame_size == (0, 0)
 
@@ -10978,8 +10982,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         from_settings = dict(template, marker='from-settings')
         (tmp_path / 'data' / 'current.json').write_text(json.dumps(from_current))
         (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
-        for name in ('objectives.json', 'labware.json'):
-            shutil.copy(shipped.parent / name, tmp_path / 'data' / name)
+        copy_installation_files(tmp_path / 'data')
         session = ScopeSession.create(
             ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
         )

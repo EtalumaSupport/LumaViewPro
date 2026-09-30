@@ -130,7 +130,7 @@ class TestCapabilityMapping:
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )
         return ScopeCapabilities.from_drivers(
-            motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED
+            motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED, scope_models={}
         )
 
     def test_ids_reports_no_hardware_autogain(self):

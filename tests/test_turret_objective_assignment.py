@@ -19,6 +19,7 @@ the middle of the workflow that resolves it.
 import ast
 import inspect
 import json
+from tests.installation_fixtures import copy_installation_files
 
 
 class TestTurretSlotKeyMatchesTheFile:
@@ -151,8 +152,8 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         shipped = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
         data = tmp_path / 'data'
         data.mkdir()
-        for name in ('settings.json', 'objectives.json', 'labware.json'):
-            shutil.copy(os.path.join(shipped, name), data / name)
+        shutil.copy(os.path.join(shipped, 'settings.json'), data / 'settings.json')
+        copy_installation_files(data)
 
         # A real field file: duplicate keys, exactly as the bench bundle held them.
         required = _json.dumps(_REQUIRED_KEYS)[1:-1]

@@ -56,7 +56,7 @@ def eighth_layer_release(tmp_path, monkeypatch):
     monkeypatch.setattr(
         layer_record,
         '_CATALOGUE_CACHE',
-        layer_record.load_layer_catalogue(layer_record.load_scopes_data(str(path))),
+        layer_record.load_layer_catalogue(json.loads(path.read_text(encoding='utf-8')), path),
     )
     return str(path)
 
@@ -67,7 +67,8 @@ def test_identity_resolves_the_eighth_layer(eighth_layer_release):
         board_config_read_ok=True,
         motor_model='LS850T',
         configured_model=None,
-        data_file=eighth_layer_release,
+        models=layer_record.load_scope_models(eighth_layer_release),
+        catalogue=layer_record.release_catalogue(),
     )
     nir = identity.find('NIR')
     assert nir is not None

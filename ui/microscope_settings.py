@@ -23,7 +23,6 @@ from modules.config_ui_getters import (
     firmware_stim_supported,
     get_binning_from_ui,
 )
-from modules.path_utils import resolve_data_file
 from modules.memory_profiler import MemoryLeakProfiler
 import modules.image_mode as image_mode
 from modules.zstack_config import ZStackConfig
@@ -120,57 +119,6 @@ class MicroscopeSettings(BoxLayout):
         # Coalesce rapid set_frame_size requests. See
         # _CoalescingApplier + issue #624.
         self._frame_size_applier = _CoalescingApplier(name='frame_size')
-
-        scopes_path = resolve_data_file('scopes.json')
-        try:
-            with open(scopes_path) as read_file:
-                # The file carries two typed sections: the release layer
-                # catalogue (the identity resolver's business) and the
-                # model entries. This widget wants only the models --
-                # `self.scopes` stays a models-only dict for every
-                # consumer, the model dropdown included -- and a file
-                # without the section is as unusable as an unparseable
-                # one, so it gets the same loud treatment.
-                self.scopes = json.load(read_file)['Models']
-        except FileNotFoundError as e:
-            logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
-            raise RuntimeError(
-                f'Required file scopes.json not found at {scopes_path}. '
-                'Please reinstall or restore from backup.'
-            ) from e
-        except json.JSONDecodeError as e:
-            logger.error(f'[LVP Main  ] scopes.json is corrupt: {e}')
-            raise RuntimeError(
-                f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
-        except KeyError as e:
-            logger.error(f'[LVP Main  ] scopes.json has no Models section at {scopes_path}')
-            raise RuntimeError(
-                f'scopes.json at {scopes_path} has no Models section. '
-                'Please restore from backup or reinstall.'
-            ) from e
-
-        self._validate_scopes(scopes_path)
-
-    def _validate_scopes(self, filepath):
-        """Check scopes.json has required structure per scope entry."""
-        if not isinstance(self.scopes, dict):
-            raise ValueError(
-                f'scopes.json at {filepath}: expected dict, got {type(self.scopes).__name__}'
-            )
-        _REQUIRED_SCOPE_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
-        for scope_id, scope in self.scopes.items():
-            if not isinstance(scope, dict):
-                logger.warning(f"[Scopes    ] '{scope_id}' should be dict in {filepath}")
-                continue
-            for field, expected_type in _REQUIRED_SCOPE_FIELDS.items():
-                if field not in scope:
-                    logger.warning(f"[Scopes    ] '{scope_id}' missing '{field}' in {filepath}")
-                elif not isinstance(scope[field], expected_type):
-                    logger.warning(
-                        f"[Scopes    ] '{scope_id}'.'{field}' should be "
-                        f'{expected_type.__name__}, got {type(scope[field]).__name__} in {filepath}'
-                    )
 
         # try:
         #     os.chdir(source_path)

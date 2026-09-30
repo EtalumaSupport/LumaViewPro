@@ -62,7 +62,7 @@ def _caps_with(led) -> ScopeCapabilities:
     motion.detect_present_axes.return_value = ()
     motion.get_microscope_model.return_value = ''
     return ScopeCapabilities.from_drivers(
-        motion=motion, led=led, camera=None, layer_identity=UNRESOLVED
+        motion=motion, led=led, camera=None, layer_identity=UNRESOLVED, scope_models={}
     )
 
 

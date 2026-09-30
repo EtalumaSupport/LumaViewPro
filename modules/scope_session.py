@@ -1007,14 +1007,10 @@ class ScopeSession:
             model: A model the release's catalogue lists.
 
         Raises:
-            ScopeModelUnknownError: the catalogue does not list ``model``;
-                nothing is saved.
-            ConfigError: the catalogue itself has no usable ``Models``
-                section.
+            ScopeModelUnknownError: the scope's catalogue does not list
+                ``model``; nothing is saved.
         """
-        from modules import layer_record
-
-        scope_models = layer_record.load_scope_models()
+        scope_models = self.scope.scope_models
         if model not in scope_models:
             raise ScopeModelUnknownError(model, scope_models)
         self.update_settings('microscope', model)
@@ -1041,15 +1037,13 @@ class ScopeSession:
         Raises:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
-                turret); that ``objective_id`` names no shipped objective; or
-                the model catalogue has no usable ``Models`` section.
+                turret); or that ``objective_id`` names no shipped objective.
             HardwareCommandRefusedError: a run, a diagnostic or a recording
                 holds the scope. The configuration rewrites the LEDs, the
                 camera geometry and acceleration under whatever holds it,
                 and its writes run inline, where no lane refuses them.
         """
         import modules.config_helpers as config_helpers
-        from modules import layer_record
         from modules.scope_init_config import ScopeInitConfig
 
         holder = self.activity_claim.holder
@@ -1057,9 +1051,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'configure_scope', holder.kind
             )
-        # The catalogue first: its refusal must land before anything below
-        # mutates the caller's dict.
-        scope_models = layer_record.load_scope_models()
+        scope_models = self.scope.scope_models
         # The hardware's own model outranks the stored selection, and it
         # has to land before the two reads of the selection below, or a
         # unit whose file says the wrong model configures for the wrong
@@ -1267,10 +1259,9 @@ class ScopeSession:
         if self.scope.motor_connected:
             return bool(self.scope.capabilities.has_turret)
         import modules.config_helpers as config_helpers
-        from modules import layer_record
 
         return config_helpers.model_has_turret(
-            layer_record.load_scope_models(), self.scope.layer_identity.model
+            self.scope.scope_models, self.scope.layer_identity.model
         )
 
     def objective_question(self) -> 'ObjectiveQuestion | None':

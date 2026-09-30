@@ -16,6 +16,7 @@ import shutil
 import pytest
 
 import modules.settings_init as settings_init
+from tests.installation_fixtures import copy_installation_files
 
 logger = logging.getLogger('test_settings_preparation')
 
@@ -29,8 +30,7 @@ def _data_dir(tmp_path):
     shutil.copy(SHIPPED_TEMPLATE, data / 'settings.json')
     # The factory builds the session's helpers from this root and refuses
     # to configure the scope without them.
-    for name in ('objectives.json', 'labware.json'):
-        shutil.copy(os.path.join(os.path.dirname(SHIPPED_TEMPLATE), name), data / name)
+    copy_installation_files(data)
     return data
 
 

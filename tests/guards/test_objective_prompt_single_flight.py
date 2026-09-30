@@ -38,6 +38,7 @@ from tests.ast_seams import (
 )
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.installation_fixtures import copy_installation_files
 from ui.vertical_control import VerticalControl
 
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -381,8 +382,7 @@ class TestProvisionalSettings:
         shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
         # The factory builds the session's helpers from this root and refuses
         # to configure the scope without them.
-        for name in ('objectives.json', 'labware.json'):
-            shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
+        copy_installation_files(data)
         monkeypatch.setattr(settings_init, 'settings', None)
         monkeypatch.setattr(settings_init, 'rejected_current_json', None)
         session = ScopeSession.create(
