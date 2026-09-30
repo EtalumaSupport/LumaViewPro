@@ -998,8 +998,7 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         output_dir = tmp_path / 'out'
         runner = bare_capture_runner()
         runner._scope.protocols.tiling_configs_path.side_effect = RuntimeError(
-            'scope.protocols.load_protocol/create_protocol require '
-            'scope.protocols.register_source_path() to have been called.'
+            'the tiling config path could not be resolved'
         )
         # A post-run step spawned here would carry the failure onto a
         # daemon thread, which is the shape this contract replaces.

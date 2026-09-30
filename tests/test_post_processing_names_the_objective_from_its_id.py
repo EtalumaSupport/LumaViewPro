@@ -11,11 +11,16 @@ derive the token through one function, so they cannot name one objective two
 ways.
 """
 
+import json
+import pathlib
+
 import pytest
 
 from modules.common_utils import PostFunction
 from modules.objectives_loader import ObjectiveLoader, objective_short_name
 from modules.protocol_post_processor import ProtocolPostProcessor
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Each shipped objective's token as the catalogue produced it before this
 # change, recorded as data: capture names must not move.
@@ -72,6 +77,20 @@ def test_every_shipped_objective_keeps_its_token():
     for objective_id, token in SHIPPED_TOKENS.items():
         assert catalogue.get_objective_info(objective_id)['short_name'] == token
         assert objective_short_name(objective_id) == token
+
+
+def test_a_catalogue_cannot_rename_an_objective(tmp_path):
+    # Capture takes its token from the catalogue and post-processing derives
+    # it from the id, so a catalogue entry naming its own short_name would
+    # name one objective two ways.
+    catalogue = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
+    catalogue['4x Oly']['short_name'] = 'Custom'
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
+
+    loaded = ObjectiveLoader(source_path=tmp_path)
+
+    assert loaded.get_objective_info('4x Oly')['short_name'] == objective_short_name('4x Oly')
 
 
 def test_an_id_the_catalogue_lacks_is_named(turret_post_processor):

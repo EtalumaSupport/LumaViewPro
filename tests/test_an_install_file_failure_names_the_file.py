@@ -88,5 +88,17 @@ def test_the_loader_raises_one_error_naming_the_file_and_folder(
     )
 
 
+@pytest.mark.parametrize(
+    ('loader', 'name'), [(WellPlateLoader, 'labware.json'), (ObjectiveLoader, 'objectives.json')]
+)
+def test_an_unreadable_catalogue_path_names_the_file(tmp_path, loader, name):
+    (tmp_path / 'data' / name).mkdir(parents=True)
+
+    with pytest.raises(InstallationFileError, match='cannot be read') as failure:
+        loader(source_path=tmp_path)
+
+    assert failure.value.file_path == tmp_path / 'data' / name
+
+
 def test_the_error_is_not_read_as_bad_settings():
     assert not issubclass(InstallationFileError, ConfigError)

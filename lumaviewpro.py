@@ -968,8 +968,8 @@ class LumaViewProApp(TooltipMixin, App):
             set_ui_dispatcher(_ui)
 
             # The Session composes the instrument -- the scope (the camera
-            # registry picks by priority, Pylon -> IDS -> FX2), the three
-            # data-file helpers, the executor topology and the autofocus
+            # registry picks by priority, Pylon -> IDS -> FX2, reading the
+            # labware and objective catalogues), the executor topology and the autofocus
             # pair -- and brings the scope up (configure from settings,
             # then release the camera start gate) before it returns. What
             # only this host knows goes in by name. The pre-release

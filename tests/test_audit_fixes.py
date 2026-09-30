@@ -1603,7 +1603,9 @@ class TestRule14_A8_ScopeSessionHelperNotify:
         def listener(notification):
             posted.append(notification)
 
-        threads_before = {t.name for t in threading.enumerate()}
+        # By object, not name: a same-named lane still winding down from an
+        # earlier test would hide a new one leaked here.
+        threads_before = set(threading.enumerate())
         notifications.add_listener(listener, min_severity=Severity.DEBUG)
         try:
             with pytest.raises(InstallationFileError) as refusal:
@@ -1619,7 +1621,9 @@ class TestRule14_A8_ScopeSessionHelperNotify:
         new_threads = set()
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
-            new_threads = {t.name for t in threading.enumerate()} - threads_before
+            new_threads = {
+                t.name for t in set(threading.enumerate()) - threads_before if t.is_alive()
+            }
             if not new_threads:
                 break
             time.sleep(0.05)

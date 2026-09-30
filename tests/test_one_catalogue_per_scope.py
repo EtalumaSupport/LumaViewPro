@@ -75,6 +75,7 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
         assert session.sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
         assert session.source_path == str(root)
+        assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
     finally:
         _shut(session)
 
@@ -108,17 +109,19 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         _shut(session)
 
 
-def _live_thread_names() -> set[str]:
-    return {t.name for t in threading.enumerate() if t.is_alive()}
+def _live_threads() -> set[threading.Thread]:
+    # By object, not name: a same-named lane still winding down from an
+    # earlier case would hide a new one leaked here.
+    return {t for t in threading.enumerate() if t.is_alive()}
 
 
-def _settle(before: set[str], deadline_s: float = 2.0) -> set[str]:
+def _settle(before: set[threading.Thread], deadline_s: float = 2.0) -> set[str]:
     end = time.monotonic() + deadline_s
-    extra = _live_thread_names() - before
+    extra = _live_threads() - before
     while extra and time.monotonic() < end:
         time.sleep(0.02)
-        extra = _live_thread_names() - before
-    return extra
+        extra = _live_threads() - before
+    return {t.name for t in extra}
 
 
 FAILURES = [
@@ -147,7 +150,7 @@ def test_an_unusable_catalogue_stops_the_bring_up_before_anything_starts(
         posted.append(notification)
 
     notifications.add_listener(listener, min_severity=Severity.DEBUG)
-    before = _live_thread_names()
+    before = _live_threads()
     try:
         with caplog.at_level(logging.DEBUG), pytest.raises(InstallationFileError) as failure:
             ScopeSession.create(

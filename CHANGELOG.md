@@ -23,7 +23,9 @@
   builds its own. `scope.protocols.create_protocol` / `load_protocol` pass them for you.
   `ProtocolTimeEstimator` requires its loader.
 - **Post-processed file names**: the objective token is derived from the id the run recorded,
-  so an objective the current catalogue lacks is named rather than omitted.
+  so an objective the current catalogue lacks is named rather than omitted. A `short_name`
+  written into `objectives.json` is now ignored: capture and post-processing both derive
+  the token from the id, so one objective cannot be named two ways (none ships with one).
 
 - **One session factory: `ScopeSession.create_headless` is removed (SDK, breaking)**:
   build every session with `ScopeSession.create(settings, ..., simulate=...)`. What

@@ -1035,10 +1035,8 @@ class ScopeSession:
         Raises:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
-                turret); that ``objective_id`` names no shipped objective;
-                a data file a helper needs is absent or
-                unreadable (``labware.json``, ``objectives.json``); or the
-                model catalogue has no usable ``Models`` section.
+                turret); that ``objective_id`` names no shipped objective; or
+                the model catalogue has no usable ``Models`` section.
             HardwareCommandRefusedError: a run, a diagnostic or a recording
                 holds the scope. The configuration rewrites the LEDs, the
                 camera geometry and acceleration under whatever holds it,

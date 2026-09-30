@@ -31,7 +31,7 @@ import traceback
 REPO = pathlib.Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
-# The session resolves its shipped data files against the CWD (source_path='.').
+# Probes resolve their relative paths (data/, output folders) against the repo root.
 os.chdir(REPO)
 
 # Each probe subprocess is handed its own scratch root, so concurrent probes

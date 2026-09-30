@@ -328,9 +328,8 @@ class Lumascope:
         self._camera_driver = None
 
         # Settings-host state (_labware / _objective / _objective_id /
-        # _turret_config / _stage_offset) plus its helpers
-        # (_objectives_loader / _coordinate_transformer) live on
-        # self.runtime_state (constructed below in __init__ /
+        # _turret_config / _stage_offset) plus its coordinate transformer
+        # live on self.runtime_state (constructed below in __init__ /
         # create_diagnostic). _state_lock + _cam_lock + ImagingAPI's
         # own caches live on self.imaging. _last_turret_position lives
         # on self.motion. engineering_mode lives on the app context

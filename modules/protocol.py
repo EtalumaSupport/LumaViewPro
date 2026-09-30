@@ -416,8 +416,8 @@ class Protocol:
         """Lightweight copy for protocol execution.
 
         Copies the config dict and steps DataFrame (which get mutated by
-        autofocus Z updates) but shares the read-only TilingConfig. Much cheaper than copy.deepcopy() for large protocols
-        with many steps (M14).
+        autofocus Z updates) but shares the read-only TilingConfig. Much
+        cheaper than copy.deepcopy() for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
         if 'steps' in new_config:
