@@ -84,4 +84,4 @@ def test_disconnect_completes_when_nothing_is_lit(scope):
     driver = scope._led_driver
     assert not _lit_channels(driver)
 
-    assert scope.disconnect() is True
+    assert scope.disconnect() is None

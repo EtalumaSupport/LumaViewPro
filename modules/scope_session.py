@@ -40,6 +40,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     ObjectiveUnknownError,
+    ScopeDisconnectError,
     SettingsSaveRefusedError,
 )
 from modules.manual_capture import ManualCaptureController
@@ -594,7 +595,7 @@ class ScopeSession:
             autofocus_thread.stop(timeout=2.0)
             executor_bundle.shutdown()
             if built_scope:
-                scope.disconnect()
+                cls._report_teardown_failure(scope.disconnect)
             raise
         if built_scope:
             cls._bring_up(session)
@@ -747,6 +748,22 @@ class ScopeSession:
 
         return wellplate_loader, coordinate_transformer, objective_helper
 
+    @staticmethod
+    def _report_teardown_failure(teardown: typing.Callable[[], None]) -> None:
+        """Run a teardown on a path that is already failing, and report a
+        part that did not shut down instead of letting it out.
+
+        The fault that brought the caller here is the one its own caller
+        must see; a disconnect failure raised from inside the handler would
+        replace it and survive only as its context.
+        """
+        from modules.notification_center import notifications
+
+        try:
+            teardown()
+        except ScopeDisconnectError as e:
+            notifications.report_outcome(e, solicited=False, category='Hardware')
+
     @classmethod
     def _bring_up(cls, session: 'ScopeSession') -> None:
         """Configure the scope a factory built; ``initialize`` releases the
@@ -757,7 +774,7 @@ class ScopeSession:
         try:
             session.configure_scope()
         except BaseException:
-            session.shutdown()
+            cls._report_teardown_failure(session.shutdown)
             raise
         # The one marker for "the camera is grabbing and the session is
         # up": a host measures its own consumer's start against it.
@@ -1880,6 +1897,11 @@ class ScopeSession:
         A scope passed in is left connected with its lanes running: it is
         the caller's. A second call is a logged no-op; a call that raised
         part-way can be called again.
+
+        Raises:
+            ScopeDisconnectError: a part of an owned scope did not shut down
+                cleanly; every teardown step has still run, and a second
+                call completes.
         """
         if self._shut_down:
             logger.info('[Session  ] shutdown() called again -- nothing to do')

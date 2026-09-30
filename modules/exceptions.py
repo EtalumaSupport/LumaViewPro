@@ -761,6 +761,47 @@ class MotorStopFailedError(Exception):
         )
 
 
+class ScopeDisconnectError(Exception):
+    """One or more parts of the microscope did not shut down cleanly.
+
+    Raised by ``Lumascope.disconnect`` only after every teardown step has
+    run, so one part's failure never leaves the others connected. Names
+    each part that failed, in the order the teardown reached it, and is
+    chained from the first part's error; ``causes`` holds every part's
+    error. A failure, not a refusal.
+
+    Attributes:
+        parts: The parts that failed, in teardown order.
+        causes: Each failed part's error, keyed by part.
+    """
+
+    title = 'Disconnect Failed'
+
+    _WORDS: ClassVar[dict[str, str]] = {
+        'motor stop': (
+            'The motor STOP command failed; if the stage is still moving, '
+            'power-cycle the microscope.'
+        ),
+        'LED board': (
+            'The LED board did not shut down cleanly; its serial port may be '
+            'left open, and reconnecting may require a restart.'
+        ),
+        'motor board': (
+            'The motor board did not shut down cleanly; its serial port may be '
+            'left open, and reconnecting may require a restart.'
+        ),
+        'camera': (
+            'The camera did not shut down cleanly; its USB resources may not be '
+            'released until the app restarts.'
+        ),
+    }
+
+    def __init__(self, causes: dict[str, BaseException]):
+        self.causes = dict(causes)
+        self.parts = tuple(self.causes)
+        super().__init__(' '.join(self._WORDS[part] for part in self.parts))
+
+
 class HomingFailedError(Exception):
     """A home was driven and did not establish a reference position.
 

@@ -2223,69 +2223,56 @@ class TestHomeRaises:
             getattr(board, method)()
 
 
-class TestDisconnectReturnsBool:
-    """Wave 4 / B2: Lumascope.disconnect must return an aggregated bool
-    indicating whether all sub-system disconnects (LED + motion + camera)
-    succeeded. Best-effort teardown still runs every sub-system and
-    resets state to Null variants even on partial failure.
+class TestDisconnectRaisesAfterTheTeardown:
+    """Lumascope.disconnect runs every teardown step even when one fails,
+    resets every slot to its Null variant, and only then raises one
+    ScopeDisconnectError naming each part that failed. It returns nothing:
+    success is returning, and no caller has a bool to forget to read.
     """
 
-    def test_disconnect_has_bool_return_annotation(self):
+    def test_disconnect_returns_nothing(self):
         from tests.ast_seams import assert_def
 
         assert_def(
             'modules/lumascope_api/_lumascope.py',
             'disconnect',
             class_name='Lumascope',
-            returns='bool',
-            msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
+            returns='None',
+            msg='Lumascope.disconnect must declare `-> None`; a failure is raised',
         )
 
-    @staticmethod
-    def _record_errors(monkeypatch):
-        """Route notifications.error into a list of (component, title, body)."""
-        from modules.notification_center import notifications
-
-        calls = []
-        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: calls.append(args))
-        return calls
-
-    def test_disconnect_led_failure_returns_false_and_notifies(self, sim_scope, monkeypatch):
-        """An LED teardown raise must flip the aggregate to False, fire a
-        user notification, and still reset the slot to NullLEDBoard."""
+    def test_disconnect_led_failure_raises_after_resetting_the_slot(self, sim_scope, monkeypatch):
         from drivers.null_ledboard import NullLEDBoard
+        from modules.exceptions import ScopeDisconnectError
 
-        errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(
             sim_scope._led_driver,
             'disconnect',
             MagicMock(side_effect=RuntimeError('boom')),
             raising=False,
         )
-        result = sim_scope.disconnect()
-        assert result is False, 'disconnect must return False when LED teardown raises'
-        assert any('LED disconnect failed' in e for e in errors), (
-            f'LED teardown raise must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(ScopeDisconnectError) as excinfo:
+            sim_scope.disconnect()
+        assert excinfo.value.parts == ('LED board',)
         assert isinstance(sim_scope._led_driver, NullLEDBoard), (
             'disconnect must reset the LED slot to NullLEDBoard even on failure'
         )
 
-    def test_disconnect_motion_failure_returns_false_and_notifies(self, sim_scope, monkeypatch):
+    def test_disconnect_motion_failure_raises_after_resetting_the_slot(
+        self, sim_scope, monkeypatch
+    ):
         from drivers.null_motorboard import NullMotionBoard
+        from modules.exceptions import ScopeDisconnectError
 
-        errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(
             sim_scope._motion_driver,
             'disconnect',
             MagicMock(side_effect=RuntimeError('boom')),
             raising=False,
         )
-        result = sim_scope.disconnect()
-        assert result is False, 'disconnect must return False when motor teardown raises'
-        assert any('Motor disconnect failed' in e for e in errors), (
-            f'motor teardown raise must notify the user (Rule 14); got {errors}'
-        )
+        with pytest.raises(ScopeDisconnectError) as excinfo:
+            sim_scope.disconnect()
+        assert excinfo.value.parts == ('motor board',)
         assert isinstance(sim_scope._motion_driver, NullMotionBoard), (
             'disconnect must reset the motion slot to NullMotionBoard even on failure'
         )
@@ -2295,46 +2282,48 @@ class TestDisconnectReturnsBool:
         motion + camera teardown or the state reset."""
         from drivers.null_ledboard import NullLEDBoard
         from drivers.null_motorboard import NullMotionBoard
+        from modules.exceptions import ScopeDisconnectError
 
-        self._record_errors(monkeypatch)
         monkeypatch.setattr(
             sim_scope._led_driver,
             'disconnect',
             MagicMock(side_effect=RuntimeError('boom')),
             raising=False,
         )
-        result = sim_scope.disconnect()
-        assert result is False
+        with pytest.raises(ScopeDisconnectError):
+            sim_scope.disconnect()
         assert isinstance(sim_scope._led_driver, NullLEDBoard)
         assert isinstance(sim_scope._motion_driver, NullMotionBoard)
         assert sim_scope._camera_driver is None, (
             'camera teardown must still run after an LED failure'
         )
 
-    def test_disconnect_docstring_documents_returns(self):
+    def test_disconnect_docstring_documents_raises(self):
         from modules.lumascope_api import Lumascope
 
-        assert 'Returns:' in (Lumascope.disconnect.__doc__ or ''), (
-            'disconnect docstring must have a Returns: section'
+        assert 'Raises:' in (Lumascope.disconnect.__doc__ or ''), (
+            'disconnect docstring must have a Raises: section'
         )
 
-    def test_disconnect_on_simulator_returns_true(self, sim_scope):
-        """Sim path: every sub-system disconnects cleanly -> True."""
+    def test_disconnect_on_simulator_completes_without_raising(self, sim_scope):
+        """Sim path: every sub-system disconnects cleanly, nothing raised."""
         # `sim_scope` fixture's teardown also calls disconnect; this
-        # call covers the explicit-return-value contract.
-        result = sim_scope.disconnect()
-        assert result is True, 'Simulator disconnect must return True when no sub-system fails'
+        # call covers the clean-teardown contract.
+        assert sim_scope.disconnect() is None
 
-    def test_disconnect_camera_failure_returns_false(self, sim_scope):
-        """If camera.disconnect raises, the API must catch, notify, and
-        still return False. LED + motion still attempted; state still reset."""
+    def test_disconnect_camera_failure_raises(self, sim_scope):
+        """If camera.disconnect raises, LED + motion are still attempted,
+        state is still reset, and then the failure is raised."""
         # Replace the camera with one whose disconnect raises.
         from unittest.mock import MagicMock
 
+        from modules.exceptions import ScopeDisconnectError
+
         sim_scope._camera_driver = MagicMock()
         sim_scope._camera_driver.disconnect = MagicMock(side_effect=RuntimeError('boom'))
-        result = sim_scope.disconnect()
-        assert result is False, 'disconnect must return False when camera teardown raises'
+        with pytest.raises(ScopeDisconnectError) as excinfo:
+            sim_scope.disconnect()
+        assert excinfo.value.parts == ('camera',)
         assert sim_scope._camera_driver is None, (
             'disconnect must reset self.camera even when teardown raises'
         )

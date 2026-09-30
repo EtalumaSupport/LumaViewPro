@@ -49,7 +49,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
-from modules.exceptions import CameraSettingRejected, MotorStopFailedError
+from modules.exceptions import CameraSettingRejected, ScopeDisconnectError
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
 from typing import TYPE_CHECKING
@@ -1044,21 +1044,20 @@ class Lumascope:
         except Exception:
             return False
 
-    def disconnect(self) -> bool:
+    def disconnect(self) -> None:
         """Disconnect from all hardware (LED, motion, camera) and stop the scope's lanes.
 
-        Best-effort teardown: every sub-system is attempted even if a
-        prior one raises. State is always reset to the Null variants
-        and `_invalidate_camera_cache` always runs, so a partial failure
-        cannot leave the API holding a stale connected driver.
+        Every step runs even if an earlier one fails. State is always reset
+        to the Null variants and `_invalidate_camera_cache` always runs, so
+        a partial failure cannot leave the API holding a stale connected
+        driver. Repeatable: a second call finds nothing left to tear down.
 
-        Returns:
-            bool: True if all three sub-disconnects succeeded. False if
-                any sub-system raised or the camera driver returned
-                False. Each failure is logged and surfaced via
-                notification_center; programmatic callers can branch
-                on the bool for diagnostic / shutdown-sequencing
-                decisions.
+        Raises:
+            ScopeDisconnectError: after every step has run, naming each part
+                that did not shut down cleanly (the motor STOP, the LED
+                board, the motor board, the camera), chained from the first
+                part's error. Nothing is logged or shown here; the caller
+                reports it where it stops.
         """
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
@@ -1097,12 +1096,13 @@ class Lumascope:
         # don't leave a stage/turret moving against an end-stop after
         # the host stops responding to status polls. Defense in depth --
         # every disconnect path benefits without relying on the caller
-        # to remember. A STOP that failed is reported once and the
-        # teardown carries on: the port still has to close.
+        # to remember. A STOP that failed is recorded and the teardown
+        # carries on whatever it raised: the ports still have to close.
+        failures: dict[str, BaseException] = {}
         try:
             self.motion.stop_motion()
-        except MotorStopFailedError as e:
-            notifications.report_outcome(e, solicited=False, category='Motion')
+        except Exception as e:
+            failures['motor stop'] = e
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
@@ -1113,60 +1113,39 @@ class Lumascope:
         # has one. Skips both the canonical no-op states (NullLEDBoard,
         # NullMotionBoard, self._camera_driver is None) and edge-case test
         # fixtures that bend the type system (e.g. `scope.led = object()`
-        # for partial-hardware-warning tests). A skipped sub-system
-        # counts as ok=True -- "nothing to tear down" is success, not
-        # failure. Real drivers that raise inside disconnect() still
-        # flip *_ok to False and fire a Rule-14 notification.
-        led_ok = True
+        # for partial-hardware-warning tests). A skipped sub-system is
+        # not a failure: "nothing to tear down" is success. The catches
+        # are broad because a driver's teardown runs SDK code (pypylon,
+        # ids_peak, pyusb) whose failure types are not ours, and the
+        # teardown goes on whatever it raises.
         if not isinstance(self._led_driver, NullLEDBoard) and hasattr(
             self._led_driver, 'disconnect'
         ):
             try:
                 self._led_driver.disconnect()
             except Exception as ex:
-                led_ok = False
-                logger.exception(f'[SCOPE API ] LED disconnect failed: {ex}')
-                notifications.error(
-                    'Hardware',
-                    'LED disconnect failed',
-                    'The LED board did not shut down cleanly. '
-                    'The serial port may be left open; reconnecting '
-                    'may require a process restart.',
-                )
+                failures['LED board'] = ex
         self._led_driver = NullLEDBoard()
 
-        motion_ok = True
         if not isinstance(self._motion_driver, NullMotionBoard) and hasattr(
             self._motion_driver, 'disconnect'
         ):
             try:
                 self._motion_driver.disconnect()
             except Exception as ex:
-                motion_ok = False
-                logger.exception(f'[SCOPE API ] Motion disconnect failed: {ex}')
-                notifications.error(
-                    'Hardware',
-                    'Motor disconnect failed',
-                    'The motor board did not shut down cleanly. '
-                    'The serial port may be left open; reconnecting '
-                    'may require a process restart.',
-                )
+                failures['motor board'] = ex
         self._motion_driver = NullMotionBoard()
 
-        camera_ok = True
         if self._camera_driver is not None and hasattr(self._camera_driver, 'disconnect'):
+            # A camera driver's False is not a failure here: it answers
+            # False both for a camera already gone (nothing to tear down)
+            # and for a teardown error it caught and logged itself, and the
+            # two cannot be told apart from here. Only a raise is a part
+            # that did not shut down.
             try:
-                camera_ok = bool(self._camera_driver.disconnect())
+                self._camera_driver.disconnect()
             except Exception as ex:
-                camera_ok = False
-                logger.exception(f'[SCOPE API ] Camera disconnect failed: {ex}')
-                notifications.error(
-                    'Hardware',
-                    'Camera disconnect failed',
-                    'The camera did not shut down cleanly. '
-                    'USB resources may not be fully released until the '
-                    'app restarts.',
-                )
+                failures['camera'] = ex
             self._camera_driver = None
         elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
@@ -1181,15 +1160,8 @@ class Lumascope:
         # pinning its whole object graph -- for the rest of the session.
         self.imaging.stop_camera_temp_logging()
 
-        all_ok = led_ok and motion_ok and camera_ok
-        if all_ok:
+        if not failures:
             logger.info('[SCOPE API ] Microscope disconnected')
-        else:
-            logger.warning(
-                f'[SCOPE API ] Microscope disconnected with errors '
-                f'(led_ok={led_ok}, motion_ok={motion_ok}, '
-                f'camera_ok={camera_ok})'
-            )
 
         # Symmetric to atexit.register in __init__: each instance removes its
         # own hook on disconnect so test fixtures that construct + disconnect
@@ -1202,7 +1174,8 @@ class Lumascope:
         except Exception as _e:
             logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
-        return all_ok
+        if failures:
+            raise ScopeDisconnectError(failures) from next(iter(failures.values()))
 
     def _emergency_shutdown(self):
         """LVP-A-7: best-effort safety shutdown for atexit / abnormal exit.

@@ -315,6 +315,9 @@ class TestNotifyPartialHardware:
             def is_connected(self):
                 return True
 
+            def motor_stop(self):
+                pass
+
         scope._motion_driver = _ConnectedMotor()
 
         class _ActiveCam:

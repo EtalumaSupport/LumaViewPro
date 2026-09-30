@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import modules.scope_session as scope_session_module
+from modules.exceptions import ScopeDisconnectError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.log_capture import capture_module_log, messages
@@ -121,8 +122,9 @@ class TestAFactoryBuiltScopeIsTornDown:
             scope.motion, 'stop_motion', MagicMock(side_effect=RuntimeError('bus gone'))
         )
         try:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(ScopeDisconnectError) as excinfo:
                 session.shutdown()
+            assert isinstance(excinfo.value.__cause__, RuntimeError)
             assert session._shut_down is False, 'a pass that raised is not a completed pass'
             monkeypatch.setattr(scope.motion, 'stop_motion', MagicMock())
             session.shutdown()

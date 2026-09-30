@@ -1449,7 +1449,15 @@ class LumaViewProApp(TooltipMixin, App):
         # after an in-loop stop(); that pass finds the session already
         # shut and logs it.
         logger.info('[LVP Main  ] ctx.session.shutdown()')
-        ctx.session.shutdown()
+        from modules.exceptions import ScopeDisconnectError
+        from modules.notification_center import notifications
+
+        try:
+            ctx.session.shutdown()
+        except ScopeDisconnectError as e:
+            # Every teardown step has run; the window is closing, so the
+            # record is the log (notifications are muted above).
+            notifications.report_outcome(e, solicited=False, category='Hardware')
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

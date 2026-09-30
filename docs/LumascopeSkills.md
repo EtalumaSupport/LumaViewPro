@@ -734,6 +734,14 @@ session.shutdown()
 session.scope.disconnect()
 ```
 
+If a part does not shut down cleanly, `shutdown()` (and `scope.disconnect()`)
+still runs every teardown step, then raises `ScopeDisconnectError`
+(`modules.exceptions`): its `parts` name each part that failed, in teardown
+order (`'motor stop'`, `'LED board'`, `'motor board'`, `'camera'`), `causes`
+holds each part's error, and the first is its `__cause__`. Everything that
+could be torn down has been, so a second `shutdown()` completes. Neither
+returns a value.
+
 ---
 
 ## scope.motion

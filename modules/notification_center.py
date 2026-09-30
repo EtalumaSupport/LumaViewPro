@@ -39,6 +39,7 @@ from modules.exceptions import (
     ProtocolError,
     Quiet,
     Refusal,
+    ScopeDisconnectError,
 )
 
 logger = logging.getLogger('LVP.notifications')
@@ -59,6 +60,7 @@ _TYPED_FAULTS = (
     HomingFailedError,
     MotorStopFailedError,
     MoveNotCompletedError,
+    ScopeDisconnectError,
 )
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
