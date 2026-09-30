@@ -424,6 +424,7 @@ from ui.ui_helpers import (
     _handle_autofocus_ui,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
+    draw_unasked,
 )
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
@@ -543,8 +544,13 @@ class LumaViewProApp(TooltipMixin, App):
         # fire time and writes the three kv mirrors. Level-read at
         # fire time means out-of-order delivery degrades to bounded
         # staleness, never a permanently wrong publish; registration
-        # itself level-syncs the mirrors to current truth.
-        ctx.session.add_run_state_listener(lambda: Clock.schedule_once(self.publish_run_state, 0))
+        # itself level-syncs the mirrors to current truth. The draw is
+        # contained: a raise out of a clock callback closes the application.
+        ctx.session.add_run_state_listener(
+            lambda: Clock.schedule_once(
+                lambda dt: draw_unasked(self.publish_run_state, 'RUN_STATE'), 0
+            )
+        )
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)

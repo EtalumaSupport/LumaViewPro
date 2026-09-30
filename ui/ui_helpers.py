@@ -123,14 +123,30 @@ def submit_reported(
         _redraw()
 
 
+def draw_unasked(draw: typing.Callable[[], object], label: str) -> None:
+    """Draw for an edge no person asked for; a raise is reported, not raised.
+
+    A run-state edge redraws on the clock. A raise out of a clock callback
+    reaches the main loop and closes the application, and nothing waits on
+    this draw, so its fault stops here -- reported as unasked, which an
+    unattended run's mute and the repeat window apply to -- and the next
+    edge draws again.
+    """
+    _contained(draw, label, solicited=False)
+
+
 def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
     """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
 
-    The reporting core both boundary forms share: the only place in the GUI
-    that catches an API call's exception. A redraw goes through it too, so a
-    widget that fails to draw is reported as a fault rather than exiting the
-    app from a clock callback.
+    The reporting core both boundary forms share. A redraw goes through it
+    too, so a widget that fails to draw is reported as a fault rather than
+    exiting the app from a clock callback.
     """
+    _contained(fn, label, solicited=True)
+
+
+def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> None:
+    """The only place in the GUI that catches: run *fn*, report what it raises."""
     if fn is None:
         return
     from modules.notification_center import notifications
@@ -138,7 +154,7 @@ def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
     try:
         fn()
     except Exception as e:
-        notifications.report_outcome(e, solicited=True, category=f'UI:{label}')
+        notifications.report_outcome(e, solicited=solicited, category=f'UI:{label}')
 
 
 # ============================================================================
