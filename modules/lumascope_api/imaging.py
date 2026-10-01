@@ -296,7 +296,7 @@ class _BudgetedHandler:
     the driver, not the user's handler.
 
     Re-entrancy: not a concern. Each driver's fire-site is single-
-    threaded (Pylon SDK contract / IDS grab loop / Sim pump). Auto-
+    threaded (Pylon SDK contract / IDS grab loop / sim acquisition thread). Auto-
     removal calls ImagingAPI._remove_wrapper which takes the driver
     lock, but the driver's _store_frame snapshots callbacks under
     lock and invokes outside -- no deadlock risk on the same-thread
@@ -4623,7 +4623,7 @@ class ImagingAPI:
         ``FrameHandlerRemovedError`` warning). Callback
         signature is ``cb(image, timestamp, chunks)``; runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
-        simulated pump). Listeners MUST NOT block -- heavy work belongs
+        simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
         on an executor. No-op when no camera is connected.
 
         Args:

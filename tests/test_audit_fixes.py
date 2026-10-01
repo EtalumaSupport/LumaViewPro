@@ -3852,8 +3852,11 @@ class TestPF5_ImageBufferRetired:
         pre-conversion shadow buffer."""
         import numpy as np
 
-        imaging, _cam = _sim_backed_imaging()
+        from tests.camera_fakes import grab_a_frame_made_after_now
+
+        imaging, cam = _sim_backed_imaging()
         assert imaging.set_pixel_format('Mono12') is True
+        grab_a_frame_made_after_now(cam)
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
             'modules.image_utils.convert_to_8bit',

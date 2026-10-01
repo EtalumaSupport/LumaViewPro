@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 import contextlib
 import re
 import threading
 import time
+from typing import Any
 
 import numpy as np
 
@@ -170,13 +172,13 @@ class ImageHandlerBase:
             self.last_img_seq = None
         self._failed_grabs = 0
 
-    def register_frame_callback(self, cb) -> None:
+    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
         """Register a per-frame callback fired after every successful grab.
 
         Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
         worker thread that processes SDK callbacks (Pylon
         ``PylonImageGrabWorker`` for Stage B of the OnImageGrabbed split
-        / IDS grab loop / simulated pump). The Pylon SDK's native grab
+        / IDS grab loop / simulated acquisition thread). The Pylon SDK's native grab
         thread (``PylonImageGrab``) only enqueues to Stage B and does
         not fire callbacks directly. Callbacks MUST NOT block -- they
         share the worker thread with the next frame. Heavy work (file IO,
@@ -1130,13 +1132,12 @@ class Camera(ABC):
             _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
             return False, None, None, None, None
 
-    def register_frame_callback(self, cb) -> None:
+    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
         """Register a per-frame callback.
 
         Records the callback in the Camera's durable registry (so it survives a
         handler rebuild) AND applies it to the current handler for immediate
-        dispatch. Idempotent for the same callable. SimulatedCamera extends this
-        to also drive its host-side pump.
+        dispatch. Idempotent for the same callable.
         """
         with self._frame_callback_lock:
             if cb not in self._registered_frame_callbacks:
@@ -1159,8 +1160,7 @@ class Camera(ABC):
         A driver calls this immediately after building a new cam_image_handler
         (connect / recovery). The handler owns the dispatch list and starts
         empty, so without this every listener registered before the rebuild
-        stops receiving frames. No-op when the driver has no handler
-        (SimulatedCamera, which delivers via its own pump reading the registry).
+        stops receiving frames. No-op when the driver has no handler yet.
         """
         handler = self.cam_image_handler
         if handler is None:

@@ -58,6 +58,7 @@ def test_get_image_from_buffer_reuses_caller_buffer():
     # buffer instead of allocating a fresh array per frame.
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
+    from tests.camera_fakes import grab_a_frame_made_after_now
     from modules.lumascope_api.imaging import ImagingAPI
     from modules.lumascope_api.runtime_state import RuntimeState
 
@@ -69,6 +70,7 @@ def test_get_image_from_buffer_reuses_caller_buffer():
     scope._camera_driver = cam
     scope.runtime_state = RuntimeState(scope)
     imaging = ImagingAPI(scope, cam)
+    grab_a_frame_made_after_now(cam)
 
     first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
     assert first is not None and first.dtype == np.uint16, (

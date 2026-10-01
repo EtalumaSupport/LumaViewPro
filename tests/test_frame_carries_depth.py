@@ -59,16 +59,19 @@ class TestGrabLatestCarriesDepth:
 
     def test_sim_grab_latest_returns_format_depth(self):
         from drivers.simulated_camera import SimulatedCamera
+        from tests.camera_fakes import grab_a_frame_made_after_now
 
         cam = SimulatedCamera()
         cam.connect()
         assert cam.set_pixel_format('Mono12')
         cam.start_grabbing()
+        grab_a_frame_made_after_now(cam)
         result, _img, _ts, sig, _seq = cam.grab_latest()
         assert result is True
         assert sig == 12
 
         assert cam.set_pixel_format('Mono8')
+        grab_a_frame_made_after_now(cam)
         result, _img, _ts, sig, _seq = cam.grab_latest()
         assert sig == 8
 

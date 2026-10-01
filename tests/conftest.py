@@ -18,6 +18,7 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 """
 
 import faulthandler
+import functools
 import os
 import sys
 import tempfile
@@ -318,6 +319,30 @@ def _disconnect_the_scopes_a_test_built():
     mark = teardown_mark()
     yield
     tear_down_since(mark)
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _every_simulated_camera_is_disconnected_by_its_test():
+    """Every simulated camera, however a test built it, is disconnected when that test ends.
+
+    A grabbing simulated camera free-runs on its own thread until it is
+    disconnected. Hundreds of tests construct one directly, so the teardown
+    is attached to the construction itself rather than to each site; a
+    camera built by a module-scoped fixture before the test began is left to
+    that fixture, as a scope is.
+    """
+    from drivers.simulated_camera import SimulatedCamera
+    from tests.scope_fakes import disconnect_when_the_test_ends
+
+    built = SimulatedCamera.__init__
+
+    @functools.wraps(built)
+    def built_and_queued(self, *args, **kwargs):
+        built(self, *args, **kwargs)
+        disconnect_when_the_test_ends(self)
+
+    with patch.object(SimulatedCamera, '__init__', built_and_queued):
+        yield
 
 
 @pytest.fixture

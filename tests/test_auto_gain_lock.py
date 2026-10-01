@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 import lvp_logger
 import modules.config_helpers as config_helpers
-from drivers.simulated_camera import SimulatedCamera
+from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests import ast_seams
@@ -49,12 +49,14 @@ AG_SETTINGS_TRANSMITTED = {
 }
 
 
-class _ChunkHandler:
-    """The shape ImagingAPI._get_latest_chunks reaches: a handler whose
-    get_last_chunks() reports the exposure (us) and gain (dB) the last
-    stored frame was taken with."""
+class _ChunkHandler(_SimImageHandler):
+    """The simulator's own frame handler, whose get_last_chunks() reports
+    the exposure (us) and gain (dB) the last stored frame was taken with --
+    the shape ImagingAPI._get_latest_chunks reaches. Everything else (the
+    frame count frame validity reads, the buffer) is the real handler's."""
 
     def __init__(self, cam):
+        super().__init__()
         self._cam = cam
 
     def get_last_chunks(self):

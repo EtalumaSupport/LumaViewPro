@@ -1089,6 +1089,14 @@ class TestRestAPIPrep:
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
+        # A target that blurs with defocus, in focus inside the sweep (Z 0 to
+        # 3000 um from home), so the sweep finds one peak whichever frame it
+        # reads. The default specimen field does not blur with Z, so its
+        # scores follow which cycle image is current and the peak lands
+        # anywhere, the travel floor included.
+        camera = session.scope._camera_driver
+        camera.set_test_pattern(enabled=True, pattern='focus_target')
+        camera.set_focal_z(2000.0)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner

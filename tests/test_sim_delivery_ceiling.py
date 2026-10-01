@@ -32,13 +32,13 @@ def _free_run_rate(cam, seconds=1.0):
 
 
 def _slow_generation(cam):
-    mint = cam._mint_frame
+    generate = cam._generate_image
 
-    def slow_mint(*args, **kwargs):
+    def slow_generate(*args, **kwargs):
         time.sleep(GENERATION_COST_S)
-        return mint(*args, **kwargs)
+        return generate(*args, **kwargs)
 
-    cam._mint_frame = slow_mint
+    cam._generate_image = slow_generate
 
 
 def test_short_exposure_free_run_stays_under_the_delivery_ceiling():

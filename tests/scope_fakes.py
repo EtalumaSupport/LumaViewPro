@@ -81,6 +81,18 @@ def build_scope(**kwargs):
     return scope
 
 
+def disconnect_when_the_test_ends(camera):
+    """Queue a simulated camera's disconnect with the test's other teardowns.
+
+    A simulated camera that is grabbing runs its own acquisition thread, as
+    a real camera's SDK thread runs, until it is disconnected. Tests build
+    them directly in many places and drop them unclosed; each one left
+    behind keeps making frames for the rest of the worker's run. The
+    autouse fixture in `conftest.py` routes every construction here.
+    """
+    _TEARDOWNS.append(camera.disconnect)
+
+
 def give_stub_lanes(scope):
     """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
 

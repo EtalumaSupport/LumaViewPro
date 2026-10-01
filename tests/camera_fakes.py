@@ -428,3 +428,20 @@ def bare_grab_worker():
     base._record_failure = MagicMock(return_value=False)
     worker = pyloncamera._PylonImageGrabWorker(parent, base, _queue_mod.Queue(maxsize=1))
     return worker, base
+
+
+def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> tuple:
+    """Read a frame a free-running camera made after this call, the way frame validity drains.
+
+    A camera that streams hands back the latest frame it has, and the frame
+    being made when a setting changed was made under the old setting. So the
+    first frame stored after the call may predate a change made just before
+    it; the one after that cannot. Returns ``cam.grab()``'s answer for that
+    frame.
+    """
+    handler = cam.cam_image_handler
+    since = handler.frames_delivered
+    assert handler.wait_for_frame_after(since + 1, timeout_s), (
+        f'the camera stored no new frame within {timeout_s} s'
+    )
+    return cam.grab()
