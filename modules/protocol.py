@@ -54,8 +54,8 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
 
 
-def _refuse_tiling(*, reason: str, title: str, message: str) -> NoReturn:
-    """Report once, and raise, a refused tile grid.
+def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
+    """Report once, and raise, a refused protocol build (a tile grid, a z-stack).
 
     Refused where the protocol is built, so the GUI, a script and REST are all
     told the same thing. Callers pass the reason as a literal, which is how the
@@ -65,6 +65,48 @@ def _refuse_tiling(*, reason: str, title: str, message: str) -> NoReturn:
     # Solicited: the refusal answers the build the caller just asked for.
     notifications.report_outcome(refusal, solicited=True, category='Protocol')
     raise refusal
+
+
+def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
+    """Refuse a z-stack whose range or step size is not greater than zero.
+
+    Such a stack has no planes, and building it used to produce a protocol
+    unchanged (or one plane per position) reported as success: the caller
+    asked for a stack and got a photograph.
+    """
+    if zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0:
+        _refuse_build(
+            reason='zstack_not_configured',
+            title='Z-Stack Not Configured',
+            message=(
+                f'Z-stack range ({zstack_params["range"]}) and step size '
+                f'({zstack_params["step_size"]}) must both be greater than zero.'
+            ),
+        )
+
+
+def _refuse_positions_outside_travel(
+    *, reason: str, title: str, what: str, outside: dict[str, int], total: int, remedy: str
+) -> None:
+    """Refuse a build if any of its new positions lie outside the stage's travel.
+
+    Dropping them and building the rest made a grid with holes, or a stack
+    missing its ends, that stitched and projected as if it were whole; only a
+    caller that read a returned count knew. *outside* maps each step's name to
+    how many of its positions fall outside.
+    """
+    if not outside:
+        return
+    count = sum(outside.values())
+    names = ', '.join(sorted(outside))
+    _refuse_build(
+        reason=reason,
+        title=title,
+        message=(
+            f"{count} of the {total} {what} fall outside the stage's travel "
+            f'(steps: {names}).\n\n{remedy}'
+        ),
+    )
 
 
 def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: str) -> dict:
@@ -83,16 +125,13 @@ def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: st
     limits = {axis: (axes_config.get(axis) or {}).get('limits') for axis in axes}
     missing = [axis for axis, axis_limits in limits.items() if axis_limits is None]
     if missing:
-        refusal = ProtocolRunRefusedError(
+        _refuse_build(
             reason='positions_unreachable',
             title='Position Not Reachable',
             message=(
                 f'This scope has no motor for {", ".join(missing)}, so {what} cannot be built.'
             ),
         )
-        # Solicited: the refusal answers the build the caller just asked for.
-        notifications.report_outcome(refusal, solicited=True, category='Protocol')
-        raise refusal
     return limits
 
 
@@ -1387,8 +1426,8 @@ class Protocol:
         *,
         capabilities: 'ScopeCapabilities',
         objective_helper: 'ObjectiveLoader',
-    ) -> dict:
-        """Expand every step into a tile grid; returns a status dict.
+    ) -> None:
+        """Expand every step into a tile grid.
 
         The tile spacing derives from each step's objective and the scope's
         optics, so the caller that owns the scope hands its capabilities and
@@ -1398,18 +1437,15 @@ class Protocol:
         Raises:
             ProtocolRunRefusedError: the grid is not one this installation
                 offers, the protocol is already tiled, a step's objective is
-                not in the catalogue, or the scope has no X/Y motor. Each is
-                refused before any step changes, and reported once.
+                not in the catalogue, the scope has no X/Y motor, or a tile
+                falls outside the stage's travel. Each is refused before any
+                step changes, and reported once.
         """
-
-        status = {
-            'tiles_skipped': 0,
-        }
 
         # Every refusal comes before anything below touches the steps: a
         # refused build leaves the protocol as it was.
         if tiling not in self._tiling_config.available_configs():
-            _refuse_tiling(
+            _refuse_build(
                 reason='tiling_unknown',
                 title='Tiling Not Available',
                 message=f'"{tiling}" is not one of the tiling grids this installation offers.',
@@ -1423,7 +1459,7 @@ class Protocol:
             self.steps()['Tile'].tolist()
         )
         if current_tiling not in (None, no_tiling):
-            _refuse_tiling(
+            _refuse_build(
                 reason='already_tiled',
                 title='Protocol Already Tiled',
                 message=(
@@ -1433,7 +1469,7 @@ class Protocol:
             )
 
         if tiling == no_tiling:
-            return status
+            return
 
         limits = _axis_limits_or_refuse(axes_config, ('X', 'Y'), what='a tile grid')
         x_limits = limits['X']
@@ -1453,7 +1489,7 @@ class Protocol:
             {str(o) for o in orig_steps_df.loc[orig_steps_df['focal_length'].isna(), 'Objective']}
         )
         if unknown:
-            _refuse_tiling(
+            _refuse_build(
                 reason='objective_unknown',
                 title='Objective Not Known',
                 message=(
@@ -1476,6 +1512,8 @@ class Protocol:
         tiled_zstack_group_ids: dict[tuple[int, str], int] = {}
 
         new_steps = []
+        outside: dict[str, int] = {}
+        new_tiles = 0
 
         for idx, row in orig_steps_df.iterrows():
             # A step whose grid cannot be computed (ConfigError when the scale
@@ -1505,6 +1543,7 @@ class Protocol:
 
             x = orig_step_df['X']
             y = orig_step_df['Y']
+            new_tiles += len(tiles)
 
             for tile_label, tile_position in tiles.items():
                 x_tile = round(
@@ -1518,17 +1557,14 @@ class Protocol:
                     labware=labware, stage_offset=stage_offset, px=x_tile, py=y_tile
                 )
 
-                # Check if tile is within stage limits
                 if (
                     (sx > x_limits['max'])
                     or (sx < x_limits['min'])
                     or (sy > y_limits['max'])
                     or (sy < y_limits['min'])
                 ):
-                    logger.info(
-                        f'[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits'
-                    )
-                    status['tiles_skipped'] += 1
+                    name = orig_step_df['Name']
+                    outside[name] = outside.get(name, 0) + 1
                     continue
 
                 # -1 is the not-part-of-a-stack sentinel this column uses
@@ -1573,23 +1609,30 @@ class Protocol:
 
             tile_group_id += 1
 
+        _refuse_positions_outside_travel(
+            reason='tiles_outside_travel',
+            title='Tiles Outside Stage Travel',
+            what='tiles',
+            outside=outside,
+            total=new_tiles,
+            remedy='Choose a smaller grid, or move those steps away from the edge of the stage.',
+        )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
-
-        return status
 
     def apply_zstacking(
         self,
         zstack_params: dict,
         axes_config: dict,
-    ) -> dict:
-        "Returns status dict"
+    ) -> None:
+        """Expand every step not already in a stack into a z-stack.
 
-        status = {
-            'zslices_skipped': 0,
-        }
-
-        if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-            return status
+        Raises:
+            ProtocolRunRefusedError: the range or step size is not greater
+                than zero, the scope has no Z motor, or a slice falls outside
+                the Z travel. Each is refused before any step changes, and
+                reported once.
+        """
+        _refuse_unless_zstack_has_extent(zstack_params)
 
         z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')['Z']
 
@@ -1600,6 +1643,8 @@ class Protocol:
 
         num_steps = self.num_steps()
         new_steps = []
+        outside: dict[str, int] = {}
+        new_slices = 0
 
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
@@ -1621,21 +1666,17 @@ class Protocol:
                 continue
 
             zstack_positions = zstack_config.step_positions()
+            new_slices += len(zstack_positions)
 
             # Create a z-stack. The slices are collected first so exactly one
             # of them can be marked as the group's focus reference below.
             group_steps: list[tuple[float, dict]] = []
             for zstack_slice, zstack_position in zstack_positions.items():
-                # Skip slices whose Z would drive the stage past its travel
-                # limits, mirroring the XY tile-bounds skip in apply_tiling. A
-                # z-stack range wider than the Z travel otherwise pushed the
-                # protocol to the end of travel and crashed the run.
+                # A slice past the Z travel would drive the stage to the end of
+                # travel and stop the run there.
                 if zstack_position < z_limits['min'] or zstack_position > z_limits['max']:
-                    logger.info(
-                        f'[Protocol] Skipping z-slice {zstack_slice} (Z={zstack_position}) '
-                        f'for step {row_idx} - out of Z stage limits'
-                    )
-                    status['zslices_skipped'] += 1
+                    name = orig_step_df['Name']
+                    outside[name] = outside.get(name, 0) + 1
                     continue
 
                 new_step_dict = self._create_step_dict(
@@ -1672,8 +1713,7 @@ class Protocol:
             # the layer's focus -- the plane the stack was built around -- so a
             # focus found there re-centres the whole group. Picking it by
             # nearest Z rather than by index keeps it right for every
-            # z_reference and survives a reference slice dropped for being
-            # outside the Z travel.
+            # z_reference.
             if group_steps and orig_step_df['Auto_Focus']:
                 reference_position = orig_step_df['Z']
                 _, reference_step = min(
@@ -1685,9 +1725,15 @@ class Protocol:
 
             zstack_group_id += 1
 
+        _refuse_positions_outside_travel(
+            reason='zslices_outside_travel',
+            title='Z-Stack Outside Z Travel',
+            what='z-slices',
+            outside=outside,
+            total=new_slices,
+            remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
+        )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
-
-        return status
 
     @classmethod
     def from_config(
@@ -1730,25 +1776,8 @@ class Protocol:
         # which produced a NON-EMPTY protocol, so the empty-protocol refusal
         # downstream passed it too, and a caller that asked for a stack got
         # a photograph and a reported success.
-        if use_zstacking and (zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0):
-            title = 'Z-Stack Not Configured'
-            message = (
-                f'Z-stack range ({zstack_params["range"]}) and step size '
-                f'({zstack_params["step_size"]}) must both be greater than zero.'
-            )
-            # The reason stays a LITERAL here rather than hoisted into a
-            # variable: the refusal vocabulary is censused by reading this
-            # argument out of the source, and a name in its place makes the
-            # code invisible to that census -- a new reason then ships with no
-            # coverage.
-            refusal = ProtocolRunRefusedError(
-                reason='zstack_not_configured', title=title, message=message
-            )
-            # Solicited: a refusal answers something the caller just asked
-            # for, so it must reach the user even while a run is in flight.
-            # Raising alone would drop it exactly then.
-            notifications.report_outcome(refusal, solicited=True, category='Protocol')
-            raise refusal
+        if use_zstacking:
+            _refuse_unless_zstack_has_extent(zstack_params)
 
         # The objective is stamped into every step and sizes a spaced tiling
         # grid; a protocol with neither -- an empty one -- is built with no

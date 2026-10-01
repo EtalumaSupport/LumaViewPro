@@ -569,8 +569,9 @@ class ProtocolSettings(FloatLayout):
         """Ask the protocol for the chosen grid, then show the steps it built.
 
         Every refusal (an unknown grid, an already-tiled protocol, an unknown
-        objective, a scope with no X/Y motor) is the protocol's, raised before
-        any step changes; the boundary reports it, so nothing here decides it.
+        objective, a scope with no X/Y motor, a tile outside the stage's
+        travel) is the protocol's, raised before any step changes; the
+        boundary reports it, so nothing here decides it.
         """
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
@@ -582,7 +583,7 @@ class ProtocolSettings(FloatLayout):
         stage_offset = settings['stage_offset']
         overlap_percent = self.get_tiling_overlap_percent()
 
-        tile_status = self._protocol.apply_tiling(
+        self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
             binning_size=get_binning_from_ui(),
@@ -594,19 +595,6 @@ class ProtocolSettings(FloatLayout):
             capabilities=ctx.lumaview.scope.capabilities,
             objective_helper=ctx.lumaview.scope.objective_helper,
         )
-
-        tiles_skipped = tile_status['tiles_skipped']
-
-        if tiles_skipped > 0:
-            error_msg = f'Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware.'
-            from ui.notification_popup import show_notification_popup
-
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='Protocol Tiling Warning', message=error_msg
-                ),
-                0,
-            )
 
         self._protocol.optimize_step_ordering()
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
@@ -622,70 +610,33 @@ class ProtocolSettings(FloatLayout):
         return _app_ctx.ctx.settings['tiling_overlap_percent']
 
     def apply_zstacking(self) -> None:
-        # At entry: this refuses invalid z-stack parameters via a popup, and the
-        # press is what the log records -- the outcome is the main log's job.
+        # At entry, not on success: the protocol can refuse the stack, and a
+        # record conditional on success would make that refusal
+        # indistinguishable from the user never pressing the button.
         gui_logger.button('APPLY_ZSTACKING')
-        try:
-            ctx = _app_ctx.ctx
+        run_reported(self._apply_zstacking, None, 'APPLY_ZSTACKING')
 
-            logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
-            zstack_params = get_zstack_params()
+    def _apply_zstacking(self) -> None:
+        """Ask the protocol for a z-stack of the panel's values, then show the steps.
 
-            # A zero-extent stack used to log and return with nothing shown,
-            # so the button looked like it had worked and silently applied
-            # nothing. Both rejections now reach the user through the one
-            # delivery below; only the wording differs.
-            error_msg = ''
-            if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
-                error_msg = 'Z-Stacking parameters are not valid. Please ensure range and step size are positive values.'
-            elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
-                error_msg = (
-                    f'Z-Stacking not applied: range ({zstack_params["range"]}) and '
-                    f'step size ({zstack_params["step_size"]}) must both be greater than zero.'
-                )
+        Every refusal (a range or step size not greater than zero, a scope
+        with no Z motor, a slice outside the Z travel) is the protocol's,
+        raised before any step changes; the boundary reports it, so nothing
+        here decides it.
+        """
+        ctx = _app_ctx.ctx
 
-            if error_msg:
-                logger.warning(error_msg)
-                from ui.notification_popup import show_notification_popup
+        logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Z-Stacking Warning', message=error_msg
-                    ),
-                    0,
-                )
-                return
+        self._protocol.apply_zstacking(
+            zstack_params=get_zstack_params(),
+            axes_config=ctx.lumaview.scope.motion.get_axes_config(),
+        )
 
-            axes_config = ctx.lumaview.scope.motion.get_axes_config()
-            zstack_status = self._protocol.apply_zstacking(
-                zstack_params=zstack_params,
-                axes_config=axes_config,
-            )
-
-            zslices_skipped = zstack_status['zslices_skipped']
-            if zslices_skipped > 0:
-                error_msg = (
-                    f'Z-stacking skipped {zslices_skipped} slices that fall outside the '
-                    f'Z travel range. Reduce the range or adjust the focus position.'
-                )
-                from ui.notification_popup import show_notification_popup
-
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Z-Stacking Warning', message=error_msg
-                    ),
-                    0,
-                )
-
-            self._protocol.optimize_step_ordering()
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step)
-        except Exception as e:
-            logger.error(f'[UI] apply_zstacking failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        self._protocol.optimize_step_ordering()
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        self.update_step_ui()
+        self.go_to_step(step_idx=self.curr_step)
 
     def generate_step_name_input(self):
         num_steps = self._protocol.num_steps()

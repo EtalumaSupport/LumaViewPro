@@ -92,8 +92,7 @@ def test_a_step_whose_grid_cannot_be_computed_fails_the_build(scale_capabilities
 
 def test_an_untiled_protocol_still_tiles(scale_capabilities):
     proto = _build_protocol([_labeled_step()])
-    status = _tile(proto, scale_capabilities, '2x2')
-    assert status == {'tiles_skipped': 0}
+    _tile(proto, scale_capabilities, '2x2')
     assert sorted(proto.steps()['Tile']) == ['A1', 'A2', 'B1', 'B2']
 
 

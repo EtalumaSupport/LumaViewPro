@@ -40,22 +40,6 @@ def _proto():
     return _build_protocol([_make_step(name='A1_BF', z=5000.0, z_slice=-1)])
 
 
-def test_zstacking_every_slice_out_of_range_keeps_the_schema():
-    """The production path that empties the row list still yields a
-    frame every consumer can query."""
-    proto = _proto()
-    # No slice can land inside [0, 100] when the stack spans 4950..5050.
-    axes_config = {'Z': {'limits': {'min': 0.0, 'max': 100.0}}}
-
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
-
-    steps = proto.steps()
-    assert len(steps) == 0
-    assert list(steps.columns) == _SCHEMA_COLUMNS
-    # The selection that raised KeyError at the bench.
-    assert len(steps[['X', 'Y']]) == 0
-
-
 def test_empty_replacement_frame_regains_schema_and_dtypes():
     """Assigning a column-less frame is not a way to lose the schema."""
     proto = _proto()

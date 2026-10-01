@@ -97,7 +97,7 @@ try:
     print('tiling catalogue:', tc.available_configs())
     print('no-tiling label :', tc.no_tiling_label())
     before = p.num_steps()
-    status = p.apply_tiling(
+    p.apply_tiling(
         tiling='2x2',
         frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
         binning_size=config_helpers.get_binning_from_settings(settings),
@@ -111,7 +111,7 @@ try:
         capabilities=session.scope.capabilities,
         objective_helper=session.scope.objective_helper,
     )
-    print('tile status:', status, f'{before} -> {p.num_steps()} steps')
+    print(f'{before} -> {p.num_steps()} steps')
     print('ASSERT tiled 4x:', 'PASS' if p.num_steps() == before * 4 else f'CHECK ({p.num_steps()})')
     print('Tile column:', p.steps()['Tile'].tolist()[:6])
 

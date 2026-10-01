@@ -672,6 +672,14 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_grid_the_installation_does_not_offer_is_refused'
     ),
+    'tiles_outside_travel': (
+        'tests/test_a_build_outside_the_travel_is_refused.py::'
+        'test_a_grid_with_a_tile_outside_the_travel_is_refused'
+    ),
+    'zslices_outside_travel': (
+        'tests/test_a_build_outside_the_travel_is_refused.py::'
+        'test_a_stack_with_a_slice_outside_the_travel_is_refused'
+    ),
     'camera_setting_out_of_range': (
         'tests/test_a_run_needs_camera_values_in_range.py'
         '::test_a_gain_above_the_camera_maximum_is_refused_naming_the_step'

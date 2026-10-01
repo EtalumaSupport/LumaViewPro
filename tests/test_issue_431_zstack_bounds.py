@@ -1,14 +1,21 @@
 """Regression for #431 (Z half): applying z-stacking must not create slices
 outside the Z travel range.
 
-XY tiling already skips out-of-bounds tiles; the matching Z-stack bounds check
-was never implemented, so a z-stack range wider than the Z travel pushed the
-protocol to the end of travel and crashed the run. apply_zstacking now skips
-out-of-range slices and reports the count so the UI can warn.
+XY tiling already checked its tiles against the travel; the matching Z-stack
+bounds check was never implemented, so a z-stack range wider than the Z travel pushed the
+protocol to the end of travel and crashed the run. Skipping the slices and
+returning a count left a stack missing its ends that projected as if whole, so
+apply_zstacking now refuses the stack and leaves the protocol as it was.
 
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
 
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
+from modules.exceptions import ProtocolRunRefusedError
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
 
@@ -22,24 +29,27 @@ def _proto():
     return _build_protocol([_make_step(name='A1_BF', z=5000.0, z_slice=-1)])
 
 
-def test_out_of_range_zslices_are_skipped_and_counted():
+def test_out_of_range_zslices_refuse_the_stack():
     proto = _proto()
+    before = proto.steps().copy()
     axes_config = {'Z': {'limits': {'min': 4960.0, 'max': 5040.0}}}
 
-    status = proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+    with (
+        patch('modules.protocol.notifications.report_outcome'),
+        pytest.raises(ProtocolRunRefusedError) as refusal,
+    ):
+        proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
 
     # 4950 and 5050 fall outside [4960, 5040].
-    assert status['zslices_skipped'] == 2
-    z_values = proto.steps()['Z'].tolist()
-    assert len(z_values) == 4
-    assert all(4960.0 <= z <= 5040.0 for z in z_values), z_values
+    assert refusal.value.reason == 'zslices_outside_travel'
+    assert '2 of the 6 z-slices' in str(refusal.value)
+    pd.testing.assert_frame_equal(proto.steps(), before)
 
 
 def test_all_in_range_zslices_kept_no_skips():
     proto = _proto()
     axes_config = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
 
-    status = proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
 
-    assert status['zslices_skipped'] == 0
     assert len(proto.steps()) == 6

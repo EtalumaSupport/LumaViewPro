@@ -70,8 +70,7 @@ def test_tiling_a_zstack_gives_each_tile_its_own_group(scale_capabilities):
     proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
     assert len(proto.steps()) == 6
 
-    status = _tile_2x2(proto, scale_capabilities)
-    assert status['tiles_skipped'] == 0
+    _tile_2x2(proto, scale_capabilities)
 
     steps = proto.steps()
     assert len(steps) == 24, '6 slices x 4 tiles'

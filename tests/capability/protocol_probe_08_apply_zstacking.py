@@ -28,28 +28,26 @@ try:
     banner('apply_zstacking')
     zp = config_helpers.get_zstack_params_from_settings(settings)
     print('zstack params:', zp)
-    status = p.apply_zstacking(zstack_params=zp, axes_config=session.scope.motion.get_axes_config())
-    print('status:', status, f'{before} -> {p.num_steps()} steps')
+    p.apply_zstacking(zstack_params=zp, axes_config=session.scope.motion.get_axes_config())
+    print(f'{before} -> {p.num_steps()} steps')
     print('Z-Slice column:', p.steps()['Z-Slice'].tolist())
     print('Z column      :', p.steps()['Z'].tolist())
     print('ASSERT expanded:', 'PASS' if p.num_steps() > before else 'FAIL')
 
-    banner('the zero-extent refusal the GUI owns (ui/protocol_settings.py:653-675)')
+    banner("the zero-extent refusal is the protocol's")
     p2 = session.scope.protocols.create_protocol(input_config=cfg)
     try:
-        st = p2.apply_zstacking(
+        p2.apply_zstacking(
             zstack_params={'range': 0.0, 'step_size': 0.0, 'z_reference': zp['z_reference']},
             axes_config=session.scope.motion.get_axes_config(),
         )
-        print(
-            'NO RAISE:',
-            st,
-            'steps:',
-            p2.num_steps(),
-            '-> the range/step > 0 refusal lives ONLY in the widget',
-        )
+        print('ASSERT refused: FAIL -- a zero-extent stack was not refused')
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e}')
+        print(
+            'ASSERT refused:',
+            'PASS' if getattr(e, 'reason', None) == 'zstack_not_configured' else 'FAIL',
+        )
 finally:
     session.shutdown()
 print('\nPROBE 08 DONE')

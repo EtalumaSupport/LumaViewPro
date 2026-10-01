@@ -228,7 +228,7 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         'Y': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
     }
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0)])
-    status = proto.apply_tiling(
+    proto.apply_tiling(
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
@@ -240,7 +240,6 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),
     )
-    assert status['tiles_skipped'] == 0
     steps = proto.steps()
     assert len(steps) == 4, f'2x2 tiling must expand to 4 steps, got {len(steps)}'
     assert list(steps['Label']) == ['Treatment_10x'] * 4
