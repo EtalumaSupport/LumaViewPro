@@ -37,6 +37,7 @@ from drivers.fx2driver import (
     REG_COL_SIZE,
     REG_EXPOSURE,
     REG_GLOBAL_GAIN,
+    REG_RESET,
     REG_ROW_SIZE,
     VR_ANCHOR_DLD,
     VR_I2C_WRITE,
@@ -89,17 +90,20 @@ def bytes_per_transfer(w: int, h: int, frame_period_s: float) -> float:
     return frame_bytes / frame_period_s * TRANSFER_S
 
 
+# Power-on values of the registers the model reads.
+_POWER_ON = {
+    REG_ROW_SIZE: 0x0797,
+    REG_COL_SIZE: 0x0A1F,
+    REG_EXPOSURE: 0x0797,
+    REG_GLOBAL_GAIN: 0x0008,
+}
+
+
 class _Mt9p031:
     """The sensor's registers, as the driver writes them."""
 
     def __init__(self):
-        # Power-on values of the registers the model reads.
-        self.registers = {
-            REG_ROW_SIZE: 0x0797,
-            REG_COL_SIZE: 0x0A1F,
-            REG_EXPOSURE: 0x0797,
-            REG_GLOBAL_GAIN: 0x0008,
-        }
+        self.registers = dict(_POWER_ON)
 
     def write(self, data: bytes) -> None:
         if len(data) != 3:
@@ -108,6 +112,10 @@ class _Mt9p031:
             )
         reg, high, low = data
         self.registers[reg] = (high << 8) | low
+        if reg == REG_RESET and self.registers[reg] & 1:
+            # A soft reset (DS p21) returns the registers to their power-on
+            # values; none the model reads is among those it keeps.
+            self.registers.update(_POWER_ON)
 
     def window(self) -> tuple[int, int]:
         """The window the frames carry. The driver writes the size one larger."""

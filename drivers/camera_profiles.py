@@ -279,7 +279,8 @@ _simulated = CameraProfile(
 
 # Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
 # Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
-# window. Gain is hardcoded by driver math (0-42.1 dB). The static max
+# window. The gain range is the driver's, set at connect from the gain
+# settings it writes (0-42.144 dB, DS Table 15). The static max
 # exposure below is 65535 rows at a 0.1124 ms row, a clock model the sensor
 # does not follow (the data sheet gives 7934.6 ms at the full window); the
 # driver replaces it with its own cap at every connect. The sensor's timing
@@ -299,8 +300,6 @@ _MT9P031_LS620 = CameraProfile(
         analog_max_db=18.06,  # 8x analog = 20*log10(8) = 18.06 dB
         has_digital=True,  # digital stage adds up to 16x more
         gain_selector='All',
-        total_min_db=0.0,
-        total_max_db=42.1,  # audit-corrected per RR_A legal ranges
     ),
     has_auto_gain=False,  # no hardware AE/AG on MT9P031
     has_auto_exposure=False,

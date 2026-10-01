@@ -427,15 +427,39 @@ REG_ROW_START = 0x01
 REG_COL_START = 0x02
 REG_ROW_SIZE = 0x03
 REG_COL_SIZE = 0x04
+REG_OUTPUT_CONTROL = 0x07
 REG_EXPOSURE = 0x09
+REG_RESTART = 0x0B
+REG_RESET = 0x0D
 REG_PLL_CTRL = 0x10
 REG_PLL_CFG1 = 0x11
+REG_PLL_CFG2 = 0x12
 REG_READ_MODE2 = 0x20
 REG_GLOBAL_GAIN = 0x35
 REG_ROW_BLACK = 0x49
-REG_BLC = 0x62
 
-REG_PLL_CFG2 = 0x12
+# R0x10 with its reserved bits 7:4 at their default 0x5: Power_PLL, then
+# Power_PLL and Use_PLL.
+_PLL_POWERED = 0x0051
+_PLL_IN_USE = 0x0053
+
+# DS p23's soft standby sequences. Each pauses the sensor at row 0 before
+# Chip_Enable (R0x07 bit 1) changes and ends in a Restart, so the frame the
+# standby interrupted is abandoned rather than resumed corrupted.
+_ENTER_SOFT_STANDBY = (
+    (REG_RESTART, 0x0002),
+    (REG_RESTART, 0x0003),
+    (REG_OUTPUT_CONTROL, 0x1F82),
+    (REG_OUTPUT_CONTROL, 0x1F80),
+    (REG_RESTART, 0x0001),
+)
+_LEAVE_SOFT_STANDBY = (
+    (REG_RESTART, 0x0002),
+    (REG_RESTART, 0x0003),
+    (REG_OUTPUT_CONTROL, 0x1F80),
+    (REG_OUTPUT_CONTROL, 0x1F82),
+    (REG_RESTART, 0x0001),
+)
 
 # The largest value Shutter_Width_Lower (R0x09) holds. It is not the sensor's
 # limit: Shutter_Width_Upper (R0x08) extends the shutter width past it, and the
@@ -611,41 +635,25 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 # Digital gain: DG = 1 + (Digital_Gain / 8)
 # Total gain:   AG x DG
 #
-# Strategy (datasheet recommended):
-#   <= 4x:  analog only (multiplier=0) -- best noise performance
-#   <= 8x:  analog with multiplier=1
-#   > 8x:  max analog (8x) + digital for the rest
-#
-# Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
-# reference originally had `min(127, ...)` on the digital clamp and a
-# comment claiming ~135x max -- that was outside the documented legal
-# range per RR_A. The corrected legal max is 120 / 128x. See the
-# docstring on `_gain_db_to_register` for the conversion derivation.
+# The driver writes only the settings DS Table 15 recommends, analog
+# maximized before digital:
+#   1-4x:     analog 8-32, no multiplier -- the best noise
+#   4.25-8x:  analog 17-32 with the multiplier
+#   9-128x:   analog 32 with the multiplier, digital 1-120
+# 128x (42.144 dB) is the largest; Digital_Gain's legal maximum is 120.
+
+
+def _table_15_gain_registers() -> tuple[int, ...]:
+    """Every global gain register value DS Table 15 recommends, lowest gain first."""
+    analog_only = range(8, 33)
+    with_multiplier = [(1 << 6) | analog for analog in range(17, 33)]
+    with_digital = [(digital << 8) | (1 << 6) | 32 for digital in range(1, 121)]
+    return (*analog_only, *with_multiplier, *with_digital)
 
 
 def _gain_db_to_register(db: float) -> int:
-    """Convert gain in dB to MT9P031 global gain register value."""
-    mult = 10 ** (float(db) / 20.0)
-    mult = max(1.0, mult)
-
-    if mult <= 4.0:
-        # Analog only, no multiplier
-        analog_val = min(63, max(8, round(mult * 8)))
-        analog_mult = 0
-        digital_val = 0
-    elif mult <= 8.0:
-        # Analog with multiplier
-        analog_val = min(63, max(8, round(mult / 2 * 8)))
-        analog_mult = 1
-        digital_val = 0
-    else:
-        # Max analog (8x) + digital
-        analog_val = 32  # AG = 2 x 32/8 = 8.0
-        analog_mult = 1
-        dg_needed = mult / 8.0
-        digital_val = min(120, max(0, round((dg_needed - 1) * 8)))
-
-    return (digital_val << 8) | (analog_mult << 6) | analog_val
+    """The DS Table 15 setting nearest ``db``, in dB."""
+    return min(_GAIN_REGISTERS, key=lambda reg: abs(_register_to_gain_db(reg)[1] - float(db)))
 
 
 def _register_to_gain_db(reg: int) -> tuple[float, float]:
@@ -658,6 +666,11 @@ def _register_to_gain_db(reg: int) -> tuple[float, float]:
     total = ag * dg
     db = 20 * math.log10(total) if total > 0 else 0.0
     return total, db
+
+
+_GAIN_REGISTERS = _table_15_gain_registers()
+GAIN_MIN_DB = _register_to_gain_db(_GAIN_REGISTERS[0])[1]
+GAIN_MAX_DB = _register_to_gain_db(_GAIN_REGISTERS[-1])[1]
 
 
 # ---------------------------------------------------------------------------
@@ -1911,8 +1924,8 @@ class FX2Camera(Camera):
         instead of the ``None`` defaults.
         """
         try:
-            self.profile.gain.total_min_db = 0.0
-            self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
+            self.profile.gain.total_min_db = GAIN_MIN_DB
+            self.profile.gain.total_max_db = GAIN_MAX_DB
             # One shutter row at the full window: the shortest exposure
             # every window the driver allows can give (a narrower window's
             # row is shorter, so it reaches this to within its own row).
@@ -1929,7 +1942,9 @@ class FX2Camera(Camera):
             SAFE_EXPOSURE_MAX_MS = 178
             self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
-                '[FX2 Cam   ] profile capabilities: gain 0.0-42.1 dB, exposure %.3f-%.3f ms',
+                '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
+                self.profile.gain.total_min_db,
+                self.profile.gain.total_max_db,
                 self.profile.exposure_min_us / 1000,
                 self.profile.exposure_max_us / 1000,
             )
@@ -1939,7 +1954,7 @@ class FX2Camera(Camera):
     # -- Sensor init -------------------------------------------------------
 
     def _init_sensor(self):
-        """Initialize MT9P031 sensor: PLL, window, black level calibration.
+        """Initialize MT9P031 sensor: reset, PLL, read mode, black target, window.
 
         Uses individual 3-byte register writes because the FX2 firmware's
         I2C handler truncates writes longer than 3 bytes. 10 ms sleep
@@ -1954,45 +1969,22 @@ class FX2Camera(Camera):
         go through plain VR_I2C_WRITE, which never touches IFCLK, so no
         GPIF re-init is needed.
         """
-        fx2 = self._fx2
-
-        # Initial window -- set a default BEFORE PLL config. Overwritten
-        # by the set_frame_size() call at the end of this method.
-        fx2.sensor_reg_write(REG_ROW_START, 0x0036)  # sensor default row_start
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_COL_START, 0x0010)  # sensor default col_start
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_ROW_SIZE, 0x0797)  # sensor default 1943
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_COL_SIZE, 0x0A1F)  # sensor default 2591
-        time.sleep(0.01)
-
-        # PLL power on
-        fx2.sensor_reg_write(REG_PLL_CTRL, 0x0051)
-        time.sleep(0.01)
-
-        # PLL config: the fields the timing model reads (_PIXEL_CLOCK_HZ,
-        # 23.14 MHz from the 24 MHz EXTCLK).
-        fx2.sensor_reg_write(REG_PLL_CFG1, (_PLL_M << 8) | _PLL_N_DIVIDER)
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_PLL_CFG2, _PLL_P1_DIVIDER)
-        time.sleep(0.01)
-
-        # PLL activate
-        fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
-        time.sleep(0.2)  # datasheet requires 1ms for VCO lock; 200ms is defensive
+        # A soft reset (DS p21) returns every register but Chip_Enable,
+        # Synchronize_Changes and the PLL fields to its power-on default, so
+        # nothing an earlier writer left (a crashed session, LumaView
+        # Classic, a bench test) outlives this connect. Every register the
+        # driver relies on at its default, the black-level calibration's
+        # R0x62 among them, is established here.
+        self._write_sensor_registers(((REG_RESET, 0x0001), (REG_RESET, 0x0000)))
+        self._program_pll(_PLL_P1_DIVIDER)
         # Do NOT send VR_INIT_GPIF here -- see docstring warning.
 
         # Blue-strip fix per MT9P031 developer guide (DG_A page 7).
         # Prevents a blue strip artifact when bright light hits the top
         # or bottom of the sensor array. Recommended even at slower
         # pixel clocks where it may not be strictly necessary.
-        fx2.sensor_reg_write(0x7F, 0x0000)
-        time.sleep(0.01)
+        self._write_sensor_registers(((0x7F, 0x0000),))
 
-        # Black level calibration
-        fx2.sensor_reg_write(REG_BLC, 0x6000)  # lock green + red/blue BLC channels
-        time.sleep(0.01)
         # Read Mode 2 bits we set:
         #   bit  6 (0x0040) -- Row_BLC enabled (sensor default)
         #   bit 14 (0x4000) -- Mirror_Column = horizontal flip. Per
@@ -2004,10 +1996,15 @@ class FX2Camera(Camera):
         #                     applies to live view + captures uniformly).
         # If the image ends up upside down instead of mirrored, swap
         # bit 14 -> bit 15 (0x4000 -> 0x8000) for Mirror_Row instead.
-        fx2.sensor_reg_write(REG_READ_MODE2, 0x4040)
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
-        time.sleep(0.01)
+        self._write_sensor_registers(((REG_READ_MODE2, 0x4040),))
+        # The Row Black Target is 0, not its default 0xA8: the default gives
+        # every image a floor of about 10.5 counts in 8 bits, the dark floor
+        # LumaView images once had and were better without. The cost, measured
+        # on an LS620 with the light path covered: the sensor clips the lower
+        # half of its read noise to zero, invisible at 0 dB (dark noise 0.28
+        # counts), while at 24 dB 64% of dark pixels read 0 and the dark mean
+        # reads 0.64 counts, a sub-count bias on faint signal at high gain.
+        self._write_sensor_registers(((REG_ROW_BLACK, 0x0000),))
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
@@ -2019,7 +2016,41 @@ class FX2Camera(Camera):
             # mismatched byte count -- garbage live view with no error.
             raise RuntimeError('MT9P031 initial window apply failed during sensor init')
 
-        logger.info('[FX2 Cam   ] MT9P031 sensor initialized (PLL + BLC)')
+        logger.info('[FX2 Cam   ] MT9P031 sensor initialized (reset, PLL, window)')
+
+    def _program_pll(self, p1_divider: int) -> None:
+        """Run the sensor from the PLL at ``p1_divider``, as DS p22-23 programs it.
+
+        The PLL fields are written in soft standby: DS p22 calls writing them
+        while the sensor streams undefined. The documents leave one ordering
+        open: their PLL steps power the PLL before the fields are written, yet
+        standby powers it down. This is LumaView Classic's answer: Power_PLL,
+        standby, M/N and P1, out of standby, Power_PLL again, the VCO's lock
+        wait (DS: 1 ms), then Use_PLL.
+        """
+        self._write_sensor_registers(
+            (
+                (REG_PLL_CTRL, _PLL_POWERED),
+                *_ENTER_SOFT_STANDBY,
+                (REG_PLL_CFG1, (_PLL_M << 8) | _PLL_N_DIVIDER),
+                (REG_PLL_CFG2, p1_divider),
+                *_LEAVE_SOFT_STANDBY,
+                (REG_PLL_CTRL, _PLL_POWERED),
+                (REG_PLL_CTRL, _PLL_IN_USE),
+            )
+        )
+
+    def _write_sensor_registers(self, writes) -> None:
+        """Write ``(register, value)`` pairs in order, 10 ms apart.
+
+        One write per I2C transaction: the FX2 firmware's I2C handler
+        truncates a write longer than 3 bytes. The 10 ms gap is longer than
+        any the documents ask for (the PLL's 1 ms lock wait the longest) and
+        is the gap LumaView Classic's bring-up ran with.
+        """
+        for reg, value in writes:
+            self._fx2.sensor_reg_write(reg, value)
+            time.sleep(0.01)
 
     # -- Streaming start / stop --------------------------------------------
 
@@ -2423,13 +2454,13 @@ class FX2Camera(Camera):
     # -- Gain --------------------------------------------------------------
 
     def gain(self, g: float) -> float | bool | None:
-        """Set gain in dB. Clamped to [0.0, 42.1], then quantized onto the
-        global gain register.
+        """Set gain in dB: the DS Table 15 setting nearest the request.
 
         A failed register write RAISES out of ``sensor_reg_write`` rather than
         returning, so this never answers refused. It answers with the gain the
         register now encodes, which differs from the request by the
-        quantization step and by the clamp.
+        quantization step, or is 0 dB or 128x (42.144 dB) for a request
+        outside them.
 
         Returns:
             float | bool | None: See ``Camera.gain``. False while disconnected:
@@ -2439,12 +2470,11 @@ class FX2Camera(Camera):
         """
         if not self.is_connected():
             return False
-        db = max(0.0, min(42.1, float(g)))
-        reg = _gain_db_to_register(db)
+        reg = _gain_db_to_register(g)
         self._gain_reg = reg
         if _cam_log is not None:
             _cam_log.info(
-                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
+                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
             )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
         return _register_to_gain_db(reg)[1]

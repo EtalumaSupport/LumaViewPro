@@ -1268,7 +1268,7 @@ scope.imaging.min_gain_db_cached                      # dB, None if the camera d
 
 A floor is `None` when the camera declares none, not `0`: a missing floor is not a floor of zero, and nothing checks against it. A run whose steps ask for a gain or exposure outside these limits is refused before it starts (reason `camera_setting_out_of_range`), naming each step; the stored values are left as they are.
 
-These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.1 dB gain / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
+These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.144 dB gain (128x) / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
 
 ### What a stored setting applies as
 
@@ -1370,7 +1370,7 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 #   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
 #   'pixel_size_um': 2.2, 'shutter': 'rolling',
 #   'resolution': (2592, 1944),
-#   'gain_min_db': 0.0, 'gain_max_db': 42.1,
+#   'gain_min_db': 0.0, 'gain_max_db': 42.144,
 #   'max_exposure_ms': 178.0,
 #   'binning_sizes': (1, 2, 4),
 # }

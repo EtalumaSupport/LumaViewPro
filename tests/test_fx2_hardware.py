@@ -35,11 +35,7 @@ from drivers.fx2driver import (
     FRAME_DELIM,
     IMG_WIDTH,
     REG_EXPOSURE,
-    REG_PLL_CFG2,
-    REG_BLC,
     REG_COL_SIZE,
-    REG_PLL_CFG1,
-    REG_PLL_CTRL,
     REG_READ_MODE2,
     REG_ROW_BLACK,
     FX2Camera,
@@ -365,15 +361,7 @@ def _integrity(image):
 def _set_p1(camera, p1):
     """Rewrite the PLL with P1 = ``p1``, the sequence connect() uses, with the stream stopped."""
     camera.stop_grabbing()
-    fx2 = camera._fx2
-    fx2.sensor_reg_write(REG_PLL_CTRL, 0x0051)
-    time.sleep(0.01)
-    fx2.sensor_reg_write(REG_PLL_CFG1, 0x1B01)
-    time.sleep(0.01)
-    fx2.sensor_reg_write(REG_PLL_CFG2, p1)
-    time.sleep(0.01)
-    fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
-    time.sleep(0.2)
+    camera._program_pll(p1)
     camera.start_grabbing()
 
 
@@ -552,7 +540,8 @@ _REG_TEST_PATTERN_BLUE = 0xA3
 _READ_MODE2_TODAY = 0x4040  # Mirror_Column + Row_BLC, as _init_sensor writes it
 _READ_MODE2_NO_ROW_BLC = 0x4000  # DS p37: BLC off while a test pattern runs
 _ROW_BLACK_TODAY = 0x0000
-_BLC_TODAY = 0x6000
+_REG_BLC = 0x62
+_BLC_TODAY = 0x0000  # its default: connect's soft reset leaves it there
 # Color field values (12-bit), one distinct bit pattern per channel, so the
 # 8-bit image shows which DOUT bits reach the bus and which 2x2 phase is which.
 _FIELD_GREEN = 0x0A50
@@ -635,7 +624,7 @@ class TestFX2PhaseBP0(_FX2BenchCase):
                 (_REG_TEST_PATTERN_CONTROL, 0),
                 (REG_READ_MODE2, _READ_MODE2_TODAY),
                 (REG_ROW_BLACK, _ROW_BLACK_TODAY),
-                (REG_BLC, _BLC_TODAY),
+                (_REG_BLC, _BLC_TODAY),
                 (_REG_OUTPUT_CONTROL, _OUTPUT_CONTROL_DEFAULT),
             ):
                 write(reg, value)
@@ -751,7 +740,7 @@ class TestFX2PhaseBP0(_FX2BenchCase):
             self.camera.gain(db)
             for row_black, blc in ((0, 0x6000), (0xA8, 0x6000), (0, 0), (0xA8, 0)):
                 write(REG_ROW_BLACK, row_black)
-                write(REG_BLC, blc)
+                write(_REG_BLC, blc)
                 _new_frames(self.camera, 4, timeout_s=10.0)
                 images = [img for _s, _a, img in _timed_frames(self.camera, 3, timeout_s=10.0)]
                 stack = np.stack(images).astype(np.float32)

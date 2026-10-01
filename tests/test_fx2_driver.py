@@ -530,7 +530,7 @@ class TestFX2CameraProfile:
     def test_dynamic_capabilities_populated(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         assert cam.profile.gain.total_min_db == 0.0
-        assert cam.profile.gain.total_max_db == 42.1
+        assert cam.profile.gain.total_max_db == pytest.approx(42.1442, abs=1e-4)  # 128x
         assert cam.profile.exposure_min_us is not None
         assert cam.profile.exposure_max_us is not None
 

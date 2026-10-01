@@ -121,8 +121,7 @@ class TestFX2:
         assert cam.gain(13.0) == pytest.approx(expected)
 
     def test_a_gain_above_the_sensor_ceiling_answers_the_clamped_db(self, cam):
-        _, expected = fx2driver._register_to_gain_db(fx2driver._gain_db_to_register(42.1))
-        assert cam.gain(60.0) == pytest.approx(expected)
+        assert cam.gain(60.0) == pytest.approx(20 * math.log10(128))
 
     def test_an_inactive_camera_refuses_a_gain(self, cam):
         """Refused, as its exposure is: a ``None`` would read to the API as
