@@ -16,10 +16,11 @@ baseline is rebuilt from a few frames at the new setting. These tests drive
 the real method through the frame sequences the logs showed.
 """
 
+import ast
 import logging
 import sys
 from collections import deque
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
 
@@ -50,9 +51,9 @@ _real_base_module('kivy.uix.image', Image=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 from modules.frame_validity import FrameValidity
+from tests.ast_seams import find_def
 from ui.scope_display import (
     FRAME_SPIKE_MIN_SAMPLES,
-    FRAME_SPIKE_RESTART_SAMPLES,
     FRAME_SPIKE_WINDOW,
     ScopeDisplay,
 )
@@ -169,14 +170,14 @@ def test_a_stall_at_a_steady_setting_is_one_warning():
 
 
 def test_a_stall_soon_after_a_change_is_reported():
-    # The rebuilt baseline judges after FRAME_SPIKE_RESTART_SAMPLES frames,
-    # not after the 30 a cold start needs: a stall a few frames past an
-    # exposure change still reports.
+    # The rebuilt baseline judges after three frames at the new setting, not
+    # after the 30 a cold start needs: a stall three frames past an exposure
+    # change still reports.
     stand, warnings, done = _rig()
     try:
         _frames(stand, warnings, 100, 34.0)
         _change(stand, warnings, 34.0, 100.0 + _READOUT_MS)
-        _frames(stand, warnings, FRAME_SPIKE_RESTART_SAMPLES, 100.0 + _READOUT_MS)
+        _frames(stand, warnings, 3, 100.0 + _READOUT_MS)
         lines = _frames(stand, warnings, 1, 600.0)
         assert len(lines) == 1
         assert 'interval=600ms (median=117ms)' in lines[0]
@@ -184,26 +185,72 @@ def test_a_stall_soon_after_a_change_is_reported():
         done()
 
 
-def test_a_stall_while_the_stage_moves_is_reported():
-    """A move does not change the frame cadence, so it leaves the detector
-    judging: the caller asks for validity with the motion sources excluded,
-    and a pending move reads as settled while a pending exposure does not."""
+def test_a_baseline_cached_before_the_change_is_not_used_after_it():
+    # The median is recomputed at most every half second. A baseline cached
+    # a moment before a change from a 100 ms cadence to a 30 ms one would
+    # judge the new stream against 200 ms for that half second, and a 180 ms
+    # stall at 30 ms would go unreported.
+    stand, warnings, done = _rig()
+    try:
+        _frames(stand, warnings, 100, 100.0)
+        stand._spike_median_cache = 100.0
+        stand._spike_median_refresh = stand.now
+        _change(stand, warnings, 100.0, 30.0)
+        _frames(stand, warnings, 3, 30.0)
+        lines = _frames(stand, warnings, 1, 180.0)
+        assert len(lines) == 1
+        assert 'interval=180ms (median=30ms)' in lines[0]
+    finally:
+        done()
+
+
+def _imaging(validity):
+    return SimpleNamespace(frames_until_valid=validity.frames_until_valid)
+
+
+def test_the_live_view_asks_validity_with_stage_motion_left_out():
+    """A move does not change the frame cadence, so the detector keeps
+    judging while the stage moves; a pending exposure stops it."""
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)  # the stage is still moving
     validity.invalidate('xy_move')
     validity.invalidate('z_move')
-    motion = tuple(FrameValidity.MOTION_SOURCES)
-    assert validity.frames_until_valid(exclude_sources=motion) == 0
-    settled_while_moving = validity.frames_until_valid(exclude_sources=motion) == 0
-    assert settled_while_moving
+    validity.invalidate('turret')
+    assert ScopeDisplay._camera_settled(_imaging(validity)) is True
+
+    validity.invalidate('exposure')
+    assert ScopeDisplay._camera_settled(_imaging(validity)) is False
+
+
+def test_the_render_loop_hands_the_detector_the_camera_s_settled_state():
+    # The render loop is a Kivy path no test can run; its one wiring line is
+    # pinned on the AST: the slow-frame check gets settled from
+    # _camera_settled, never a constant.
+    render = find_def('ui/scope_display.py', '_render_one_frame', class_name='ScopeDisplay')
+    calls = [
+        node
+        for node in ast.walk(render)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == '_check_slow_frame'
+    ]
+    assert len(calls) == 1
+    settled = next(kw.value for kw in calls[0].keywords if kw.arg == 'settled')
+    assert isinstance(settled, ast.Call)
+    assert isinstance(settled.func, ast.Attribute)
+    assert settled.func.attr == '_camera_settled'
+
+
+def test_a_stall_while_the_stage_moves_is_reported():
+    validity = FrameValidity(lambda: 0)
+    validity.set_settle_check(lambda source: False)
+    validity.invalidate('xy_move')
+    moving = ScopeDisplay._camera_settled(_imaging(validity))
 
     stand, warnings, done = _rig()
     try:
-        _frames(stand, warnings, 100, 34.0, settled=settled_while_moving)
-        lines = _frames(stand, warnings, 1, 400.0, settled=settled_while_moving)
+        _frames(stand, warnings, 100, 34.0, settled=moving)
+        lines = _frames(stand, warnings, 1, 400.0, settled=moving)
         assert len(lines) == 1
     finally:
         done()
-
-    validity.invalidate('exposure')
-    assert validity.frames_until_valid(exclude_sources=motion) > 0

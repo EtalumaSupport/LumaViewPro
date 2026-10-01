@@ -592,6 +592,17 @@ class ScopeDisplay(Image):
             f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}'
         )
 
+    @staticmethod
+    def _camera_settled(imaging) -> bool:
+        """Whether the camera has finished every change that alters its cadence.
+
+        Read from the API's frame validity, the one record of which hardware
+        changes are still switching over. Stage motion is left out: a move
+        leaves the frame cadence alone, so the slow-frame check keeps judging
+        while the stage jogs.
+        """
+        return imaging.frames_until_valid(exclude_sources=tuple(FrameValidity.MOTION_SOURCES)) == 0
+
     def _spike_median(self, now):
         """Median of the recent OK-frame-interval window, cached.
 
@@ -961,10 +972,7 @@ class ScopeDisplay(Image):
             grab_ms=(t_grab_end - t_grab_start) * 1000.0,
             proc_ms=proc_ms,
             eng_ms=t_eng_stats * 1000.0,
-            settled=ctx.scope.imaging.frames_until_valid(
-                exclude_sources=tuple(FrameValidity.MOTION_SOURCES)
-            )
-            == 0,
+            settled=self._camera_settled(ctx.scope.imaging),
             held_ms=self._wait_since_last_ok_ms,
         )
         self._wait_since_last_ok_ms = 0.0
