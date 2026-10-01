@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from modules.lumascope_api._lumascope import Lumascope
     from modules.protocol import Protocol
+    from modules.tiling_config import TilingConfig
 
 _api_log = logging.getLogger('LVP.api')
 
@@ -65,6 +66,24 @@ class ProtocolsAPI:
         part of the L2 API surface: a caller never needs the path itself.
         """
         return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
+
+    def tiling_config(self) -> TilingConfig:
+        """The tiling grids this installation offers, from the scope's data folder.
+
+        What a caller needs to choose a grid: ``available_configs()`` lists the
+        labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
+        ``default_config()`` is the one to preselect, and
+        ``determine_tiling_label_from_tiles`` names the grid a protocol's
+        steps already carry. Read from the file on each call, so there is no
+        copy to fall out of step with it.
+
+        Raises:
+            RuntimeError: tiling.json is missing or is not valid JSON.
+            ValueError: tiling.json does not have the expected structure.
+        """
+        from modules.tiling_config import TilingConfig
+
+        return TilingConfig(tiling_configs_file_loc=self.tiling_configs_path())
 
     def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.

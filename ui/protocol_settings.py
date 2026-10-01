@@ -24,12 +24,10 @@ from modules.config_ui_getters import (
     get_zstack_params,
     is_image_saving_enabled,
 )
-from modules.path_utils import get_source_root
 from modules.protocol import Protocol
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from ui.step_navigation import go_to_step
-from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
 from modules import exceptions, gui_logger
 from ui.ui_helpers import (
@@ -175,15 +173,7 @@ class ProtocolSettings(FloatLayout):
         # redraws ask for it.
         self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
 
-        # source_path: use ctx if available, otherwise derive from install-aware defaults
-        ctx = _app_ctx.ctx
-        source_root = get_source_root(ctx.source_path if ctx is not None else None)
-
         self.curr_step = -1
-
-        self.tiling_config = TilingConfig(
-            tiling_configs_file_loc=source_root / 'data' / 'tiling.json'
-        )
 
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
@@ -192,8 +182,6 @@ class ProtocolSettings(FloatLayout):
             'y': int(DEFAULT_STAGE_TRAVEL_UM['y']),
         }
         self.tiling_max = {'x': 0, 'y': 0}
-
-        self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         # Protocol is owned by AppContext, not this widget.
         # Property delegation below ensures all existing self._protocol
@@ -267,6 +255,15 @@ class ProtocolSettings(FloatLayout):
         self.protocol_size_advisory_active = advisory is not None
         label.text = advisory.message if advisory is not None else ''
 
+    @property
+    def tiling_config(self):
+        """The installation's tiling grids, asked of the scope at each use.
+
+        The panel is built before the session exists, so it cannot hold its
+        own copy from construction; it never reads tiling.json itself.
+        """
+        return _app_ctx.ctx.session.scope.protocols.tiling_config()
+
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
@@ -280,8 +277,9 @@ class ProtocolSettings(FloatLayout):
             return
         settings = ctx.settings
 
-        self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
-        self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
+        tiling_config = self.tiling_config
+        self.ids['tiling_size_spinner'].values = tiling_config.available_configs()
+        self.ids['tiling_size_spinner'].text = tiling_config.default_config()
 
         # The persisted protocol is NOT loaded here. Whether the scope can
         # perform it depends on the turret, and on a turreted scope the
