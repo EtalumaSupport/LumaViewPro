@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import sys
 import types
 import warnings
 
@@ -13,25 +14,17 @@ from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
 import modules.image_mode as image_mode
 
-try:
-    from drivers.idscamera import IDSCamera
-except ImportError as _ids_exc:
-    IDSCamera = None
-    # The reason MUST reach the log: the driver silently never registers,
-    # so without it an IDS scope just "has no camera" -- a swallowed
-    # bundling gap in a frozen build cost a full client misdiagnosis.
-    logger.warning(f'[SCOPE API ] IDS camera driver unavailable: {_ids_exc}')
 # FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
 # the entire point: it fires the @camera_registry.register('fx2') and
 # @led_registry.register('fx2') decorators inside the module. Nothing
 # in this file references fx2driver names directly; the registry
 # instantiates FX2Camera + FX2LEDController via 'auto' fallthrough when
 # Pylon/IDS aren't found. Wrapped in try/except so dev machines without
-# pyusb / libusb1 don't crash LVP at startup (matches IDS pattern above).
+# pyusb / libusb1 don't crash LVP at startup (matches the IDS pattern below).
 try:
     import drivers.fx2driver  # noqa: F401
 except ImportError as _fx2_exc:
-    # Same silent-degradation shape as the IDS guard above: without this
+    # Same silent-degradation shape as the IDS guard below: without this
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
 from drivers.camera import Camera
@@ -69,6 +62,32 @@ import logging as _logging
 from modules.notification_center import notifications
 
 _api_log = _logging.getLogger('LVP.api')
+
+
+def _register_ids_camera(platform: str):
+    """Import the IDS driver, which registers it; None when it cannot load.
+
+    IDS peak ships Windows and Linux builds only, so on macOS no IDS camera
+    can ever run and the driver is not attempted: its absence there is a
+    fact of the host, logged once at INFO. Elsewhere a failed import is a
+    WARNING with its reason, because the driver then silently never
+    registers and an IDS scope just "has no camera" -- a bundling gap in a
+    frozen build cost a full client misdiagnosis.
+    """
+    if platform == 'darwin':
+        logger.info(
+            '[SCOPE API ] IDS cameras are not supported on macOS (IDS peak has no macOS build)'
+        )
+        return None
+    try:
+        from drivers.idscamera import IDSCamera
+    except ImportError as exc:
+        logger.warning(f'[SCOPE API ] IDS camera driver unavailable: {exc}')
+        return None
+    return IDSCamera
+
+
+IDSCamera = _register_ids_camera(sys.platform)
 
 # PRE-RELEASE 4-mechanism warning bundle: this is the runtime
 # FutureWarning piece. The other three are the README banner, the
