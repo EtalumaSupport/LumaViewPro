@@ -9,7 +9,7 @@ import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
-from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processor import ProgressCallback, ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.video_writer import VideoWriter
@@ -114,7 +114,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 frames_per_sec=kwargs['frames_per_sec'],
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=kwargs['output_file_loc'],
-                popup=kwargs['popup'],
+                on_progress=kwargs['on_progress'],
                 total_groups=kwargs['total_groups'],
                 current_group=kwargs['current_group'],
             )
@@ -207,7 +207,7 @@ class VideoBuilder(ProtocolPostProcessor):
         frames_per_sec: int,
         enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path,
-        popup=None,
+        on_progress: ProgressCallback | None = None,
         total_groups=1,
         current_group=1,
     ) -> dict:
@@ -272,8 +272,8 @@ class VideoBuilder(ProtocolPostProcessor):
                 skipped += 1
                 continue
 
-            if popup is not None:
-                popup.progress = start_percentage + (i / total_frames) * percent_diff
+            if on_progress is not None:
+                on_progress(start_percentage + (i / total_frames) * percent_diff, None)
 
             i += 1
 
@@ -404,7 +404,7 @@ class VideoBuilder(ProtocolPostProcessor):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup=None,
+        on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
         """Create video(s) from a captured folder, dispatching by recording type.
@@ -434,11 +434,11 @@ class VideoBuilder(ProtocolPostProcessor):
             else:
                 kwargs['frames_per_sec'] = DEFAULT_BUILD_FPS
         if is_manual:
-            return self._build_manual_recording_video(path, popup=popup, **kwargs)
+            return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
         return self.load_folder(
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
-            popup=popup,
+            on_progress=on_progress,
             **kwargs,
         )
 
@@ -510,7 +510,7 @@ class VideoBuilder(ProtocolPostProcessor):
     def _build_manual_recording_video(
         self,
         path: pathlib.Path,
-        popup=None,
+        on_progress: ProgressCallback | None = None,
         *,
         frames_per_sec: float,
         enable_timestamp_overlay: bool = False,
@@ -559,13 +559,13 @@ class VideoBuilder(ProtocolPostProcessor):
             frames_per_sec=frames_per_sec,
             enable_timestamp_overlay=enable_timestamp_overlay,
             output_file_loc=output_file_loc,
-            popup=popup,
+            on_progress=on_progress,
             total_groups=1,
             current_group=1,
         )
 
-        if popup is not None:
-            popup.progress = 100
+        if on_progress is not None:
+            on_progress(100, None)
 
         # The same contract as a protocol folder's build: only a complete
         # video returns; a failed or short one raises with what was written.

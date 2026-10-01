@@ -70,13 +70,11 @@ _MULTI_FRAME_REQUIREMENT = {
 }
 
 
-class ProgressSurface(typing.Protocol):
-    """The attended lifecycle surface: whatever renders a percentage and a
-    status line while a folder is processed. The loader writes these two
-    attributes and nothing else, so any widget carrying them will do."""
-
-    progress: float
-    text: str
+# How a folder build tells its caller how far it has got: the percentage
+# done, and a status line when it has one to say. A callable rather than a
+# surface to write to, so whoever asked -- a widget, a script, a remote
+# caller -- renders it in its own way and on its own thread.
+ProgressCallback = typing.Callable[[float, 'str | None'], None]
 
 
 class ProtocolPostProcessor(abc.ABC):
@@ -191,7 +189,7 @@ class ProtocolPostProcessor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup: ProgressSurface | None = None,
+        on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
         """Run this operation over a captured folder; return the complete result.
@@ -211,7 +209,7 @@ class ProtocolPostProcessor(abc.ABC):
         return self._load_folder_inner(
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
-            popup=popup,
+            on_progress=on_progress,
             **kwargs,
         )
 
@@ -281,7 +279,7 @@ class ProtocolPostProcessor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup: ProgressSurface | None = None,
+        on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -467,7 +465,7 @@ class ProtocolPostProcessor(abc.ABC):
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
-                popup=popup,
+                on_progress=on_progress,
                 total_groups=group_count,
                 current_group=current_group,
                 **kwargs,
@@ -540,8 +538,8 @@ class ProtocolPostProcessor(abc.ABC):
             # is always present.
             output_significant_bits = alg_results.significant_bits
 
-            if popup is not None:
-                popup.progress = (new_count / group_count) * 100
+            if on_progress is not None:
+                status = None
                 if self._name == 'Stitcher':
                     mode_label = (
                         'Fast Preview'
@@ -551,16 +549,17 @@ class ProtocolPostProcessor(abc.ABC):
                     remaining = max(0, group_count - current_group)
                     average_ms = sum(completed_group_ms) / len(completed_group_ms)
                     estimate_seconds = round((remaining * average_ms) / 1000.0)
-                    popup.text = (
+                    status = (
                         f'Running {mode_label} Stitch -- group {current_group}/{group_count}.\n'
                         f'Estimated remaining time: about {estimate_seconds} seconds.\n'
                         'Source pixels and channel colors are preserved.'
                     )
+                on_progress((new_count / group_count) * 100, status)
 
         protocol_post_record.complete()
 
-        if popup is not None:
-            popup.progress = 100
+        if on_progress is not None:
+            on_progress(100, None)
 
         if skipped_single_paths:
             shown = ', '.join(skipped_single_paths[:3])

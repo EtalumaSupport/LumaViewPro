@@ -26,7 +26,11 @@ from tests.scope_fakes import spec_scope
 
 @pytest.fixture
 def session():
-    bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
+    bundle = SimpleNamespace(
+        file_io_executor=MagicMock(),
+        post_processing_executor=MagicMock(),
+        protocol_thread=MagicMock(),
+    )
     return ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
 
 

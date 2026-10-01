@@ -19,6 +19,36 @@ def _class_method_source(path, class_name, method_name):
     return ast.get_source_segment(source, method)
 
 
+def _write_source(path):
+    import numpy as np
+
+    from modules import image_utils
+
+    image_utils.write_tiff(
+        data=np.full((8, 8), 100, dtype=np.uint8),
+        file_loc=path,
+        metadata={
+            'pixel_size_um': 0.5,
+            'channel': 'BF',
+            'objective': '10x',
+            'exposure_time_ms': 50.0,
+            'gain_db': 0.0,
+            'illumination_ma': 100.0,
+            'z_pos_um': 1000.0,
+            'plate_pos_mm': {'x': 10.0, 'y': 20.0},
+            'datetime': '2026:06:18 12:00:00',
+            'camera_make': 'Test',
+            'microscope': 'TestScope',
+            'well_label': 'A1',
+            'significant_bits': 8,
+        },
+        ome=False,
+        color='BF',
+        significant_bits=8,
+        save_encoding='right_aligned',
+    )
+
+
 def test_macos_enhance_picker_accepts_a_file_or_folder_in_one_native_dialog():
     source = (REPO / 'ui' / 'file_dialogs.py').read_text(encoding='utf-8')
     tree = ast.parse(source)
@@ -73,10 +103,24 @@ def test_enhance_picker_routes_files_and_folders_after_the_protocol_guard():
     assert 'set_source_file' in body
 
 
-def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewer():
-    post_processing = (REPO / 'ui' / 'post_processing.py').read_text(encoding='utf-8')
-    assert "f'Image {completed} of {total}'" in post_processing
-    assert 'hold_derived_image' in post_processing
+def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewer(tmp_path):
+    from modules.post_processing_api import PostProcessingAPI
+
+    _write_source(tmp_path / 'a.tif')
+    _write_source(tmp_path / 'b.tif')
+    texts = []
+    shown = []
+
+    PostProcessingAPI._enhance(
+        tmp_path,
+        lambda percent, text: texts.append(text),
+        lambda image, significant_bits: shown.append(significant_bits),
+    )
+
+    assert texts == ['Image 1 of 2', 'Image 2 of 2']
+    assert len(shown) == 2
+    panel = (REPO / 'ui' / 'post_processing.py').read_text(encoding='utf-8')
+    assert 'hold_derived_image' in panel
 
     viewer_method = _class_method_source(
         'ui/scope_display.py', 'ScopeDisplay', 'hold_derived_image'
@@ -85,13 +129,16 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
     assert 'bump_protocol_hold' in viewer_method
 
 
-def test_enhance_completion_hides_the_derived_output_path():
-    callback = _class_method_source(
-        'ui/post_processing.py', 'QuickEnhanceControls', '_export_callback'
-    )
+def test_enhance_completion_hides_the_derived_output_path(tmp_path):
+    from modules.post_processing_api import PostProcessingAPI
 
-    assert "summary = 'Enhance complete.'" in callback
-    assert "f'Saved: {saved_path}'" not in callback
+    source = tmp_path / 'source.tif'
+    _write_source(source)
+
+    result = PostProcessingAPI._enhance(source, None, None)
+
+    assert result['message'] == 'Enhance complete.'
+    assert str(tmp_path) not in result['message']
 
 
 def test_the_mode_router_keeps_a_stitcher_for_every_mode():

@@ -672,6 +672,32 @@ Both refusal errors say busy-with-what: `holder` carries what holds the microsco
 
 **Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included -- and a run started inside `session.diagnostic_claim()`, whose holder stays `'diagnostic'` (so a refusal still names the diagnostic) while the run is live. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
 
+### Post-processing
+
+Builds over a folder of captured images are session members, the same ones LumaViewPro's Post-Processing buttons call:
+
+```python
+pp = session.post_processing
+
+pp.stitch(folder, mode='quality')            # or 'fast_preview'; one mosaic per tiled group
+pp.zproject(folder, method='Max')            # one of ZProjector.methods()
+pp.composite(folder)                         # output format and per-channel blend thresholds
+                                             # are the user's configuration, as a run's merge uses
+pp.video(folder, frames_per_sec=None,        # None: a recording plays at its own measured rate
+         timestamp_overlay=False)
+pp.enhance(target)                           # Quick Enhance: one image, or every image in a folder;
+                                             # derived files are written beside their sources
+pp.count_cells(folder, method=method_dict)   # writes results.csv into the folder
+
+def on_progress(percent, text):              # optional on every member: percent done, and a
+    print(percent, text)                     # status line or None; called on the build's thread
+pp.stitch(folder, on_progress=on_progress)
+```
+
+Each member blocks until its build finishes and returns a dict whose `message` says what was made, in words written for a person. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). It raises `PostProcessingFailedError` when the build did not produce everything asked of it; its `produced_paths` lists what was written. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
+
+The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
+
 ### Run state and locks
 
 The session derives all run and lock state from its activity claim.

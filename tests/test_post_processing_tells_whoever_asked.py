@@ -286,22 +286,23 @@ def test_a_gui_build_that_raises_is_told_once_as_the_persons_request(monkeypatch
     monkeypatch.setattr(post_processing, 'submit_reported', _run_inline)
     monkeypatch.setattr(post_processing._app_ctx, 'ctx', MagicMock())
     refusal = PostProcessingRefusedError(operation='Stitch', reason='no_data', message='Nothing.')
+    popup = MagicMock()
     shown = []
 
-    def _build():
+    def _build(progress):
         raise refusal
 
-    post_processing._submit_post_processing(_build, shown.append, 'RUN_STITCHER')
+    post_processing._run_build(_build, popup, 'RUN_STITCHER', on_done=shown.append)
 
     assert reports == [(refusal, {'solicited': True, 'category': 'UI:RUN_STITCHER'})]
     assert shown == [None]
+    popup.dismiss.assert_called_once_with()
 
 
 def test_the_stitcher_plugin_answers_a_typed_failure_in_its_words_with_its_outputs(
-    tmp_path, monkeypatch
+    tmp_path,
 ):
     from modules.plugins.builtin import stitcher_plugin
-    import modules.stitcher as stitcher_module
 
     fault = PostProcessingFailedError(
         operation='Stitch',
@@ -310,19 +311,14 @@ def test_the_stitcher_plugin_answers_a_typed_failure_in_its_words_with_its_outpu
         output_root=str(tmp_path),
     )
 
-    def _load_folder(self, **kwargs):
-        raise fault
+    post_processing = MagicMock()
+    post_processing.stitch.side_effect = fault
 
-    monkeypatch.setattr(stitcher_module.Stitcher, 'load_folder', _load_folder)
-
-    result = stitcher_plugin._stitcher_processor(
-        str(tmp_path), {'tiling_configs_file_loc': str(TILING_CONFIGS)}, ''
-    )
+    result = stitcher_plugin._stitcher_processor(post_processing, str(tmp_path), {}, '')
 
     assert result.success is False
     assert result.message == str(fault)
     assert result.outputs == (str(tmp_path / 'B1.tiff'),)
-    assert result.metadata['has_turret'] is False
 
 
 def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):

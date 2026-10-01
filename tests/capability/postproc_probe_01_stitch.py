@@ -4,7 +4,7 @@ GUI equivalent: Post-Processing > Stitch > Quality / Fast Preview, i.e.
 ui/post_processing.py:191 StitchControls.run_stitcher.
 
 Headless route under test: ScopeSession assembles a 2x2 tiled capture
-config, the runner captures it, then modules.stitcher.Stitcher.load_folder
+config, the runner captures it, then session.post_processing.stitch
 stitches it. No Kivy, no ui.* import.
 """
 
@@ -37,19 +37,18 @@ def main() -> int:
             return 2
         print('tiffs:', sorted(p.name for p in folder.rglob('*.tif*')))
 
-        from modules.stitcher import Stitcher
+        from modules.exceptions import CaptureError
 
-        stitcher = Stitcher(has_turret=session.scope.capabilities.has_turret)
-        result = stitcher.load_folder(
-            path=folder,
-            tiling_configs_file_loc=session.scope.protocols.tiling_configs_path(),
-            popup=None,
-            stitching_mode=Stitcher.QUALITY_MODE,
-        )
+        try:
+            result = session.post_processing.stitch(folder, mode='quality')
+        except CaptureError as e:
+            print('stitch outcome:', type(e).__name__, e)
+            print('PROBE RESULT: FAIL')
+            return 1
         print('stitch result:', result)
         print('folder after:', sorted(str(p.relative_to(folder)) for p in folder.rglob('*.tif*')))
-        print('PROBE RESULT:', 'SUCCESS' if result.get('status') else 'FAIL')
-        return 0 if result.get('status') else 1
+        print('PROBE RESULT: SUCCESS')
+        return 0
 
 
 if __name__ == '__main__':

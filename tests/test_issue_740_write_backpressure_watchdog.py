@@ -443,7 +443,11 @@ def test_session_recover_file_writer_passthrough():
     from modules.exceptions import FileWriterNotStuckError
     from modules.scope_session import ScopeSession
 
-    bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
+    bundle = SimpleNamespace(
+        file_io_executor=MagicMock(),
+        post_processing_executor=MagicMock(),
+        protocol_thread=MagicMock(),
+    )
     session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
 
     with pytest.raises(FileWriterNotStuckError) as refused:

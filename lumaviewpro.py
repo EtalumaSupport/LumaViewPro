@@ -1055,6 +1055,7 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=scope_session.camera_executor,
             protocol_thread=scope_session.protocol_thread,
             file_io_executor=scope_session.file_io_executor,
+            post_processing_executor=scope_session.post_processing.lane,
             autofocus_thread=scope_session.autofocus_thread,
             scope_display_thread=scope_session.executor_bundle.scope_display_thread,
             worker_pool=scope_session.executor_bundle.worker_pool,

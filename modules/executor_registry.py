@@ -14,6 +14,9 @@ too; the bundle holds them beside the ones it builds:
     CAMERA      -- the scope's: camera-config / settings writes
                   (CAMERA_WORKER thread)
     FILE        -- file IO; a run's writes are paced by the run's own batch
+    POSTPROC    -- post-processing builds (stitch, z-projection, composite,
+                  video, Quick Enhance, cell count). Its own lane so a build
+                  of a large folder never sits in front of a run's writes
     SCOPEDISPLAY-- display pull loop dispatcher (bare Thread, no queue)
     PROTOCOL    -- protocol orchestration (bare Thread, no queue)
     WORKER_POOL -- priority-aware executor (not a device lane: it may wait
@@ -61,6 +64,7 @@ class ExecutorBundle:
     camera_executor: SequentialIOExecutor
     protocol_thread: ProtocolThread
     file_io_executor: SequentialIOExecutor
+    post_processing_executor: SequentialIOExecutor
     scope_display_thread: ScopeDisplayThread
     worker_pool: SequentialIOExecutor
 
@@ -82,6 +86,7 @@ class ExecutorBundle:
             ('IO', self.io_executor),
             ('CAMERA', self.camera_executor),
             ('FILE', self.file_io_executor),
+            ('POSTPROC', self.post_processing_executor),
             ('WORKER_POOL', self.worker_pool),
         ]
         out = {}
@@ -110,6 +115,7 @@ class ExecutorBundle:
         self.scope_display_thread.stop()
         self.protocol_thread.stop(timeout=2.0)
         self.file_io_executor.shutdown(wait=False)
+        self.post_processing_executor.shutdown(wait=False)
         self.worker_pool.shutdown(wait=False)
 
 
@@ -144,6 +150,7 @@ def create_default(
     # No run mode and no bound: a run's writes are counted and paced by the
     # run's own write batch, on this lane's one ordinary queue.
     file_io_executor = SequentialIOExecutor(name='FILE', ui_dispatcher=ui_dispatcher)
+    post_processing_executor = SequentialIOExecutor(name='POSTPROC', ui_dispatcher=ui_dispatcher)
     # Thread is constructed here but NOT started. The host starts it once
     # its display widget and this thread are both reachable through the
     # provider; starting earlier races that wiring and silently no-ops.
@@ -163,16 +170,18 @@ def create_default(
         camera_executor=camera_executor,
         protocol_thread=protocol_thread,
         file_io_executor=file_io_executor,
+        post_processing_executor=post_processing_executor,
         scope_display_thread=scope_display_thread,
         worker_pool=worker_pool,
     )
 
     file_io_executor.start()
+    post_processing_executor.start()
     worker_pool.start()
     protocol_thread.start()
 
     logger.info(
-        '[LVP Main  ] ExecutorRegistry: created + started FILE and '
+        '[LVP Main  ] ExecutorRegistry: created + started FILE, POSTPROC and '
         "WORKER_POOL + protocol_thread around the scope's IO and CAMERA "
         'lanes; scope_display_thread constructed (started separately from '
         'lumaviewpro.build); stage/turret aliased to IO'

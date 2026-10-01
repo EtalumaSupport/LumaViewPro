@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import pathlib
 import types
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from modules.plugins import PluginSpec, ProcessorResult
 from modules.plugins.builtin import register_builtins, stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -110,93 +111,50 @@ def test_processor_returns_processor_result_on_missing_folder(
     harness_ctx,
     tmp_path,
 ):
-    # A path that exists but has no protocol files -> Stitcher.load_folder
-    # surfaces a clean {'status': False, 'message': '...'} which the
-    # shim must wrap in ProcessorResult, NOT propagate as an exception.
+    # A path that exists but has no protocol files -> the stitch refuses,
+    # and the shim must wrap that in ProcessorResult, NOT propagate it.
+    from modules.post_processing_api import PostProcessingAPI
+    from modules.sequential_io_executor import SequentialIOExecutor
+
+    lane = SequentialIOExecutor(name='POSTPROC_TEST')
+    lane.start()
+    harness_ctx.session.post_processing = PostProcessingAPI(
+        lane=lane,
+        tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
+        has_turret=lambda: False,
+        settings_snapshot=dict,
+    )
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')
     empty_dir = tmp_path / 'empty_protocol'
     empty_dir.mkdir()
-    tiling_cfg = pathlib.Path('data') / 'tiling.json'
 
-    result = processor(
-        str(empty_dir),
-        {'has_turret': False, 'tiling_configs_file_loc': str(tiling_cfg)},
-        str(tmp_path / 'out'),
-    )
+    try:
+        result = processor(str(empty_dir), {}, str(tmp_path / 'out'))
+    finally:
+        lane.shutdown()
     assert isinstance(result, ProcessorResult)
     # Clean fail: success=False, message names the problem, no traceback.
     assert result.success is False
     assert isinstance(result.message, str)
     assert result.message != ''
     assert result.metadata['input_dir'] == str(empty_dir)
-    assert result.metadata['has_turret'] is False
 
 
 def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
-    # If Stitcher.load_folder raises, the shim must turn that into a
+    # If the stitch raises, the shim must turn that into a
     # ProcessorResult(success=False, ...) so the host's notification
     # path stays uniform across plugins.
+    harness_ctx.session.post_processing.stitch.side_effect = RuntimeError('boom')
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')
 
-    fake = MagicMock()
-    fake.load_folder.side_effect = RuntimeError('boom')
-
-    # Patch the lazy import target -- the processor does
-    # `from modules.stitcher import Stitcher` inside the call.
-    with (
-        patch.object(stitcher_plugin, 'Stitcher', return_value=fake, create=True),
-        patch('modules.stitcher.Stitcher', return_value=fake),
-    ):
-        result = processor('/some/path', {}, '/some/out')
+    result = processor('/some/path', {}, '/some/out')
 
     assert isinstance(result, ProcessorResult)
     assert result.success is False
     assert 'RuntimeError' in result.message
     assert 'boom' in result.message
-
-
-def test_processor_passes_has_turret_from_manifest(harness_ctx):
-    """The manifest's has_turret flag must reach Stitcher.__init__."""
-    stitcher_plugin.register(harness_ctx)
-    processor = harness_ctx.plugins.post_processing.get('stitcher')
-
-    fake_instance = MagicMock()
-    fake_instance.load_folder.return_value = {'status': True, 'message': 'ok'}
-    fake_class = MagicMock(return_value=fake_instance)
-
-    with patch('modules.stitcher.Stitcher', fake_class):
-        result = processor('/some/path', {'has_turret': True}, '')
-
-    fake_class.assert_called_once_with(has_turret=True)
-    assert result.success is True
-    assert result.metadata['has_turret'] is True
-
-
-def test_processor_forwards_tiling_cfg_from_manifest(harness_ctx, tmp_path):
-    stitcher_plugin.register(harness_ctx)
-    processor = harness_ctx.plugins.post_processing.get('stitcher')
-
-    fake_instance = MagicMock()
-    fake_instance.load_folder.return_value = {'status': True, 'message': 'ok'}
-    fake_class = MagicMock(return_value=fake_instance)
-
-    custom_cfg = tmp_path / 'custom_tiling.json'
-    custom_cfg.write_text('{}')
-
-    with patch('modules.stitcher.Stitcher', fake_class):
-        result = processor(
-            str(tmp_path),
-            {'tiling_configs_file_loc': str(custom_cfg)},
-            '',
-        )
-
-    # The fake's load_folder should have been called with the manifest's
-    # tiling path coerced to pathlib.Path.
-    call_kwargs = fake_instance.load_folder.call_args.kwargs
-    assert call_kwargs['tiling_configs_file_loc'] == custom_cfg
-    assert result.metadata['tiling_configs_file_loc'] == str(custom_cfg)
 
 
 def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):

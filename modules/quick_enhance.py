@@ -21,9 +21,12 @@ import numpy as np
 
 from lvp_logger import logger
 from modules import common_utils, image_utils
+from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 
 
 PIPELINE_VERSION = '3'
+# The operation's name as a person reads it, in its refusals and failures.
+QUICK_ENHANCE_OPERATION = 'Quick Enhance'
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
@@ -445,6 +448,16 @@ class QuickEnhancer:
         progress_callback: Callable[[int, int, pathlib.Path], None] | None = None,
         display_callback: Callable[[np.ndarray, int], None] | None = None,
     ) -> dict:
+        """Enhance every supported image in *folder*, each to its own derived file.
+
+        Returns only when every image was enhanced.
+
+        Raises:
+            PostProcessingRefusedError: The folder holds no image this can
+                enhance.
+            PostProcessingFailedError: Some images could not be enhanced;
+                what was saved rides along.
+        """
         folder = pathlib.Path(folder)
         files = sorted(
             path
@@ -470,6 +483,21 @@ class QuickEnhancer:
                 skipped.append({'source_path': source_path, 'error': str(exc)})
             if progress_callback is not None:
                 progress_callback(completed, total, source_path)
+        if not files:
+            raise PostProcessingRefusedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                reason='no_data',
+                message='The folder holds no image Quick Enhance can read.',
+            )
+        if skipped:
+            produced = [str(item['output_path']) for item in created]
+            raise PostProcessingFailedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                missing=f'{len(skipped)} of {total} image(s) could not be enhanced.',
+                produced_paths=produced,
+                output_root=str(folder),
+                errors=[f'{item["source_path"].name}: {item["error"]}' for item in skipped],
+            )
         return {
             'status': True,
             'created_count': len(created),

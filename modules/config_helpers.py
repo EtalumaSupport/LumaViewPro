@@ -824,6 +824,7 @@ def log_system_metrics(settings: dict) -> None:
             'io_executor',
             'camera_executor',
             'file_io_executor',
+            'post_processing_executor',
             'worker_pool',
         ):
             # protocol_thread, scope_display_thread, autofocus_thread,
@@ -858,6 +859,7 @@ def log_system_metrics(settings: dict) -> None:
             'io_executor',
             'camera_executor',
             'file_io_executor',
+            'post_processing_executor',
             'worker_pool',
         ):
             # protocol_thread, scope_display_thread, autofocus_thread,

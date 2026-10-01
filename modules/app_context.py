@@ -61,6 +61,7 @@ class AppContext:
     camera_executor: object = None
     protocol_thread: object = None
     file_io_executor: object = None
+    post_processing_executor: object = None
     scope_display_thread: object = None
     autofocus_thread: object = None
     worker_pool: object = None

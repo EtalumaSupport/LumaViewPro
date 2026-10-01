@@ -584,7 +584,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=False,
         output_file_loc=requested,
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )

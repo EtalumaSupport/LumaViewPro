@@ -23,15 +23,10 @@ from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
 from modules import gui_logger
-from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
-from modules.composite_generation import CompositeGeneration
-from modules.video_builder import VideoBuilder
-import modules.config_helpers as config_helpers
 from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
-from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
@@ -40,26 +35,39 @@ from ui.ui_helpers import submit_reported
 logger = logging.getLogger('LVP.ui.post_processing')
 
 
-def _submit_post_processing(build, show, label: str) -> None:
-    """Run a post-processing build off the GUI thread, then show what it made.
+def _run_build(build, popup, label: str, on_done=None) -> None:
+    """Run a session post-processing build on its lane, showing its progress.
 
-    The build runs on the file lane through the GUI boundary, which reports
-    a refusal or failure once, as the request of the person who pressed the
-    button. *show* then gets the complete result, or None when the build
-    raised: its outcome has already been told, and the progress popup has
-    nothing left to say.
+    *build* takes the progress callback and calls one
+    ``session.post_processing`` member. The build runs on the
+    post-processing lane through the GUI boundary, which reports a refusal
+    or failure once, as the request of the person who pressed the button.
+    The popup then shows the build's own words for what it made, or closes
+    when the build raised: its outcome has already been told. *on_done*
+    gets the result, or None, for a panel that shows more of it.
     """
     produced = {}
 
-    def _build():
-        produced['result'] = build()
+    def _progress(percent: float, text: str | None) -> None:
+        popup.progress = percent
+        if text is not None:
+            popup.text = text
 
-    submit_reported(
-        _build,
-        lambda: show(produced.get('result')),
-        label,
-        lane=_app_ctx.ctx.file_io_executor,
-    )
+    def _build():
+        produced['result'] = build(_progress)
+
+    def _show():
+        result = produced.get('result')
+        if on_done is not None:
+            on_done(result)
+        if result is None:
+            popup.dismiss()
+            return
+        popup.progress = 100
+        popup.text = result['message']
+        Clock.schedule_once(lambda dt: popup.dismiss(), 5 if result.get('degraded') else 2)
+
+    submit_reported(_build, _show, label, lane=_app_ctx.ctx.session.post_processing.lane)
 
 
 class QuickEnhanceControls(BoxLayout):
@@ -73,91 +81,36 @@ class QuickEnhanceControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('quick_enhance_controls', self)
-        self._enhancer = QuickEnhancer()
-        self._export_inflight = False
 
     def set_source_file(self, file) -> None:
-        self._start_export(pathlib.Path(file), target_is_folder=False)
+        self._start_export(pathlib.Path(file))
 
     def set_source_folder(self, path) -> None:
-        self._start_export(pathlib.Path(path), target_is_folder=True)
+        self._start_export(pathlib.Path(path))
 
-    def _settings(self) -> QuickEnhanceSettings:
-        return QuickEnhanceSettings()
-
-    def _start_export(self, target: pathlib.Path, target_is_folder: bool) -> None:
-        if self.busy or self._export_inflight:
-            self.status_text = 'Enhance is already running.'
-            return
+    def _start_export(self, target: pathlib.Path) -> None:
         self.busy = True
         self.status_text = ''
-        self.export(target, target_is_folder)
+        self.export(target)
 
     @show_popup
-    def export(self, popup, target: pathlib.Path, target_is_folder: bool) -> None:
-        if self._export_inflight:
-            self.status_text = 'Enhance is already running.'
-            self.busy = False
-            popup.dismiss()
-            return
-        settings = self._settings()
-        self._export_inflight = True
+    def export(self, popup, target: pathlib.Path) -> None:
         popup.title = 'Enhance'
         popup.text = ''
         popup.progress = 0
         popup.auto_dismiss = False
-        _app_ctx.ctx.file_io_executor.put(
-            IOTask(
-                action=self._export_target,
-                args=(popup, target, target_is_folder, settings),
-                callback=self._export_callback,
-                cb_args=(popup,),
-                pass_result=True,
-                silent_on_failure=True,
-                slow_task_threshold_sec=30.0,
-            )
-        )
 
-    def _export_target(
-        self,
-        popup,
-        target: pathlib.Path,
-        target_is_folder: bool,
-        settings: QuickEnhanceSettings,
-    ) -> dict:
-        if target_is_folder:
-            result = self._enhancer.export_folder(
-                target,
-                settings,
-                progress_callback=lambda done, total, path: self._update_folder_progress(
-                    popup, done, total, path
-                ),
-                display_callback=self._queue_derived_image,
-            )
-            result['target_is_folder'] = True
-            return result
-        result = self._enhancer.export_file(
-            target,
-            settings,
-            display_callback=self._queue_derived_image,
-        )
-        self._update_folder_progress(popup, 1, 1, target)
-        return {
-            'status': True,
-            'created_count': 1,
-            'created': [result],
-            'skipped': [],
-            'total': 1,
-            'target_is_folder': False,
-        }
+        def _build(progress):
+            def _progress(percent: float, text: str | None) -> None:
+                progress(percent, text)
+                if text is not None:
+                    Clock.schedule_once(lambda _dt: setattr(self, 'status_text', text), 0)
 
-    def _update_folder_progress(
-        self, popup, completed: int, total: int, path: pathlib.Path
-    ) -> None:
-        popup.progress = 100 if total == 0 else (completed / total) * 100
-        text = f'Image {completed} of {total}'
-        popup.text = text
-        Clock.schedule_once(lambda _dt: setattr(self, 'status_text', text), 0)
+            return _app_ctx.ctx.session.post_processing.enhance(
+                target, on_progress=_progress, on_derived_image=self._queue_derived_image
+            )
+
+        _run_build(_build, popup, 'ENHANCE', on_done=self._export_done)
 
     def _queue_derived_image(self, image: np.ndarray, significant_bits: int) -> None:
         display_image = image.copy()
@@ -169,28 +122,13 @@ class QuickEnhanceControls(BoxLayout):
 
         Clock.schedule_once(_show, 0)
 
-    def _export_callback(self, popup, result=None, exception=None) -> None:
-        self._export_inflight = False
+    def _export_done(self, result) -> None:
         self.busy = False
-        from modules.notification_center import notifications
-
-        if exception is not None or result is None:
-            logger.error('[Enhance] Export failed', exc_info=exception)
-            popup.dismiss()
-            self.status_text = 'Enhance failed. See the log for details.'
-            notifications.warning('Enhance', 'Failed', self.status_text)
+        if result is None:
+            self.status_text = ''
             return
-        popup.progress = 100
-        output_folder = self._enhancer.output_folder(result)
-        if output_folder is None:
-            self.status_text = 'Enhance failed. No supported images were saved.'
-            popup.text = self.status_text
-            return
-        self.last_output_folder = str(output_folder)
-        summary = 'Enhance complete.'
-        popup.text = summary
-        self.status_text = summary
-        Clock.schedule_once(lambda _dt: popup.dismiss(), 2)
+        self.last_output_folder = str(result['output_folder'])
+        self.status_text = result['message']
 
 
 class StitchControls(BoxLayout):
@@ -225,34 +163,13 @@ class StitchControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        stitcher = Stitcher(
-            has_turret=ctx.lumaview.scope.capabilities.has_turret,
-        )
-        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
-        _submit_post_processing(
-            lambda: stitcher.load_folder(
-                pathlib.Path(path), tiling, popup, stitching_mode=stitching_mode
+        _run_build(
+            lambda progress: ctx.session.post_processing.stitch(
+                path, mode=stitching_mode, on_progress=progress
             ),
-            lambda result: self.stitcher_callback(popup, result),
+            popup,
             'RUN_STITCHER',
         )
-
-    def stitcher_callback(self, popup, result):
-        if result is None:
-            popup.dismiss()
-            return
-
-        if result.get('degraded'):
-            final_text = (
-                'Stitching complete with geometry-only fallback for one or more groups.\n'
-                'Review the mosaic geometry; detailed reasons are in Support > Logs.'
-            )
-            popup.text = final_text
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        popup.text = 'Stitching images - Success'
-        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
 class ZProjectionControls(BoxLayout):
@@ -285,12 +202,12 @@ class ZProjectionControls(BoxLayout):
 
         popup.text = 'Generating Z-Projection images...'
 
-        zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.capabilities.has_turret)
-        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
         method = self.ids['zprojection_method_spinner'].text
-        _submit_post_processing(
-            lambda: zproj.load_folder(pathlib.Path(path), tiling, popup, method=method),
-            lambda result: self.zprojection_callback(popup, result),
+        _run_build(
+            lambda progress: ctx.session.post_processing.zproject(
+                path, method=method, on_progress=progress
+            ),
+            popup,
             'RUN_ZPROJECTION',
         )
 
@@ -306,14 +223,6 @@ class ZProjectionControls(BoxLayout):
         selection moves to the dropdown's own event.
         """
         gui_logger.select('ZPROJECTION_METHOD', self.ids['zprojection_method_spinner'].text)
-
-    def zprojection_callback(self, popup, result):
-        if result is None:
-            popup.dismiss()
-            return
-        popup.progress = 100
-        popup.text = 'Generating Z-Projection images - Success'
-        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
 class CompositeGenControls(BoxLayout):
@@ -332,49 +241,11 @@ class CompositeGenControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        composite_gen = CompositeGeneration(
-            has_turret=ctx.lumaview.scope.capabilities.has_turret,
-        )
-
-        # The manual button has no run config, so the composite output format
-        # follows the sequenced-capture setting (least astonishment, no new
-        # UI control). Threaded the same way ZProjector threads its method.
-        # Both values are snapshotted here, on the click, rather than read
-        # inside the worker: the generation runs off the UI thread with no
-        # access to live settings, and the thresholds it needs are per-layer
-        # user configuration.
-        with ctx.settings_lock:
-            output_format = ctx.settings['image_output_format']['sequenced']
-            # Read through the same helper the protocol path uses, so a manual
-            # composite and a run-driven one cannot disagree about what the
-            # user configured. Called inside this lock, not holding one of its
-            # own: the protocol path calls it unlocked, and settings_lock is
-            # not reentrant.
-            brightness_thresholds_percent = config_helpers.get_composite_blend_thresholds(
-                ctx.settings
-            )
-
-        # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
-        # May want to update this in the future
-        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
-        _submit_post_processing(
-            lambda: composite_gen.load_folder(
-                pathlib.Path(path),
-                tiling,
-                popup,
-                output_format=output_format,
-                brightness_thresholds_percent=brightness_thresholds_percent,
-            ),
-            lambda result: self.composite_gen_callback(popup, result),
+        _run_build(
+            lambda progress: ctx.session.post_processing.composite(path, on_progress=progress),
+            popup,
             'RUN_COMPOSITE_GEN',
         )
-
-    def composite_gen_callback(self, popup, result):
-        if result is None:
-            popup.dismiss()
-            return
-        popup.text = 'Generating composite images - Success'
-        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
 class VideoCreationControls(BoxLayout):
@@ -394,47 +265,19 @@ class VideoCreationControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        # Blank (or 'auto') = the recording's own measured rate; the
-        # builder resolves it from the folder's manifest. An explicit
-        # number is the user's playback-rate override.
-        fps_text = self.ids['video_gen_fps_id'].text.strip().lower()
-        if fps_text in ('', 'auto'):
-            fps = None
-        else:
-            try:
-                fps = int(fps_text)
-            except ValueError:
-                fps = -1
-
-        ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
-        enable_timestamp_overlay = ts_overlay_btn.state == 'down'
-
-        if fps is not None and fps < 1:
-            msg = (
-                'Video generation frames/second must be >= 1 fps '
-                "(or blank for the recording's own rate)"
-            )
-            final_text = 'Generating video(s) - FAILED'
-            final_text += f'\n{msg}'
-            popup.text = final_text
-            logger.error(f'{msg}')
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        video_builder = VideoBuilder(
-            has_turret=ctx.lumaview.scope.capabilities.has_turret,
-        )
-
-        tiling = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
-        _submit_post_processing(
-            lambda: video_builder.build_from_folder(
-                pathlib.Path(path),
-                tiling,
-                popup,
+        # Blank (or 'auto') = the recording's own measured rate; anything
+        # else is the user's playback-rate override, which the build judges.
+        fps_text = self.ids['video_gen_fps_id'].text.strip()
+        fps = None if fps_text.lower() in ('', 'auto') else fps_text
+        enable_timestamp_overlay = self.ids['enable_timestamp_overlay_btn'].state == 'down'
+        _run_build(
+            lambda progress: ctx.session.post_processing.video(
+                path,
                 frames_per_sec=fps,
-                enable_timestamp_overlay=enable_timestamp_overlay,
+                timestamp_overlay=enable_timestamp_overlay,
+                on_progress=progress,
             ),
-            lambda result: self.video_builder_callback(popup, result),
+            popup,
             'RUN_VIDEO_GEN',
         )
 
@@ -457,13 +300,6 @@ class VideoCreationControls(BoxLayout):
         """
         state_down = self.ids['enable_timestamp_overlay_btn'].state == 'down'
         gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY_BTN', state_down)
-
-    def video_builder_callback(self, popup, result):
-        if result is None:
-            popup.dismiss()
-            return
-        popup.text = 'Generating video(s) - Success'
-        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
 # ============================================================================
@@ -862,37 +698,14 @@ class CellCountControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        _app_ctx.ctx.file_io_executor.put(
-            IOTask(
-                action=self.execute_apply_method_to_folder,
-                args=(popup, path),
-                callback=self.apply_method_to_folder_callback,
-                cb_args=(popup, path),
-                pass_result=True,
-            )
+        settings = self._settings
+        _run_build(
+            lambda progress: _app_ctx.ctx.session.post_processing.count_cells(
+                path, method=settings, on_progress=progress
+            ),
+            popup,
+            'APPLY_CELL_COUNT_TO_FOLDER',
         )
-
-    def execute_apply_method_to_folder(self, popup, path):
-        pre_text = f'Applying method to folder: {path}'
-        total_images = self._post.get_num_images_in_folder(path=path)
-
-        for image_count, image_process in enumerate(
-            self._post.apply_cell_count_to_folder(path=path, settings=self._settings), start=1
-        ):
-            filename = image_process['filename']
-            popup.progress = int(100 * image_count / total_images)
-            popup.text = f'{pre_text}\n- {image_count}/{total_images}: {filename}'
-
-    def apply_method_to_folder_callback(self, popup, path, result=None, exception=None):
-        if result is None:
-            popup.text = 'Applying method to folder - FAILED'
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
-        popup.progress = 100
-        popup.text = 'Applying method to folder - Done'
-        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
-        return
 
     def set_post_processing_module(self, post_processing_module):
         self._post = post_processing_module

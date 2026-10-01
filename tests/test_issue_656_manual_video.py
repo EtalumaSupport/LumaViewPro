@@ -182,7 +182,7 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 
     called = {}
 
-    def fake_load_folder(path, tiling_configs_file_loc, popup=None, **kwargs):
+    def fake_load_folder(path, tiling_configs_file_loc, on_progress=None, **kwargs):
         called['path'] = path
         return {'status': True, 'message': 'Success'}
 
@@ -356,7 +356,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )
@@ -375,7 +375,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )
@@ -409,7 +409,7 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )

@@ -9,7 +9,8 @@
   6c. Obtain a DEFAULT cell-count method below ui/ (what the panel starts
       with) -- probed because 6a/6b both need a settings dict.
 
-Headless route: modules.post_processing.PostProcessing.
+Headless route: session.post_processing.count_cells for the folder (6b);
+modules.post_processing.PostProcessing for the one-image preview (6a).
 """
 
 import sys
@@ -55,6 +56,18 @@ def main() -> int:
         if folder is None:
             print('PROBE RESULT: no run folder produced')
             return 2
+        csv_path = folder / 'results.csv'
+        from modules.exceptions import CaptureError
+
+        # 6b -- whole folder, through the session's member
+        try:
+            counted = session.post_processing.count_cells(folder, method=METHOD)
+            print('6b result:', counted)
+        except CaptureError as e:
+            print('6b outcome:', type(e).__name__, e)
+        print('6b results.csv exists:', csv_path.exists())
+        if csv_path.exists():
+            print('6b results.csv:\n' + csv_path.read_text().strip())
 
     import modules.image_utils as image_utils
     from modules.post_processing import PostProcessing
@@ -77,14 +90,6 @@ def main() -> int:
         blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
     _, blob_stats = post.preview_cell_count(image=blobs, settings=METHOD, significant_bits=16)
     print("6a' synthetic-blob summary:", blob_stats['summary'])
-
-    # 6b -- whole folder
-    processed = list(post.apply_cell_count_to_folder(path=str(folder), settings=METHOD))
-    print('6b processed:', processed)
-    csv_path = folder / 'results.csv'
-    print('6b results.csv exists:', csv_path.exists())
-    if csv_path.exists():
-        print('6b results.csv:\n' + csv_path.read_text().strip())
 
     # 6c -- is there a DEFAULT method below ui/?
     import importlib

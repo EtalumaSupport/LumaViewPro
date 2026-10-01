@@ -5,13 +5,23 @@ ui/post_processing.py:459 VideoCreationControls.run_video_gen.
 
 Headless route under test: ScopeSession assembles the config, the runner
 runs a short multi-scan time-lapse, then
-modules.video_builder.VideoBuilder.build_from_folder encodes it.
+session.post_processing.video encodes it.
 """
 
 import sys
 
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
+
+
+def probe_fps_refusal(folder, session) -> None:
+    """An out-of-range playback rate is refused by the session's video
+    member, for a headless caller as for the GUI."""
+    try:
+        result = session.post_processing.video(folder, frames_per_sec=0)
+        print('fps=0 ->', result)
+    except Exception as e:
+        print('fps=0 raised ->', type(e).__name__, e)
 
 
 def main() -> int:
@@ -40,46 +50,22 @@ def main() -> int:
             return 2
         print('tiffs:', sorted(p.name for p in folder.rglob('*.tif*')))
 
-        from modules.video_builder import VideoBuilder
+        from modules.exceptions import CaptureError
 
-        builder = VideoBuilder(has_turret=session.scope.capabilities.has_turret)
-        result = builder.build_from_folder(
-            path=folder,
-            tiling_configs_file_loc=session.scope.protocols.tiling_configs_path(),
-            popup=None,
-            frames_per_sec=None,
-            enable_timestamp_overlay=True,
-        )
+        try:
+            result = session.post_processing.video(folder, timestamp_overlay=True)
+        except CaptureError as e:
+            print('video outcome:', type(e).__name__, e)
+            print('PROBE RESULT: FAIL')
+            return 1
         print('video result:', result)
         videos = sorted(str(p.relative_to(folder)) for p in folder.rglob('*.avi'))
         videos += sorted(str(p.relative_to(folder)) for p in folder.rglob('*.mp4'))
         print('videos:', videos)
-        print('PROBE RESULT:', 'SUCCESS' if result.get('status') else 'FAIL')
-        return 0 if result.get('status') else 1
+        probe_fps_refusal(folder, session)
+        print('PROBE RESULT: SUCCESS')
+        return 0
 
 
 if __name__ == '__main__':
     sys.exit(main())
-
-
-def probe_fps_refusal(folder, session) -> None:
-    """Who refuses an out-of-range playback rate?
-
-    ui/post_processing.py:485-494 refuses fps < 1 in the widget, before
-    VideoBuilder is constructed. A headless caller never passes through
-    that check, so this asks what the module itself does with fps=0.
-    """
-    from modules.video_builder import VideoBuilder
-
-    builder = VideoBuilder(has_turret=session.scope.capabilities.has_turret)
-    try:
-        result = builder.build_from_folder(
-            path=folder,
-            tiling_configs_file_loc=session.scope.protocols.tiling_configs_path(),
-            popup=None,
-            frames_per_sec=0,
-            enable_timestamp_overlay=False,
-        )
-        print('fps=0 ->', result)
-    except Exception as e:
-        print('fps=0 raised ->', type(e).__name__, e)

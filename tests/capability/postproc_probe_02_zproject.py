@@ -4,14 +4,15 @@ GUI equivalent: Post-Processing > Z-Projection > Run, i.e.
 ui/post_processing.py:284 ZProjectionControls.run_zprojection.
 
 Headless route under test: ScopeSession -> ProtocolRunner.run_zstack to
-produce the folder, then modules.zprojector.ZProjector.load_folder to
+produce the folder, then session.post_processing.zproject to
 project it. No Kivy, no ui.* import.
 """
 
 import pathlib
 import sys
+import time
 
-from harness import headless_session, probe_dir, TILING_JSON
+from harness import headless_session, probe_dir
 
 
 def main() -> int:
@@ -27,30 +28,34 @@ def main() -> int:
         print('zstack outcome:', outcome)
         run_dir = pathlib.Path(runner.run_dir()) if runner.run_dir() else None
         print('run_dir:', run_dir)
+        # The outcome answers before the run's files drain; the projection
+        # reads the run's record, so wait for the documented drain read.
+        deadline = time.monotonic() + 60
+        while session.protocol_files_draining and time.monotonic() < deadline:
+            time.sleep(0.05)
 
-    # Find the run folder the z-stack produced.
-    candidates = sorted(live.rglob('protocol_record.tsv'))
-    print('protocol records found:', candidates)
-    if not candidates:
-        print('PROBE RESULT: no run folder produced')
-        return 2
-    folder = candidates[0].parent
-    print('tiffs in folder:', sorted(p.name for p in folder.rglob('*.tif*')))
+        # Find the run folder the z-stack produced.
+        candidates = sorted(live.rglob('protocol_record.tsv'))
+        print('protocol records found:', candidates)
+        if not candidates:
+            print('PROBE RESULT: no run folder produced')
+            return 2
+        folder = candidates[0].parent
+        print('tiffs in folder:', sorted(p.name for p in folder.rglob('*.tif*')))
 
-    import modules.zprojector as zprojector
+        from modules.exceptions import CaptureError
 
-    zproj = zprojector.ZProjector(has_turret=False)
-    result = zproj.load_folder(
-        path=folder,
-        tiling_configs_file_loc=TILING_JSON,
-        popup=None,
-        method='Max',
-    )
-    print('zproject result:', result)
-    outputs = sorted(str(p.relative_to(folder)) for p in folder.rglob('*.tif*'))
-    print('folder after:', outputs)
-    print('PROBE RESULT:', 'SUCCESS' if result.get('status') else 'FAIL')
-    return 0 if result.get('status') else 1
+        try:
+            result = session.post_processing.zproject(folder, method='Max')
+        except CaptureError as e:
+            print('zproject outcome:', type(e).__name__, e)
+            print('PROBE RESULT: FAIL')
+            return 1
+        print('zproject result:', result)
+        outputs = sorted(str(p.relative_to(folder)) for p in folder.rglob('*.tif*'))
+        print('folder after:', outputs)
+        print('PROBE RESULT: SUCCESS')
+        return 0
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ config, the API builds the Protocol, the runner runs it. No Kivy, no ui.*.
 """
 
 import pathlib
+import time
 
 import harness  # noqa: F401 -- imported for its sys.path / cwd side effect
 
@@ -39,5 +40,12 @@ def run_protocol_folder(
         enable_image_saving=True,
     )
     outcome = pending.wait(timeout_s=600)
+    # The outcome answers before the run's files drain, so a build that reads
+    # the folder at once can meet a half-written image. There is no blocking
+    # wait for the drain yet; an L2 caller polls the documented read, as this
+    # does, so every probe builds from the folder the run finished writing.
+    deadline = time.monotonic() + 60
+    while session.protocol_files_draining and time.monotonic() < deadline:
+        time.sleep(0.05)
     records = sorted(live.rglob('protocol_record.tsv'))
     return outcome, (records[0].parent if records else None)

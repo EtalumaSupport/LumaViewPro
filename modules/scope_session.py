@@ -190,6 +190,16 @@ class ScopeSession:
         # ProtocolRunner write through it, and the session reads the
         # file-drain facts from it.
         self.file_io_executor = executor_bundle.file_io_executor
+        # The post-processing builds, on their own lane from the bundle, so
+        # a build never queues in front of a run's writes on the file lane.
+        from modules.post_processing_api import PostProcessingAPI
+
+        self.post_processing = PostProcessingAPI(
+            lane=executor_bundle.post_processing_executor,
+            tiling_configs_path=scope.protocols.tiling_configs_path,
+            has_turret=lambda: scope.capabilities.has_turret,
+            settings_snapshot=self.get_settings_snapshot,
+        )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
         # to IDLE after its cleanup, file-drain exit). They fire on the TRANSITIONING thread,

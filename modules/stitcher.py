@@ -38,7 +38,10 @@ class Stitcher(ProtocolPostProcessor):
         # Stitching is the one post-processor with a named registration fallback
         # chain, so its degraded outputs are the montages that dropped to
         # unregistered edge-to-edge placement.
-        return f'{count} {self._post_function.value.lower()} artifact(s) used fallback stitching.'
+        return (
+            f'{count} {self._post_function.value.lower()} artifact(s) used geometry-only '
+            'fallback stitching. Review the mosaic geometry; the log names each reason.'
+        )
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:

@@ -4,8 +4,8 @@ GUI equivalent: Post-Processing > Enhance > Image / Folder, i.e.
 ui/post_processing.py:56 QuickEnhanceControls.set_source_file and
 ui/post_processing.py:59 set_source_folder.
 
-Headless route under test: modules.quick_enhance.QuickEnhancer.export_file
-and .export_folder, over a folder a real headless capture produced.
+Headless route under test: session.post_processing.enhance on one
+image and on the folder, over a folder a real headless capture produced.
 """
 
 import sys
@@ -34,27 +34,25 @@ def main() -> int:
             print('PROBE RESULT: no run folder produced')
             return 2
 
-    from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+        from modules.exceptions import CaptureError
 
-    enhancer = QuickEnhancer()
-    settings = QuickEnhanceSettings()
-    source = sorted(folder.glob('*.tiff'))[0]
-
-    file_result = enhancer.export_file(source, settings)
-    print('export_file result:', file_result)
-
-    progress = []
-    folder_result = enhancer.export_folder(
-        folder,
-        settings,
-        progress_callback=lambda done, total, path: progress.append((done, total)),
-    )
-    print('export_folder result:', folder_result)
-    print('output_folder:', enhancer.output_folder(folder_result))
-    print('progress ticks:', progress)
-    ok = bool(file_result) and folder_result.get('status')
-    print('PROBE RESULT:', 'SUCCESS' if ok else 'FAIL')
-    return 0 if ok else 1
+        source = sorted(folder.glob('*.tiff'))[0]
+        progress = []
+        try:
+            file_result = session.post_processing.enhance(source)
+            print('file result:', file_result)
+            folder_result = session.post_processing.enhance(
+                folder, on_progress=lambda percent, text: progress.append(text)
+            )
+        except CaptureError as e:
+            print('enhance outcome:', type(e).__name__, e)
+            print('PROBE RESULT: FAIL')
+            return 1
+        print('folder result:', folder_result)
+        print('output_folder:', folder_result['output_folder'])
+        print('progress ticks:', progress)
+        print('PROBE RESULT: SUCCESS')
+        return 0
 
 
 if __name__ == '__main__':

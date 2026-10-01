@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
-import ast
 import logging
 import pathlib
 import re
@@ -495,27 +494,14 @@ class TestSimplePositionStitcher:
             }
         ]
 
-    def test_stitcher_callback_has_degraded_operator_surface(self):
-        source = (
-            pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'post_processing.py'
-        ).read_text()
-        tree = ast.parse(source)
-        callback = next(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == 'stitcher_callback'
-        )
+    def test_a_degraded_stitch_tells_the_operator_what_to_check(self):
+        # A degraded stitch completes, so its words reach the person as the
+        # result's message: they name the geometry-only fallback and what to
+        # review, for every caller, not only the GUI.
+        summary = Stitcher(has_turret=False)._degraded_summary(2)
 
-        degraded_branch = [
-            node
-            for node in ast.walk(callback)
-            if isinstance(node, ast.If) and 'degraded' in ast.unparse(node.test)
-        ]
-
-        assert degraded_branch, 'stitcher_callback must branch on result["degraded"]'
-        branch_source = ast.unparse(degraded_branch[0])
-        assert 'geometry-only fallback' in branch_source
-        assert 'popup.text' in branch_source
+        assert 'geometry-only fallback' in summary
+        assert 'Review the mosaic geometry' in summary
 
     def test_stitch_ui_explains_modes_and_time_estimation(self):
         root = pathlib.Path(__file__).resolve().parent.parent
