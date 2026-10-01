@@ -14,11 +14,6 @@ stand-in opens the way Kivy's ModalView does, by adding itself to the
 window, which puts it at children[0], the top.
 """
 
-import sys
-from unittest.mock import MagicMock
-
-sys.modules.setdefault('modules.settings_init', MagicMock())
-
 
 class _Window:
     """Kivy's Window for the parts the stacking uses: children[0] is on top."""
