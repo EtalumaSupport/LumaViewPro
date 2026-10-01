@@ -41,6 +41,15 @@ logger = logging.getLogger('lvp_logger')
 
 ENTRY_POINT_GROUP = 'lvp.plugins'
 
+# The oldest version of each known plugin this LumaViewPro works with.
+# A plugin's requires_lvp_version only guards the other direction, so a
+# plugin older than a host change it reaches would otherwise load and
+# fail mid-use. A host change the plugin must follow raises the value
+# here, in the same commit, to the plugin version that follows it.
+MINIMUM_PLUGIN_VERSIONS = {
+    'etaluma_engineering': '1.0.6',
+}
+
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired
 # with a widget-shape contract for that specific mount. Plugins that
@@ -844,6 +853,25 @@ def load_plugins(ctx: Any) -> None:
                 ep_name, '', 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
             )
             continue
+
+        minimum = MINIMUM_PLUGIN_VERSIONS.get(spec.name)
+        if minimum is not None:
+            have = _parse_semver(spec.version)
+            if have is None:
+                ctx.plugins.record_load_failure(
+                    spec.name,
+                    spec.version,
+                    f"its version '{spec.version}' cannot be read, and this "
+                    f'LumaViewPro needs {minimum} or later',
+                )
+                continue
+            if have < _parse_semver(minimum):
+                ctx.plugins.record_load_failure(
+                    spec.name,
+                    spec.version,
+                    f'version {spec.version} is older than the {minimum} this LumaViewPro needs',
+                )
+                continue
 
         if not is_version_compatible(spec.requires_lvp_version, host_version):
             ctx.plugins.record_load_failure(

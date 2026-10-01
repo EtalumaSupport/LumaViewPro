@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from modules.exceptions import PluginNotLoadedError
 from modules.plugins import (
     PluginRegistrationError,
     PluginSpec,
@@ -558,6 +559,43 @@ def test_load_plugins_skips_version_incompatible(harness_ctx):
     health = harness_ctx.plugins.ui.health()
     failed_names = [s.name for s in health.failed]
     assert 'too_new' in failed_names
+
+
+@pytest.mark.parametrize(
+    ('version', 'reason'),
+    [
+        ('1.0.5', 'version 1.0.5 is older than the 1.0.6 this LumaViewPro needs'),
+        ('bogus', "its version 'bogus' cannot be read, and this LumaViewPro needs 1.0.6 or later"),
+    ],
+)
+def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx, version, reason):
+    mod = _make_plugin_module('etaluma_engineering', version=version)
+    eps = [_FakeEntryPoint('etaluma_engineering', mod)]
+    with (
+        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch('importlib.metadata.entry_points', return_value=eps),
+        patch('modules.plugins.notifications.report_outcome') as report,
+    ):
+        load_plugins(harness_ctx)
+    assert mod._register_calls == []
+    assert 'etaluma_engineering' not in harness_ctx.plugins.post_processing.names()
+    report.assert_called_once()
+    outcome = report.call_args.args[0]
+    assert isinstance(outcome, PluginNotLoadedError)
+    assert outcome.reason == reason
+
+
+@pytest.mark.parametrize('version', ['1.0.6', '1.1.0'])
+def test_load_plugins_loads_a_plugin_at_or_above_the_hosts_minimum(harness_ctx, version):
+    mod = _make_plugin_module('etaluma_engineering', version=version)
+    eps = [_FakeEntryPoint('etaluma_engineering', mod)]
+    with (
+        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch('importlib.metadata.entry_points', return_value=eps),
+    ):
+        load_plugins(harness_ctx)
+    assert len(mod._register_calls) == 1
+    assert 'etaluma_engineering' in harness_ctx.plugins.post_processing.names()
 
 
 def test_load_plugins_continues_past_register_failure(harness_ctx):
