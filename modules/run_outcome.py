@@ -9,10 +9,11 @@ completed but merged nothing" are different answers a caller must be
 able to tell apart. That answer has to survive a lifecycle with three
 awkward properties:
 
-  - Run cleanup executes TWICE on a normal run. The loop calls it with
-    'completed', then the outer safety net calls it again with 'failed',
-    whose early return sits inside the try so the finally runs a second
-    time carrying a contradictory status.
+  - Run cleanup is asked THREE times on a normal run. The loop calls it
+    with 'completed', calls it again after its scan loop, then the outer
+    safety net calls it with 'failed'. The later passes find the run no
+    longer live and return early, but each carries a status that
+    contradicts the first.
   - On the 'completed' pass the merge has not run yet, so that pass can
     only ARM the outcome; it cannot say how the merge went.
   - Teardown paths (session shutdown, a discard of the run's unwritten

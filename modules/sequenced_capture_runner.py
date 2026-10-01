@@ -2030,9 +2030,12 @@ class SequencedCaptureRunner:
         with self._run_lock:
             mine = self._is_live_run_locked(run)
         if not mine:
+            # No reason in this line: a late pass's ending is only what its
+            # caller would have said had it ended the run (the safety net
+            # always carries 'run_loop_crashed'), so naming it here would
+            # log a crash on every normal run.
             logger.info(
-                f'[{self.LOGGER_NAME}] Cleanup for a run that is no longer live '
-                f'({ending.reason}); nothing to do'
+                f'[{self.LOGGER_NAME}] Cleanup for a run that is no longer live; nothing to do'
             )
             return
 
@@ -2130,12 +2133,13 @@ class SequencedCaptureRunner:
                 ),
             )
             # Settle (or arm) the run's merge outcome before the releases
-            # below. Cleanup is asked TWICE on a normal run -- the loop's
-            # 'completed' call, then the safety net's 'failed' call, which
-            # returns early above -- and settling is arm-or-first-wins,
-            # never a plain assignment: a second pass reaching here carries
-            # a contradictory status and would otherwise report 'failed'
-            # over a real merge result.
+            # below. Cleanup is asked THREE times on a normal run -- the
+            # loop's 'completed' call, its call after the scan loop, then
+            # the safety net's 'failed' call, the last two returning early
+            # above -- and settling is arm-or-first-wins, never a plain
+            # assignment: a later pass reaching here carries a contradictory
+            # status and would otherwise report 'failed' over a real merge
+            # result.
             # Non-raising by construction, because the claim release below
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.
