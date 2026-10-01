@@ -699,7 +699,8 @@ session.close_drain_pending      # video frames still queued: a recording's drai
 
 def on_run_state():              # called on EVERY run-state transition: an activity taking
     print(session.run_lockout)   # or releasing the scope, a manual recording going live, going
-                                 # to its drain and finishing, a run's files all landing;
+                                 # to its drain and finishing, a run's video step finishing,
+                                 # a run's files all landing;
                                  # re-read the derivations (level semantics, no payload)
 session.add_run_state_listener(on_run_state)
 session.notify_run_state()       # force a level-sync of all listeners

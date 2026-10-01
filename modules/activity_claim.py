@@ -187,6 +187,15 @@ class BorrowedClaim:
         """
         return self._lender.claim._lend(self._lender, owner, run_trigger_source)
 
+    def announce(self) -> None:
+        """Tell the claim's listener of a change the work made, as ActivityClaim.announce.
+
+        Work that outlives its own borrowing -- a video step's finish runs
+        after its recording returned what it borrowed -- still announces
+        through the claim it was lent.
+        """
+        self._lender.claim.announce()
+
 
 # What a taker holds: its own taking, or a borrowing of someone else's.
 # Both answer ``holds``, ``release`` and ``lend`` the same way, so the work

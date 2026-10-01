@@ -175,6 +175,11 @@ class ProtocolVideoStep:
         self._last_disk_check_ts = 0.0
         self._start_dt: datetime.datetime | None = None
         self._finish_thread: threading.Thread | None = None
+        # Whether the post-drain finish has yet to end. Its own store, not
+        # the finish thread's liveness: the thread announces its end as its
+        # last step, while still alive, and a listener told of that end must
+        # read it as ended.
+        self._finishing = False
 
     # ------------------------------------------------------------------
     # Drain-state surface (the runner's end-of-run wait and the app-close
@@ -184,11 +189,10 @@ class ProtocolVideoStep:
     @property
     def is_busy(self) -> bool:
         """True until the drain and the post-drain finish complete."""
-        thread = self._finish_thread
         engine = self._engine
-        return (engine is not None and (engine.is_recording or engine.is_draining)) or (
-            thread is not None and thread.is_alive()
-        )
+        return (
+            engine is not None and (engine.is_recording or engine.is_draining)
+        ) or self._finishing
 
     @property
     def pending_writes(self) -> int:
@@ -395,6 +399,7 @@ class ProtocolVideoStep:
             name='ProtocolVideoFinish',
             daemon=True,
         )
+        self._finishing = True
         self._finish_thread.start()
         return outcome
 
@@ -629,6 +634,20 @@ class ProtocolVideoStep:
         self._engine = None
 
     def _finish_after_drain(self) -> None:
+        """Run the finish, then say it ended, whatever it raised.
+
+        The end changes the Session's run state (close_drain_pending) with
+        nothing else marking it: the recording returned its borrowing when
+        the drain ended, and the run still holds its claim. So the step
+        announces it, through the claim it was lent.
+        """
+        try:
+            self._finish()
+        finally:
+            self._finishing = False
+            self._run_claim.announce()
+
+    def _finish(self) -> None:
         """Wait out the drain, close artifacts, record the row, report."""
         engine = self._engine
         total = max(1, engine.frames_selected)
