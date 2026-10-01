@@ -77,7 +77,7 @@ def test_name_is_assigned_even_when_the_enqueue_is_refused():
     the insertion sites reintroduces the race these tests exist to stop.
     """
     executor = SequentialIOExecutor(name='TEST')
-    executor.disable()
+    executor.protocol_start()
     task = IOTask(lambda: None)
     assert executor.put(task) is None
     assert task.name == EXPECTED_NAME

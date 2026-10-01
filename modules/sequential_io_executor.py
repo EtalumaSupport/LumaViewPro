@@ -37,16 +37,16 @@ _IOTASK_TRACE_HEADER = (
     'queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception'
 )
 
-# F-2: sentinel returned from protocol_put when a bounded protocol_queue
-# is full. Distinct from None (which means "executor disabled" or
-# "protocol not running"); callers that care about overflow check for
-# `is PROTOCOL_QUEUE_FULL` so a frame can be marked capture_failed in
-# the execution record instead of silently dropped.
+# Sentinel returned from protocol_put when a bounded protocol_queue
+# is full. Distinct from None (which means "protocol not running");
+# callers that care about overflow check for `is PROTOCOL_QUEUE_FULL`
+# so a frame can be marked capture_failed in the execution record
+# instead of silently dropped.
 PROTOCOL_QUEUE_FULL = object()
 # Sentinel returned from protocol_put when a fire-and-forget task (return_future
 # False) DID enter the queue. Distinct from None: a no-future enqueue used to
 # return None too, so a caller could not tell a successful enqueue from a
-# dropped one (disabled / protocol-not-running both return None). Callers that
+# dropped one (protocol-not-running returns None). Callers that
 # gate later work on "did this task actually run?" check `is PROTOCOL_ENQUEUED`.
 PROTOCOL_ENQUEUED = object()
 # Sentinel returned by put() when a frame-carrying (droppable_live) task is
@@ -55,11 +55,11 @@ LIVE_FRAME_DROPPED = object()
 # Sentinel returned from put() when a fire-and-forget task (return_future False)
 # DID enter the queue -- the default queue's counterpart to PROTOCOL_ENQUEUED,
 # and for the same reason: a no-future enqueue returned None, which is also what
-# a fenced or disabled executor returns, so a successful submit was reported to
+# a fenced or shut executor returns, so a successful submit was reported to
 # its caller as a drop. Callers that must know whether the task will run check
 # `is ENQUEUED`.
 ENQUEUED = object()
-# Refusal-episode lanes. A disabled or fenced executor refuses every submit for
+# Refusal-episode lanes. A shut or fenced executor refuses every submit for
 # as long as the state lasts -- a protocol run can refuse tens of thousands --
 # so refusals are narrated per EPISODE (one line when the first task is lost,
 # one summary when work is accepted again) instead of per task. The two queues
@@ -552,8 +552,6 @@ class SequentialIOExecutor:
         self.cleared_queue = False
         self.cleared_protocol_queue = False
 
-        self._disable = False
-
         # None, or {'cause': str, 'count': int} per lane. Opened lazily by the
         # first refused submit, never by the state change that causes it: an
         # executor nobody submits to while it is closed has cost no caller
@@ -639,21 +637,6 @@ class SequentialIOExecutor:
             daemon=True,
         )
         self._worker_thread.start()
-
-    def disable(self) -> None:
-        """Refuse new work on the default lane; the worker finishes what it holds.
-
-        A run closes the camera lane this way and then drives the camera from
-        its own thread. The tasks already queued or running are not stopped
-        and not parked: they run to completion on the worker, and the run
-        waits for the lane to go idle before it touches the camera. Parking
-        the worker instead left a caller waiting on a queued task until the
-        run ended.
-        """
-        self._disable = True
-
-    def enable(self) -> None:
-        self._disable = False
 
     def ask_claim(self, claim: ActivityClaim) -> object:
         """Make this lane ask ``claim`` before it runs work; returns the override key.
@@ -915,11 +898,11 @@ class SequentialIOExecutor:
     def accepts_work(self) -> bool:
         """Whether a task submitted to ``put`` right now would be queued.
 
-        ``put`` drops silently -- returns None -- in three unrelated states: the
-        lane was shut down, the executor was disabled outright, and a protocol
-        fenced it. A shut lane has no worker left to drain its queue, so work
-        accepted there would wait out its caller's whole timeout. A caller that
-        must know BEFORE submitting asks this instead of re-deriving the two
+        ``put`` drops silently -- returns None -- in two unrelated states: the
+        lane was shut down, and a protocol fenced it. A shut lane has no worker
+        left to drain its queue, so work accepted there would wait out its
+        caller's whole timeout. A caller that must know BEFORE submitting asks
+        this instead of re-deriving the two
         conditions, because a second copy of them drifts from the ones ``put``
         actually enforces, and the drift is invisible -- the task is dropped and
         the caller is told nothing. ``put`` reads them from here for the same
@@ -928,7 +911,7 @@ class SequentialIOExecutor:
         Does NOT describe ``protocol_put``, whose fence runs the other way: it
         requires a protocol to be running and drops when none is.
         """
-        if self.pending_shutdown or self._disable:
+        if self.pending_shutdown:
             return False
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
@@ -942,8 +925,7 @@ class SequentialIOExecutor:
 
         - return_future True, enqueued: the task's waiter (await its result).
         - return_future False, enqueued: ENQUEUED.
-        - lane shut down, executor disabled or fenced by a running protocol:
-          None (dropped).
+        - lane shut down or fenced by a running protocol: None (dropped).
         - droppable_live task over the in-flight cap: LIVE_FRAME_DROPPED.
         - the scope is held and the task is not the holder's: the refusal
           (a waiter already carrying it, when return_future).
@@ -963,8 +945,6 @@ class SequentialIOExecutor:
             # the condition.
             if self.pending_shutdown:
                 cause = 'the lane is shut down'
-            elif self._disable:
-                cause = 'the executor is disabled'
             else:
                 cause = 'a protocol run has this lane fenced'
             return self._refuse_submit(_LANE_DEFAULT, cause, task)
@@ -1049,8 +1029,8 @@ class SequentialIOExecutor:
             )
         # A return_future caller needs the future back to await it; a
         # fire-and-forget caller gets PROTOCOL_ENQUEUED so it can distinguish
-        # this real enqueue from a dropped task -- disabled, not-running, and
-        # queue-full all return a non-PROTOCOL_ENQUEUED value.
+        # this real enqueue from a dropped task -- not-running and queue-full
+        # both return a non-PROTOCOL_ENQUEUED value.
         if return_future:
             return fut
         return PROTOCOL_ENQUEUED
@@ -1067,7 +1047,7 @@ class SequentialIOExecutor:
         - return_future True, enqueued: the task's Future (await its result).
         - return_future False, enqueued: PROTOCOL_ENQUEUED.
         - queue full (bounded queue at cap): PROTOCOL_QUEUE_FULL.
-        - executor disabled or protocol not running: None (task dropped).
+        - protocol not running: None (task dropped).
         - the scope is held and the task is not the holder's: the refusal
           (a waiter already carrying it, when return_future).
 
@@ -1075,9 +1055,6 @@ class SequentialIOExecutor:
         not enter the queue and will never run.
         """
         self._stamp(task, override)
-        if self._disable:
-            return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
-
         if not self.protocol_running.is_set():
             return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
 
@@ -1554,7 +1531,6 @@ class SequentialIOExecutor:
 
     def shutdown(self, wait: bool = True) -> None:
         self.pending_shutdown = True
-        self.enable()
         self.protocol_end()
         self.clear_pending()
         self.clear_protocol_pending()

@@ -14,7 +14,6 @@ None, and a caller asking for a waiter still gets a waiter.
 """
 
 import threading
-import time
 from unittest.mock import patch
 
 from modules.sequential_io_executor import (
@@ -100,10 +99,10 @@ def test_protocol_put_with_no_run_in_session_warns_and_returns_none():
 
 
 def test_a_sustained_refusal_does_not_inflate_the_log():
-    """The case that killed the per-drop design: a disabled lane under a
+    """The case that killed the per-drop design: a fenced lane under a
     sustained submitter emits a bounded number of lines, not one per task."""
     ex = SequentialIOExecutor(name='TEST')
-    ex.disable()
+    ex.protocol_start()
     with patch('modules.sequential_io_executor.logger') as mock_logger:
         for _ in range(5000):
             assert ex.put(IOTask(action=lambda: None)) is None
@@ -113,10 +112,10 @@ def test_a_sustained_refusal_does_not_inflate_the_log():
 
 def test_the_episode_closes_with_a_count_when_work_is_accepted_again():
     ex = SequentialIOExecutor(name='TEST')
-    ex.disable()
+    ex.protocol_start()
     for _ in range(7):
         ex.put(IOTask(action=lambda: None))
-    ex.enable()
+    ex.protocol_end()
     ex.start()
     try:
         with patch('modules.sequential_io_executor.logger') as mock_logger:
@@ -156,30 +155,3 @@ class TestWorkerAlive:
         finally:
             lane.shutdown()
         assert lane.worker_alive is False
-
-
-def test_a_task_queued_before_disable_still_runs_and_the_lane_goes_idle():
-    """A run closes the camera lane and then waits for it to go idle; what the
-    lane already held must run to completion, not sit parked until the run
-    ends holding its caller with it."""
-    ex = SequentialIOExecutor(name='TEST')
-    ex.start()
-    release = threading.Event()
-    ran = threading.Event()
-    try:
-        ex.put(IOTask(action=lambda: release.wait(5.0)))
-        ex.put(IOTask(action=ran.set))
-        ex.disable()
-        assert ex.is_busy(), 'the lane reported idle with two tasks on it'
-        release.set()
-        assert ran.wait(5.0), 'a task queued before disable() never ran'
-        deadline = time.monotonic() + 5.0
-        while ex.is_busy() and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert not ex.is_busy(), 'the lane never went idle after draining'
-        assert ex.put(IOTask(action=lambda: None)) is None, (
-            'a new submit was accepted while disabled'
-        )
-    finally:
-        ex.enable()
-        ex.shutdown()

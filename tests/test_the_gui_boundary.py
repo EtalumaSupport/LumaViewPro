@@ -146,7 +146,7 @@ class TestThePoolForm:
         assert shown == []
 
     def test_a_pool_that_takes_no_work_still_redraws(self, shown, pool):
-        pool.disable()
+        pool.shutdown(wait=False)
         redrawn = []
         submit_reported(lambda: None, lambda: redrawn.append(True), 'T')
         assert redrawn == [True]
@@ -260,7 +260,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_lane_that_takes_no_work_redraws_once(self, shown, headless, lane):
-        lane.disable()
+        lane.shutdown(wait=False)
         redrawn = []
         submit_reported(lambda: None, lambda: redrawn.append('T'), 'T', lane=lane)
         assert redrawn == ['T']

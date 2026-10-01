@@ -157,7 +157,7 @@ def test_a_locked_control_surface_submits_nothing(env, monkeypatch):
 
 
 def test_a_lane_that_takes_no_work_skips_the_gui_work(env):
-    env.lane.disable()
+    env.lane.shutdown(wait=False)
 
     ui_helpers.submit_gesture(
         'GESTURE',

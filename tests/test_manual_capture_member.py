@@ -260,13 +260,14 @@ class TestRefusalsAndFailures:
 
     def test_a_still_while_a_run_holds_the_camera_gets_the_lanes_refusal(self, still_session):
         session, _ = still_session
-        session.camera_executor.disable()
+        held = session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        assert held is not None
         try:
             future = session.manual_capture.capture(layer=None, false_color_on=False)
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 future.result(timeout=RESULT_TIMEOUT_S)
         finally:
-            session.camera_executor.enable()
+            held.release()
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
 

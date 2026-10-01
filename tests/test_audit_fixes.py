@@ -13026,11 +13026,11 @@ class TestGreaseRedistributionGateAlwaysReleased:
         from modules.protocol_step_runner import ProtocolStepRunner
         from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
 
-        # protocol_put returns None when the io executor is disabled or the
-        # protocol is not running, and PROTOCOL_QUEUE_FULL when the bounded
-        # queue is at cap. None of these enqueue the task, so the task's
-        # finally-set() never runs -- perform_grease_redistribution must release
-        # the gate itself for every one of them, not just the queue-full leg.
+        # protocol_put returns None when the protocol is not running, and
+        # PROTOCOL_QUEUE_FULL when the bounded queue is at cap. Neither
+        # enqueues the task, so the task's finally-set() never runs --
+        # perform_grease_redistribution must release the gate itself for
+        # both, not just the queue-full leg.
         for dropped in (None, PROTOCOL_QUEUE_FULL):
             runner = self._make_runner()
             step = ProtocolStepRunner(runner)

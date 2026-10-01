@@ -33,8 +33,7 @@ from modules.sequential_io_executor import (
 
 def _ex():
     # Constructed but NOT started: no worker drains, so put()/inflight state is
-    # observable. _disable defaults False and protocol_running is clear, so
-    # put() enqueues.
+    # observable. Not shut and protocol_running is clear, so put() enqueues.
     return SequentialIOExecutor(name='TEST')
 
 

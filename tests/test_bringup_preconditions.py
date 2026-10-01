@@ -70,8 +70,8 @@ class TestInitializeStaysOnTheCallingThread:
 
         scope = build_scope(simulate=True, register_atexit=False)
         try:
-            scope.io_lane().disable()
-            scope.camera_lane().disable()
+            scope.io_lane().protocol_start()
+            scope.camera_lane().protocol_start()
             config = ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
             started = time.monotonic()
             scope.initialize(config)

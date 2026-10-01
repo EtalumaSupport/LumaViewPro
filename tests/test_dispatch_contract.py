@@ -123,19 +123,18 @@ FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 def executors(sim_scope):
     """The scope's own two lanes, which it built and started.
 
-    Real lanes rather than doubles: the refusal branches are driven through
-    disable() and protocol_start(), the production state transitions, so a
+    Real lanes rather than doubles: the refusal branch is driven through
+    protocol_start(), the production state transition, so a
     double would only prove the test agrees with itself. sim_scope is a bare
     scope with no session, the shape of a script's ``Lumascope()``.
 
-    The lanes are the scope's, so a test's disable or fence would outlive
+    The lanes are the scope's, so a test's fence would outlive
     it into sim_scope's teardown, which stops the stream through the camera
     lane; both are lifted again first.
     """
     lanes = {'io': sim_scope.io_lane(), 'camera': sim_scope.camera_lane()}
     yield lanes
     for lane in lanes.values():
-        lane.enable()
         lane.protocol_end()
 
 
@@ -193,27 +192,9 @@ def test_a_shut_lane_refuses_at_once(family, member, kwargs, slot):
 
 
 @pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
-def test_disabled_executor_refuses(sim_scope, executors, family, member, kwargs, slot):
-    executors[slot].disable()
-    sub, threads = _install_probe(sim_scope, family, member)
-
-    with pytest.raises(HardwareCommandRefusedError) as excinfo:
-        getattr(sub, member)(**kwargs)
-
-    assert excinfo.value.reason == 'exclusive_activity_running'
-    assert excinfo.value.member == member
-    assert threads == [], (
-        f'{family}.{member} ran its body against a disabled executor; the '
-        f'refusal must precede the work'
-    )
-
-
-@pytest.mark.parametrize(('family', 'member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS)
 def test_protocol_fenced_executor_refuses(sim_scope, executors, family, member, kwargs, slot):
-    # The other half of the middle branch. A fenced executor is NOT a
-    # disabled one -- a run fences io and file while disabling camera -- and
-    # a dispatcher that only knows about disable() lets this one through to
-    # a silent drop.
+    # A lane a run has fenced refuses before the body runs; a dispatcher
+    # that knew only the shut lane would let this through to a silent drop.
     executors[slot].protocol_start()
     sub, threads = _install_probe(sim_scope, family, member)
 
