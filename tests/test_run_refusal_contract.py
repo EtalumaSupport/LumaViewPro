@@ -664,6 +664,14 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
     'positions_unreachable': ('tests/test_a_run_needs_the_axes_it_moves.py::test_the_rule'),
+    'already_tiled': (
+        'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
+        'test_a_tiled_protocol_refuses_another_grid'
+    ),
+    'tiling_unknown': (
+        'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
+        'test_a_grid_the_installation_does_not_offer_is_refused'
+    ),
     'camera_setting_out_of_range': (
         'tests/test_a_run_needs_camera_values_in_range.py'
         '::test_a_gain_above_the_camera_maximum_is_refused_naming_the_step'

@@ -12,7 +12,7 @@ import os
 import pathlib
 import re
 import copy
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
 from modules.exceptions import ConfigError, ProtocolError, ProtocolRunRefusedError
@@ -52,6 +52,19 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     invisible for as long as it did.
     """
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
+
+
+def _refuse_tiling(*, reason: str, title: str, message: str) -> NoReturn:
+    """Report once, and raise, a refused tile grid.
+
+    Refused where the protocol is built, so the GUI, a script and REST are all
+    told the same thing. Callers pass the reason as a literal, which is how the
+    refusal census reads it.
+    """
+    refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
+    # Solicited: the refusal answers the build the caller just asked for.
+    notifications.report_outcome(refusal, solicited=True, category='Protocol')
+    raise refusal
 
 
 def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: str) -> dict:
@@ -1381,34 +1394,73 @@ class Protocol:
         optics, so the caller that owns the scope hands its capabilities and
         its objective catalogue in; a protocol is a data object handed a
         scale, never one that finds a scope.
+
+        Raises:
+            ProtocolRunRefusedError: the grid is not one this installation
+                offers, the protocol is already tiled, a step's objective is
+                not in the catalogue, or the scope has no X/Y motor. Each is
+                refused before any step changes, and reported once.
         """
 
         status = {
             'tiles_skipped': 0,
         }
 
-        if tiling == '1x1':
+        # Every refusal comes before anything below touches the steps: a
+        # refused build leaves the protocol as it was.
+        if tiling not in self._tiling_config.available_configs():
+            _refuse_tiling(
+                reason='tiling_unknown',
+                title='Tiling Not Available',
+                message=f'"{tiling}" is not one of the tiling grids this installation offers.',
+            )
+
+        # Tiled steps are carried over as they are, so a second grid over a
+        # tiled protocol would change nothing while reporting success. There is
+        # no un-tile path; the untiled protocol has to be reloaded.
+        no_tiling = self._tiling_config.no_tiling_label()
+        current_tiling = self._tiling_config.determine_tiling_label_from_tiles(
+            self.steps()['Tile'].tolist()
+        )
+        if current_tiling not in (None, no_tiling):
+            _refuse_tiling(
+                reason='already_tiled',
+                title='Protocol Already Tiled',
+                message=(
+                    f'This protocol is already tiled ({current_tiling}). Reload the '
+                    f'original (untiled) protocol before changing the tiling.'
+                ),
+            )
+
+        if tiling == no_tiling:
             return status
 
-        # Before anything below touches the steps: a refused build leaves the
-        # protocol as it was.
         limits = _axis_limits_or_refuse(axes_config, ('X', 'Y'), what='a tile grid')
         x_limits = limits['X']
         y_limits = limits['Y']
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
-        try:
-            orig_steps_df = self.steps()
+        # A copy: the focal-length column is working data for this build, and
+        # self.steps() is the protocol's own frame.
+        orig_steps_df = self.steps().copy()
+        objectives = objective_helper.get_objectives_dataframe()['focal_length']
+        orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
 
-            # Add objective focal length to steps dataframe
-            objectives = objective_helper.get_objectives_dataframe()['focal_length']
-
-            orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
-
-        except Exception as e:
-            logger.error(f'Error adding objective focal length to steps dataframe: {e}')
-            return status
+        # A step whose objective the catalogue does not know has no focal
+        # length, and its tiles would land at NaN positions.
+        unknown = sorted(
+            {str(o) for o in orig_steps_df.loc[orig_steps_df['focal_length'].isna(), 'Objective']}
+        )
+        if unknown:
+            _refuse_tiling(
+                reason='objective_unknown',
+                title='Objective Not Known',
+                message=(
+                    f'The protocol names {", ".join(unknown)}, which is not in this '
+                    f"scope's objective catalogue, so its tile spacing cannot be worked out."
+                ),
+            )
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
@@ -1426,24 +1478,18 @@ class Protocol:
         new_steps = []
 
         for idx, row in orig_steps_df.iterrows():
-            try:
-                tiles = self._tiling_config.get_tile_centers(
-                    config_label=tiling,
-                    focal_length=row['focal_length'],
-                    frame_size=frame_dimensions,
-                    fill_factor=fill_factor,
-                    binning_size=binning_size,
-                    capabilities=capabilities,
-                )
-            except ConfigError:
-                # Scale unknown is a scope-wide condition, not a per-step bounds
-                # miss: every step shares the same pixel size, so no step can be
-                # tiled. Propagate to the UI, which reports tiling unavailable
-                # rather than silently building a partial, misaligned grid.
-                raise
-            except Exception as e:
-                logger.error(f'Error getting tile centers for step {idx}: {e}')
-                tiles = {}
+            # A step whose grid cannot be computed (ConfigError when the scale
+            # is unknown, which no step can tile around) fails the whole build:
+            # the steps are only replaced at the end, so the protocol is left
+            # as it was rather than silently missing that step.
+            tiles = self._tiling_config.get_tile_centers(
+                config_label=tiling,
+                focal_length=row['focal_length'],
+                frame_size=frame_dimensions,
+                fill_factor=fill_factor,
+                binning_size=binning_size,
+                capabilities=capabilities,
+            )
 
             orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()

@@ -559,79 +559,59 @@ class ProtocolSettings(FloatLayout):
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
 
     def apply_tiling(self) -> None:
-        # At entry, not on success: this refuses an already-tiled protocol via a
-        # popup, and a record conditional on success would make that refusal
+        # At entry, not on success: the protocol can refuse the grid, and a
+        # record conditional on success would make that refusal
         # indistinguishable from the user never pressing the button.
         gui_logger.button('APPLY_TILING')
-        try:
-            settings = _app_ctx.ctx.settings
-            ctx = _app_ctx.ctx
+        run_reported(self._apply_tiling, None, 'APPLY_TILING')
 
-            logger.info('[LVP Main  ] Apply tiling to protocol')
+    def _apply_tiling(self) -> None:
+        """Ask the protocol for the chosen grid, then show the steps it built.
 
-            # Guard against compounding. apply_tiling appends new tile groups
-            # to the existing steps, and there is no un-tile path yet, so
-            # applying tiling to an already-tiled protocol multiplies the tiles
-            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the
-            # steps' Tile column; if already tiled, refuse and tell the user
-            # to reload the untiled base first.
-            no_tiling = self.tiling_config.no_tiling_label()
-            current_tiling = self.tiling_config.determine_tiling_label_from_tiles(
-                self._protocol.steps()['Tile'].tolist()
-            )
-            if current_tiling not in (None, no_tiling):
-                from ui.notification_popup import show_notification_popup
+        Every refusal (an unknown grid, an already-tiled protocol, an unknown
+        objective, a scope with no X/Y motor) is the protocol's, raised before
+        any step changes; the boundary reports it, so nothing here decides it.
+        """
+        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
 
-                show_notification_popup(
-                    title='Protocol Already Tiled',
-                    message=(
-                        f'This protocol is already tiled ({current_tiling}). '
-                        f'Applying tiling again would compound it. Reload the '
-                        f'original (untiled) protocol before changing the tiling.'
-                    ),
-                )
-                return
+        logger.info('[LVP Main  ] Apply tiling to protocol')
 
-            axes_config = ctx.lumaview.scope.motion.get_axes_config()
-            _, labware = get_selected_labware()
-            stage_offset = settings['stage_offset']
-            overlap_percent = self.get_tiling_overlap_percent()
+        axes_config = ctx.lumaview.scope.motion.get_axes_config()
+        _, labware = get_selected_labware()
+        stage_offset = settings['stage_offset']
+        overlap_percent = self.get_tiling_overlap_percent()
 
-            tile_status = self._protocol.apply_tiling(
-                tiling=self.ids['tiling_size_spinner'].text,
-                frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
-                binning_size=get_binning_from_ui(),
-                curr_step_idx=self.curr_step,
-                axes_config=axes_config,
-                labware=labware,
-                stage_offset=stage_offset,
-                overlap_percent=overlap_percent,
-                capabilities=ctx.lumaview.scope.capabilities,
-                objective_helper=ctx.lumaview.scope.objective_helper,
-            )
+        tile_status = self._protocol.apply_tiling(
+            tiling=self.ids['tiling_size_spinner'].text,
+            frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
+            binning_size=get_binning_from_ui(),
+            curr_step_idx=self.curr_step,
+            axes_config=axes_config,
+            labware=labware,
+            stage_offset=stage_offset,
+            overlap_percent=overlap_percent,
+            capabilities=ctx.lumaview.scope.capabilities,
+            objective_helper=ctx.lumaview.scope.objective_helper,
+        )
 
-            tiles_skipped = tile_status['tiles_skipped']
+        tiles_skipped = tile_status['tiles_skipped']
 
-            if tiles_skipped > 0:
-                error_msg = f'Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware.'
-                from ui.notification_popup import show_notification_popup
-
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Tiling Warning', message=error_msg
-                    ),
-                    0,
-                )
-
-            self._protocol.optimize_step_ordering()
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step)
-        except Exception as e:
-            logger.error(f'[UI] apply_tiling failed: {e}', exc_info=True)
+        if tiles_skipped > 0:
+            error_msg = f'Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware.'
             from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+            Clock.schedule_once(
+                lambda dt: show_notification_popup(
+                    title='Protocol Tiling Warning', message=error_msg
+                ),
+                0,
+            )
+
+        self._protocol.optimize_step_ordering()
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        self.update_step_ui()
+        self.go_to_step(step_idx=self.curr_step)
 
     def get_tiling_overlap_percent(self) -> float:
         """Tile overlap percentage, read from the persisted system setting.

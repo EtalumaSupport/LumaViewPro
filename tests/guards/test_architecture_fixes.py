@@ -632,7 +632,7 @@ _UI_EXCEPT_PIN = {
     ('ui/post_processing.py', 'Exception'): 9,
     ('ui/post_processing.py', 'FileNotFoundError, ValueError'): 1,
     ('ui/protocol_settings.py', 'ConfigError'): 2,
-    ('ui/protocol_settings.py', 'Exception'): 13,
+    ('ui/protocol_settings.py', 'Exception'): 12,
     ('ui/protocol_settings.py', 'OSError'): 1,
     ('ui/protocol_settings.py', 'ProtocolRunRefusedError'): 1,
     ('ui/protocol_settings.py', 'TypeError, ValueError'): 2,

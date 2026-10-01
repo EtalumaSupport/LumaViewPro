@@ -9,9 +9,8 @@ back showing 1x1 in the tiling spinner. Tiling is baked into the steps
 as expanded tile positions (one row per tile, named ..._T<gridlabel>)
 rather than stored as a scalar, so the spinner stayed at its 1x1 default
 and misrepresented the protocol. The scan itself was correct (the tiled
-steps round-trip through save/load), but the display lied -- and because
-apply_tiling APPENDS tile groups with no un-tile path, trusting the wrong
-"1x1" and re-applying would compound the tiles (2x2 on a 2x2 -> 16).
+steps round-trip through save/load), but the display lied -- and trusting the wrong "1x1" invited
+re-applying a grid over a tiled protocol, which has no un-tile path.
 
 Fix
 ---
@@ -20,11 +19,12 @@ Fix
   -- the authoritative per-step tile assignment; step NAMES are never
   parsed, so tile-shaped user text cannot fake a tiling) and sets the
   spinner.
-- ProtocolSettings.apply_tiling refuses when the protocol is already
-  tiled, directing the user to reload the untiled base first.
+- Protocol.apply_tiling refuses a grid over an already-tiled protocol
+  (tests/test_a_tile_grid_is_the_protocols_to_refuse.py), directing the
+  user to reload the untiled base first.
 
 These tests pin (a) the inference workhorse the restore relies on, and
-(b) that the wiring is present in both UI methods (source-inspection,
+(b) that the wiring is present in the load method (source-inspection,
 since the Kivy/ctx-bound widget is not live-instantiable here -- the
 same convention as the other test_protocol_settings_*.py files).
 """
@@ -83,7 +83,7 @@ def test_untiled_protocol_falls_back_to_no_tiling():
     assert (inferred or tc.no_tiling_label()) == '1x1'
 
 
-# --- (b) the wiring is present in both UI methods ---
+# --- (b) the wiring is present in the load method ---
 
 
 def _method(name: str) -> ast.FunctionDef:
@@ -114,14 +114,6 @@ def test_load_protocol_restores_tiling_spinner():
     src = ast.get_source_segment(PROTOCOL_SETTINGS_SRC.read_text(), load)
     assert 'tiling_size_spinner' in src, (
         'load_protocol must set the tiling_size_spinner from the inferred label.'
-    )
-
-
-def test_apply_tiling_guards_against_recompounding():
-    apply = _method('apply_tiling')
-    assert _calls_determine_tiling(apply), (
-        'apply_tiling must detect an already-tiled protocol (via the Tile '
-        'column) and refuse, since it appends tile groups with no un-tile path.'
     )
 
 
