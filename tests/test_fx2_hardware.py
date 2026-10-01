@@ -154,6 +154,50 @@ class TestFX2Characterization(unittest.TestCase):
                 sorted(set(s['shifted_sizes'])),
             )
 
+    def test_measure_long_exposures_with_light(self):
+        """Row 3, lit: does the frame mean keep scaling with exposure above 178 ms?"""
+        self.camera.set_frame_size(1900, 1900)
+        self.camera.gain(0)
+        self.led.led_on(_BLUE, 20)
+        for ms in (50, 178, 250, 400, 800):
+            applied_us = self.camera.exposure_t(ms)
+            _new_frames(self.camera, 3, timeout_s=10.0)
+            frames = _new_frames(self.camera, 3, timeout_s=10.0)
+            means = [round(m, 1) for _s, m, _x in frames]
+            logger.info(
+                '[FX2 bench] lit exposure (Blue 20 mA, 0 dB): asked %d ms, applied %.1f ms -> '
+                'means %s, max %s, mean per ms %.3f',
+                ms,
+                applied_us / 1000,
+                means,
+                [x for _s, _m, x in frames],
+                float(np.mean(means)) / (applied_us / 1000),
+            )
+
+    def test_measure_the_shifted_frames_at_1896(self):
+        """Row 6 follow-up: the sizes of the frames the parser discards at 1896x1896."""
+        self.led.led_on(_BLUE, 200)
+        self.camera.exposure_t(50)
+        for w, h in ((1900, 1900), (1896, 1896)):
+            self.camera.set_frame_size(w, h)
+            time.sleep(2.0)
+            self.camera.stream_stats.reset()
+            time.sleep(60.0)
+            s = self.camera.stream_stats.summary()
+            logger.info(
+                '[FX2 bench] window %dx%d: %.1f s, %d good / %d partial / %d shifted, '
+                '%.1f MB/s, shifted sizes %s, partial sizes %s',
+                w,
+                h,
+                s['elapsed_s'],
+                s['good_frames'],
+                s['partial_frames'],
+                s['shifted_frames'],
+                s['throughput_MBps'],
+                s['shifted_sizes'],
+                s['partial_sizes'],
+            )
+
     def test_measure_the_exposure_and_gain_sweeps(self):
         """Row 4: read-back against the request, and the frame mean rising with each."""
         ma = self._light_to_mid_grey()
