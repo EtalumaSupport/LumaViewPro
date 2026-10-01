@@ -216,7 +216,11 @@ class RunOutcome:
             that did not finish ('Restore LED states', 'Return to
             position', ...); empty when every one did, so the LEDs,
             camera settings and stage are as the run found them. None
-            only for a run settled before its cleanup ran.
+            only for a run settled before its cleanup ran. The two steps
+            the GUI runs on its own clock ('Restore layer shader', 'Sync
+            layer panel') are named only when they could not be scheduled:
+            one that fails when it runs, after the outcome is settled,
+            reports itself and is not added here.
     """
 
     status: str

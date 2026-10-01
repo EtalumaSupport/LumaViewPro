@@ -220,10 +220,11 @@ class TestAChannelThatCapturesNothing:
             )
 
     def test_the_same_failure_reaches_an_l2_caller_as_a_typed_raise(self, tmp_path):
-        # run_composite returns a path, so it has no way to hand back a
-        # not-merged outcome; a caller that got None or '' would have to
-        # guess whether the run aborted, the merge failed, or the wait
-        # expired. The typed error carries the machine-readable reason.
+        # run_composite raises for a run that merged nothing rather than
+        # hand back a not-merged outcome a caller might read as a result;
+        # it would have to guess whether the run aborted, the merge failed,
+        # or the wait expired. The typed error carries the machine-readable
+        # reason.
         settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
         with open_composite_session(settings) as (_session, runner):
             with pytest.raises(CaptureError) as excinfo:

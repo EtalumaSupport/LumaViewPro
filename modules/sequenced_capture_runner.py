@@ -1746,12 +1746,13 @@ class SequencedCaptureRunner:
         return RunEnding('incomplete', 'captures_failed', incomplete.title, str(incomplete))
 
     def _settle_run_outcome(self, ending: RunEnding) -> None:
-        """Arm the merge on a completed composite; settle every other ending.
+        """Arm the merge on a composite that reached its end; settle every other ending.
 
         The ending is carried into the outcome rather than restated here:
         the status and reason a caller reads are the ones whatever ended
         the run recorded, and this method decides only whether a merge is
-        still owed. Only a completed composite is, so every other run
+        still owed. Only a composite that ended 'completed' or 'incomplete'
+        is, for the channels it captured, so every other run
         settles immediately -- a caller waiting on a scan's outcome gets
         an answer rather than the bound.
 
@@ -1901,7 +1902,8 @@ class SequencedCaptureRunner:
     ) -> threading.Thread | None:
         """Merge this run's per-channel frames, then settle the outcome.
 
-        Runs only for a composite run that reached 'completed'. Every exit
+        Runs only for a composite run that ended 'completed' or
+        'incomplete'. Every exit
         settles the outcome through the arming token -- success, a merge
         that produced nothing, a raise, or the write bound expiring -- so a
         caller blocked on the result is always released with a real answer
