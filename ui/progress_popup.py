@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import functools
 import threading
 
 from kivy.clock import Clock
@@ -74,6 +75,9 @@ class _HostWidgetProxy:
 
 
 def show_popup(function):
+    # wraps keeps the method's own name and exposes the undecorated body as
+    # __wrapped__, so a test can run a button's body without a popup thread.
+    @functools.wraps(function)
     def wrap(app, *args, **kwargs):
         popup = CustomPopup()  # Instantiate CustomPopup (could add some kwargs if you wish)
         app.done = False  # Reset the app.done BooleanProperty (main thread; no proxy)

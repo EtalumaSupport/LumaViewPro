@@ -135,3 +135,156 @@ def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_pat
         QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
     assert len(raised.value.produced_paths) == 1
     assert 'good_enhanced' in raised.value.produced_paths[0]
+
+
+def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tmp_path):
+    from modules.post_processing_api import PostProcessingAPI
+
+    _write_tiff(tmp_path / 'one.tif')
+    texts = []
+    shown = []
+
+    result = PostProcessingAPI._enhance(
+        tmp_path / 'one.tif',
+        lambda percent, text: texts.append((percent, text)),
+        lambda image, significant_bits: shown.append(significant_bits),
+    )
+
+    assert result['output_folder'] == tmp_path
+    assert result['message'] == 'Enhance complete.'
+    assert texts[-1] == (100, 'Image 1 of 1')
+    assert shown == [8]
+
+
+@pytest.mark.parametrize('raised', ['not a tiff', 'cv2'])
+def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch, raised):
+    import cv2
+
+    from modules.post_processing_api import PostProcessingAPI
+
+    source = tmp_path / 'broken.tif'
+    source.write_bytes(b'not a tiff')
+    if raised == 'cv2':
+
+        def fail(self, *args, **kwargs):
+            raise cv2.error('codec')
+
+        monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
+
+    with pytest.raises(PostProcessingFailedError) as failure:
+        PostProcessingAPI._enhance(source, None, None)
+    assert failure.value.produced_paths == ()
+
+
+class _ScriptedBuild:
+    """A folder build whose groups all succeed, driven through the base loop."""
+
+    @staticmethod
+    def make(name):
+        import pandas as pd
+
+        from modules.common_utils import PostFunction
+        from modules.protocol_post_processing_result import PostProcResult
+        from modules.protocol_post_processor import ProtocolPostProcessor
+
+        def _groups(self, df):
+            return [(key, group) for key, group in df.groupby('GroupKey')]
+
+        cls = type(
+            name,
+            (ProtocolPostProcessor,),
+            {
+                '_get_groups': _groups,
+                '_generate_filename': lambda self, df, **kw: df.iloc[0]['OutName'],
+                '_filter_ignored_types': lambda self, df: df,
+                '_group_algorithm': lambda self, path, df, **kw: PostProcResult.ok(
+                    significant_bits=8
+                ),
+                '_add_record': lambda self, *a, **kw: None,
+            },
+        )
+        build = cls(post_function=PostFunction.STITCHED, has_turret=False)
+        rows = []
+        for g in range(2):
+            for i in range(2):
+                row = {'Filepath': f'g{g}_f{i}.tiff', 'GroupKey': g, 'OutName': f'out{g}.tiff'}
+                row.update(dict.fromkeys(PostFunction.list_values(), False))
+                rows.append(row)
+        return build, pd.DataFrame(rows)
+
+
+def _drive_scripted(name, tmp_path, monkeypatch, **kwargs):
+    from unittest.mock import MagicMock
+
+    build, df = _ScriptedBuild.make(name)
+    record = MagicMock()
+    record.file_exists_in_records.return_value = False
+    monkeypatch.setattr(
+        build._post_processing_helper,
+        'load_folder',
+        lambda **kw: {
+            'status': True,
+            'images_df': df,
+            'root_path': tmp_path,
+            'protocol_post_record': record,
+            'protocol': None,
+        },
+    )
+    seen = []
+    build.load_folder(
+        path=tmp_path,
+        tiling_configs_file_loc=tmp_path / 'tiling.json',
+        on_progress=lambda percent, text: seen.append((percent, text)),
+        **kwargs,
+    )
+    return seen
+
+
+def test_a_folder_build_reports_each_group_then_done(tmp_path, monkeypatch):
+    seen = _drive_scripted('ZProjector', tmp_path, monkeypatch)
+    assert [percent for percent, _ in seen] == [50.0, 100.0, 100]
+    assert all(text is None for _, text in seen)
+
+
+def test_a_stitch_says_which_group_it_is_on_and_what_is_left(tmp_path, monkeypatch):
+    seen = _drive_scripted('Stitcher', tmp_path, monkeypatch, stitching_mode='quality')
+    # After the first group lands, the line names the group now starting.
+    assert 'group 2/2' in seen[0][1]
+    assert 'Estimated remaining time' in seen[0][1]
+
+
+def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from modules.video_builder import VideoBuilder
+
+    seen = {}
+
+    def encode(self, **kwargs):
+        seen.update(kwargs)
+        return {'status': True, 'error': None, 'metadata': {}, 'significant_bits': 8}
+
+    monkeypatch.setattr(VideoBuilder, '_create_video', encode)
+
+    def progress(percent, text):
+        pass
+
+    df = pd.DataFrame(
+        {'Filepath': ['a.tiff'], 'Scan Count': [0], 'Timestamp': [''], 'Color': [None]}
+    )
+    try:
+        VideoBuilder(has_turret=False)._group_algorithm(
+            path=tmp_path,
+            df=df,
+            frames_per_sec=5,
+            enable_timestamp_overlay=False,
+            output_file_loc=tmp_path / 'out.mp4',
+            on_progress=progress,
+            total_groups=1,
+            current_group=1,
+        )
+    except Exception:
+        # The result shape is the encoder's business; this pins only what
+        # the encoder was handed.
+        pass
+    assert seen['on_progress'] is progress
