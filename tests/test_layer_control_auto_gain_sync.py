@@ -116,9 +116,8 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     apply_settings, at which point the toggle visibly reflects state.
 
     The sync is gated by ``if not protocol_running_global.is_set()`` --
-    same guard as the rest of the auto_gain block. During protocols the
-    layer's AG state is managed by protocol_step_runner with
-    ignore_auto_gain=True; the UI-vs-settings sync is irrelevant there.
+    same guard as the rest of the auto_gain block. A run never applies
+    the layer's settings; the UI-vs-settings sync is irrelevant there.
     """
 
     def test_apply_settings_syncs_checkbox_active(self):
@@ -173,9 +172,8 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     def test_apply_settings_sync_inside_non_protocol_guard(self):
         """The sync code must be inside the ``if not protocol_running_global.is_set():``
         block (same guard as the rest of the auto_gain handling).
-        During protocols, protocol_step_runner manages AG state with
-        ignore_auto_gain=True; syncing the toggle UI from settings
-        during a protocol-driven layer switch would be incorrect."""
+        A run never applies the layer's settings, so syncing the toggle
+        UI from settings during one would be incorrect."""
         body = _method_body('LayerControl', 'apply_settings')
         # Find the guard line and the sync line; assert sync comes after the guard.
         guard_idx = body.find('if not ctx.session.run_lockout:')

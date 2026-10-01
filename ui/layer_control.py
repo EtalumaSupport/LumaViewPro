@@ -1184,7 +1184,7 @@ class LayerControl(BoxLayout):
             ctx.settings[self.layer]['auto_gain']
         ).applied
 
-    def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
+    def apply_settings(self, update_led=True):
 
         # Skip apply_settings if layer is still initializing
         if getattr(self, '_initializing', False):
@@ -1199,10 +1199,8 @@ class LayerControl(BoxLayout):
         # clicked -- must not push values to the camera mid-scan. The LED
         # leaf (update_led_state) carries the same guard; gating the shared
         # funnel covers every input that routes through here (exposure /
-        # gain / illumination text and sliders, stim fields). Programmatic
-        # protocol applies are exempt: the runner coordinates with AF
-        # itself.
-        if not protocol and ctx.scope.imaging.is_focusing:
+        # gain / illumination text and sliders, stim fields).
+        if ctx.scope.imaging.is_focusing:
             logger.debug(
                 f'[LVP Main  ] {self.layer}_LayerControl.apply_settings '
                 'suppressed -- autofocus owns the camera'
@@ -1270,26 +1268,13 @@ class LayerControl(BoxLayout):
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
-        if protocol and not settings.get('protocol_led_on', False):
-            # Protocol preview mode with LEDs OFF -- no need to apply camera
-            # settings since there's nothing to display.
-            logger.debug(
-                f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
-                f'(protocol preview, LEDs off). Camera settings NOT applied.'
-            )
-            Clock.schedule_once(disable_leds_for_other_layers, 0)
-            Clock.schedule_once(update_shader, 0)
-            return
         # All other cases: apply camera settings normally.
-        # This includes protocol preview with LEDs ON (#613) -- user needs
-        # correct gain/exposure to see the step's channel properly.
 
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        if not protocol:
-            set_histogram_layer(active_layer=self.layer)
+        set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
         if update_led and not ctx.session.run_lockout:
@@ -1323,24 +1308,22 @@ class LayerControl(BoxLayout):
             # an imperative .disabled write here was erased whenever the run
             # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            autogain_settings = None
-            if not ignore_auto_gain:
-                from modules.config_ui_getters import (
-                    get_ag_ae_max_exposure_ms,
-                    get_ag_ae_min_exposure_ms,
-                    get_auto_gain_settings,
-                )
+            from modules.config_ui_getters import (
+                get_ag_ae_max_exposure_ms,
+                get_ag_ae_min_exposure_ms,
+                get_auto_gain_settings,
+            )
 
-                autogain_settings = get_auto_gain_settings()
-                # Cap how far AG/AE may drive exposure for this layer's
-                # channel class (issue #655): without it AG runs exposure
-                # to the sensor max on dim scenes, washing out brightfield
-                # and making the live auto loop hunt.
-                autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
-                # The class floor rides beside the ceiling so an auto-gain
-                # lock can say whether exposure bottomed out of the
-                # usable range (AT_MINIMUM), not only whether it topped.
-                autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
+            autogain_settings = get_auto_gain_settings()
+            # Cap how far AG/AE may drive exposure for this layer's
+            # channel class: without it AG runs exposure
+            # to the sensor max on dim scenes, washing out brightfield
+            # and making the live auto loop hunt.
+            autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
+            # The class floor rides beside the ceiling so an auto-gain
+            # lock can say whether exposure bottomed out of the
+            # usable range (AT_MINIMUM), not only whether it topped.
+            autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
             imaging = lumaview.scope.imaging
             layer = self.layer
             submit_reported(

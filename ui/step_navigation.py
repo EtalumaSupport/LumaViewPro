@@ -25,7 +25,6 @@ logger = logging.getLogger('LVP.ui.step_navigation')
 def go_to_step(
     protocol,
     step_idx: int,
-    ignore_auto_gain: bool = False,
     include_move: bool = True,
 ):
     """Show a protocol step, and for a person's navigation go to it.
@@ -175,7 +174,6 @@ def go_to_step(
             layer_obj=layer_obj,
             step=step,
             color=color,
-            ignore_auto_gain=ignore_auto_gain,
         )
         go_to_step_update_ui(step)
 
@@ -213,7 +211,7 @@ def _step_led_ctx(*, ctx, settings, step, color) -> LedTransitionCtx:
     )
 
 
-def _load_step_into_layer(*, ctx, settings, layer_obj, step, color, ignore_auto_gain):
+def _load_step_into_layer(*, ctx, settings, layer_obj, step, color):
     """Load the step into the layer's live settings, then apply them.
 
     Manual navigation loads the step into the layer's live settings: the
@@ -223,15 +221,14 @@ def _load_step_into_layer(*, ctx, settings, layer_obj, step, color, ignore_auto_
     live-view configuration is theirs to keep across it. The step's config
     dicts are copied: the protocol owns them.
 
-    Camera + histogram: applied directly in BOTH preview states
-    (protocol=False runs the camera block and the histogram-layer sync).
+    Camera + histogram: applied directly in BOTH preview states.
     update_led=False: the step's LED transition is the one LED command --
     apply_settings must not re-derive LED intent from the enable button,
     which REFLECTS driver state via the listener bridge; reading it as a
-    command channel re-lights a channel the user toggled off. protocol=False
-    also keeps the autofocus-owns-the-camera suppression: manual nav does
-    not coordinate with a live AF the way the protocol runner does, so
-    pushing camera settings mid-AF would corrupt the sweep.
+    command channel re-lights a channel the user toggled off. The apply
+    keeps its autofocus-owns-the-camera suppression: manual nav does not
+    coordinate with a live AF, so pushing camera settings mid-AF would
+    corrupt the sweep.
     """
     layer_values = {
         'autofocus': step['Auto_Focus'],
@@ -257,21 +254,16 @@ def _load_step_into_layer(*, ctx, settings, layer_obj, step, color, ignore_auto_
         if isinstance(stim_configs, dict):
             for stim_layer, stim_config in stim_configs.items():
                 settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
-    layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=False, update_led=False)
+    layer_obj.apply_settings(update_led=False)
 
 
-def go_to_step_update_ui(step, called_from_protocol: bool = False):
+def go_to_step_update_ui(step):
     """Update UI widgets to reflect a protocol step.
 
     Delegates per-layer widget updates to LayerControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
     cross-layer concerns: opening the settings panel, expanding the
     accordion, and setting the LED button during protocol preview.
-
-    ``called_from_protocol``: when True, skip the accordion expand
-    (the user's chosen open accordion is preserved during + after a
-    protocol run). When False (manual step navigation), expand to
-    the step's channel as the user expects.
     """
     ctx = _app_ctx.ctx
 
@@ -279,8 +271,8 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
     # Open the ImageSettings panel so the step's settings are visible.
-    # Act only when it is not already open: this runs once per step during
-    # a protocol run, and the panel toggle is an expand/collapse handler,
+    # Act only when it is not already open: this runs on every step
+    # navigation, and the panel toggle is an expand/collapse handler,
     # not an idempotent refresh -- re-invoking it on an already-open panel
     # repeats the reposition + histogram rescheduling every step and logs a
     # toggle line when nothing actually toggled.
@@ -289,17 +281,12 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
         imagesettings_toggle.state = 'down'
         ctx.image_settings.toggle_settings()
 
-    # Expand accordion to step's channel ONLY for manual navigation.
-    # Direct `collapse = False` on a single item doesn't propagate to
-    # siblings in Kivy's Accordion -- only user clicks auto-collapse
-    # others -- so manual nav from Green -> Red would leave Green
-    # visually expanded without this call. Protocol-cycle invocations
-    # skip the call entirely (the in-protocol guard inside
-    # set_expanded_layer has a race at protocol-end: the last step's
-    # UI-scheduled callback runs after the run lockout releases,
-    # leaving the accordion stuck on the last step's color).
-    if not called_from_protocol:
-        ctx.image_settings.set_expanded_layer(layer=color)
+    # Expand the accordion to the step's channel. Direct
+    # `collapse = False` on a single item doesn't propagate to siblings
+    # in Kivy's Accordion -- only user clicks auto-collapse others -- so
+    # manual nav from Green -> Red would leave Green visually expanded
+    # without this call.
+    ctx.image_settings.set_expanded_layer(layer=color)
 
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)

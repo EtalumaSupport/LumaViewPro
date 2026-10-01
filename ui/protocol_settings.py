@@ -1288,7 +1288,6 @@ class ProtocolSettings(FloatLayout):
         go_to_step(
             protocol=self._protocol,
             step_idx=step_idx,
-            ignore_auto_gain=False,
             include_move=True,
         )
 

@@ -128,16 +128,27 @@ def test_the_layer_apply_writes_the_camera_on_the_camera_lane(boundary, monkeypa
     widget.layer = 'Green'
     widget._initializing = False
     widget.effective_auto_gain.return_value = False
+    import modules.config_ui_getters as getters
 
-    layer_control.LayerControl.apply_settings(
-        widget, ignore_auto_gain=True, protocol=False, update_led=False
-    )
+    monkeypatch.setattr(getters, 'get_auto_gain_settings', lambda: {'target_brightness': 0.3})
+    monkeypatch.setattr(getters, 'get_ag_ae_max_exposure_ms', lambda layer: 50.0)
+    monkeypatch.setattr(getters, 'get_ag_ae_min_exposure_ms', lambda layer: 0.1)
+
+    layer_control.LayerControl.apply_settings(widget, update_led=False)
 
     camera = [s for s in boundary.submits if s.label == 'CAMERA_SETTINGS_Green']
     assert len(camera) == 1, [s.label for s in boundary.submits]
     assert camera[0].lane is context.camera_executor
     context.lumaview.scope.imaging.apply_layer_camera_settings.assert_called_once_with(
-        layer='Green', gain_db=1.0, exposure_ms=2.0, auto_gain=False, auto_gain_settings=None
+        layer='Green',
+        gain_db=1.0,
+        exposure_ms=2.0,
+        auto_gain=False,
+        auto_gain_settings={
+            'target_brightness': 0.3,
+            'max_exposure_ms': 50.0,
+            'min_exposure_ms': 0.1,
+        },
     )
 
 

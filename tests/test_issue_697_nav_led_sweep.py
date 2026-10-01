@@ -99,7 +99,7 @@ def _run_nav(env, preview_on, step_changed=True):
 
 
 # The one settings apply carries the no-button-LED contract.
-_THE_APPLY = [call(ignore_auto_gain=False, protocol=False, update_led=False)]
+_THE_APPLY = [call(update_led=False)]
 
 
 def test_preview_on_nav_fires_one_authority_transition_and_no_button_read(stepnav_env):

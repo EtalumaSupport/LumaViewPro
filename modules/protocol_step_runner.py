@@ -679,7 +679,6 @@ class ProtocolStepRunner:
                 protocol=p._protocol,
                 step_idx=step_idx,
                 include_move=False,
-                ignore_auto_gain=True,
             )
 
     # ------------------------------------------------------------------
