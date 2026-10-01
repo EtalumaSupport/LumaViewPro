@@ -6,8 +6,18 @@ from PyInstaller.utils.hooks import copy_metadata, collect_all, collect_submodul
 app_name = 'lumaviewpro'
 datas = [
     ('data', 'data'),
-    ('ui', 'ui'),
-    ('modules', 'modules'),
+    # The Python itself ships in the frozen archive. Of the source folders,
+    # the app opens exactly two files from disk at run time: the Kivy
+    # layout (lumaviewpro.py loads 'ui/lumaviewpro.kv' by path) and the
+    # simulator version pin (drivers/sim_wire/backend.py reads it at
+    # import, and the session imports the backend to resolve the tier on
+    # every simulated start). Loose .py copies beside the archive were
+    # never read -- and because PyInstaller puts the app folder on
+    # sys.path, a loose copy could satisfy a string-built import the
+    # analysis missed and hide the missing hidden import. The gate after
+    # COLLECT keeps them out.
+    ('ui/lumaviewpro.kv', 'ui'),
+    ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('version.txt', '.'),
@@ -182,26 +192,12 @@ exe = EXE(
     icon=['data\\icons\\icon.ico'],
 )
 
-# The firmware-backed simulator (drivers/sim_wire) runs the boards' own
-# firmware on a MicroPython interpreter built for macOS and Linux. It is
-# a developer's tool, run from a source checkout; there is no interpreter
-# for Windows, so an installed app always resolves to the fast tier. Its
-# content -- the interpreters, the shims they load and the compiled
-# firmware -- stays out of the bundle. The version pin stays: the backend
-# reads it at import, and the session imports the backend to resolve the
-# tier on every simulated start, so a bundle without it cannot start
-# --simulate at all. Tree excludes by bare name at any depth; the gate
-# after COLLECT checks the names matched only the folders meant.
-_SIM_WIRE_EXCLUDED_NAMES = ('firmware', 'mp', 'darwin')
-drivers_tree = Tree('drivers', prefix='drivers', excludes=list(_SIM_WIRE_EXCLUDED_NAMES))
-
 coll = COLLECT(
     exe,
     splash.binaries,
     a.binaries,
     a.zipfiles,
     a.datas,
-    drivers_tree,
     *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
     strip=False,
     upx=True,
@@ -294,35 +290,30 @@ for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
             print('  ' + _os.path.relpath(
                 _os.path.join(_dirpath, _fname), _dist_root))
 
-# Simulator-content gate. The exclusion above matches bare names at any
-# depth, so a future folder elsewhere under drivers/ sharing one of the
-# names would silently leave the bundle, and a renamed sim_wire folder
-# would silently ship again. Either fails the build here, and so does a
-# bundle without the version pin the backend needs at import.
-_sim_wire_excluded = {
-    _os.path.join('drivers', 'sim_wire', 'firmware'),
-    _os.path.join('drivers', 'sim_wire', 'mp'),
-    _os.path.join('drivers', 'sim_wire', 'runtime', 'darwin'),
-}
-_sim_wire_matched = {
-    _os.path.join(_dirpath, _dname)
-    for _dirpath, _dirnames, _filenames in _os.walk('drivers')
-    for _dname in _dirnames
-    if _dname in _SIM_WIRE_EXCLUDED_NAMES
-}
-if _sim_wire_matched != _sim_wire_excluded:
+# Source-folder gate. The two files in datas are what the app opens from
+# disk; everything else under modules/, ui/ and drivers/ runs from the
+# frozen archive. A loose .py under those folders at the app root means a
+# datas entry grew back, and would let a string-built import the analysis
+# missed resolve from disk instead of failing the build.
+_opened_from_disk = (
+    _os.path.join('ui', 'lumaviewpro.kv'),
+    _os.path.join('drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN'),
+)
+for _rel in _opened_from_disk:
+    if not _os.path.exists(_os.path.join(_dist_root, _rel)):
+        raise SystemExit(
+            f'FATAL: source-folder gate: {_rel} is missing from the dist tree; '
+            f'the app opens it from disk at run time.'
+        )
+_loose_py = [
+    _os.path.relpath(_os.path.join(_dirpath, _fname), _dist_root)
+    for _folder in ('modules', 'ui', 'drivers')
+    for _dirpath, _dirnames, _filenames in _os.walk(_os.path.join(_dist_root, _folder))
+    for _fname in _filenames
+    if _fname.endswith('.py')
+]
+if _loose_py:
     raise SystemExit(
-        f'FATAL: simulator-content gate: the excluded names matched '
-        f'{sorted(_sim_wire_matched)}, expected {sorted(_sim_wire_excluded)}. '
-        f'Name the folders to exclude precisely before shipping.'
-    )
-for _rel in sorted(_sim_wire_excluded):
-    if _os.path.exists(_os.path.join(_dist_root, _rel)):
-        raise SystemExit(f'FATAL: simulator-content gate: {_rel} is in the dist tree')
-_sim_wire_pin = _os.path.join(_dist_root, 'drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN')
-if not _os.path.exists(_sim_wire_pin):
-    raise SystemExit(
-        'FATAL: simulator-content gate: drivers/sim_wire/runtime/MICROPYTHON_PIN is missing '
-        'from the dist tree; the simulator backend reads it at import and the installed app '
-        'could not start --simulate.'
+        f'FATAL: source-folder gate: {len(_loose_py)} loose .py file(s) under the app root, '
+        f'first {_loose_py[0]}; the Python ships only in the frozen archive.'
     )
