@@ -8,7 +8,6 @@ datas = [
     ('data', 'data'),
     ('ui', 'ui'),
     ('modules', 'modules'),
-    ('drivers', 'drivers'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('version.txt', '.'),
@@ -182,12 +181,27 @@ exe = EXE(
     entitlements_file=None,
     icon=['data\\icons\\icon.ico'],
 )
+
+# The firmware-backed simulator (drivers/sim_wire) runs the boards' own
+# firmware on a MicroPython interpreter built for macOS and Linux. It is
+# a developer's tool, run from a source checkout; there is no interpreter
+# for Windows, so an installed app always resolves to the fast tier. Its
+# content -- the interpreters, the shims they load and the compiled
+# firmware -- stays out of the bundle. The version pin stays: the backend
+# reads it at import, and the session imports the backend to resolve the
+# tier on every simulated start, so a bundle without it cannot start
+# --simulate at all. Tree excludes by bare name at any depth; the gate
+# after COLLECT checks the names matched only the folders meant.
+_SIM_WIRE_EXCLUDED_NAMES = ('firmware', 'mp', 'darwin')
+drivers_tree = Tree('drivers', prefix='drivers', excludes=list(_SIM_WIRE_EXCLUDED_NAMES))
+
 coll = COLLECT(
     exe,
     splash.binaries,
     a.binaries,
     a.zipfiles,
     a.datas,
+    drivers_tree,
     *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
     strip=False,
     upx=True,
@@ -279,3 +293,36 @@ for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
         if _vc_family.match(_fname):
             print('  ' + _os.path.relpath(
                 _os.path.join(_dirpath, _fname), _dist_root))
+
+# Simulator-content gate. The exclusion above matches bare names at any
+# depth, so a future folder elsewhere under drivers/ sharing one of the
+# names would silently leave the bundle, and a renamed sim_wire folder
+# would silently ship again. Either fails the build here, and so does a
+# bundle without the version pin the backend needs at import.
+_sim_wire_excluded = {
+    _os.path.join('drivers', 'sim_wire', 'firmware'),
+    _os.path.join('drivers', 'sim_wire', 'mp'),
+    _os.path.join('drivers', 'sim_wire', 'runtime', 'darwin'),
+}
+_sim_wire_matched = {
+    _os.path.join(_dirpath, _dname)
+    for _dirpath, _dirnames, _filenames in _os.walk('drivers')
+    for _dname in _dirnames
+    if _dname in _SIM_WIRE_EXCLUDED_NAMES
+}
+if _sim_wire_matched != _sim_wire_excluded:
+    raise SystemExit(
+        f'FATAL: simulator-content gate: the excluded names matched '
+        f'{sorted(_sim_wire_matched)}, expected {sorted(_sim_wire_excluded)}. '
+        f'Name the folders to exclude precisely before shipping.'
+    )
+for _rel in sorted(_sim_wire_excluded):
+    if _os.path.exists(_os.path.join(_dist_root, _rel)):
+        raise SystemExit(f'FATAL: simulator-content gate: {_rel} is in the dist tree')
+_sim_wire_pin = _os.path.join(_dist_root, 'drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN')
+if not _os.path.exists(_sim_wire_pin):
+    raise SystemExit(
+        'FATAL: simulator-content gate: drivers/sim_wire/runtime/MICROPYTHON_PIN is missing '
+        'from the dist tree; the simulator backend reads it at import and the installed app '
+        'could not start --simulate.'
+    )
