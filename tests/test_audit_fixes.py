@@ -3121,6 +3121,8 @@ def _bare_protocol_writer(**overrides):
         # A brought-up scope answers the objective in the light path; the
         # writer reads it once per capture, for the file name and the scale.
         writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
+        # A brought-up scope's camera is present; a failed capture asks.
+        writer._scope.imaging.camera_removed = False
     return writer
 
 

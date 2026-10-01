@@ -916,6 +916,21 @@ class ImagingAPI:
         else:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
+    @property
+    def camera_removed(self) -> bool:
+        """Whether this scope's camera was declared removed by its driver.
+
+        The driver's removal latch, set once by whatever saw the camera go
+        (an SDK removal callback, a bus probe, the grab loop) and cleared
+        only by the driver's next connect. Narrower than ``Lumascope.camera_connected``, which also
+        reads False when a connection query merely failed. False when the
+        scope has no camera at all -- nothing was removed.
+
+        Returns:
+            bool: True once the camera has been declared removed.
+        """
+        return self._driver is not None and self._driver.is_device_removed()
+
     # --- Setters ---
     def _removed_during_write(self, setting: str, absent_label: str, requested: float) -> bool:
         """Whether a write that reported refused had in fact lost its camera.
@@ -932,7 +947,7 @@ class ImagingAPI:
         quiet no-op. True here means the caller answers "not confirmed"
         instead, which is what a vanished camera actually leaves behind.
         """
-        if not self._driver.is_device_removed():
+        if not self.camera_removed:
             return False
         logger.error(
             f'[SCOPE API ] {setting}: camera removed during the write; '
@@ -4037,6 +4052,12 @@ class ImagingAPI:
         if not snapshot:
             return
         tag = snapshot.get('tag', '?')
+        # A removed camera has nothing to restore, and each setter would
+        # report its absence again after the removal was already reported
+        # by whatever noticed it -- a run's ending, the stall check.
+        if self.camera_removed:
+            _api_log.info(f'restore_camera_state tag={tag}: camera removed; nothing restored')
+            return
         # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
         # field that fails validation is a caller bug -- the sanctioned
         # producer only ever emits valid fields -- so that case warns.

@@ -703,7 +703,27 @@ class ProtocolImageWriter:
         self._leds_off()
 
     def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
-        """The strike counter + the 3-strike fatal abort, row-free."""
+        """The strike counter + the 3-strike fatal abort, row-free.
+
+        A failure whose camera the driver has declared removed ends the run
+        at once instead of counting: no later capture can succeed, and a
+        short run would otherwise step through to a normal ending before a
+        third strike.
+        """
+        if self._scope.imaging.camera_removed:
+            logger.error(
+                f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
+                f'scan {scan_count} -- the camera was removed'
+            )
+            self._abort_run_fatal(
+                'hardware_disconnected',
+                'Protocol',
+                'Protocol Aborted',
+                'The camera was disconnected during the protocol run. '
+                'Check the USB cable and power connections, save the '
+                'protocol, then restart LumaViewPro and the protocol.',
+            )
+            return
         self._consecutive_capture_failures += 1
         logger.error(
             f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '

@@ -94,6 +94,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
+- **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on: a run that fails a capture after the camera was removed ends at once, `status='failed'`, `reason='hardware_disconnected'`. False on a scope with no camera at all.
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
 
@@ -203,6 +204,7 @@ scope.motor_connected                     # motor board (property)
 scope.motion_expected                     # False on a manual scope (LS620, LS560): no motor board to connect
 scope.led_connected                       # LED board (property)
 scope.camera_connected                    # camera (property)
+scope.imaging.camera_removed              # True once the camera was declared unplugged (latched until it reconnects)
 scope.no_hardware                         # True if all-null (no real hardware found)
 scope.disconnect()
 ```

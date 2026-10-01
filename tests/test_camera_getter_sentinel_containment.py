@@ -104,6 +104,10 @@ class ScriptedCameraDriver:
     # is 0 when there is none -- nothing has been delivered.
     frames_delivered = Camera.frames_delivered
 
+    def is_device_removed(self) -> bool:
+        # A scripted camera is never unplugged; the API asks before writing.
+        return False
+
     def __init__(self, scripts: dict, active: bool = True):
         self.active = active
         self.cam_image_handler = None  # tests attach a _StampedFrameHandler
