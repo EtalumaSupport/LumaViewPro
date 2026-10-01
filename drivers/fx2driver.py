@@ -402,10 +402,16 @@ FRAME_DELIM = b'\x01\xfe\x00\xff'  # injected between frames by GpifWaveform_Isr
 class FrameLayout(NamedTuple):
     """Where a frame's pixels sit in the bytes streamed between two delimiters.
 
-    After ``FRAME_DELIM`` comes a row the parser skips (``skip`` bytes), then
-    ``h`` rows of ``stride`` bytes -- ``w`` pixels and the sync byte the GPIF
-    puts between rows -- then one more row of padding. A whole frame is
-    ``frame_bytes`` long; anything else between two delimiters is damaged.
+    For a ``w`` x ``h`` window the driver writes Column_Size w + 1 and
+    Row_Size h + 1, and the sensor outputs W = w + 2 columns and H = h + 2
+    rows (DS Table 8). The wire carries each output row as ``stride`` bytes:
+    output columns 2 to w + 1 as the ``w`` pixels, then a 0 sync byte. After
+    ``FRAME_DELIM`` comes the first output row, which the parser skips
+    (``skip`` bytes, one more than a row), then the ``h`` stored rows, then
+    the last output row, which it does not store. Both unstored rows carry
+    sensor data. All of this was measured on an LS620 with the sensor's test
+    patterns, at 1900, 1896 and 1000 wide. A whole frame is ``frame_bytes``
+    long; anything else between two delimiters is damaged.
     """
 
     stride: int
@@ -2290,10 +2296,9 @@ class FX2Camera(Camera):
     def set_frame_size(self, w: int, h: int) -> dict | bool:
         """Set the sensor readout window.
 
-        The sensor is configured to output (display + 1) x (display + 1)
-        pixels. The extra column becomes a 0x00 sync byte between rows
-        after GPIF processing; the extra row is discarded by the grab
-        loop (``skip_first_row``). Dimensions are rounded down to
+        The sizes written are one larger than the window; the sensor outputs
+        two more columns and rows than the window, of which the wire keeps
+        the window (``frame_layout``). Dimensions are rounded down to
         multiples of FRAME_SIZE_STEP (4) and clamped to [100, 1900].
 
         Returns the delivered size ``{'width': int, 'height': int}`` after
@@ -2320,12 +2325,14 @@ class FX2Camera(Camera):
         w = (w // step) * step
         h = (h // step) * step
 
-        # Sensor registers want (display + 1) per LVC reference.
+        # The sensor outputs one column and one row more than the sizes
+        # written (DS Table 8), and the wire keeps w of those w + 2 columns
+        # and h of those h + 2 rows (frame_layout).
         sensor_w = self._column_size(w)
         sensor_h = h + 1
-        # Center the window on the active pixel area (2592 x 1944 with
-        # offsets 16 col / 54 row) and force even alignment.
-        col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
+        col_start = self._column_start(sensor_w)
+        # Centre the window on the active pixel area (2592 x 1944 with
+        # offsets 16 col / 54 row), on an even row.
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
 
         try:
@@ -2447,6 +2454,16 @@ class FX2Camera(Camera):
     def _column_size(w: int) -> int:
         """The Column_Size the driver writes for a ``w``-wide window."""
         return w + 1
+
+    @staticmethod
+    def _column_start(column_size: int) -> int:
+        """The Column_Start that centres a window of ``column_size`` on the active array.
+
+        RR R0x02 requires the form 4n + 2 under Mirror_Column, which the
+        driver sets; this is the nearest such value to the centred start.
+        """
+        centred = (2592 - column_size) // 2 + 16
+        return (centred // 4) * 4 + 2
 
     def auto_exposure_t(self, state: bool = True) -> NoReturn:
         raise no_hardware_auto_mode('FX2', 'auto_exposure_t', 'auto-exposure')

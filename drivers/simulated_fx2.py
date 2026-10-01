@@ -118,8 +118,11 @@ class _Mt9p031:
             self.registers.update(_POWER_ON)
 
     def window(self) -> tuple[int, int]:
-        """The window the frames carry. The driver writes the size one larger."""
-        return self.registers[REG_COL_SIZE] - 1, self.registers[REG_ROW_SIZE] - 1
+        """The window the frames carry: the output's W x H less two each (``frame_layout``)."""
+        # DS Table 8: W = Column_Size + 1, H = Row_Size + 1.
+        output_w = self.registers[REG_COL_SIZE] + 1
+        output_h = self.registers[REG_ROW_SIZE] + 1
+        return output_w - 2, output_h - 2
 
     def exposure_s(self) -> float:
         """The integration the shutter width gives at the window's row time."""
@@ -314,16 +317,20 @@ class SimulatedFX2Device:
         """The next frame as the wire carries it: the delimiter, then the frame's bytes.
 
         The window, exposure and gain are read here, at the frame's start, so
-        a change takes effect on the next frame. ``extra_rows`` rows of
-        padding beyond the frame's one make it the wrong length for its
-        window, the shape the parser counts as shifted.
+        a change takes effect on the next frame. The first and last output
+        rows are sensor rows the parser does not store, as on the wire.
+        ``extra_rows`` rows of zeros after the frame make it the wrong
+        length for its window, the shape the parser counts as shifted.
         """
         w, h = self.sensor.window()
         layout = frame_layout(w, h)
-        rows = np.zeros((h, layout.stride), dtype=np.uint8)
-        rows[:, :w] = self._pixels(w, h)
-        padding = bytes(layout.stride * (1 + self.extra_rows))
-        return b''.join((FRAME_DELIM, bytes(layout.skip), rows.tobytes(), padding))
+        rows = np.zeros((h + 2, layout.stride), dtype=np.uint8)
+        rows[:, :w] = self._pixels(w, h + 2)
+        # The skip is one byte longer than a row. What that byte carries is
+        # unmeasured; the parser never reads it.
+        first = rows[0].tobytes() + bytes(layout.skip - layout.stride)
+        extra = bytes(layout.stride * self.extra_rows)
+        return b''.join((FRAME_DELIM, first, rows[1:].tobytes(), extra))
 
     def _pixels(self, w: int, h: int) -> np.ndarray:
         """The specimen field as this sensor sees it: black unless an LED is lit."""
