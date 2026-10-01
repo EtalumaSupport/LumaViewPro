@@ -421,6 +421,19 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     raise ConfigError(f'Unknown Z-stack position reference: {text_label}')
 
 
+def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:
+    """The first *limit* of *items*, then how many more there are.
+
+    A refusal that names everything it found grows with the protocol: a
+    96-step list is taller than the popup that shows it, and the count it
+    opens with scrolls out of sight. Keep the order the caller gives, so the
+    names read in the order the person built them.
+    """
+    shown = separator.join(items[:limit])
+    remaining = len(items) - limit
+    return f'{shown}{separator}and {remaining} more' if remaining > 0 else shown
+
+
 def is_valid_gain_db(value) -> bool:
     """True when a camera gain reading is usable (a number >= 0 dB).
 

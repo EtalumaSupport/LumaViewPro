@@ -93,12 +93,12 @@ def _refuse_positions_outside_travel(
     Dropping them and building the rest made a grid with holes, or a stack
     missing its ends, that stitched and projected as if it were whole; only a
     caller that read a returned count knew. *outside* maps each step's name to
-    how many of its positions fall outside.
+    how many of its positions fall outside, in the protocol's step order.
     """
     if not outside:
         return
     count = sum(outside.values())
-    names = ', '.join(sorted(outside))
+    names = common_utils.first_few(list(outside), separator=', ')
     _refuse_build(
         reason=reason,
         title=title,
@@ -1618,6 +1618,10 @@ class Protocol:
             remedy='Choose a smaller grid, or move those steps away from the edge of the stage.',
         )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
+        logger.info(
+            f'[Protocol] Tile grid {tiling} applied: {len(orig_steps_df)} -> '
+            f'{self.num_steps()} steps'
+        )
 
     def apply_zstacking(
         self,
@@ -1734,6 +1738,10 @@ class Protocol:
             remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
         )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
+        logger.info(
+            f'[Protocol] Z-stack applied (range {zstack_params["range"]} um, step '
+            f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps()} steps'
+        )
 
     @classmethod
     def from_config(

@@ -32,6 +32,7 @@ import typing
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+import modules.common_utils as common_utils
 from modules.exceptions import ProtocolRunRefusedError, unknown_positions_sentence
 from modules.lumascope_api.imaging import camera_range_words
 
@@ -592,7 +593,7 @@ class ProtocolsAPI:
                 reason='camera_setting_out_of_range',
                 title='Camera Setting Out of Range',
                 message=(
-                    '\n'.join(problems)
+                    common_utils.first_few(problems, separator='\n')
                     + '\n\nEdit these steps to values this camera can take, then run again.'
                 ),
             )
