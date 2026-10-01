@@ -16,8 +16,12 @@ Mirrors the shape of test_pylon_hardware.py / test_ids_hardware.py so the
 abstraction is symmetric across camera vendors.
 """
 
+import os
+import threading
 import time
 import unittest
+from collections import Counter
+from datetime import datetime
 from itertools import pairwise
 
 import numpy as np
@@ -30,10 +34,16 @@ import pytest
 from drivers.fx2driver import (
     _ROW_TIME_MS,
     _SHUTTER_OVERHEAD_MS,
+    FRAME_DELIM,
+    REG_BLC,
+    REG_COL_SIZE,
     REG_PLL_CFG1,
     REG_PLL_CTRL,
+    REG_READ_MODE2,
+    REG_ROW_BLACK,
     FX2Camera,
     FX2LEDController,
+    frame_layout,
 )
 from lvp_logger import logger
 
@@ -513,3 +523,281 @@ class TestFX2Timing(_FX2BenchCase):
         for extra in _HBLANK_STEPS:
             self.camera._fx2.sensor_reg_write(_REG_HBLANK, extra)
             self._run_step(f'A4 P1={_HBLANK_P1} R0x05={extra} (Blue {ma} mA, 50 ms, 0 dB)')
+
+
+# ---------------------------------------------------------------------------
+# Phase B's P0 (FX2 plan section 21.5): what the wire carries per row, the
+# conforming Column_Size streamed, dark frames at the black levels, and a
+# window change. Measurement only; every register goes back in tearDown. Run
+# with --driver-log:
+#
+#     pytest tests/test_fx2_hardware.py --run-fx2-hardware --driver-log -k P0
+#
+# The dark-frame test needs a light-tight cover on the light path. Set
+# FX2_BENCH_DUMP_DIR to keep the raw wire frames the test-pattern test reads.
+# ---------------------------------------------------------------------------
+
+_REG_OUTPUT_CONTROL = 0x07
+_OUTPUT_CONTROL_DEFAULT = 0x1F82  # RR R0x07 power-on default; the driver never writes it
+_SYNCHRONIZE_CHANGES = 0x0001
+_REG_TEST_PATTERN_CONTROL = 0xA0
+_REG_TEST_PATTERN_GREEN = 0xA1
+_REG_TEST_PATTERN_RED = 0xA2
+_REG_TEST_PATTERN_BLUE = 0xA3
+_READ_MODE2_TODAY = 0x4040  # Mirror_Column + Row_BLC, as _init_sensor writes it
+_READ_MODE2_NO_ROW_BLC = 0x4000  # DS p37: BLC off while a test pattern runs
+_ROW_BLACK_TODAY = 0x0000
+_BLC_TODAY = 0x6000
+# Color field values (12-bit), one distinct bit pattern per channel, so the
+# 8-bit image shows which DOUT bits reach the bus and which 2x2 phase is which.
+_FIELD_GREEN = 0x0A50
+_FIELD_RED = 0x05A0
+_FIELD_BLUE = 0x0C30
+# RR R0xA0 bits 6:3 = mode, bit 0 = enable.
+_PATTERNS = (('color field', 0), ('horizontal gradient', 1), ('walking 1s', 5))
+_DARK_FLOOR = 255 * 0.03  # ImagingAPI._DARK_FLOOR_FRACTION on an 8-bit frame
+
+
+class _WireSpy:
+    """Wraps the stream's ``take()``: the length of every whole wire frame, and the first few.
+
+    Each take starts just after a delimiter (the grab loop puts the tail back
+    from there), so every segment but a take's last is one whole frame.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._take = stream.take
+        self._lock = threading.Lock()
+        self.sizes = Counter()
+        self.frames = []
+        self._keep = 0
+        stream.take = self._spy
+
+    def _spy(self, at_least):
+        buf = self._take(at_least)
+        if buf is not None:
+            segments = bytes(buf).split(FRAME_DELIM)
+            with self._lock:
+                for seg in segments[:-1]:
+                    self.sizes[len(seg)] += 1
+                    if len(self.frames) < self._keep:
+                        self.frames.append(seg)
+        return buf
+
+    def reset(self, keep=0):
+        with self._lock:
+            self.sizes = Counter()
+            self.frames = []
+            self._keep = keep
+
+    def wait_frames(self, count, timeout_s=15.0):
+        self.reset(keep=count)
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            with self._lock:
+                if len(self.frames) >= count:
+                    return list(self.frames)
+            time.sleep(0.02)
+        with self._lock:
+            return list(self.frames)
+
+    def remove(self):
+        del self._stream.take
+
+
+def _phase_values(image):
+    """The most common value in each 2x2 phase, top-left first."""
+    return [
+        Counter(image[r::2, c::2].ravel().tolist()).most_common(2)
+        for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))
+    ]
+
+
+@pytest.mark.fx2_hardware
+class TestFX2PhaseBP0(_FX2BenchCase):
+    def setUp(self):
+        super().setUp()
+        self.spy = _WireSpy(self.camera._fx2.stream)
+        self.camera.exposure_t(50)
+        self.camera.gain(0)
+
+    def tearDown(self):
+        self.spy.remove()
+        if self.camera.is_connected():
+            write = self.camera._fx2.sensor_reg_write
+            for reg, value in (
+                (_REG_TEST_PATTERN_CONTROL, 0),
+                (REG_READ_MODE2, _READ_MODE2_TODAY),
+                (REG_ROW_BLACK, _ROW_BLACK_TODAY),
+                (REG_BLC, _BLC_TODAY),
+                (_REG_OUTPUT_CONTROL, _OUTPUT_CONTROL_DEFAULT),
+            ):
+                write(reg, value)
+            self.camera.set_frame_size(1900, 1900)
+        super().tearDown()
+
+    def _wire_frame_report(self, label, w, h, frame):
+        layout = frame_layout(w, h)
+        raw = np.frombuffer(frame, dtype=np.uint8)
+        logger.info(
+            '[FX2 bench] P0 %s window %d: wire frame %d bytes, layout expects %d (residue mod 1024 %d)',
+            label,
+            w,
+            raw.size,
+            layout.frame_bytes,
+            raw.size % 1024,
+        )
+        if raw.size != layout.frame_bytes:
+            return
+        skip = raw[: layout.skip]
+        rows = raw[layout.skip : layout.needed].reshape(h, layout.stride)
+        padding = raw[layout.needed :]
+        image = rows[:, :w]
+        logger.info(
+            '[FX2 bench] P0 %s window %d: skip row values %s; last byte of each row %s; padding row values %s',
+            label,
+            w,
+            Counter(skip.tolist()).most_common(4),
+            Counter(rows[:, w].tolist()).most_common(4),
+            Counter(padding.tolist()).most_common(4),
+        )
+        logger.info(
+            '[FX2 bench] P0 %s window %d: 2x2 phase values %s; row 0 first 24 %s; row 0 last 8 %s; '
+            'row 1 first 8 %s; skip row first 16 %s; padding first 16 %s',
+            label,
+            w,
+            _phase_values(image),
+            image[0, :24].tolist(),
+            image[0, -8:].tolist(),
+            image[1, :8].tolist(),
+            skip[:16].tolist(),
+            padding[:16].tolist(),
+        )
+
+    def test_measure_the_wire_layout_with_test_patterns(self):
+        """P0 (a): which sensor column each wire byte is, the row's last byte, the DOUT bits."""
+        write = self.camera._fx2.sensor_reg_write
+        write(REG_READ_MODE2, _READ_MODE2_NO_ROW_BLC)
+        write(_REG_TEST_PATTERN_GREEN, _FIELD_GREEN)
+        write(_REG_TEST_PATTERN_RED, _FIELD_RED)
+        write(_REG_TEST_PATTERN_BLUE, _FIELD_BLUE)
+        dump = os.environ.get('FX2_BENCH_DUMP_DIR')
+        for w in (1900, 1896, 1000):
+            self.camera.set_frame_size(w, w)
+            for name, mode in _PATTERNS:
+                write(_REG_TEST_PATTERN_CONTROL, (mode << 3) | 1)
+                _new_frames(self.camera, 3, timeout_s=10.0)
+                frames = self.spy.wait_frames(2)
+                for i, frame in enumerate(frames):
+                    self._wire_frame_report(f'pattern {name} #{i}', w, w, frame)
+                    if dump:
+                        np.save(
+                            os.path.join(dump, f'p0a_{name.replace(" ", "_")}_{w}_{i}.npy'),
+                            np.frombuffer(frame, dtype=np.uint8),
+                        )
+        write(_REG_TEST_PATTERN_CONTROL, 0)
+
+    def test_measure_conforming_column_sizes(self):
+        """P0 (b): today's Column_Size (w + 1) against RR's 4n - 1 (w - 1, w + 3), 60 s each."""
+        ma = self._light_to_mid_grey()
+        for w in (1900, 1896, 1880, 1000, 500):
+            for label, column_size in (
+                ('today', w + 1),
+                ('4n-1 below', w - 1),
+                ('4n-1 above', w + 3),
+            ):
+                self.camera.set_frame_size(w, w)
+                if column_size != w + 1:
+                    self.camera._fx2.sensor_reg_write(REG_COL_SIZE, column_size)
+                time.sleep(2.0)
+                self.spy.reset()
+                self.camera.stream_stats.reset()
+                time.sleep(_STEP_S)
+                sizes = self.spy.sizes.most_common()
+                total = sum(n for _size, n in sizes)
+                common = sizes[0][0] if sizes else 0
+                glued = sum(n for size, n in sizes if size in (2 * common, 2 * common + 4))
+                s = self.camera.stream_stats.summary()
+                logger.info(
+                    '[FX2 bench] P0 Column_Size window %d %s (R0x04=%d, Blue %d mA, 50 ms): %d wire frames, '
+                    'commonest %d bytes (residue mod 1024 %d), glued two-frame chunks %d, sizes %s; '
+                    'parser %d good / %d partial / %d shifted',
+                    w,
+                    label,
+                    column_size,
+                    ma,
+                    total,
+                    common,
+                    common % 1024,
+                    glued,
+                    sizes[:6],
+                    s['good_frames'],
+                    s['partial_frames'],
+                    s['shifted_frames'],
+                )
+
+    def test_measure_dark_frames_at_the_black_levels(self):
+        """P0 (c): needs a light-tight cover. Exact zeros, mean and phases at each black level."""
+        self.led.leds_off()
+        self.camera.set_frame_size(1900, 1900)
+        write = self.camera._fx2.sensor_reg_write
+        for db in (0, 24):
+            self.camera.gain(db)
+            for row_black, blc in ((0, 0x6000), (0xA8, 0x6000), (0, 0), (0xA8, 0)):
+                write(REG_ROW_BLACK, row_black)
+                write(REG_BLC, blc)
+                _new_frames(self.camera, 4, timeout_s=10.0)
+                images = [img for _s, _a, img in _timed_frames(self.camera, 3, timeout_s=10.0)]
+                stack = np.stack(images).astype(np.float32)
+                logger.info(
+                    '[FX2 bench] P0 dark %d dB R0x49=0x%02X R0x62=0x%04X: exact zeros %.4f, mean %.2f, '
+                    'std %.2f, max %d, above the dark floor %.6f, phase means %s',
+                    db,
+                    row_black,
+                    blc,
+                    float(np.mean(stack == 0)),
+                    float(stack.mean()),
+                    float(stack.std()),
+                    int(stack.max()),
+                    float(np.mean(stack > _DARK_FLOOR)),
+                    [
+                        round(float(stack[:, r::2, c::2].mean()), 2)
+                        for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))
+                    ],
+                )
+
+    def test_measure_a_window_change(self):
+        """P0 (e): what a window change stores, with and without Synchronize_Changes."""
+        ma = self._light_to_mid_grey()
+        write = self.camera._fx2.sensor_reg_write
+        for synchronized in (False, True):
+            for w_from, w_to in ((1900, 1000), (1000, 1900), (1900, 1000), (1000, 1900)):
+                self.camera.set_frame_size(w_from, w_from)
+                _new_frames(self.camera, 3, timeout_s=10.0)
+                self.camera.stream_stats.reset()
+                started = datetime.now()
+                if synchronized:
+                    write(_REG_OUTPUT_CONTROL, _OUTPUT_CONTROL_DEFAULT | _SYNCHRONIZE_CHANGES)
+                self.camera.set_frame_size(w_to, w_to)
+                if synchronized:
+                    write(_REG_OUTPUT_CONTROL, _OUTPUT_CONTROL_DEFAULT)
+                frames = _timed_frames(self.camera, 5, timeout_s=15.0)
+                s = self.camera.stream_stats.summary()
+                logger.info(
+                    '[FX2 bench] P0 window change %d -> %d, synchronized %s (Blue %d mA, 50 ms): '
+                    'first frame after %.2f s; frames %s; %d partial / %d shifted, sizes %s / %s',
+                    w_from,
+                    w_to,
+                    synchronized,
+                    ma,
+                    (frames[0][1] - started).total_seconds() if frames else -1.0,
+                    [
+                        (seq, img.shape[1], *(round(v, 1) for v in _integrity(img)))
+                        for seq, _at, img in frames
+                    ],
+                    s['partial_frames'],
+                    s['shifted_frames'],
+                    sorted(set(s['partial_sizes'])),
+                    sorted(set(s['shifted_sizes'])),
+                )
