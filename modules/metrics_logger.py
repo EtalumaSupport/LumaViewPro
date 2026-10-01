@@ -65,24 +65,6 @@ DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
 _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 
-# Frame-flow heartbeat: piggybacks on tick_system_metrics to detect
-# silent grab failures (camera reports active=True + is_grabbing=True
-# but no frames are flowing). Catches scenarios like Pylon SDK grab
-# thread dead, USB transport stalled without formal camera removal,
-# or buffer queue jammed. Threshold set well below 0.5 fps so
-# legitimate slow grabs don't trip it; consecutive-tick guard avoids
-# alarms during the second between a fresh grab-start and the first
-# frame arriving. Alarm latency at the 60-s tick cadence is ~2 min
-# from stall onset to first popup.
-_FRAME_FLOW_STALL_FPS = 0.1
-_FRAME_FLOW_STALL_TICK_THRESHOLD = 2
-# Sticky-failure policy: persistent faults must resurface, not dedup
-# forever. Re-fire the user-facing notification every N additional
-# stalled ticks while the stall persists; escalate to critical after
-# the stall has lasted this many ticks past the initial warning.
-_FRAME_FLOW_STALL_RENOTIFY_TICKS = 5
-_FRAME_FLOW_STALL_CRITICAL_TICKS = 20
-
 
 class MetricsLogger:
     """Owns the periodic runtime-health logging surface for LVP."""
@@ -112,20 +94,6 @@ class MetricsLogger:
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
 
-        # Consecutive ticks where the camera was reported active +
-        # grabbing yet capture_fps was below _FRAME_FLOW_STALL_FPS.
-        # Reset whenever fps recovers OR camera is no longer grabbing.
-        # The frame-flow heartbeat fires WARNING when this exceeds
-        # _FRAME_FLOW_STALL_TICK_THRESHOLD, surfacing silent grab
-        # failures that don't raise an exception or trigger a timeout.
-        self._frame_flow_stalled_ticks = 0
-        # Tick count at which the user-facing notification was last
-        # fired (-1 = never). Drives sticky-failure refire: re-notify
-        # every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the stall
-        # persists; escalate to critical at _CRITICAL_TICKS once.
-        self._frame_flow_stall_last_notified_tick = -1
-        self._frame_flow_stall_critical_fired = False
-
     # ---- Tick implementations (also callable on-demand) ----
 
     def tick_system_metrics(self) -> None:
@@ -138,140 +106,12 @@ class MetricsLogger:
         Delegates to ``config_helpers.log_system_metrics`` so the format
         + content match the existing log surface; engineering tools
         that grep ``[PDH METRICS]`` / ``[BUFFER METRICS]`` keep working.
-        Also runs the frame-flow heartbeat on the same cadence; see
-        ``_check_frame_flow_heartbeat``. Safe to call on demand from a
-        status endpoint.
+        Safe to call on demand from a status endpoint.
         """
         try:
             config_helpers.log_system_metrics(self._settings)
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
-        # Heartbeat is best-effort and never propagates exceptions out
-        # of the metrics tick (would lose all subsequent ticks). Warning
-        # (not debug) so a broken stalled-grab detector is visible in the
-        # main log -- otherwise a silently-broken heartbeat masks the
-        # silent-grab failure mode the heartbeat is meant to catch.
-        try:
-            self._check_frame_flow_heartbeat()
-        except Exception as e:
-            logger.warning(f'[MetricsLogger] frame-flow heartbeat failed: {type(e).__name__}: {e}')
-
-    def _check_frame_flow_heartbeat(self) -> None:
-        """Detect silent grab failure: camera active + is_grabbing()
-        reports True, but capture_fps is essentially zero for multiple
-        consecutive ticks. Catches scenarios where the SDK grab thread
-        is alive but no frames are flowing (USB transport stalled
-        without formal removal, Pylon-side grab loop hung, buffer
-        queue jammed). All-zero FRAME CONTENT is detected separately
-        in the char tool's data-validity guard; this catches the
-        zero-frame-RATE case at the API layer.
-
-        Resets the consecutive-stalled-ticks counter whenever the
-        camera is not grabbing (so a paused live view doesn't trip
-        the alarm) or fps recovers above _FRAME_FLOW_STALL_FPS.
-
-        DISARMED, DELIBERATELY -- read this before "fixing" the probe
-        below. `Lumascope` has no `camera` attribute, so the getattr
-        always yields None and this detector returns on its first line
-        every tick. It has never fired in the field.
-
-        Arming it is one line; arming it CORRECTLY is not, which is why
-        it is still off: the fps value it compares against is read off
-        a UI widget's private attribute (see below), which is a module
-        reaching up into the view. Frame accounting belongs to the
-        imaging API; arming this activates the wrong read. (The other
-        historical blocker -- a reconnect leaving this logger pointed
-        at a dead scope -- is gone: a session never changes its scope,
-        so a running logger's scope is always the live one.)
-
-        So the order is: move fps accounting into the API, then arm.
-        Until then a False here is honest and a True would be a guess.
-        Whoever arms it should delete this note and the matching entry
-        in tests/guards/test_capability_probe_reality.py, which fails the
-        moment `camera` becomes a real attribute.
-        """
-        try:
-            cam = getattr(self._scope, 'camera', None)
-            if cam is None or not getattr(cam, 'active', False):
-                self._frame_flow_stalled_ticks = 0
-                return
-            if not cam.is_grabbing():
-                self._frame_flow_stalled_ticks = 0
-                return
-        except Exception:
-            self._frame_flow_stalled_ticks = 0
-            return
-
-        capture_fps = 0.0
-        try:
-            from modules import app_context as _app_ctx
-
-            sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
-            if sd is not None:
-                capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
-        except Exception:
-            return
-
-        if capture_fps >= _FRAME_FLOW_STALL_FPS:
-            if self._frame_flow_stall_last_notified_tick >= 0:
-                logger.info(
-                    f'[FRAME FLOW] capture_fps recovered to '
-                    f'{capture_fps:.2f} after silent-grab stall'
-                )
-            self._frame_flow_stalled_ticks = 0
-            self._frame_flow_stall_last_notified_tick = -1
-            self._frame_flow_stall_critical_fired = False
-            return
-
-        self._frame_flow_stalled_ticks += 1
-        if self._frame_flow_stalled_ticks >= _FRAME_FLOW_STALL_TICK_THRESHOLD:
-            logger.warning(
-                f'[FRAME FLOW] capture_fps={capture_fps:.2f} below '
-                f'{_FRAME_FLOW_STALL_FPS} for '
-                f'{self._frame_flow_stalled_ticks} consecutive ticks while '
-                f'camera reports active=True + is_grabbing=True -- possible '
-                f'silent grab failure. Check camera.log for last successful '
-                f'grab; investigate USB transport / Pylon SDK state.'
-            )
-            # Sticky-failure: persistent stalls keep resurfacing.
-            # First popup at threshold; same-severity refire every
-            # _RENOTIFY_TICKS thereafter; one critical escalation once
-            # _CRITICAL_TICKS has passed. Recovery resets all of it.
-            should_renotify = (
-                self._frame_flow_stall_last_notified_tick < 0
-                or (self._frame_flow_stalled_ticks - self._frame_flow_stall_last_notified_tick)
-                >= _FRAME_FLOW_STALL_RENOTIFY_TICKS
-            )
-            should_escalate = (
-                not self._frame_flow_stall_critical_fired
-                and self._frame_flow_stalled_ticks >= _FRAME_FLOW_STALL_CRITICAL_TICKS
-            )
-            if should_renotify or should_escalate:
-                try:
-                    from modules.notification_center import notifications
-
-                    if should_escalate:
-                        notifications.critical(
-                            'Camera',
-                            'Camera frame flow still stalled',
-                            'Captures have not arrived for an extended period. '
-                            'The camera reports active but no frames are flowing. '
-                            'Restart the program; if this recurs, power-cycle '
-                            'the camera.',
-                        )
-                        self._frame_flow_stall_critical_fired = True
-                    else:
-                        notifications.warning(
-                            'Camera',
-                            'Camera frame flow stalled',
-                            'Captures have not arrived for several seconds. '
-                            'The camera reports active but frames are not flowing. '
-                            'The protocol will continue retrying; if this persists, '
-                            'restart the program.',
-                        )
-                    self._frame_flow_stall_last_notified_tick = self._frame_flow_stalled_ticks
-                except Exception as _e:
-                    logger.debug(f'[FRAME FLOW] notification suppressed: {_e}')
 
     def tick_executor_watchdog(self) -> None:
         """Snapshot executor queue depths + auto-prune SCOPEDISPLAY backlog.

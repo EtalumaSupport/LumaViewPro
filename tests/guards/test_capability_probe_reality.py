@@ -12,9 +12,12 @@ Two such families were confirmed by the 2026-08 census:
 Neither name exists on `Lumascope`. `led_on_fast` lives on the
 `illumination` sub-API (the guard probes the parent and then calls
 through the child, so it is False in production and the else-branch is
-what runs); `camera` was never assigned at all, which leaves the frame-
-flow stall watchdog permanently disarmed. Fixing only those four sites
-would leave the ENABLER, so this guard targets the class.
+what runs); `camera` was never assigned at all, which left the frame-
+flow stall watchdog permanently disarmed. Both sites are gone now --
+video_capture was deleted, and the frame-flow watchdog was retired when
+the imaging API's own stream check took its place -- but fixing only the
+sites would leave the ENABLER, so this guard targets the class, and its
+self-proof plants a probe of the same shape.
 
 Oracle: `dir()` of a CONSTRUCTED `Lumascope(simulate=True)`, checked
 RECEIVER-SPECIFICALLY.
@@ -75,15 +78,7 @@ _SCOPE_TAIL_NAMES = frozenset({'scope', '_scope'})
 # Names allowed to be missing, keyed by NAME so the entry survives the
 # line shifts of any merge. Each entry names the owner that retires it --
 # an allowlist without an expiry is a permanent exemption.
-_ALLOWED_MISSING = {
-    'camera': (
-        'Family 2. R1 decision D1=C (Eric, 2026-08-07): the frame-flow '
-        'stall detector stays DISARMED and R3 owns arming it with a '
-        'correct reconnect lifecycle plus an ImagingAPI-owned fps truth '
-        'source. Arming it today would also activate a dormant Rule 1 '
-        'read of a UI widget private attribute. Expires with R3.'
-    ),
-}
+_ALLOWED_MISSING: dict[str, str] = {}
 
 # Floor for the not-vacuous self-check. Set from the measured count at
 # introduction, well below it, so ordinary code churn does not trip it
@@ -129,22 +124,27 @@ def _probe_name(node: ast.Call) -> str | None:
     return None
 
 
+def _probe_sites_in(rel_path, tree):
+    """Yield every literal-name capability probe in one parsed module."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _probe_name(node)
+        if name is None:
+            continue
+        yield ProbeSite(
+            rel_path=rel_path,
+            lineno=node.lineno,
+            func=node.func.id,
+            receiver=ast.unparse(node.args[0]),
+            name=name,
+        )
+
+
 def iter_probe_sites(packages=SCANNED_PACKAGES):
     """Yield every literal-name capability probe under `packages`."""
     for rel_path, tree in iter_package_modules(packages):
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = _probe_name(node)
-            if name is None:
-                continue
-            yield ProbeSite(
-                rel_path=rel_path,
-                lineno=node.lineno,
-                func=node.func.id,
-                receiver=ast.unparse(node.args[0]),
-                name=name,
-            )
+        yield from _probe_sites_in(rel_path, tree)
 
 
 def scope_probe_sites():
@@ -195,13 +195,14 @@ def test_scope_capability_probes_name_real_attributes(scope_surface):
 
 
 def test_oracle_catches_the_known_wrong_world_families(scope_surface):
-    """The oracle bites: it rejects every name the census confirmed dead.
+    """The oracle bites: it rejects a probe of a name the scope does not have.
 
     This is the guard's own fail-before proof, kept permanently rather
-    than run once. With the allowlist ignored, the confirmed site must be
-    reported -- the `camera` probe in metrics_logger. The `led_*_fast`
-    probes that used to sit alongside it lived in video_capture, which no
-    longer exists; their expectations retired with the file.
+    than run once. The census's two dead sites are both gone from the tree
+    (the `led_*_fast` probes with video_capture, the `camera` probe with the
+    retired frame-flow watchdog), so the proof plants the second family's
+    exact shape -- `getattr(self._scope, 'camera', None)` -- and runs it
+    through the same scan and oracle as production code.
 
     The second half is the part that matters most. `led_on_fast` DOES
     exist on the `illumination` sub-API, so an oracle built from the
@@ -211,17 +212,15 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     "simplifies" the oracle to a union, this test fails.
     """
 
-    caught = {
-        (site.rel_path, site.name) for site in scope_probe_sites() if site.name not in scope_surface
-    }
-    expected = {
-        ('modules/metrics_logger.py', 'camera'),
-    }
-    missed = expected - caught
-    assert not missed, (
-        f'The oracle no longer rejects known-dead probes {sorted(missed)}. '
-        f'Either the probe was fixed (delete the expectation AND its '
-        f'_ALLOWED_MISSING entry) or the oracle stopped biting.'
+    planted = ast.parse('def frame_flow(self):\n    return getattr(self._scope, "camera", None)\n')
+    sites = [
+        site for site in _probe_sites_in('planted.py', planted) if _receiver_is_scope(site.receiver)
+    ]
+    assert [site.name for site in sites] == ['camera'], (
+        f'The scan no longer finds a scope probe of the planted shape: {sites}'
+    )
+    assert 'camera' not in scope_surface, (
+        'The oracle accepts a name Lumascope does not have, so the guard has stopped biting.'
     )
 
     scope = build_scope(simulate=True)

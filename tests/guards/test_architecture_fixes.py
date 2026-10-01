@@ -764,7 +764,7 @@ _MODULES_CONTEXT_READ_PIN = {
     'modules/config_ui_getters.py': 12,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
-    'modules/metrics_logger.py': 2,
+    'modules/metrics_logger.py': 0,
     'modules/scope_session.py': 1,
 }
 
