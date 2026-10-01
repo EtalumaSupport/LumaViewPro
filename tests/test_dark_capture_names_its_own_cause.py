@@ -20,10 +20,8 @@ the failure the docstring predicted. This adds the missing rung and locks it.
 """
 
 import sys
-from collections import deque
 from unittest.mock import MagicMock
 
-import pytest
 
 sys.modules.setdefault('modules.settings_init', MagicMock())
 
@@ -102,93 +100,3 @@ def test_a_dark_frame_is_saved_and_never_refused():
         'the darkness must still be recorded, or no caller can tell a dark '
         'capture from a lit one without re-measuring pixels'
     )
-
-
-@pytest.mark.parametrize(
-    'interval_ms,exposure_ms,median_ms,should_warn',
-    [
-        (1000.0, 1000.0, 70.0, False),  # the bench case: 1 fps at a 1 s exposure
-        (982.0, 1000.0, 70.0, False),  # just under one exposure
-        (2500.0, 1000.0, 70.0, True),  # stalled well past the exposure
-        (500.0, 2.0, 70.0, True),  # short exposure, a real spike
-    ],
-)
-def test_slow_frame_waits_one_exposure(interval_ms, exposure_ms, median_ms, should_warn):
-    """A frame cannot arrive sooner than it takes to expose.
-
-    At 1000 ms the camera delivers ~1 fps while the rolling median still
-    reflects the previous short exposure, so every interval read as a spike --
-    25 warnings in one bench run for the camera doing what it was told. The
-    exposure is a FLOOR on the threshold, so a genuine stall still reports.
-    """
-    import inspect
-
-    from ui.scope_display import FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO, ScopeDisplay
-
-    check_src = inspect.getsource(ScopeDisplay._check_slow_frame)
-    assert '_exposure_floor_ms()' in check_src, (
-        'the threshold must consult the exposure; a formula retyped here would '
-        'pass with or without the fix'
-    )
-    threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms, exposure_ms)
-    assert (interval_ms > threshold_ms) is should_warn
-
-
-def test_exposure_floor_reads_the_api_and_degrades_quietly():
-    """The exposure the CAMERA runs bounds delivery; the slider can differ."""
-    import inspect
-
-    from ui.scope_display import ScopeDisplay
-
-    src = inspect.getsource(ScopeDisplay._exposure_floor_ms)
-    assert 'exposure_ms_cached' in src, (
-        'the floor comes from the API cache -- the widget displays that value, '
-        'it is not the authority on what the camera is doing'
-    )
-    assert 'return 0.0' in src, (
-        'an unreadable exposure must leave the median-based threshold unchanged'
-    )
-
-
-def test_a_slow_frame_at_a_long_exposure_is_not_logged():
-    """End to end through the real method, not the formula."""
-    from ui.scope_display import FRAME_SPIKE_WINDOW, ScopeDisplay
-
-    class _Stand:
-        _check_slow_frame = ScopeDisplay._check_slow_frame
-        _spike_median = ScopeDisplay._spike_median
-
-        def __init__(self, exposure_ms):
-            self._exposure = exposure_ms
-            self._spike_interval_window = deque(
-                [70.0] * FRAME_SPIKE_WINDOW, maxlen=FRAME_SPIKE_WINDOW
-            )
-            self._last_ok_frame_time = 1000.0
-            self._last_ok_compute = (1.0, 1.0, 1.0)
-            self._spike_median_cache = None
-            self._spike_median_refresh = 0.0
-            self._slow_frame_last_log = 0.0
-
-        def _exposure_floor_ms(self):
-            return self._exposure
-
-    import logging
-
-    records = []
-
-    class _Capture(logging.Handler):
-        def emit(self, record):
-            records.append(record.getMessage())
-
-    logger = logging.getLogger('LVP')
-    handler = _Capture()
-    logger.addHandler(handler)
-    try:
-        # One second between frames at a one second exposure: correct, not slow.
-        stand = _Stand(exposure_ms=1000.0)
-        stand._check_slow_frame(1001.0, grab_ms=1.0, proc_ms=1.0, eng_ms=1.0)
-        assert not [r for r in records if 'SLOW FRAME' in r], (
-            'a frame interval explained by the exposure must not warn'
-        )
-    finally:
-        logger.removeHandler(handler)

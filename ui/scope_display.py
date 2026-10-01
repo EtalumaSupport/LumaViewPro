@@ -50,6 +50,7 @@ import modules.common_utils as common_utils
 import modules.config_ui_getters as config_ui_getters
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
+from modules.frame_validity import FrameValidity
 
 logger = logging.getLogger('LVP.ui.scope_display')
 
@@ -78,6 +79,13 @@ FRAME_SPIKE_RATIO = 2.0  # interval must exceed this x the recent median
 FRAME_SPIKE_FLOOR_MS = 150.0  # ...and this absolute floor (ms)
 FRAME_SPIKE_WINDOW = 120  # recent OK-frame intervals feeding the median (~4-8 s)
 FRAME_SPIKE_MIN_SAMPLES = 30  # need this many before a median is meaningful
+# After a change the camera has finished applying (exposure, frame size, LED,
+# ...), the old baseline describes a cadence the camera no longer runs, so it is
+# discarded and rebuilt from frames delivered under the new setting. The change
+# is known and its switch-over frames were never judged, so this needs only
+# enough samples that one odd frame cannot move the median: three. With two,
+# the median is their mean and a single fast frame halves the baseline.
+FRAME_SPIKE_RESTART_SAMPLES = 3
 FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this often
 # Min gap between SLOW FRAME logs. The median baseline takes ~a window to catch
 # up to a sustained rate drop (which capture_fps, not this, owns), so without
@@ -181,6 +189,7 @@ class ScopeDisplay(Image):
         self._last_ok_compute = None
         self._spike_median_cache = None
         self._spike_median_refresh = 0.0
+        self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
         self._slow_frame_last_log = 0.0
         # Intended non-render time (holds, pause) accumulated across loop
         # iterations since the last displayed frame; the spike instrument
@@ -511,7 +520,7 @@ class ScopeDisplay(Image):
             'n': n,
         }
 
-    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms, held_ms=0.0):
+    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms, settled, held_ms=0.0):
         """Emit one WARN when the gap to the previous displayed frame spikes.
 
         The "uneven video" instrument. Called only on STATUS_OK, so cycle_start
@@ -533,6 +542,16 @@ class ScopeDisplay(Image):
         after subtraction the WARN still fires, with held= reported so the
         line accounts for the full wall-clock span.
 
+        settled is False while the API reports a camera-side change (exposure,
+        gain, LED, frame size, ...) whose switch-over frames are still arriving.
+        Those frames are not judged, and the baseline is discarded and rebuilt
+        from FRAME_SPIKE_RESTART_SAMPLES frames once the change has settled: a
+        median built at a 17 ms exposure called every frame of a 1000 ms one a
+        stall, and a long exposure's last frame arriving after a switch to a
+        short one was judged against the short one. Stage motion is not part of
+        it -- a move does not change the frame cadence, and a stutter while the
+        stage jogs is exactly what a viewer sees.
+
         Attribution: the grab/proc/eng reported are the PREVIOUS frame's --
         the display-path work that actually ran DURING this interval (this
         frame's compute happens after cycle_start, outside the interval). gap =
@@ -545,25 +564,20 @@ class ScopeDisplay(Image):
         prev_compute = self._last_ok_compute
         self._last_ok_frame_time = cycle_start
         self._last_ok_compute = (grab_ms, proc_ms, eng_ms)
+        window = self._spike_interval_window
+        if not settled:
+            window.clear()
+            self._spike_median_cache = None
+            self._spike_min_samples = FRAME_SPIKE_RESTART_SAMPLES
+            return
         if prev_time is None:
             return
         interval_ms = (cycle_start - prev_time) * 1000.0 - held_ms
-        window = self._spike_interval_window
         window.append(interval_ms)
-        if len(window) < FRAME_SPIKE_MIN_SAMPLES:
+        if len(window) < self._spike_min_samples:
             return
         median_ms = self._spike_median(cycle_start)
-        # A frame cannot arrive sooner than it takes to expose. At a 1000 ms
-        # exposure the camera delivers ~1 fps and every interval is ~1000 ms --
-        # correct behaviour, which this warning reported 25 times in one bench
-        # run because it compared against a rolling median that predated the
-        # exposure change. The exposure is a floor on the threshold, not an
-        # input to the median: the median is still the baseline for detecting a
-        # genuine stall, this only stops the physically-required interval from
-        # being called one.
-        threshold_ms = max(
-            FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms, self._exposure_floor_ms()
-        )
+        threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms)
         if interval_ms <= threshold_ms:
             return
         if (cycle_start - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
@@ -577,23 +591,6 @@ class ScopeDisplay(Image):
             f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
             f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}'
         )
-
-    def _exposure_floor_ms(self) -> float:
-        """The current exposure in ms, as a floor on the slow-frame threshold.
-
-        Reads the API's cache rather than a widget: the exposure the CAMERA is
-        running is what bounds frame delivery, and the slider can legitimately
-        differ from it. Returns 0.0 whenever the value cannot be read -- no
-        camera, shutdown teardown -- so an unreadable exposure leaves the
-        median-based threshold exactly as it was.
-        """
-        ctx = _app_ctx.ctx
-        if ctx is None or ctx.scope is None:
-            return 0.0
-        try:
-            return float(ctx.scope.imaging.exposure_ms_cached)
-        except Exception:
-            return 0.0
 
     def _spike_median(self, now):
         """Median of the recent OK-frame-interval window, cached.
@@ -964,6 +961,10 @@ class ScopeDisplay(Image):
             grab_ms=(t_grab_end - t_grab_start) * 1000.0,
             proc_ms=proc_ms,
             eng_ms=t_eng_stats * 1000.0,
+            settled=ctx.scope.imaging.frames_until_valid(
+                exclude_sources=tuple(FrameValidity.MOTION_SOURCES)
+            )
+            == 0,
             held_ms=self._wait_since_last_ok_ms,
         )
         self._wait_since_last_ok_ms = 0.0
