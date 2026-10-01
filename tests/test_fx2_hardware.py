@@ -42,6 +42,8 @@ from drivers.fx2driver import (
     FX2LEDController,
     exposure_s,
     frame_layout,
+    frame_time_s,
+    shutter_width_for,
 )
 from lvp_logger import logger
 
@@ -795,3 +797,153 @@ class TestFX2PhaseBP0(_FX2BenchCase):
                     sorted(set(s['partial_sizes'])),
                     sorted(set(s['shifted_sizes'])),
                 )
+
+
+# ---------------------------------------------------------------------------
+# Phase B's bench (FX2 plan section 21.7): the driver after P1-P3 on the
+# LS620. Measurement only, recorded and not asserted. Run with --driver-log:
+#
+#     pytest tests/test_fx2_hardware.py --run-fx2-hardware --driver-log -k PhaseBBench
+#
+# Rows 1, 3, 4 and 6 need light on the sensor; row 5 needs a light-tight cover.
+# ---------------------------------------------------------------------------
+
+_BENCH_MS = 50.0
+_BENCH_WIDTHS = (1900, 1000, 500)
+
+
+def _model_period_s(w, ms):
+    """The data sheet's frame time for a ``w`` x ``w`` window at a ``ms`` request."""
+    return frame_time_s(w + 1, w + 1, shutter_width_for(ms / 1000.0, w + 1))
+
+
+@pytest.mark.fx2_hardware
+class TestFX2PhaseBBench(_FX2BenchCase):
+    def _stream_line(self, label, s):
+        logger.info(
+            '[FX2 bench] 21.7 %s: %.1f s, %d good / %d partial / %d shifted, %d USB errors, '
+            '%.2f fps, %.2f MB/s, shifted sizes %s, partial sizes %s',
+            label,
+            s['elapsed_s'],
+            s['good_frames'],
+            s['partial_frames'],
+            s['shifted_frames'],
+            s['usb_errors'],
+            s['fps_average'],
+            s['throughput_MBps'],
+            sorted(set(s['shifted_sizes'])),
+            sorted(set(s['partial_sizes'])),
+        )
+
+    def test_bench_row1_one_exposure_at_three_widths(self):
+        """Row 1: one request, the same black-subtracted lit mean and the request recorded."""
+        ma = self._light_to_mid_grey()
+        self.camera.exposure_t(_BENCH_MS)
+        lit = {}
+        for w in _BENCH_WIDTHS:
+            self.camera.set_frame_size(w, w)
+            self.led.led_on(_BLUE, ma)
+            lit_mean, peak = _settled_mean(self.camera, skip=4, count=5)
+            self.led.led_off(_BLUE)
+            dark_mean, _ = _settled_mean(self.camera, skip=4, count=5)
+            lit[w] = lit_mean - dark_mean
+            logger.info(
+                '[FX2 bench] 21.7 row 1, %d wide (Blue %d mA, %.0f ms asked): exposure in effect '
+                '%.4f ms, lit %.2f (max %d), dark %.2f, lit - dark %.2f, ratio to 1900 %.3f',
+                w,
+                ma,
+                _BENCH_MS,
+                self.camera.get_exposure_t(),
+                lit_mean,
+                peak,
+                dark_mean,
+                lit[w],
+                lit[w] / lit[1900],
+            )
+
+    def test_bench_row2_the_frame_period_matches_the_model(self):
+        """Row 2: after this connect, the stream is clean and its period is the model's."""
+        self.camera.exposure_t(_BENCH_MS)
+        for w in _BENCH_WIDTHS:
+            self.camera.set_frame_size(w, w)
+            _new_frames(self.camera, 3, timeout_s=10.0)
+            self.camera.stream_stats.reset()
+            period, intervals = _frame_period_s(self.camera, 10, timeout_s=30.0)
+            s = self.camera.stream_stats.summary()
+            model = _model_period_s(w, _BENCH_MS)
+            logger.info(
+                '[FX2 bench] 21.7 row 2, %d wide at %.0f ms: period %s s, model %.5f s, '
+                'off by %s; intervals %s',
+                w,
+                _BENCH_MS,
+                period,
+                model,
+                f'{(period / model - 1) * 100:+.2f}%' if period else 'n/a',
+                intervals,
+            )
+            self._stream_line(f'row 2, {w} wide', s)
+
+    def test_bench_row3_sixty_seconds_at_five_windows(self):
+        """Row 3: 60 s per window; partial and shifted frames, 1896's and 1880's glue."""
+        self.led.led_on(_BLUE, 200)
+        self.camera.exposure_t(_BENCH_MS)
+        for w in (1900, 1000, 500, 1896, 1880):
+            self.camera.set_frame_size(w, w)
+            time.sleep(2.0)
+            self.camera.stream_stats.reset()
+            time.sleep(60.0)
+            self._stream_line(f'row 3, {w} wide (Blue 200 mA)', self.camera.stream_stats.summary())
+
+    def test_bench_row4_the_exposure_ladder_at_500_wide(self):
+        """Row 4: the stream and the lit mean through exposures that stretch the frame."""
+        self.camera.set_frame_size(500, 500)
+        self.camera.gain(0)
+        self.led.led_on(_BLUE, 5)
+        for ms in (50, 178, 400, 800, 2000, 3900, 178, 50):
+            applied_us = self.camera.exposure_t(ms)
+            _new_frames(self.camera, 3, timeout_s=3 * ms / 1000 + 10.0)
+            self.camera.stream_stats.reset()
+            frames = _new_frames(self.camera, 4, timeout_s=4 * ms / 1000 + 10.0)
+            s = self.camera.stream_stats.summary()
+            means = [round(m, 1) for _s, m, _x in frames]
+            logger.info(
+                '[FX2 bench] 21.7 row 4, 500 wide (Blue 5 mA, 0 dB): asked %d ms, in effect '
+                '%.3f ms, model period %.4f s -> means %s, max %s, mean per ms %.4f',
+                ms,
+                applied_us / 1000,
+                _model_period_s(500, ms),
+                means,
+                [x for _s, _m, x in frames],
+                float(np.mean(means)) / (applied_us / 1000) if means else float('nan'),
+            )
+            self._stream_line(f'row 4, {ms} ms', s)
+
+    def test_bench_row5_a_light_tight_dark_frame(self):
+        """Row 5: needs a light-tight cover. The dark frame in the driver's own state."""
+        self.led.leds_off()
+        self.camera.set_frame_size(1900, 1900)
+        self.camera.exposure_t(_BENCH_MS)
+        for db in (0, 24):
+            self.camera.gain(db)
+            _new_frames(self.camera, 4, timeout_s=10.0)
+            images = [img for _s, _a, img in _timed_frames(self.camera, 5, timeout_s=10.0)]
+            stack = np.stack(images).astype(np.float32)
+            per_pixel = stack.mean(axis=0)
+            hot = np.argwhere(per_pixel > _DARK_FLOOR)
+            logger.info(
+                '[FX2 bench] 21.7 row 5, dark, %d dB, %.0f ms: exact zeros %.4f, mean %.3f, '
+                'std %.3f, max %d, pixels whose 5-frame mean is above the dark floor %d, '
+                'the first 20 (row, col, mean) %s, phase means %s',
+                db,
+                _BENCH_MS,
+                float(np.mean(stack == 0)),
+                float(stack.mean()),
+                float(stack.std()),
+                int(stack.max()),
+                len(hot),
+                [(int(r), int(c), round(float(per_pixel[r, c]), 1)) for r, c in hot[:20]],
+                [
+                    round(float(stack[:, r::2, c::2].mean()), 3)
+                    for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))
+                ],
+            )
