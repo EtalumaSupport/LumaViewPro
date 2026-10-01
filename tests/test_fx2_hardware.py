@@ -27,7 +27,14 @@ import pytest
 # mocks so the real libusb stack loads here. When the flag is NOT set,
 # this import succeeds against the conftest mock and the marker below
 # skips the tests at collection time.
-from drivers.fx2driver import FX2Camera, FX2LEDController
+from drivers.fx2driver import (
+    _ROW_TIME_MS,
+    _SHUTTER_OVERHEAD_MS,
+    REG_PLL_CFG1,
+    REG_PLL_CTRL,
+    FX2Camera,
+    FX2LEDController,
+)
 from lvp_logger import logger
 
 
@@ -103,8 +110,9 @@ def _settled_mean(camera, *, skip=4, count=3):
     return float(np.mean([m for _s, m, _x in frames])), max(x for _s, _m, x in frames)
 
 
-@pytest.mark.fx2_hardware
-class TestFX2Characterization(unittest.TestCase):
+class _FX2BenchCase(unittest.TestCase):
+    """A streaming camera and its LED controller; the bench classes below share it."""
+
     def setUp(self):
         self.camera = FX2Camera()
         self.camera.open_and_start()
@@ -131,6 +139,9 @@ class TestFX2Characterization(unittest.TestCase):
                 return ma
         self.skipTest('no LED current gave a mid-grey frame; nothing to measure')
 
+
+@pytest.mark.fx2_hardware
+class TestFX2Characterization(_FX2BenchCase):
     def test_measure_the_stream_above_the_exposure_cap(self):
         """Row 3: does the parser lose frames above 178 ms? Recorded, not asserted."""
         self.camera.set_frame_size(1900, 1900)
@@ -277,3 +288,228 @@ class TestFX2Characterization(unittest.TestCase):
                     stale,
                     [round(m, 1) for _s, m, _x in after],
                 )
+
+
+# ---------------------------------------------------------------------------
+# Timing: the sensor's row time and the pixel-clock sweep (FX2 plan section
+# 21, Phase A). Measurement only: the PLL is written through the driver's own
+# register write with the stream stopped, as connect() writes it, and P1 goes
+# back to 13 at the end. Run with --driver-log:
+#
+#     pytest tests/test_fx2_hardware.py --run-fx2-hardware --driver-log -k Timing
+# ---------------------------------------------------------------------------
+
+_REG_PLL_CFG2 = 0x12  # P1 divider; the driver writes it as a literal
+_REG_HBLANK = 0x05
+_P1_TODAY = 13
+_LONG_ROWS = 20000  # longer than any window's readout: the frame period is the shutter's
+_LONG_MS = _LONG_ROWS * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS  # the request that lands on 20000 rows
+_STEP_S = 60.0
+# Set from the sweep's result before the follow-on tests run; empty / None skips them.
+# The sweep of 2026-10-01: clean at 13, 12 and 11, nothing framed at 10.
+_CHOSEN_P1S = (12, 11)
+_HBLANK_P1 = None
+# R0x05 adds blanking only above HBMIN (450 clocks at full resolution).
+_HBLANK_STEPS = (500, 550, 600)
+
+
+def _timed_frames(camera, count, *, timeout_s):
+    """The next ``count`` distinct stored frames: ``(seq, stored_at, image)`` each."""
+    frames = []
+    last = None
+    deadline = time.monotonic() + timeout_s
+    while len(frames) < count and time.monotonic() < deadline:
+        ok, image, stored_at, _bits, seq = camera.grab_latest()
+        if ok and seq is not None and (last is None or seq > last):
+            frames.append((seq, stored_at, image))
+            last = seq
+        else:
+            time.sleep(0.005)
+    return frames
+
+
+def _frame_period_s(camera, count, *, timeout_s):
+    """Median interval between consecutive stored frames, and every such interval."""
+    frames = _timed_frames(camera, count + 1, timeout_s=timeout_s)
+    intervals = [
+        round((b_at - a_at).total_seconds(), 4)
+        for (a_seq, a_at, _a), (b_seq, b_at, _b) in pairwise(frames)
+        if b_seq == a_seq + 1
+    ]
+    return (float(np.median(intervals)) if intervals else None), intervals
+
+
+def _integrity(image):
+    """Mean, std, and the largest jumps between adjacent row means and column means."""
+    img = image.astype(np.float32)
+    return (
+        float(img.mean()),
+        float(img.std()),
+        float(np.abs(np.diff(img.mean(axis=1))).max()),
+        float(np.abs(np.diff(img.mean(axis=0))).max()),
+    )
+
+
+def _set_p1(camera, p1):
+    """Rewrite the PLL with P1 = ``p1``, the sequence connect() uses, with the stream stopped."""
+    camera.stop_grabbing()
+    fx2 = camera._fx2
+    fx2.sensor_reg_write(REG_PLL_CTRL, 0x0051)
+    time.sleep(0.01)
+    fx2.sensor_reg_write(REG_PLL_CFG1, 0x1B01)
+    time.sleep(0.01)
+    fx2.sensor_reg_write(_REG_PLL_CFG2, p1)
+    time.sleep(0.01)
+    fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
+    time.sleep(0.2)
+    camera.start_grabbing()
+
+
+def _mean_of(frames):
+    return float(np.mean([img.mean() for _seq, _at, img in frames])) if frames else float('nan')
+
+
+@pytest.mark.fx2_hardware
+class TestFX2Timing(_FX2BenchCase):
+    def tearDown(self):
+        if self.camera.is_connected():
+            self.camera._fx2.sensor_reg_write(_REG_HBLANK, 0)
+            _set_p1(self.camera, _P1_TODAY)
+        super().tearDown()
+
+    def _settle(self, frames=3):
+        """Let a change reach the stored frames: the sensor pipelines two."""
+        return _timed_frames(self.camera, frames, timeout_s=frames * 3.0 + 5.0)
+
+    def _run_step(self, label, baseline=None):
+        """One 60 s stream: counters and image statistics. Returns (clean, jumps)."""
+        self._settle()
+        self.camera.stream_stats.reset()
+        time.sleep(_STEP_S)
+        s = self.camera.stream_stats.summary()
+        stats = [_integrity(img) for _s, _a, img in _timed_frames(self.camera, 5, timeout_s=10.0)]
+        mean = float(np.mean([st[0] for st in stats])) if stats else float('nan')
+        std = float(np.mean([st[1] for st in stats])) if stats else float('nan')
+        row_jump = max((st[2] for st in stats), default=float('nan'))
+        col_jump = max((st[3] for st in stats), default=float('nan'))
+        clean = bool(stats) and (
+            s['partial_frames'] == 0 and s['shifted_frames'] == 0 and s['usb_errors'] == 0
+        )
+        if clean and baseline is not None:
+            clean = row_jump <= 2 * baseline[0] and col_jump <= 2 * baseline[1]
+        logger.info(
+            '[FX2 bench] timing %s: %.1f s, %d good / %d partial / %d shifted, %d USB errors, '
+            '%.2f fps, %.2f MB/s, mean %.1f std %.1f, max row jump %.2f, max col jump %.2f, '
+            'shifted sizes %s, partial sizes %s -> %s',
+            label,
+            s['elapsed_s'],
+            s['good_frames'],
+            s['partial_frames'],
+            s['shifted_frames'],
+            s['usb_errors'],
+            s['fps_average'],
+            s['throughput_MBps'],
+            mean,
+            std,
+            row_jump,
+            col_jump,
+            sorted(set(s['shifted_sizes'])),
+            sorted(set(s['partial_sizes'])),
+            'clean' if clean else 'NOT clean',
+        )
+        return clean, (row_jump, col_jump)
+
+    def _long_period(self, label):
+        """The frame period at 20000 rows, then back to 50 ms."""
+        self.camera.exposure_t(_LONG_MS)
+        self._settle()
+        period, intervals = _frame_period_s(self.camera, 3, timeout_s=20.0)
+        self.camera.exposure_t(50)
+        self._settle()
+        logger.info(
+            '[FX2 bench] timing %s: period at %d rows %s s, intervals %s',
+            label,
+            _LONG_ROWS,
+            period,
+            intervals,
+        )
+
+    def test_measure_the_row_time_at_three_widths(self):
+        """A1: the frame period at 20000 rows, and the lit mean, at 1900, 1000 and 500 wide."""
+        self.camera.set_frame_size(1900, 1900)
+        self.camera.gain(0)
+        self.camera.exposure_t(_LONG_MS)
+        ma = None
+        for candidate in (3, 5, 10, 20, 40):
+            self.led.led_on(_BLUE, candidate)
+            self._settle()
+            mean = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
+            logger.info(
+                '[FX2 bench] timing A1 light: Blue %d mA at %d rows -> mean %.1f',
+                candidate,
+                _LONG_ROWS,
+                mean,
+            )
+            if mean >= 60:
+                ma = candidate
+                break
+        if ma is None:
+            self.skipTest('no LED current lit the sensor at 20000 rows')
+        for w in (1900, 1000, 500):
+            self.camera.set_frame_size(w, w)
+            self.led.led_on(_BLUE, ma)
+            self._settle()
+            period, intervals = _frame_period_s(self.camera, 5, timeout_s=20.0)
+            lit = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
+            self.led.led_off(_BLUE)
+            self._settle()
+            dark = _mean_of(_timed_frames(self.camera, 2, timeout_s=10.0))
+            logger.info(
+                '[FX2 bench] timing A1 window %d: period %s s, intervals %s, lit %.1f, dark %.1f, '
+                'lit - dark %.1f (Blue %d mA, %d rows, 0 dB)',
+                w,
+                period,
+                intervals,
+                lit,
+                dark,
+                lit - dark,
+                ma,
+                _LONG_ROWS,
+            )
+
+    def test_measure_the_pixel_clock_sweep(self):
+        """A2: P1 from 13 down to 8 at 1900x1900; stops at the first step that is not clean."""
+        self.camera.set_frame_size(1900, 1900)
+        ma = self._light_to_mid_grey()
+        baseline = None
+        for p1 in (13, 12, 11, 10, 9, 8):
+            _set_p1(self.camera, p1)
+            clean, jumps = self._run_step(f'A2 P1={p1} (Blue {ma} mA, 50 ms, 0 dB)', baseline)
+            if baseline is None:
+                baseline = jumps
+            self._long_period(f'A2 P1={p1}')
+            if not clean:
+                logger.info('[FX2 bench] timing A2: the sweep stops at P1=%d', p1)
+                break
+
+    def test_measure_the_chosen_clock_at_other_windows(self):
+        """A3: each candidate step at 1000, 500, 1896 and 1880."""
+        if not _CHOSEN_P1S:
+            self.skipTest('set _CHOSEN_P1S from the sweep first')
+        ma = self._light_to_mid_grey()
+        for p1 in _CHOSEN_P1S:
+            _set_p1(self.camera, p1)
+            for w in (1000, 500, 1896, 1880):
+                self.camera.set_frame_size(w, w)
+                self._run_step(f'A3 P1={p1} window {w} (Blue {ma} mA, 50 ms, 0 dB)')
+
+    def test_measure_horizontal_blanking_at_the_failing_clock(self):
+        """A4: extra horizontal blanking at the step the sweep stopped on."""
+        if _HBLANK_P1 is None:
+            self.skipTest('set _HBLANK_P1 from the sweep first')
+        self.camera.set_frame_size(1900, 1900)
+        ma = self._light_to_mid_grey()
+        _set_p1(self.camera, _HBLANK_P1)
+        for extra in _HBLANK_STEPS:
+            self.camera._fx2.sensor_reg_write(_REG_HBLANK, extra)
+            self._run_step(f'A4 P1={_HBLANK_P1} R0x05={extra} (Blue {ma} mA, 50 ms, 0 dB)')
