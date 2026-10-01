@@ -647,6 +647,11 @@ class StreamStats:
             self._shifted_sizes.append(size)
             self._delimiters_seen += 1
 
+    def rejected(self) -> tuple[int, int]:
+        """Return ``(shifted, partial)``: the frames discarded so far. Thread-safe."""
+        with self._lock:
+            return self._shifted_count, self._partial_count
+
     def record_bytes(self, n: int) -> None:
         """Add ``n`` to the total-bytes counter. Thread-safe.
 
@@ -1676,6 +1681,12 @@ class FX2Camera(Camera):
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 
+    # How long bytes may arrive with no frame stored before the stream is
+    # reported unframeable. A working stream at the full window stores about
+    # four frames a second (measured at 50 ms exposure), and a window change
+    # costs it a few, so 5 s is about twenty frames' worth.
+    FRAMING_STALL_S = 5.0
+
     # Frame size bounds
     FRAME_SIZE_MIN = 100
     FRAME_SIZE_STEP = 4
@@ -1972,11 +1983,12 @@ class FX2Camera(Camera):
         s = self.stream_stats.summary()
         logger.info(
             '[FX2 Cam   ] streaming stopped: %d frames in %.1fs (%.1f fps avg), '
-            '%d partial, %d USB errors, %.1f MB total',
+            '%d partial, %d shifted, %d USB errors, %.1f MB total',
             s['good_frames'],
             s['elapsed_s'],
             s['fps_average'],
             s['partial_frames'],
+            s['shifted_frames'],
             s['usb_errors'],
             s['total_MB'],
         )
@@ -2002,6 +2014,12 @@ class FX2Camera(Camera):
         first_frame_logged = False
         local_buf: bytearray | None = None  # explicit init
         watch = _UnplugWatch(self._fx2)
+        # When the last frame was stored, and the discards counted by then:
+        # bytes that keep arriving while nothing is stored are a stream the
+        # parser cannot frame, said once per episode.
+        last_stored = time.monotonic()
+        rejected_at_store = stats.rejected()
+        framing_reported = False
 
         while self._grabbing:
             unplugged = watch.verdict(time.monotonic())
@@ -2076,6 +2094,9 @@ class FX2Camera(Camera):
                         image, datetime.now(), significant_bits=image.dtype.itemsize * 8
                     )
                     stats.record_good_frame()
+                    last_stored = time.monotonic()
+                    rejected_at_store = stats.rejected()
+                    framing_reported = False
 
                     if not first_frame_logged:
                         first_frame_logged = True
@@ -2099,8 +2120,21 @@ class FX2Camera(Camera):
                     # next delimiter was found.
                     stats.record_partial_frame(len(frame_data))
 
-            # Periodic stats logging.
             now = time.monotonic()
+            if not framing_reported and now - last_stored >= self.FRAMING_STALL_S:
+                framing_reported = True
+                shifted, partial = stats.rejected()
+                logger.warning(
+                    '[FX2 Cam   ] no frame stored for %.0f s while bytes keep arriving: '
+                    '%d shifted and %d partial frames discarded, window %dx%d',
+                    now - last_stored,
+                    shifted - rejected_at_store[0],
+                    partial - rejected_at_store[1],
+                    w,
+                    h,
+                )
+
+            # Periodic stats logging.
             if self.STATS_LOG_INTERVAL > 0 and (now - last_stats_log) >= self.STATS_LOG_INTERVAL:
                 last_stats_log = now
                 s = stats.summary()

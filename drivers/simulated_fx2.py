@@ -203,6 +203,7 @@ class SimulatedFX2Device:
         self._specimen: dict[tuple[int, int], list[np.ndarray]] = {}
         self._frame_index = 0
         self._pending = bytearray()
+        self.extra_rows = 0
 
     # -- the wire ------------------------------------------------------------
 
@@ -315,13 +316,16 @@ class SimulatedFX2Device:
         """The next frame as the wire carries it: the delimiter, then the frame's bytes.
 
         The window, exposure and gain are read here, at the frame's start, so
-        a change takes effect on the next frame.
+        a change takes effect on the next frame. ``extra_rows`` rows of
+        padding beyond the frame's one make it the wrong length for its
+        window, the shape the parser counts as shifted.
         """
         w, h = self.sensor.window()
         layout = frame_layout(w, h)
         rows = np.zeros((h, layout.stride), dtype=np.uint8)
         rows[:, :w] = self._pixels(w, h)
-        return b''.join((FRAME_DELIM, bytes(layout.skip), rows.tobytes(), bytes(layout.stride)))
+        padding = bytes(layout.stride * (1 + self.extra_rows))
+        return b''.join((FRAME_DELIM, bytes(layout.skip), rows.tobytes(), padding))
 
     def _pixels(self, w: int, h: int) -> np.ndarray:
         """The specimen field as this sensor sees it: black unless an LED is lit."""
@@ -427,6 +431,15 @@ class SimulatedFX2Transport:
     def go_silent(self) -> None:
         """The stream stops while the device stays on the bus."""
         self.device.halt()
+
+    def misalign(self, rows: int = 1) -> None:
+        """Every frame from the next one carries ``rows`` rows too many; 0 realigns.
+
+        The device keeps streaming at its rate but the parser can frame
+        nothing it sends: the shape of a stream that has lost its alignment
+        to the window.
+        """
+        self.device.extra_rows = rows
 
     def close(self) -> None:
         self.device.stop()
