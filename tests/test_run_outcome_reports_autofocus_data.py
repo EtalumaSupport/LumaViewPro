@@ -635,3 +635,16 @@ def test_the_reported_focus_is_a_plain_float(tmp_path):
         rig.close()
     assert type(outcome.af_focus_z_um) is float, type(outcome.af_focus_z_um)
     assert json.loads(json.dumps(outcome.af_focus_z_um)) == outcome.af_focus_z_um
+
+
+def test_the_autofocus_data_is_not_counted_an_image(tmp_path):
+    """The run's file count is its images; a run that saved only its
+    autofocus data wrote none, so it cannot read as one written."""
+    rig = _AfRig()
+    try:
+        outcome = rig.run_autofocus(tmp_path / 'Autofocus Characterization', save_data=True)
+        batch = rig.runner.write_batch()
+    finally:
+        rig.close()
+    assert outcome.af_data_saved is True, 'the data this test counts was never written'
+    assert (batch.written, batch.not_written) == (0, 0), (batch.written, batch.not_written)

@@ -375,3 +375,37 @@ class TestABuildWaitingOnTheWrites:
 
         assert not_written.value.reason == 'write_batch_abandoned'
         stuck.release.set()
+
+
+class TestOnlyImagesAreCounted:
+    """A record row or autofocus data is a write, not one of the run's
+    images: when the writer sticks or the run's writes are given up on, only
+    the images among them are images not written."""
+
+    def test_a_stuck_writer_refusing_a_non_image_counts_no_image(self, lane, monkeypatch):
+        monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
+        monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.3)
+        batch = RunWriteBatch(lane)
+        stuck = _Held()
+        batch.submit(stuck, {}, what='The image', pace_until=lambda: False)
+        assert stuck.started.wait(HELD_S)
+
+        result = batch.submit(
+            lambda: None, {}, what='The record row', pace_until=lambda: False, image=False
+        )
+
+        assert result is WRITER_WEDGED
+        assert batch.not_written == 0
+        assert batch.not_written_reason is None
+        stuck.release.set()
+
+    def test_an_abandon_counts_only_the_images_outstanding(self, lane):
+        batch = RunWriteBatch(lane)
+        stuck = _Held()
+        batch.submit(stuck, {}, what='The image', pace_until=None)
+        assert stuck.started.wait(HELD_S)
+        batch.submit(lambda: None, {}, what='The record row', pace_until=None, image=False)
+
+        assert batch.abandon('test recovery') == 2
+        assert batch.not_written == 1
+        stuck.release.set()

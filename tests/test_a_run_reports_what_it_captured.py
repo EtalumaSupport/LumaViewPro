@@ -10,10 +10,13 @@ where a test needs a capture to produce no frame.
 import contextlib
 import csv
 import pathlib
+import threading
 import time
 
+import pytest
+
 import modules.common_utils as common_utils
-from modules.exceptions import RunImagesNotSavedError, RunIncompleteError
+from modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -363,3 +366,157 @@ class TestARunWhoseCleanupFailedSaysWhich:
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.cleanup_failures == (), outcome
+
+
+def _video(name, index):
+    step = _step(name, index, x=20.0, gain=1.0)
+    step['Acquire'] = 'video'
+    step['Video Config'] = {'duration': 1.0, 'fps': 5}
+    return step
+
+
+class TestAVideoStepIsOneCapture:
+    def test_a_video_that_recorded_is_captured(self, tmp_path):
+        # A video step is counted captured on its own path, apart from a
+        # still's; missed, a run with a perfect video ends 'incomplete'.
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            outcome = _run(runner, tmp_path / 'runs', [_video('V1', 0)])
+        assert outcome.status == 'completed', outcome
+        assert (outcome.captures.asked, outcome.captures.captured) == (1, 1), outcome.captures
+
+    def test_a_video_whose_file_did_not_finish_is_a_file_not_written(self, tmp_path, monkeypatch):
+        # The step recorded, so it is a capture; its file never finished, so
+        # it is also the run's one image not on disk.
+        from modules.video_recording import VideoRecordingEngine
+
+        def _unfinished(engine):
+            raise OSError('the container could not be finalized')
+
+        files = []
+        with (
+            _reports_of(RunImagesNotSavedError) as lost,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            monkeypatch.setattr(VideoRecordingEngine, 'result', _unfinished)
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                [_video('V1', 0)],
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+            batch = runner._executor.write_batch()
+        assert outcome.status == 'completed', outcome
+        assert files == ['incomplete'], files
+        assert batch.not_written_reason == 'write_batch_video_unfinished'
+        assert len(lost) == 1, lost
+
+
+@contextlib.contextmanager
+def _warning_lines():
+    """Collect what production logs at WARNING while the block runs (the
+    suite mocks ``lvp_logger``, so ``caplog`` cannot see it)."""
+    import lvp_logger
+
+    lines = []
+    original = lvp_logger.logger.warning
+    lvp_logger.logger.warning = lambda msg, *a, **kw: lines.append(str(msg))
+    try:
+        yield lines
+    finally:
+        lvp_logger.logger.warning = original
+
+
+class TestTheFilesLineAndItsReport:
+    def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch):
+        files = []
+        with (
+            _warning_lines() as warnings,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            import modules.protocol_run_loop  # noqa: F401
+
+            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+        assert files == ['incomplete'], files
+        assert any("The run's files are incomplete" in line for line in warnings), warnings
+
+    def test_a_disk_check_that_raises_does_not_stop_the_save(self, tmp_path, monkeypatch):
+        # The floor is a guard on the save, not a condition of it: a check
+        # that cannot read the disk lets the image through.
+        def _unreadable(path, mb):
+            raise OSError('the volume did not answer')
+
+        files = []
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            import modules.protocol_run_loop  # noqa: F401
+
+            monkeypatch.setattr(common_utils, 'check_disk_space_ok', _unreadable)
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+            batch = runner._executor.write_batch()
+        assert outcome.status == 'completed', outcome
+        assert files == ['written'], files
+        assert (batch.written, batch.not_written) == (2, 0), (batch.written, batch.not_written)
+
+    def test_a_composites_lost_image_is_told_by_its_merge_alone(self, tmp_path, monkeypatch):
+        import modules.sequenced_capture_runner as sequenced_capture_runner
+        from tests.test_a_failed_save_is_counted_not_written import _fail_saves
+
+        files_done = threading.Event()
+        schedule = sequenced_capture_runner.schedule_files_complete
+
+        def _scheduled(*args, **kwargs):
+            schedule(*args, **kwargs)
+            files_done.set()
+
+        monkeypatch.setattr(sequenced_capture_runner, 'schedule_files_complete', _scheduled)
+        _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
+        with (
+            _reports_of(RunImagesNotSavedError) as lost,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            with pytest.raises(CaptureError) as failed:
+                runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
+            assert files_done.wait(WAIT_S), 'the run never reported its files'
+        assert failed.value.reason == 'write_batch_save_failed'
+        assert lost == [], lost
+
+
+class TestACompositeThatCannotMerge:
+    def test_its_one_report_names_the_channel_that_failed(self, tmp_path, monkeypatch):
+        from modules.notification_center import notifications
+        from tests.test_composite_run_failures import _FAILING, _fail_these_channels
+
+        shown = []
+        error = notifications.error
+
+        def _error(category, title, message, *args, **kwargs):
+            shown.append((title, message))
+            return error(category, title, message, *args, **kwargs)
+
+        monkeypatch.setattr(notifications, 'error', _error)
+        settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
+        with open_composite_session(settings) as (session, runner):
+            settled = runner.start_composite(
+                sequence_name='one_of_two',
+                parent_dir=str(tmp_path),
+                callbacks=_fail_these_channels(
+                    session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
+                ),
+            ).wait(timeout_s=WAIT_S)
+        assert settled is not None and not settled.merged, settled
+        failed = [message for title, message in shown if title == 'Composite Failed']
+        assert len(failed) == 1, shown
+        assert _FAILING in failed[0], failed[0]
