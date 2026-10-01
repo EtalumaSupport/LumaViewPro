@@ -226,8 +226,10 @@ class ProtocolPostProcessingHelper:
 
         protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
 
+        # Each 'status': False below is a folder this cannot process, which
+        # the caller raises as a refusal; the reporter logs it once, so none
+        # is logged here.
         if protocol_tsvs is None:
-            logger.error(f'{self._name}: Protocol and/or protocol record not found in folder')
             return {
                 'status': False,
                 'message': 'Protocol and/or Protocol Record not found in folder',
@@ -267,7 +269,6 @@ class ProtocolPostProcessingHelper:
 
         if protocol_execution_record is None:
             msg = 'Protocol Execution Record not loaded'
-            logger.error(f'{self._name}: {msg}')
             return {
                 'status': False,
                 'message': msg,
@@ -275,7 +276,6 @@ class ProtocolPostProcessingHelper:
 
         if protocol_execution_record.num_records() == 0:
             msg = 'Protocol Execution Record has no records'
-            logger.error(f'{self._name}: {msg}')
             return {
                 'status': False,
                 'message': msg,
@@ -305,7 +305,6 @@ class ProtocolPostProcessingHelper:
                         f'read ({e}) or moved aside ({move_error}). Close any program '
                         f'holding it open, or remove it, then retry.'
                     )
-                    logger.error(f'{self._name}: {msg}')
                     return {
                         'status': False,
                         'message': msg,
@@ -357,12 +356,10 @@ class ProtocolPostProcessingHelper:
         post_images_df['Raw'] = False
 
         if (len(raw_images_df) == 0) and (len(post_images_df) == 0):
-            log_msg = 'No image files found in folder to process'
             user_msg = (
                 'No image files were found in this folder to process. '
                 'Check that the folder contains captured scan images.'
             )
-            logger.error(f'{self._name}: {log_msg}')
             return {
                 'status': False,
                 'message': user_msg,

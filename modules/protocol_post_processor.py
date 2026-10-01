@@ -270,7 +270,6 @@ class ProtocolPostProcessor(abc.ABC):
         )
 
     def _refuse(self, reason: str, message: str) -> PostProcessingRefusedError:
-        logger.info(f'[{self._name} ] refused ({reason}): {message}')
         return PostProcessingRefusedError(
             operation=self.operation_label, reason=reason, message=message
         )
