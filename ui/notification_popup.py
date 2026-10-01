@@ -56,6 +56,8 @@ def _install_dialog_open_logging() -> None:
 
     The title is read off the widget rather than taken as an argument,
     because the caller is not involved at all.
+
+    The same choke point keeps a notice readable: see _raise_open_notices.
     """
     if getattr(Popup, '_lvp_open_logged', False):
         return
@@ -67,7 +69,7 @@ def _install_dialog_open_logging() -> None:
         return
     original_open = Popup.open
 
-    def _logging_open(self, *args, **kwargs):
+    def _open_logged_and_ordered(self, *args, **kwargs):
         try:
             title = getattr(self, 'title', '') or type(self).__name__
             _log_show('dialog', 'INFO', title, _describe_dialog_body(self))
@@ -75,10 +77,40 @@ def _install_dialog_open_logging() -> None:
             # Never let the record stop the dialog: a user who cannot be
             # shown a message is worse off than a bundle missing a line.
             logger.warning(f'dialog-open logging failed: {type(ex).__name__}: {ex}')
-        return original_open(self, *args, **kwargs)
+        opened = original_open(self, *args, **kwargs)
+        if not getattr(self, _NOTICE_MARK, False):
+            _raise_open_notices(getattr(self, '_window', None))
+        return opened
 
-    Popup.open = _logging_open
+    Popup.open = _open_logged_and_ordered
     Popup._lvp_open_logged = True
+
+
+# Set on a popup that says what just happened and asks nothing of the person.
+_NOTICE_MARK = '_lvp_notice'
+
+
+def _raise_open_notices(window) -> None:
+    """Put every notice still open back on top of the dialog that just opened.
+
+    Kivy stacks popups by when they opened, the last on top and taking the
+    touches. A notice is what the person reads first -- what just happened
+    -- so a question opened after it, even in the same frame, must not
+    cover it: the person sees only the question, the notice's news is lost
+    underneath, and a failing answer looks like a dead button.
+
+    The window's own children are the record of what is open, so nothing
+    else tracks the notices. They go back oldest first, leaving the newest
+    on top. A dialog with no window (a stand-in, or not yet attached) has
+    nothing above it to fix.
+    """
+    if window is None:
+        return
+    notices = [w for w in window.children if getattr(w, _NOTICE_MARK, False)]
+    # children[0] is the top, so the list runs newest to oldest.
+    for notice in reversed(notices):
+        window.remove_widget(notice)
+        window.add_widget(notice)
 
 
 _install_dialog_open_logging()
@@ -182,6 +214,7 @@ def show_notification_popup(title: str, message: str):
         content=content,
         size_hint=(0.6, 0.3),
     )
+    setattr(popup, _NOTICE_MARK, True)
 
     def _on_ok(*_a):
         _log_response(title, 'OK')
