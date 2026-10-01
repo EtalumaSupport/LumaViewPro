@@ -67,6 +67,7 @@ _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
+    from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
@@ -541,6 +542,7 @@ class ScopeSession:
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
         display_ctx_provider: Callable[[], Any] | None = None,
+        sim_camera_stall: 'SimulatedStall | None' = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -589,6 +591,10 @@ class ScopeSession:
             display_ctx_provider: the display thread's context provider
                 (host-only: the GUI's app context; None for a host with
                 no display).
+            sim_camera_stall: a stall for the simulated camera's stream, so a
+                simulated scope shows a stream that stops delivering; refused
+                beside ``scope`` and by the scope itself unless it is
+                simulated with the simulated camera.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
@@ -598,6 +604,12 @@ class ScopeSession:
                 'ScopeSession.create: source_path is refused beside a scope -- the '
                 'session reads its data folder and catalogues from the scope, so pass '
                 'the folder to Lumascope(source_path=...) instead'
+            )
+        if scope is not None and sim_camera_stall is not None:
+            raise ValueError(
+                'ScopeSession.create: sim_camera_stall is refused beside a scope -- the '
+                'stall is set on the camera when the scope is built, so pass it to '
+                'Lumascope(sim_camera_stall=...) instead'
             )
         if scope is not None and ui_dispatcher is not None:
             raise ValueError(
@@ -620,6 +632,7 @@ class ScopeSession:
                 ui_dispatcher=ui_dispatcher,
                 fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                 source_path=get_source_root(source_path),
+                sim_camera_stall=sim_camera_stall,
             )
             # The bring-up -- configure from settings, then release the
             # camera start gate -- happens below, once the session exists,

@@ -97,7 +97,8 @@ _BOARD_PAIRS = (
 # What the current entries cover: timing-mode controls and TIMING_*
 # constants (test-harness affordances, on every simulator),
 # `load_cycle_images` plus the camera's virtual-specimen focus modeling
-# (`set_focal_z`, `set_blur_per_um`, ...), and six firmware-update
+# (`set_focal_z`, `set_blur_per_um`, ...), the camera's `hold_frames` (a
+# stalled stream, set from the --sim-camera-stall launch argument), and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
 # code calls them, `test_no_production_code_calls_simulator_only_names`
@@ -106,7 +107,7 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 12,
-    'Camera': 13,
+    'Camera': 14,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -124,12 +125,13 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
     ('MotorBoard', 'exchange_command'),
 }
 
-# Production sites allowed to touch simulator-only surface. The single
-# entry is the construction branch that BUILDS the simulator: inside
+# Production sites allowed to touch simulator-only surface. Both entries
+# are the construction branch that BUILDS the simulator: inside
 # `if simulate:` the driver provably is a SimulatedCamera, which is the
 # one place production code can know that. Keyed by (file, name).
 _SIM_ONLY_CALL_ALLOWLIST = {
     ('modules/lumascope_api/_lumascope.py', 'load_cycle_images'),
+    ('modules/lumascope_api/_lumascope.py', 'hold_frames'),
 }
 
 

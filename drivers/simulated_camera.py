@@ -9,6 +9,7 @@ supports the full Camera ABC interface.
 
 import datetime
 import pathlib
+from dataclasses import dataclass
 import threading
 import time
 from collections.abc import Callable
@@ -29,6 +30,34 @@ try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
     _cam_log = None
+
+
+@dataclass(frozen=True)
+class SimulatedStall:
+    """When a simulated camera's stream stalls, and for how long.
+
+    A stall is a stretch in which the camera stays connected and grabbing
+    and no frame arrives -- what a real camera's link or grab loop can fall
+    into without the device being removed. Built where it is asked for (a
+    launch argument, a test), so a stall that cannot happen is refused there.
+
+    Attributes:
+        after_s: Seconds from the moment it is applied until the stall begins.
+        for_s: How long the stall lasts, in seconds.
+
+    Raises:
+        ValueError: ``after_s`` is negative or ``for_s`` is not positive.
+    """
+
+    after_s: float
+    for_s: float
+
+    def __post_init__(self):
+        if self.after_s < 0 or self.for_s <= 0:
+            raise ValueError(
+                f'a stall starts at 0 s or later and lasts more than 0 s; got '
+                f'after_s={self.after_s}, for_s={self.for_s}'
+            )
 
 
 class _SimImageHandler(ImageHandlerBase):
@@ -124,6 +153,11 @@ class SimulatedCamera(Camera):
         # stream nobody was watching looked the same.
         self._acquisition_thread: threading.Thread | None = None
         self._acquisition_stop = threading.Event()
+        # A stretch of monotonic time in which the stream delivers nothing
+        # while the camera stays connected and grabbing: the silent stall a
+        # real camera's USB link or grab loop can fall into. None when no
+        # stall is set. See hold_frames.
+        self._held_window: tuple[float, float] | None = None
 
         # Synthetic image state -- can be set externally for test scenarios
         # 'specimen', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
@@ -361,6 +395,20 @@ class SimulatedCamera(Camera):
             t.join(timeout=2.0)
         self._acquisition_thread = None
 
+    def hold_frames(self, stall: SimulatedStall) -> None:
+        """Stall the stream as ``stall`` says, starting its clock now.
+
+        The camera stays connected and grabbing throughout; only the frames
+        stop. This is how a simulated scope shows what happens when a stream
+        stops delivering, without hardware.
+        """
+        start = time.monotonic() + stall.after_s
+        self._held_window = (start, start + stall.for_s)
+        logger.info(
+            f'[CAM Sim   ] frames will stop in {stall.after_s:g} s for {stall.for_s:g} s '
+            '(simulated stall)'
+        )
+
     def _acquisition_loop(self) -> None:
         """Store one new frame per frame interval while grabbing.
 
@@ -379,10 +427,27 @@ class SimulatedCamera(Camera):
         metadata."
         """
         next_due = time.monotonic()
+        stalled = False
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
             if handler is None or not self._grabbing:
                 return
+            interval_s = max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+            held = self._held_window
+            now = time.monotonic()
+            if held is not None and held[0] <= now < held[1]:
+                # Stalled: nothing reaches the host, and the stream picks up
+                # on its own schedule when the stall ends.
+                if not stalled:
+                    stalled = True
+                    logger.info('[CAM Sim   ] simulated stall: frames stopped')
+                if self._acquisition_stop.wait(min(interval_s, held[1] - now)):
+                    return
+                next_due = time.monotonic()
+                continue
+            if stalled:
+                stalled = False
+                logger.info('[CAM Sim   ] simulated stall: frames resumed')
             with self._lock:
                 image = self._generate_image()
                 bits = self.significant_bits
@@ -394,7 +459,6 @@ class SimulatedCamera(Camera):
             handler._store_frame(image, datetime.datetime.now(), significant_bits=bits)
             # Honor the configured exposure as the inter-frame interval,
             # bounded below by the delivery ceiling.
-            interval_s = max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
             next_due = max(next_due + interval_s, time.monotonic())
             if self._acquisition_stop.wait(next_due - time.monotonic()):
                 return

@@ -50,6 +50,26 @@ if __name__ == '__main__':
     no_engineering = '--no-engineering' in sys.argv
     if no_engineering:
         sys.argv.remove('--no-engineering')
+    # --sim-camera-stall=AFTER,FOR stops the simulated camera's frames AFTER
+    # seconds into the session, for FOR seconds, the camera staying connected
+    # and grabbing: a stalled stream, shown without hardware. Read here, beside
+    # --simulate, so a malformed value stops the launch before anything starts.
+    sim_camera_stall = None
+    _stall_args = [arg for arg in sys.argv if arg.startswith('--sim-camera-stall=')]
+    for _arg in _stall_args:
+        sys.argv.remove(_arg)
+    if _stall_args:
+        from drivers.simulated_camera import SimulatedStall
+
+        try:
+            if len(_stall_args) > 1:
+                raise ValueError('give --sim-camera-stall once')
+            if not simulate_mode:
+                raise ValueError('--sim-camera-stall needs --simulate')
+            _after, _for = _stall_args[0].split('=', 1)[1].split(',')
+            sim_camera_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
+        except ValueError as _stall_error:
+            sys.exit(f'--sim-camera-stall=AFTER,FOR (seconds): {_stall_error}')
 
     ############################################################################
     # ---------------------Directory Initialization-----------------------------#
@@ -982,6 +1002,7 @@ class LumaViewProApp(TooltipMixin, App):
                     settings_saved_hook=_notify_plugins_of_settings_save,
                     engineering_mode=ENGINEERING_MODE,
                     display_ctx_provider=lambda: app_context.ctx,
+                    sim_camera_stall=sim_camera_stall,
                 )
 
             # A stored value the settings store cannot configure a scope

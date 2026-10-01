@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import os
 
+    from drivers.simulated_camera import SimulatedStall
     from modules.layer_record import LayerIdentity
     from modules.scope_init_config import ScopeInitConfig
 
@@ -454,6 +455,7 @@ class Lumascope:
         fx2_debug_wire: bool = False,
         *,
         source_path: 'str | os.PathLike | None' = None,
+        sim_camera_stall: 'SimulatedStall | None' = None,
     ):
         """Initialize Microscope.
 
@@ -523,7 +525,18 @@ class Lumascope:
                 (Classic) LED board sends, and the illumination cache check
                 in front of it -- a bench diagnostic, off by default. The
                 session passes the ``fx2_debug_wire_enabled`` setting.
+            sim_camera_stall: A stall for the simulated camera's stream:
+                frames stop for a while, the camera staying connected and
+                grabbing, so a simulated scope shows a stalled stream without
+                hardware. Only the simulated camera has one, so it is refused
+                on real hardware and on a model simulated with an FX2.
+
+        Raises:
+            ValueError: ``sim_camera_stall`` given for a scope whose camera is
+                not the simulated camera.
         """
+        if sim_camera_stall is not None and not simulate:
+            raise ValueError('a simulated camera stall needs a simulated scope (simulate=True)')
         if warn_pre_release:
             _fire_pre_release_warning()
         self._fx2_debug_wire = fx2_debug_wire
@@ -543,6 +556,11 @@ class Lumascope:
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self.scope_models, model)
+            if sim_camera_stall is not None and self._simulates_an_fx2(sim_axes):
+                raise ValueError(
+                    f'a simulated camera stall needs the simulated camera, and {model} is '
+                    'simulated with an FX2'
+                )
         else:
             # Whether the selected model is a manual scope, so a probe that
             # finds no motor board says so as expected rather than warning
@@ -662,6 +680,8 @@ class Lumascope:
                 )
                 if simulate:
                     self._camera_driver.load_cycle_images()
+                    if sim_camera_stall is not None:
+                        self._camera_driver.hold_frames(sim_camera_stall)
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.error(
