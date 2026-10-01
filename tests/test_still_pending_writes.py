@@ -58,7 +58,8 @@ def _writer(file_io_executor=None):
 def _submit(writer, **overrides):
     """Push one write through the single enqueue owner."""
     kwargs = {
-        'kwargs': {},
+        # One of the run's images: a write with a frame to save.
+        'kwargs': {'captured_image': object()},
         'step': {'Color': 'BF'},
         'step_index': 0,
         'scan_count': 0,

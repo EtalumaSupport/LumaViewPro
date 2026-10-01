@@ -3518,20 +3518,24 @@ class TestPIW2_DisksUsageDeduped:
         )
         notes = []
         monkeypatch.setattr(notifications, 'critical', lambda *args, **kwargs: notes.append(args))
-        writer.write_capture(
-            enable_image_saving=True,
-            captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint8),
-                significant_bits=8,
-                objective_id='4x Oly',
-                record=frame_record(),
-                stage_z_um=None,
-            ),
-            step=_protocol_step(),
-            name='stepA_BF',
-            save_folder=str(tmp_path),
-            output_format='TIFF',
-        )
+        from modules.exceptions import DiskSpaceCriticalError
+
+        # Raised, so the run's file count reads the image as not written.
+        with pytest.raises(DiskSpaceCriticalError):
+            writer.write_capture(
+                enable_image_saving=True,
+                captured_image=CapturedFrame(
+                    image=np.zeros((4, 4), dtype=np.uint8),
+                    significant_bits=8,
+                    objective_id='4x Oly',
+                    record=frame_record(),
+                    stage_z_um=None,
+                ),
+                step=_protocol_step(),
+                name='stepA_BF',
+                save_folder=str(tmp_path),
+                output_format='TIFF',
+            )
         assert aborts == [1], 'low disk must abort the protocol'
         assert not saves, 'no write may happen after a failed disk check'
         assert notes, 'low disk must surface a critical notification'

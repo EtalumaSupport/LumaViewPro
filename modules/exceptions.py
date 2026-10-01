@@ -733,6 +733,10 @@ class RunFilesNotWrittenError(CaptureError):
             when they were handed over.
         ``write_batch_save_failed``: saving some of the run's images failed
             on disk.
+        ``write_batch_disk_full``: some of the run's images were refused
+            because the save drive was nearly full.
+        ``write_batch_video_unfinished``: a video step's file did not
+            finish.
     """
 
     title = 'Run Images Not Written'
@@ -761,9 +765,71 @@ class RunFilesNotWrittenError(CaptureError):
                 'was built from the incomplete folder. Check that the save '
                 'drive is connected and has space.'
             )
+        elif reason == 'write_batch_disk_full':
+            message = (
+                "Some of the run's images were not saved because the save drive "
+                'was nearly full, so nothing was built from the incomplete '
+                'folder. Free space on the drive and run again.'
+            )
+        elif reason == 'write_batch_video_unfinished':
+            message = (
+                "A video step's file did not finish, so nothing was built from "
+                'the incomplete folder. Check the log for why the video stopped.'
+            )
         else:
             raise ValueError(f'unknown reason {reason!r}')
         super().__init__(message, reason)
+
+
+class RunImagesNotSavedError(CaptureError):
+    """Images a run captured are not on disk.
+
+    Reported once, when the run's last write lands -- the one moment the
+    count is known, since a run's images keep landing after it ends.
+
+    Attributes:
+        not_written: Images the run captured that are not on disk.
+        written: Images that landed.
+    """
+
+    title = 'Run Images Not Saved'
+
+    def __init__(self, *, written: int, not_written: int, reason: str):
+        causes = {
+            'write_batch_abandoned': 'the file writer was recovered or the app shut down',
+            'write_batch_not_taken': 'the file writer was stuck',
+            'write_batch_save_failed': 'saving failed on disk',
+            'write_batch_disk_full': 'the save drive was nearly full',
+            'write_batch_video_unfinished': "a video step's file did not finish",
+        }
+        super().__init__(
+            f'{not_written} of the images this run captured '
+            f'{"is" if not_written == 1 else "are"} not on disk ({causes[reason]}); '
+            f'{written} were saved. Check the log for each one.',
+            reason,
+        )
+        self.written = written
+        self.not_written = not_written
+
+
+class DiskSpaceCriticalError(CaptureError):
+    """An image was not saved because the save drive is nearly full.
+
+    Raised by the save that refused it, after the run has been stopped and
+    the person told; it is what counts that image as not written.
+
+    Attributes:
+        free_mb: Space left on the drive, in MB.
+    """
+
+    title = 'Disk Space Critical'
+
+    def __init__(self, free_mb: float):
+        super().__init__(
+            f'Only {free_mb:.0f} MB free on the save drive; the image was not saved.',
+            'disk_space_critical',
+        )
+        self.free_mb = free_mb
 
 
 class RunIncompleteError(CaptureError):

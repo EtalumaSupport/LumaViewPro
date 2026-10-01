@@ -417,6 +417,7 @@ class AutofocusRunner:
                             self._save_autofocus_data,
                             {},
                             what='The autofocus data',
+                            image=False,
                             pace_until=None,
                             return_future=True,
                         )

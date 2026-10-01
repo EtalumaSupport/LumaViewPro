@@ -32,6 +32,7 @@ from modules.exceptions import (
     Remedy,
     RunAlreadyEndedError,
     RunCheckFailedError,
+    RunImagesNotSavedError,
     RunIncompleteError,
     RunStartError,
     describe_unknown_positions,
@@ -214,6 +215,8 @@ class SequencedCaptureRunner:
         # disk are answered per run -- by prepare's refusal, the Session and
         # the post-run builds -- never by the shared lane.
         self._write_batch: RunWriteBatch | None = None
+        # The run kind of the run in hand; None before the first one.
+        self._run_mode: SequencedCaptureRunMode | None = None
         self.autofocus_thread = autofocus_thread
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
@@ -2029,6 +2032,12 @@ class SequencedCaptureRunner:
         protocol = self._protocol
         run_dir = self._run_dir
         on_run_state = self._on_run_idle
+        # A composite's merge waits on these same files and says when they
+        # are not all there, in the one report its run makes.
+        merge_reports_files = (
+            self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
+            and run_complete.ending.status in ('completed', 'incomplete')
+        )
 
         def _files_written(outcome: str) -> None:
             # One line per run, when its last write lands: a run's images
@@ -2039,16 +2048,31 @@ class SequencedCaptureRunner:
             # start removes the one it made; the batch can still carry
             # autofocus data, so the counts stay.
             where = f'in {run_dir}' if run_dir is not None else 'with no run folder'
-            logger.info(
+            line = (
                 f"[{self.LOGGER_NAME}] The run's files are {outcome} {where}: "
                 f'{write_batch.written} written, {write_batch.not_written} not written'
                 + (f' ({reason})' if reason else '')
             )
+            if outcome == 'written':
+                logger.info(line)
+            else:
+                logger.warning(line)
             # Each on its own: a raise in one must not skip the rest -- a
             # caller never told its files are done, or a Session reading the
             # drain as live for good. No caller waits here, so a raise is
             # reported where it stops.
             actions = []
+            if write_batch.not_written and not merge_reports_files:
+                # The person's one report of a lost image: no other surface
+                # tells them, and this is when the count is final.
+                lost = RunImagesNotSavedError(
+                    written=write_batch.written,
+                    not_written=write_batch.not_written,
+                    reason=reason,
+                )
+                actions.append(
+                    lambda: notifications.report_outcome(lost, solicited=False, category='Protocol')
+                )
             if record is not None:
                 actions.append(record.complete)
             actions.append(run_complete.send)

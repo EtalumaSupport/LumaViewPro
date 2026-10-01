@@ -27,6 +27,7 @@ from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
+    DiskSpaceCriticalError,
     ObjectiveUnknownError,
     RunFilesNotWrittenError,
     RunWriteRefusedError,
@@ -96,9 +97,13 @@ class _Write:
     while stuck that later returns cannot count twice.
     """
 
-    __slots__ = ('settled',)
+    __slots__ = ('image', 'settled')
 
-    def __init__(self):
+    def __init__(self, image: bool):
+        # Whether the write saves one of the run's images. Only those count
+        # as written or not written; a record row or a data file is still
+        # waited for, but is not an image the run captured.
+        self.image = image
         self.settled = False
 
 
@@ -111,9 +116,12 @@ class RunWriteBatch:
     answer drifts across runs. The batch is the run's own account: created
     with the run, closed by the run's cleanup, and complete once closed with
     nothing outstanding. Completion happens once, with its outcome --
-    ``written``, or ``incomplete`` when a recovery or a shutdown gave up on
-    outstanding writes, a stuck writer refused one, or a save failed -- and
-    runs the actions the run's cleanup handed to ``close``.
+    ``written``, or ``incomplete`` when any of the run's images is not on
+    disk: a recovery or a shutdown gave up on it, a stuck writer refused it,
+    its save failed or was refused for disk space, or a video step's file
+    did not finish -- and runs the actions the run's cleanup handed to
+    ``close``. The counts are of images: a write that saves none (a record
+    row, a data file) is waited for and never counted.
 
     Nothing is ever discarded while completion is reported: a write handed
     over either lands or is counted not written.
@@ -132,6 +140,9 @@ class RunWriteBatch:
         # recovery or a shutdown gave up on; a build told of the loss names
         # which happened.
         self._not_taken = False
+        # Why images did not land, other than an abandon or a refusal to
+        # take them, in the order each first happened.
+        self._lost_reasons: list[str] = []
         self._lost = 0
         self._written = 0
         self._on_complete = None
@@ -153,12 +164,12 @@ class RunWriteBatch:
 
     @property
     def written(self) -> int:
-        """Writes that landed."""
+        """Images that landed."""
         return self._written
 
     @property
     def not_written(self) -> int:
-        """Writes counted not written: given up on, never taken, or failed."""
+        """Images the run captured that are not on disk."""
         return self._lost
 
     @property
@@ -167,17 +178,19 @@ class RunWriteBatch:
 
         ``write_batch_abandoned`` when a recovery or a shutdown gave up on
         some writes; ``write_batch_not_taken`` when the writer never took
-        some -- stuck, or no longer taking work; ``write_batch_save_failed``
-        when a save ran and failed. A run with more than one names the first
-        of these.
+        some -- stuck, or no longer taking work; otherwise the first of
+        ``write_batch_save_failed`` (a save ran and failed),
+        ``write_batch_disk_full`` (a save was refused for disk space) and
+        ``write_batch_video_unfinished`` (a video step's file did not
+        finish) to happen.
         """
         if self._abandoned:
             return 'write_batch_abandoned'
+        if not self._lost:
+            return None
         if self._not_taken:
             return 'write_batch_not_taken'
-        if self._lost:
-            return 'write_batch_save_failed'
-        return None
+        return f'write_batch_{self._lost_reasons[0]}'
 
     @property
     def draining(self) -> bool:
@@ -213,6 +226,7 @@ class RunWriteBatch:
         *,
         what: str,
         pace_until: Callable[[], bool] | None,
+        image: bool = True,
         slow_task_threshold_sec: float | None = None,
         return_future: bool = False,
     ) -> object:
@@ -222,6 +236,9 @@ class RunWriteBatch:
             action: The write.
             kwargs: Its arguments.
             what: What the write saves, as a person reads it, for a refusal.
+            image: Whether it saves one of the run's images; only those are
+                counted written or not written. A write that does not say is
+                counted as one, so its loss is reported rather than hidden.
             pace_until: A zero-argument callable; while the backlog is full
                 the submit waits for room until it returns True, then hands
                 the write over anyway -- a write the run already made is
@@ -242,7 +259,7 @@ class RunWriteBatch:
             RunWriteRefusedError: the run's writes have ended (closed or
                 abandoned), or the lane is shut down.
         """
-        write = _Write()
+        write = _Write(image)
         with self._cond:
             self._refuse_if_ended(what)
             if pace_until is not None:
@@ -256,8 +273,9 @@ class RunWriteBatch:
                     if time.monotonic() - waited_from >= WRITE_STALL_FATAL_S and (
                         self._executor.in_flight_task_stalled(WRITE_STALL_FATAL_S)
                     ):
-                        self._lost += 1
-                        self._not_taken = True
+                        if image:
+                            self._lost += 1
+                            self._not_taken = True
                         wedged = True
                         break
                 if wedged:
@@ -317,8 +335,8 @@ class RunWriteBatch:
             count = len(self._outstanding)
             for write in self._outstanding:
                 write.settled = True
+            self._lost += sum(1 for write in self._outstanding if write.image)
             self._outstanding.clear()
-            self._lost += count
             self._abandoned = True
             self._cond.notify_all()
             due = self._take_completion_locked()
@@ -364,6 +382,9 @@ class RunWriteBatch:
                 return None
             try:
                 result = action(*args, **kwargs)
+            except DiskSpaceCriticalError:
+                self._settle(write, lost='disk_full')
+                raise
             except BaseException:
                 self._settle(write, lost='save_failed')
                 raise
@@ -375,20 +396,18 @@ class RunWriteBatch:
     def _settle(self, write: _Write, *, lost: str | None = None) -> None:
         """Take one write off the run's account.
 
-        ``lost`` is why its image is not on disk -- ``'not_taken'`` or
-        ``'save_failed'`` -- or None when it landed.
+        ``lost`` is why its image is not on disk -- ``'not_taken'``,
+        ``'save_failed'`` or ``'disk_full'`` -- or None when it landed. A
+        write that saves no image is taken off the account and counted
+        neither way.
         """
         with self._cond:
             already = write.settled
             if not already:
                 write.settled = True
                 self._outstanding.discard(write)
-                if lost is None:
-                    self._written += 1
-                else:
-                    self._lost += 1
-                    if lost == 'not_taken':
-                        self._not_taken = True
+                if write.image:
+                    self._count_image_locked(lost)
                 self._cond.notify_all()
             due = None if already else self._take_completion_locked()
         # A lost write that was already given up on is not on disk, and the
@@ -401,9 +420,39 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
+    def count_not_written(self, reason: str, what: str) -> None:
+        """Count one image the run captured that never became a write here.
+
+        A video step writes its file on its own lane and finishes it after
+        the step; when that file does not finish, the run's image is not on
+        disk all the same. Counted before the run closes its writes, since
+        cleanup waits for video steps to finish first; one that finishes
+        after the batch completed is logged, and changes nothing.
+        """
+        with self._cond:
+            if self._outcome is None:
+                self._count_image_locked(reason)
+                return
+        logger.warning(
+            f'[Protocol-Writer] {what} was not written ({reason}), but the run had '
+            'already reported its files; it is not counted'
+        )
+
+    def _count_image_locked(self, lost: str | None) -> None:
+        if lost is None:
+            self._written += 1
+            return
+        self._lost += 1
+        if lost == 'not_taken':
+            self._not_taken = True
+        elif lost not in self._lost_reasons:
+            self._lost_reasons.append(lost)
+
     def _take_completion_locked(self):
         if not self._closed or self._outstanding or self._outcome is not None:
             return None
+        # An abandon is incomplete whatever it counted: after it, the run's
+        # later images are refused at hand-over and never reach the count.
         self._outcome = 'incomplete' if (self._abandoned or self._lost) else 'written'
         return self._on_complete, self._outcome
 
@@ -644,6 +693,16 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record video step row: {ex}')
 
+    def _record_unfinished_video(self, *, reason, name, **row) -> None:
+        """A video step whose file did not finish: its row, and one image not written.
+
+        The step's file is written on its own lane, outside the run's batch,
+        so the batch is told here; otherwise a run whose video never
+        finished would report its files written.
+        """
+        self._write_batch.count_not_written('video_unfinished', f'The video {name}')
+        self._record_dropped_capture(reason=reason, name=name, **row)
+
     def _record_dropped_capture(
         self,
         *,
@@ -847,6 +906,10 @@ class ProtocolImageWriter:
             self.write_capture,
             kwargs,
             what=f'The image {name}',
+            # A row for a capture that produced nothing, or for a run that
+            # saves no images, is a write but not an image.
+            image=kwargs.get('enable_image_saving', True)
+            and kwargs.get('captured_image') is not None,
             pace_until=self._aborted.is_set,
             slow_task_threshold_sec=slow_task_threshold_sec,
         )
@@ -1166,7 +1229,7 @@ class ProtocolImageWriter:
                             name=name,
                         ),
                         record_dropped_capture=functools.partial(
-                            self._record_dropped_capture,
+                            self._record_unfinished_video,
                             step=step,
                             step_index=curr_step,
                             scan_count=scan_count,
@@ -1437,20 +1500,23 @@ class ProtocolImageWriter:
                     common_utils.estimate_step_write_mb(step, global_max_fps=self._video_max_fps),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
-                if not ok:
-                    # Runs on the file-IO thread: the funnel's abort-first
-                    # ordering matters here -- the protocol thread may be
-                    # mid-capture, and abort must close its step-lighting
-                    # gates before force_off darkens the sample.
-                    self._abort_run_fatal(
-                        'disk_space_critical',
-                        'FileIO',
-                        'Disk Space Critical',
-                        f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
-                    )
-                    return
             except Exception as e:
                 logger.warning(f'[Protocol-Writer] Disk space check failed (proceeding): {e}')
+                ok = True
+            if not ok:
+                # Runs on the file-IO thread: the funnel's abort-first
+                # ordering matters here -- the protocol thread may be
+                # mid-capture, and abort must close its step-lighting
+                # gates before force_off darkens the sample.
+                self._abort_run_fatal(
+                    'disk_space_critical',
+                    'FileIO',
+                    'Disk Space Critical',
+                    f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
+                )
+                # Raised, not returned: a return reads as a write that
+                # landed, and this image is not on disk.
+                raise DiskSpaceCriticalError(free_mb)
 
         if enable_image_saving:
             if captured_image is None:

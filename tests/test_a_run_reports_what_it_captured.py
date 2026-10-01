@@ -10,6 +10,10 @@ where a test needs a capture to produce no frame.
 import contextlib
 import csv
 import pathlib
+import time
+
+import modules.common_utils as common_utils
+from modules.exceptions import RunImagesNotSavedError, RunIncompleteError
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -106,16 +110,15 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
 
 
 @contextlib.contextmanager
-def _incomplete_reports():
-    """Every RunIncompleteError reported while the block runs."""
-    from modules.exceptions import RunIncompleteError
+def _reports_of(outcome_type):
+    """Every outcome of *outcome_type* reported while the block runs."""
     from modules.notification_center import notifications
 
     reported = []
     report = notifications.report_outcome
 
     def counted(outcome, *a, **kw):
-        if isinstance(outcome, RunIncompleteError):
+        if isinstance(outcome, outcome_type):
             reported.append(outcome)
         return report(outcome, *a, **kw)
 
@@ -132,7 +135,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
         # and the run said 'completed'.
         seen = []
         with (
-            _incomplete_reports() as reported,
+            _reports_of(RunIncompleteError) as reported,
             open_composite_session(headless_settings(tmp_path)) as (session, runner),
         ):
             session.scope._camera_driver.grab_new_capture = _no_frame
@@ -178,7 +181,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
 
     def test_a_run_that_captured_everything_is_completed_and_says_so(self, tmp_path):
         with (
-            _incomplete_reports() as reported,
+            _reports_of(RunIncompleteError) as reported,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
@@ -209,7 +212,7 @@ class TestACompositeMissingAChannel:
         step_colors = ('BF', _FAILING, 'Green')
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with (
-            _incomplete_reports() as reported,
+            _reports_of(RunIncompleteError) as reported,
             open_composite_session(settings) as (session, runner),
         ):
             outcome = runner.run_composite(
@@ -224,3 +227,77 @@ class TestACompositeMissingAChannel:
         assert len(outcome.captures.failed) == 1, outcome.captures
         assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures
         assert len(reported) == 1, reported
+
+
+def _files_complete(seen):
+    deadline = time.monotonic() + WAIT_S
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return seen
+
+
+class TestTheFileCountCountsImages:
+    def test_a_capture_that_produced_nothing_is_not_a_file(self, tmp_path):
+        # The bench line: "2 written, 0 not written" for a run with no image
+        # on disk. A failed capture's record row is a write, not an image.
+        files = []
+        with (
+            _info_lines() as info,
+            _reports_of(RunImagesNotSavedError) as lost,
+            open_composite_session(headless_settings(tmp_path)) as (session, runner),
+        ):
+            session.scope._camera_driver.grab_new_capture = _no_frame
+            _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+        assert files == ['written'], files
+        assert any('0 written, 0 not written' in line for line in info), [
+            line for line in info if 'files are' in line
+        ]
+        assert lost == [], 'no image was lost on the way to disk; none was captured'
+
+    def test_an_image_refused_for_disk_space_is_not_written(self, tmp_path, monkeypatch):
+        # The disk floor refused the image and returned as if it had saved
+        # it, so the run counted it written.
+        files = []
+        with (
+            _reports_of(RunImagesNotSavedError) as lost,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            # The run loop binds its own name for the check at import; this
+            # replaces only the per-write floor the writer reads.
+            import modules.protocol_run_loop  # noqa: F401
+
+            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+            batch = runner._executor.write_batch()
+        assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
+        assert files == ['incomplete'], files
+        assert batch.written == 0 and batch.not_written >= 1, (batch.written, batch.not_written)
+        assert batch.not_written_reason == 'write_batch_disk_full'
+        assert len(lost) == 1 and lost[0].reason == 'write_batch_disk_full', lost
+
+    def test_a_video_whose_file_did_not_finish_is_not_written(self):
+        # A video step writes its file on its own lane, outside the batch;
+        # when the file does not finish, the run's image is still missing.
+        from unittest.mock import MagicMock
+
+        from modules.protocol_image_writer import RunWriteBatch
+
+        batch = RunWriteBatch(MagicMock())
+        batch.count_not_written('video_unfinished', 'The video V1')
+        outcomes = []
+        batch.close(outcomes.append)
+        assert outcomes == ['incomplete']
+        assert (batch.written, batch.not_written) == (0, 1)
+        assert batch.not_written_reason == 'write_batch_video_unfinished'

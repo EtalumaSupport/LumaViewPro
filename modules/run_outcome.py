@@ -180,7 +180,8 @@ class RunOutcome:
         artifact_path: Where it landed; None whenever merged is False.
         merge_reason: Why the MERGE produced no file ('write_batch_timeout',
             'write_batch_abandoned', 'write_batch_not_taken',
-            'write_batch_save_failed', 'no_run_dir', 'shutdown', ...). Empty on success and on
+            'write_batch_save_failed', 'write_batch_disk_full',
+            'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on
             every run that has no merge, so a caller can branch on
             merged and still log one field.
         af_data_saved: True only when autofocus characterization data

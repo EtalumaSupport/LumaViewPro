@@ -132,6 +132,11 @@ class RunCompleteNotice:
         self._lock = threading.Lock()
         self._sent = False
 
+    @property
+    def ending(self) -> RunEnding:
+        """The ending this notice carries to the run's subscribers."""
+        return self._ending
+
     def send(
         self,
         cleanup_errors: list[str] | None = None,

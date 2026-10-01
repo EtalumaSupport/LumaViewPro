@@ -27,7 +27,15 @@ def _one_run(tmp_path, monkeypatch):
         logged.append(msg)
         return real_info(msg, *args, **kwargs)
 
+    # The line is a warning when a file did not land.
+    real_warning = sequenced_capture_runner.logger.warning
+
+    def _warning(msg, *args, **kwargs):
+        logged.append(msg)
+        return real_warning(msg, *args, **kwargs)
+
     monkeypatch.setattr(sequenced_capture_runner.logger, 'info', _info)
+    monkeypatch.setattr(sequenced_capture_runner.logger, 'warning', _warning)
     with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
         outcome = runner.run_single_scan(
             protocol=_protocol(

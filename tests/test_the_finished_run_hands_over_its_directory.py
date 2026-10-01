@@ -58,6 +58,7 @@ def _close_the_runs_writes(kwargs, callbacks, run_dir):
         _protocol=None,
         _run_dir=run_dir,
         _on_run_idle=None,
+        _run_mode=None,
         LOGGER_NAME='TEST',
     )
     SequencedCaptureRunner._close_run_writes(runner, kwargs['write_batch'], kwargs['run_complete'])
