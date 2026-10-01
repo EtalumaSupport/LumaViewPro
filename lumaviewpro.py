@@ -180,11 +180,22 @@ if __name__ == '__main__':
             from tkinter import messagebox as _mb
 
             _root = _tk.Tk()
-            _root.withdraw()
+            # The dialog's parent is an invisible 1 px window centred across
+            # the screen, a third of the way down, not a withdrawn one: macOS
+            # attaches the alert to its parent, and a withdrawn root sits at
+            # (0, 0), so the alert opened in the corner, half off screen.
+            # Moving a withdrawn root does not move it, and no parent at all
+            # lets the alert open behind the existing LVP window.
+            _root.overrideredirect(True)
+            _root.geometry(
+                f'1x1+{_root.winfo_screenwidth() // 2}+{_root.winfo_screenheight() // 3}'
+            )
+            _root.attributes('-alpha', 0.0)
             # Force the dialog to the foreground. Without this the messagebox
             # can open behind the existing LVP window and get buried, so the
             # user never sees why the second launch silently did nothing.
             _root.attributes('-topmost', True)
+            _root.update()
             _root.lift()
             _root.focus_force()
             _mb.showerror(
