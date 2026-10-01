@@ -168,13 +168,20 @@ class _AfRig:
         assert outcome is not None, 'the AF run never settled its outcome'
         return outcome
 
-    def prepare_autofocus(self, parent_dir: pathlib.Path, *, save_data: bool, borrowed_claim=None):
+    def prepare_autofocus(
+        self,
+        parent_dir: pathlib.Path,
+        *,
+        save_data: bool,
+        borrowed_claim=None,
+        run_trigger_source: str = 'autofocus',
+    ):
         """Prepare one standalone AF run; the plan, not yet started."""
         done = self._done = threading.Event()
         files_done = self._files_done = threading.Event()
         return self.runner.prepare(
             protocol=_make_af_step_protocol(),
-            run_trigger_source='autofocus',
+            run_trigger_source=run_trigger_source,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

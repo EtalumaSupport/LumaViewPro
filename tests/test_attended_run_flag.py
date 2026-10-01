@@ -11,10 +11,9 @@ which told the notification centre a protocol was running for EVERY run
 kind. The autofocus run therefore suppressed its own failure popup, ~0.5 s
 before cleanup lowered the flag again.
 
-The existing four tests in test_autofocus_notify_gate.py all pass with that
-bug in place: they stop at "was notifications.error called", which is the
-segment that still worked. These tests cross the notification centre, which
-is where the defect lived.
+A test that stops at "was notifications.error called" passes with that bug
+in place, since that segment still worked. These tests cross the
+notification centre, which is where the defect lived.
 """
 
 from __future__ import annotations

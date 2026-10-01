@@ -71,18 +71,6 @@ class AutofocusRunner:
 
         self._reset_state()
 
-    def _notify_af_failure(self, title: str, message: str) -> None:
-        """Fire an AF failure user-notification IF the trigger is
-        interactive. Suppressed for unattended ('protocol') triggers
-        because protocols continue with the prior Z position and
-        should not block on modal popups -- per the
-        "protocols are unattended" product contract. Log lines are
-        emitted by the caller regardless of trigger source; this is
-        the popup-gate only."""
-        if self._run_trigger_source == 'protocol':
-            return
-        notifications.error('Autofocus', title, message)
-
     def reset(self):
         # Skip if a run is in flight: _reset_state() would wipe _params
         # while AFE.run() reads it on the AF thread. AFE.run()'s own
@@ -389,9 +377,12 @@ class AutofocusRunner:
                 f'[AF] Error during loop: {type(ex).__name__}: {ex} | _params={params_repr}'
             )
             _af_log.exception(f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}')
-            self._notify_af_failure(
+            # An unattended run's mute keeps this off the screen; the run
+            # captures at its fallback Z and the log above is the record.
+            notifications.error(
+                'Autofocus',
                 'Autofocus Failed',
-                f'Unexpected error during autofocus: {ex}',
+                'Autofocus stopped on an unexpected error; the log has the details.',
             )
             raise
 
@@ -805,7 +796,8 @@ class AutofocusRunner:
                 'no focus found; returning the stage to its pre-autofocus Z'
             )
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            self._notify_af_failure(
+            notifications.error(
+                'Autofocus',
                 'Autofocus Failed',
                 'Focus curve is flat or invalid -- check sample and illumination',
             )

@@ -1420,15 +1420,12 @@ class TestD2_LEDBoardStateCacheHelper:
 
 
 class TestG3_AutofocusFailureNotification:
-    """G3: AF failures must notify the user (Rule 14), routed through the
-    trigger-source popup gate so unattended-protocol runs are suppressed
-    while interactive runs still notify. Notify-or-suppress edge cases
-    are covered in depth by tests/test_autofocus_notify_gate.py."""
+    """G3: AF failures must notify the user (Rule 14). An unattended run's
+    mute, not autofocus, keeps them off the screen during a run
+    (tests/test_an_unattended_runs_autofocus_shows_nothing.py)."""
 
     def test_af_exception_notifies_user(self, monkeypatch):
-        """A raising AF loop must pop 'Autofocus Failed' for an
-        interactive trigger and suppress the popup for a protocol
-        trigger (proves the gate routing, not a bare error call)."""
+        """A raising AF loop must pop 'Autofocus Failed'."""
         from modules.notification_center import notifications
         from tests.af_drives import af_runner_and_scope, drive_af
 
@@ -1442,11 +1439,6 @@ class TestG3_AutofocusFailureNotification:
         assert captured and captured[0][1] == 'Autofocus Failed', (
             f'interactive AF failure must pop Autofocus Failed; got {captured}'
         )
-
-        captured.clear()
-        with pytest.raises(RuntimeError, match='camera fault'):
-            drive_af(runner, run_trigger_source='protocol')
-        assert captured == [], 'unattended (protocol) AF failure must suppress the modal popup'
 
     def test_af_degenerate_curve_notifies_user(self, monkeypatch):
         """A flat focus curve must pop 'Autofocus Failed' and report no
