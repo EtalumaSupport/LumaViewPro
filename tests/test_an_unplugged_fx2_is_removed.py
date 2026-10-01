@@ -228,3 +228,21 @@ def test_a_resubmit_that_fails_otherwise_reports_no_removal(monkeypatch):
     transport._iso_callback(_cancelled_transfer_whose_resubmit_raises(RuntimeError('busy')))
 
     assert gone == []
+
+
+def test_the_shutdown_after_a_removal_writes_nothing_to_the_gone_led():
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(settings, simulate=True)
+    session.scope.imaging.start_streaming()
+    session.scope._led_driver._fx2._transport.unplug()
+    assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
+    led = session.scope._led_driver
+    writes = []
+    led.leds_off = lambda: writes.append('leds_off')
+    led.led_off = lambda channel: writes.append(('led_off', channel))
+
+    session.shutdown()
+
+    assert writes == []

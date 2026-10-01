@@ -82,9 +82,8 @@ class TestInitializeStaysOnTheCallingThread:
             scope.disconnect()
 
     def test_no_led_write_without_a_board(self, monkeypatch):
-        """Preservation pin: the board check the dispatcher applied survives
-        the move. With a Null board the impl must not run at all, or the
-        state cache would record a safety-off the hardware never saw."""
+        """With a Null board the bring-up safety-off writes nothing, and
+        records no LED change the hardware never saw."""
         from drivers.null_ledboard import NullLEDBoard
         from modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
@@ -92,9 +91,17 @@ class TestInitializeStaysOnTheCallingThread:
         scope = build_scope(simulate=True, register_atexit=False)
         try:
             # IlluminationAPI._driver is a read-only view of the scope's slot.
-            monkeypatch.setattr(scope, '_led_driver', NullLEDBoard())
+            board = NullLEDBoard()
+            monkeypatch.setattr(scope, '_led_driver', board)
             calls = []
-            monkeypatch.setattr(scope.illumination, '_leds_off_impl', lambda: calls.append(1))
+            monkeypatch.setattr(board, 'leds_off', lambda: calls.append('leds_off'))
+            frame_validity = scope.imaging.frame_validity
+            real_invalidate = frame_validity.invalidate
+            monkeypatch.setattr(
+                frame_validity,
+                'invalidate',
+                lambda source: calls.append(source) if source == 'led' else real_invalidate(source),
+            )
             scope.initialize(
                 ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
             )

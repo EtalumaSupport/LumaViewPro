@@ -890,14 +890,10 @@ class Lumascope:
         # The safety-off is bound to the impl like every other write here,
         # never to the public dispatcher: bring-up is the scope configuring
         # itself, not a command from a caller, so it takes no lane and asks
-        # no claim. The board check the dispatcher performs is copied here for
-        # the same reason it lives there: with no board the composition root
-        # installs a Null driver, which is truthy, so the impl's own `if not
-        # self._driver` never fires and the state cache would record LEDs it
-        # never drove. The write is bounded by the serial layer's own read
-        # and write timeouts; nothing else holds the LED lock at bring-up.
-        if self.led_connected:
-            self.illumination._leds_off_impl()
+        # no claim. With no board connected the impl writes nothing. The write
+        # is bounded by the serial layer's own read and write timeouts;
+        # nothing else holds the LED lock at bring-up.
+        self.illumination._leds_off_impl()
         self.runtime_state.set_labware(config.labware)
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)

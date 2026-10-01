@@ -718,8 +718,17 @@ class IlluminationAPI:
             self._fire_led_listeners(color_name, False, 0.0)
 
     def _leds_off_impl(self) -> None:
-        """Turn off all LEDs (nuclear -- ignores any held lease)."""
-        if not self._driver:
+        """Turn off all LEDs (nuclear -- ignores any held lease).
+
+        Writes nothing when no LED board is connected: there is nothing to
+        darken, and a write to a board unplugged since bring-up only fails.
+        The check is here, not left to ``_dispatch_led``, because bring-up
+        and shutdown call this without the dispatcher; it reads
+        ``led_connected`` rather than the driver's truthiness because with
+        no board the composition root installs a NullLEDBoard, which is
+        truthy.
+        """
+        if not self._scope.led_connected:
             return
         with self._led_lock:
             self._driver.leds_off()
@@ -753,8 +762,8 @@ class IlluminationAPI:
         call is not made under its taking.
         """
         kwargs = kwargs or {}
-        # The board check has to live here, not be left to the body. Each
-        # `_impl` opens with `if not self._driver: return`, which never fires:
+        # The board check has to live here, not be left to the body. Most
+        # `_impl`s open with `if not self._driver: return`, which never fires:
         # the composition root installs a NullLEDBoard rather than None when
         # no board is present, and that object is truthy. So the body would
         # run, the Null driver would swallow the command, and the state cache
@@ -828,9 +837,10 @@ class IlluminationAPI:
         listener-fire paths are also skipped -- by the time atexit fires,
         the notification stack, state cache, and listener bus may already
         be torn down. Don't call from normal code paths; use `leds_off`
-        instead.
+        instead. Writes nothing when no LED board is connected, for the
+        reason ``_leds_off_impl`` gives.
         """
-        if not self._driver:
+        if not self._scope.led_connected:
             return
         acquired = self._led_lock.acquire(timeout=timeout_s)
         if not acquired:
