@@ -1979,8 +1979,12 @@ class SequencedCaptureRunner:
             # keep landing after the run ends, and this is the one place
             # that knows they are all in.
             reason = write_batch.not_written_reason
+            # A run that saves no images never makes a folder, and a failed
+            # start removes the one it made; the batch can still carry
+            # autofocus data, so the counts stay.
+            where = f'in {run_dir}' if run_dir is not None else 'with no run folder'
             logger.info(
-                f"[{self.LOGGER_NAME}] The run's files are {outcome} in {run_dir}: "
+                f"[{self.LOGGER_NAME}] The run's files are {outcome} {where}: "
                 f'{write_batch.written} written, {write_batch.not_written} not written'
                 + (f' ({reason})' if reason else '')
             )

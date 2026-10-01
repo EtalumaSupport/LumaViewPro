@@ -72,3 +72,30 @@ def test_a_run_with_a_failed_save_says_which_and_why(tmp_path, monkeypatch):
     [message] = lines
     assert run_dir in message and 'are incomplete' in message
     assert '1 written, 1 not written (write_batch_save_failed)' in message, message
+
+
+def test_a_run_that_saves_no_images_says_it_has_no_folder(tmp_path, monkeypatch):
+    """An autofocus-only run saves no images, so it never makes a run folder;
+    the line says so rather than naming a folder called None."""
+    from tests.test_run_outcome_reports_autofocus_data import _AfRig
+
+    logged = []
+    real_info = sequenced_capture_runner.logger.info
+
+    def _info(msg, *args, **kwargs):
+        logged.append(msg)
+        return real_info(msg, *args, **kwargs)
+
+    monkeypatch.setattr(sequenced_capture_runner.logger, 'info', _info)
+    rig = _AfRig()
+    try:
+        rig.run_autofocus(tmp_path / 'af', save_data=False)
+    finally:
+        rig.close()
+
+    lines = [m for m in logged if "run's files" in m]
+    assert len(lines) == 1, lines
+    [message] = lines
+    assert 'None' not in message, message
+    assert 'no run folder' in message, message
+    assert '0 written, 0 not written' in message, message
