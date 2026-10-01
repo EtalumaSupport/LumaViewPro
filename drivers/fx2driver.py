@@ -435,18 +435,95 @@ REG_GLOBAL_GAIN = 0x35
 REG_ROW_BLACK = 0x49
 REG_BLC = 0x62
 
-# Shutter width register (0x09) is 16-bit: max 65535 rows = ~7.4 seconds
+REG_PLL_CFG2 = 0x12
+
+# The largest value Shutter_Width_Lower (R0x09) holds. It is not the sensor's
+# limit: Shutter_Width_Upper (R0x08) extends the shutter width past it, and the
+# driver does not write R0x08.
 MAX_EXPOSURE_ROWS = 65535
 
-# Row time from MT9P031 datasheet (Table 8):
-#   EXTCLK = 12 MHz (FX2 24 MHz crystal / 2)
-#   PLL: M=27, N=1, P1=13 -> pixel_clock = 24.923 MHz
-#   Row period = 2 x max(W/2 + HBMIN, 486) = 2 x 1401 = 2802 pixel clocks
-#   (W=1902, HBMIN=450 with Row_BLC enabled)
-#   tROW = 2802 / 24.923 MHz = 112.4 us = 0.1124 ms
-_ROW_TIME_MS = 0.1124
-# Shutter overhead SO = 426 pixel clocks = 0.0171 ms
-_SHUTTER_OVERHEAD_MS = 0.0171
+
+# ---------------------------------------------------------------------------
+# The sensor's timing, as the MT9P031 data sheet states it
+# ---------------------------------------------------------------------------
+# Every time the driver records or publishes is computed here from the
+# registers it writes, so an exposure means the same integration at every
+# window and the simulator's timing is the sensor's, not a copy of it.
+
+# The sensor's EXTCLK: 24 MHz from the main board (the Series 600 image sensor
+# interface spec, "Clock signal (24 MHz) from main to sensor"). The LS620
+# bench agrees: frame periods at three widths and three clock settings land
+# within 0.4% of the data sheet at 24 MHz, and 7.7% off at 12 MHz.
+EXTCLK_HZ = 24_000_000
+
+# The PLL fields connect() writes. The data sheet's divisors are one more than
+# the register fields: f_PIXCLK = f_EXTCLK x M / ((N_divider + 1) x
+# (P1_divider + 1)) = 24 x 27 / (2 x 14) = 23.14 MHz, with the VCO at 324 MHz
+# and f_EXTCLK / N at 12 MHz, both inside their ranges. P1_divider is odd:
+# an even value gives a system clock that is not 50:50.
+_PLL_M = 27
+_PLL_N_DIVIDER = 1
+_PLL_P1_DIVIDER = 13
+
+# Horizontal timing at Row_Bin 0 and Column_Bin 0, with Row_BLC on (the
+# driver's Read Mode 2): HBMIN = 346 x (Row_Bin + 1) + 64 + WDC / 2, WDC = 80
+# dark columns; a row is never shorter than 41 + 346 x (Row_Bin + 1) + 99
+# clocks per half. Horizontal_Blank (R0x05) is never written, so its default
+# 0 gives HB = 1, under HBMIN.
+_HBMIN = 450
+_HALF_ROW_MIN = 486
+_HB = 1
+# Vertical_Blank (R0x06) is never written: its default 25 gives VB = 26 rows.
+_VB = 26
+# Shutter overhead SO = 208 x (Row_Bin + 1) + 98 + min(SD, SDmax) - 94 = 213
+# with Shutter_Delay (R0x0C) at its default 0 (SD = 1); it costs 2 x SO
+# pixel clocks.
+_SHUTTER_OVERHEAD_CLOCKS = 2 * 213
+
+
+def pixel_clock_hz(m: int, n_divider: int, p1_divider: int) -> float:
+    """f_PIXCLK for the PLL register fields, as the data sheet's PLL section gives it."""
+    return EXTCLK_HZ * m / ((n_divider + 1) * (p1_divider + 1))
+
+
+_PIXEL_CLOCK_HZ = pixel_clock_hz(_PLL_M, _PLL_N_DIVIDER, _PLL_P1_DIVIDER)
+
+
+def _output_size(size_register: int) -> int:
+    """The pixels the sensor outputs for a Column_Size or Row_Size (no skip): W or H."""
+    return 2 * -(-(size_register + 1) // 2)
+
+
+def row_time_s(column_size: int) -> float:
+    """tROW for a Column_Size: 2 x tPIXCLK x max(W/2 + max(HB, HBMIN), 486)."""
+    half_row = max(_output_size(column_size) // 2 + max(_HB, _HBMIN), _HALF_ROW_MIN)
+    return 2 * half_row / _PIXEL_CLOCK_HZ
+
+
+def exposure_s(shutter_width: int, column_size: int) -> float:
+    """tEXP = SW x tROW - SO x 2 x tPIXCLK, the integration a shutter width gives."""
+    return (
+        max(1, shutter_width) * row_time_s(column_size) - _SHUTTER_OVERHEAD_CLOCKS / _PIXEL_CLOCK_HZ
+    )
+
+
+def shutter_width_for(exposure_seconds: float, column_size: int) -> int:
+    """The Shutter_Width_Lower whose integration is nearest ``exposure_seconds``."""
+    rows = round(
+        (exposure_seconds + _SHUTTER_OVERHEAD_CLOCKS / _PIXEL_CLOCK_HZ) / row_time_s(column_size)
+    )
+    return max(1, min(MAX_EXPOSURE_ROWS, rows))
+
+
+def frame_time_s(column_size: int, row_size: int, shutter_width: int) -> float:
+    """tFRAME = (H + max(VB, VBMIN)) x tROW, VBMIN = max(8, SW - H) + 1.
+
+    A shutter width past H + 25 rows stretches the frame: the sensor adds
+    blanking rows until the integration fits.
+    """
+    h = _output_size(row_size)
+    vbmin = max(8, shutter_width - h) + 1
+    return (h + max(_VB, vbmin)) * row_time_s(column_size)
 
 
 # ---------------------------------------------------------------------------
@@ -1691,6 +1768,9 @@ class FX2Camera(Camera):
     FRAME_SIZE_MIN = 100
     FRAME_SIZE_STEP = 4
 
+    # A typical microscopy starting point.
+    DEFAULT_EXPOSURE_MS = 50.0
+
     def __init__(self, *, connection: _FX2Connection | None = None, **kwargs):
         # Take the FX2 connection BEFORE super().__init__() -- the Camera
         # base class calls self.connect() at the end of its __init__,
@@ -1708,7 +1788,10 @@ class FX2Camera(Camera):
         self._grab_thread: threading.Thread | None = None
         self._width = IMG_WIDTH
         self._height = IMG_HEIGHT
-        self._exposure_rows = 100
+        # The exposure asked for, kept so every window gets the shutter width
+        # that integrates it; the driver's default until init_camera_config()
+        # applies it, since connect() sets the window first.
+        self._exposure_ms = self.DEFAULT_EXPOSURE_MS
         self._gain_reg = 0x0008  # default = 1.0x = 0 dB
         self._pixel_format = 'Mono8'
 
@@ -1830,20 +1913,19 @@ class FX2Camera(Camera):
         try:
             self.profile.gain.total_min_db = 0.0
             self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
-            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 us
+            # One shutter row at the full window: the shortest exposure
+            # every window the driver allows can give (a narrower window's
+            # row is shorter, so it reaches this to within its own row).
+            self.profile.exposure_min_us = exposure_s(1, self._column_size(IMG_WIDTH)) * 1e6
             # Cap exposure at the legacy LVC 178 ms value (matches what
-            # was known-safe in the original LumaviewClassic UI). The
-            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS x
-            # row_time = 7,366 ms, BUT above the per-frame readout time
-            # (~214 ms at 1900 rows x 0.1124 ms/row) the sensor inserts
-            # vertical blanking rows to extend the frame period, which
-            # changes the bytes/sec rate mid-stream and desyncs the FX2
-            # frame parser. Visible as image corruption when the user
-            # drags the exposure slider above ~200 ms. Raising this
-            # requires fixing the frame parser to handle variable frame
-            # timing OR doing stop-grab / set / start-grab on every
-            # exposure change -- both Stage 3.6+ work, both non-trivial.
-            # Hardware-validated 2026-04-15 on the first LS620 GUI run.
+            # was known-safe in the original LumaviewClassic UI). Once the
+            # shutter width passes H + 25 rows the sensor adds blanking rows
+            # to stretch the frame (frame_time_s): about 233 ms at 1900
+            # wide, but about 84 ms at 1000 and 32 ms at 500, so at narrow
+            # windows exposures inside this cap already stretch the frame.
+            # The cap was hardware-validated 2026-04-15 at 1900 only, on the
+            # first LS620 GUI run, where dragging the exposure slider above
+            # ~200 ms corrupted the image.
             SAFE_EXPOSURE_MAX_MS = 178
             self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
@@ -1889,21 +1971,11 @@ class FX2Camera(Camera):
         fx2.sensor_reg_write(REG_PLL_CTRL, 0x0051)
         time.sleep(0.01)
 
-        # PLL config: M=0x1B=27, N_divider=0x01, P1_divider=0x0D=13.
-        # EXTCLK = 12 MHz -> pixel_clock ~= 24.92 MHz -> ~4.5 fps at 1900x1900.
-        # NOTE on register interpretation: the MT9P031 datasheet formula
-        # says N = N_divider + 1 and P1 = P1_divider + 1, but the
-        # working silicon uses the raw register values directly (M, N,
-        # P1 as written). The VCO constraint (180-360 MHz) only passes
-        # with raw interpretation (12*27/1 = 324 MHz), not with +1
-        # (12*27/2 = 162 MHz). See
-        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.1 for the full
-        # audit. The comment used to say M=27/N=1/P1=13; we keep that
-        # convention but note that it's raw-register math, not
-        # datasheet-formula math.
-        fx2.sensor_reg_write(REG_PLL_CFG1, 0x1B01)
+        # PLL config: the fields the timing model reads (_PIXEL_CLOCK_HZ,
+        # 23.14 MHz from the 24 MHz EXTCLK).
+        fx2.sensor_reg_write(REG_PLL_CFG1, (_PLL_M << 8) | _PLL_N_DIVIDER)
         time.sleep(0.01)
-        fx2.sensor_reg_write(0x12, 0x000D)  # PLL Config 2: P1_divider = 13
+        fx2.sensor_reg_write(REG_PLL_CFG2, _PLL_P1_DIVIDER)
         time.sleep(0.01)
 
         # PLL activate
@@ -2203,6 +2275,13 @@ class FX2Camera(Camera):
         through this method BEFORE the active flag is set, and with no SDK
         to consult, a failing USB register write IS the disconnected signal
         (routed to False by the handler below).
+
+        The row time follows the window's width, so the same shutter width
+        integrates a different time at each window. The shutter width is
+        written again after the window, from the exposure asked for, so the
+        exposure stays the setting at every window, as on every other camera.
+        It takes effect two frames after the window (the data sheet's shutter
+        latency), inside the frames a window change already discards.
         """
         step = self.FRAME_SIZE_STEP
         w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
@@ -2211,7 +2290,7 @@ class FX2Camera(Camera):
         h = (h // step) * step
 
         # Sensor registers want (display + 1) per LVC reference.
-        sensor_w = w + 1
+        sensor_w = self._column_size(w)
         sensor_h = h + 1
         # Center the window on the active pixel area (2592 x 1944 with
         # offsets 16 col / 54 row) and force even alignment.
@@ -2224,12 +2303,15 @@ class FX2Camera(Camera):
             self._fx2.sensor_reg_write(REG_COL_START, col_start)
             self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
             self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+            self._fx2.sensor_reg_write(
+                REG_EXPOSURE, shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
+            )
         except Exception as e:
             # Translate a USB write failure into the base contract's explicit
             # False -- the rejection signal the pylon and IDS set_frame_size
             # already return, which the camera-write authority upstream turns
             # into its keep-prior-cache branch. The window fields mutate only
-            # after all four writes land, so a failed apply never lets
+            # after all five writes land, so a failed apply never lets
             # get_frame_size() report geometry the sensor never took.
             logger.error(
                 '[FX2 Cam   ] set_frame_size(%dx%d) register write failed: %s: %s '
@@ -2298,19 +2380,10 @@ class FX2Camera(Camera):
         return; a request-derived target would not describe any exposure this
         sensor can produce.
 
-        Formula from MT9P031 datasheet DS_F p31:
-            tEXP = SW x tROW - SO x 2 x tPIXCLK
-        Inverted:
-            SW = (tEXP + SO_ms) / tROW_ms
-
-        NOTE on accuracy: ``_ROW_TIME_MS = 0.1124`` assumes EXTCLK=12 MHz.
-        The LVC OPTIMIZATION_ANALYSIS doc measured actual throughput
-        and computed EXTCLK ~= 7.6 MHz instead, which would put the row
-        time at 0.1205 ms (7% higher). Hardware validation passed with
-        0.1124 ms so we keep it, but precise exposure calibration for
-        brightness-matched captures may be +/-7% off. Stage 3.5 bench
-        work can measure row time directly with a pulsed reference
-        LED and a known-duration trigger.
+        The shutter width is the one whose integration at the current
+        window is nearest the request (``shutter_width_for``, from the data
+        sheet's tEXP). The request is kept, so a window change writes the
+        width that integrates it there.
 
         NOTE on effect timing: MT9P031 has a 2-frame pipeline delay
         between writing the shutter width register and seeing the new
@@ -2324,23 +2397,25 @@ class FX2Camera(Camera):
         if not self.is_connected():
             return False
         target_ms = float(exposure_ms)
-        rows = max(
-            1,
-            min(
-                MAX_EXPOSURE_ROWS,
-                round((target_ms + _SHUTTER_OVERHEAD_MS) / _ROW_TIME_MS),
-            ),
-        )
-        self._exposure_rows = rows
+        rows = shutter_width_for(target_ms / 1000.0, self._column_size(self._width))
         if _cam_log is not None:
             _cam_log.info(
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
             )
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        self._exposure_ms = target_ms
         return self.get_exposure_t() * 1000.0
 
-    def get_exposure_t(self):
-        return max(0.0, self._exposure_rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS)
+    def get_exposure_t(self) -> float:
+        """The integration the sensor holds, in ms: the request to within a row."""
+        column_size = self._column_size(self._width)
+        shutter_width = shutter_width_for(self._exposure_ms / 1000.0, column_size)
+        return exposure_s(shutter_width, column_size) * 1000.0
+
+    @staticmethod
+    def _column_size(w: int) -> int:
+        """The Column_Size the driver writes for a ``w``-wide window."""
+        return w + 1
 
     def auto_exposure_t(self, state: bool = True) -> NoReturn:
         raise no_hardware_auto_mode('FX2', 'auto_exposure_t', 'auto-exposure')
@@ -2408,9 +2483,9 @@ class FX2Camera(Camera):
 
     # -- Misc (no-op or trivial) ------------------------------------------
 
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
         """Apply sensible defaults for exposure and gain on startup."""
-        self.exposure_t(50.0)  # 50 ms default -- typical microscopy starting point
+        self.exposure_t(self.DEFAULT_EXPOSURE_MS)
         self.gain(0.0)  # 0 dB = 1x gain
 
     def get_all_temperatures(self) -> dict:

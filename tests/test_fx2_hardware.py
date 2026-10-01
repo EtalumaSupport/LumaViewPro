@@ -32,9 +32,10 @@ import pytest
 # this import succeeds against the conftest mock and the marker below
 # skips the tests at collection time.
 from drivers.fx2driver import (
-    _ROW_TIME_MS,
-    _SHUTTER_OVERHEAD_MS,
     FRAME_DELIM,
+    IMG_WIDTH,
+    REG_EXPOSURE,
+    REG_PLL_CFG2,
     REG_BLC,
     REG_COL_SIZE,
     REG_PLL_CFG1,
@@ -43,6 +44,7 @@ from drivers.fx2driver import (
     REG_ROW_BLACK,
     FX2Camera,
     FX2LEDController,
+    exposure_s,
     frame_layout,
 )
 from lvp_logger import logger
@@ -309,11 +311,11 @@ class TestFX2Characterization(_FX2BenchCase):
 #     pytest tests/test_fx2_hardware.py --run-fx2-hardware --driver-log -k Timing
 # ---------------------------------------------------------------------------
 
-_REG_PLL_CFG2 = 0x12  # P1 divider; the driver writes it as a literal
 _REG_HBLANK = 0x05
 _P1_TODAY = 13
 _LONG_ROWS = 20000  # longer than any window's readout: the frame period is the shutter's
-_LONG_MS = _LONG_ROWS * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS  # the request that lands on 20000 rows
+# The request that lands on 20000 rows at the full window.
+_LONG_MS = exposure_s(_LONG_ROWS, IMG_WIDTH + 1) * 1000
 _STEP_S = 60.0
 # Set from the sweep's result before the follow-on tests run; empty / None skips them.
 # The sweep of 2026-10-01: clean at 13, 12 and 11, nothing framed at 10.
@@ -368,7 +370,7 @@ def _set_p1(camera, p1):
     time.sleep(0.01)
     fx2.sensor_reg_write(REG_PLL_CFG1, 0x1B01)
     time.sleep(0.01)
-    fx2.sensor_reg_write(_REG_PLL_CFG2, p1)
+    fx2.sensor_reg_write(REG_PLL_CFG2, p1)
     time.sleep(0.01)
     fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
     time.sleep(0.2)
@@ -467,6 +469,9 @@ class TestFX2Timing(_FX2BenchCase):
             self.skipTest('no LED current lit the sensor at 20000 rows')
         for w in (1900, 1000, 500):
             self.camera.set_frame_size(w, w)
+            # The driver keeps the exposure across a window, not the rows;
+            # this measures the period at fixed rows, so it writes them.
+            self.camera._fx2.sensor_reg_write(REG_EXPOSURE, _LONG_ROWS)
             self.led.led_on(_BLUE, ma)
             self._settle()
             period, intervals = _frame_period_s(self.camera, 5, timeout_s=20.0)

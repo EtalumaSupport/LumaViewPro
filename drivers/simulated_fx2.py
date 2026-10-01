@@ -4,7 +4,7 @@
 A simulated LS620 or LS560 runs the production ``FX2Camera`` and
 ``FX2LEDController`` over this device, so what an integrator sees is the
 FX2's: the MT9P031's window, exposure and gain as its registers hold them,
-LED commands as the peripheral receives them, frames at the bench's period
+LED commands as the peripheral receives them, frames at the sensor's period
 arriving a transfer at a time as the wire delivers them, and a black field
 unless the peripheral holds a channel lit.
 
@@ -42,12 +42,12 @@ from drivers.fx2driver import (
     VR_I2C_WRITE,
     VR_START_STREAMING,
     VR_STOP_STREAMING,
-    _ROW_TIME_MS,
-    _SHUTTER_OVERHEAD_MS,
     _ByteStream,
     _FX2Connection,
     _register_to_gain_db,
+    exposure_s,
     frame_layout,
+    frame_time_s,
     parse_intel_hex,
 )
 from drivers.simulated_specimen import specimen_frames
@@ -57,15 +57,6 @@ TIMINGS = ('instant', 'realistic')
 # Upload to re-enumeration on the bench: 6.5 s on three launches (an LS620
 # twice, an LS720), macOS, 2026-09-30.
 REENUMERATE_S = 6.5
-
-# The frame period is fitted to the two windows the bench measured (4.5 fps
-# at 1900x1900, 12.0 fps at 1000x1000, LS620 and LS720, macOS, 2026-09-30),
-# as a fixed overhead plus a time per pixel. Both windows are square, so the
-# fit cannot tell width from height; a third window is Stage 3's to measure.
-_BENCH_WINDOWS = ((1900 * 1900, 1 / 4.5), (1000 * 1000, 1 / 12.0))
-(_PIXELS_A, _PERIOD_A), (_PIXELS_B, _PERIOD_B) = _BENCH_WINDOWS
-_SECONDS_PER_PIXEL = (_PERIOD_A - _PERIOD_B) / (_PIXELS_A - _PIXELS_B)
-_FRAME_OVERHEAD_S = _PERIOD_B - _SECONDS_PER_PIXEL * _PIXELS_B
 
 # The exposure at which the specimen field renders at its own grey levels
 # with unity gain: the driver's default, so a simulated FX2 at its defaults
@@ -88,23 +79,14 @@ _LED_PREAMBLE = 0xFF
 _LED_CHANNELS = (ord('A'), ord('B'), ord('C'), ord('D'))
 
 
-def frame_period_s(w: int, h: int, exposure_s: float) -> float:
-    """The time between frames for a ``w`` x ``h`` window.
-
-    Never shorter than the exposure: the sensor stretches the frame to fit it
-    (the sensor's documented behaviour, not measured on the FX2).
-    """
-    return max(_FRAME_OVERHEAD_S + _SECONDS_PER_PIXEL * w * h, exposure_s)
-
-
-def bytes_per_transfer(w: int, h: int, exposure_s: float) -> float:
+def bytes_per_transfer(w: int, h: int, frame_period_s: float) -> float:
     """The bytes one transfer carries, frames back to back.
 
     The stream is continuous: one frame's bytes fill one frame period, and
     the next frame's delimiter follows its last row.
     """
     frame_bytes = len(FRAME_DELIM) + frame_layout(w, h).frame_bytes
-    return frame_bytes / frame_period_s(w, h, exposure_s) * TRANSFER_S
+    return frame_bytes / frame_period_s * TRANSFER_S
 
 
 class _Mt9p031:
@@ -132,8 +114,16 @@ class _Mt9p031:
         return self.registers[REG_COL_SIZE] - 1, self.registers[REG_ROW_SIZE] - 1
 
     def exposure_s(self) -> float:
-        rows = self.registers[REG_EXPOSURE]
-        return max(0.0, rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS) / 1000.0
+        """The integration the shutter width gives at the window's row time."""
+        return exposure_s(self.registers[REG_EXPOSURE], self.registers[REG_COL_SIZE])
+
+    def frame_period_s(self) -> float:
+        """The sensor's frame time for the window and shutter width it holds."""
+        return frame_time_s(
+            self.registers[REG_COL_SIZE],
+            self.registers[REG_ROW_SIZE],
+            self.registers[REG_EXPOSURE],
+        )
 
     def gain(self) -> float:
         """The linear gain the register encodes."""
@@ -353,7 +343,7 @@ class SimulatedFX2Device:
             if sink is None:
                 return
             w, h = self.sensor.window()
-            owed += bytes_per_transfer(w, h, self.sensor.exposure_s())
+            owed += bytes_per_transfer(w, h, self.sensor.frame_period_s())
             n = int(owed)
             owed -= n
             while len(self._pending) < n:

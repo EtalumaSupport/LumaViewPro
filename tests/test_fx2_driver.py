@@ -271,24 +271,22 @@ class TestGainMath:
 
 
 class TestExposureMath:
-    """Exposure formula: rows = (target_ms + SO_ms) / tROW_ms."""
+    """Exposure formula: SW = (tEXP + SO x 2 x tPIXCLK) / tROW, at the window's row."""
 
     def test_50ms_round_trip_within_one_row(self):
-        target = 50.0
-        rows = round((target + fx2driver._SHUTTER_OVERHEAD_MS) / fx2driver._ROW_TIME_MS)
-        back = rows * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
-        assert abs(back - target) < fx2driver._ROW_TIME_MS, (
-            f'50ms -> {rows} rows -> {back}ms (should be within 1 row of target)'
+        column_size = fx2driver.IMG_WIDTH + 1
+        rows = fx2driver.shutter_width_for(0.050, column_size)
+        back = fx2driver.exposure_s(rows, column_size)
+        assert abs(back - 0.050) < fx2driver.row_time_s(column_size), (
+            f'50ms -> {rows} rows -> {back * 1000}ms (should be within 1 row of target)'
         )
 
     def test_max_rows_is_max_exposure(self):
         assert fx2driver.MAX_EXPOSURE_ROWS == 65535
 
-    def test_max_exposure_near_7_4_seconds(self):
-        max_ms = (
-            fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
-        )
-        assert 7300.0 < max_ms < 7400.0
+    def test_the_shutter_width_lower_ceiling_is_the_data_sheets_at_the_full_window(self):
+        max_ms = fx2driver.exposure_s(fx2driver.MAX_EXPOSURE_ROWS, fx2driver.IMG_WIDTH + 1) * 1000
+        assert max_ms == pytest.approx(7934.6, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -641,17 +639,6 @@ class TestCameraProfileRegistration:
         assert profile.pixel_formats == ['Mono8']
         assert profile.has_auto_gain is False
         assert profile.has_auto_exposure is False
-
-    def test_max_exposure_matches_driver_constants(self):
-        """The profile's static exposure_max_us default should match the
-        sensor-register ceiling: MAX_EXPOSURE_ROWS x _ROW_TIME_MS.
-        (The driver narrows this to 178 ms at connect time -- see
-        FX2Camera._query_dynamic_capabilities.)
-        """
-        profile = lookup_profile('MT9P031-LS620')
-        driver_max_us = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS * 1000
-        # Allow 10,000 us (10 ms) tolerance for rounding
-        assert abs(profile.exposure_max_us - driver_max_us) <= 10_000
 
 
 # ---------------------------------------------------------------------------

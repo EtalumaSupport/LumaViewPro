@@ -279,9 +279,11 @@ _simulated = CameraProfile(
 
 # Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
 # Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
-# window. Gain is hardcoded by driver math (0-42.1 dB). Max exposure is
-# MAX_EXPOSURE_ROWS (65535) x _ROW_TIME_MS (0.1124) = 7366 ms.
-# See drivers/fx2driver.py + LumaviewClassic/docs/DATASHEET_VERIFICATION.md.
+# window. Gain is hardcoded by driver math (0-42.1 dB). The static max
+# exposure below is 65535 rows at a 0.1124 ms row, a clock model the sensor
+# does not follow (the data sheet gives 7934.6 ms at the full window); the
+# driver replaces it with its own cap at every connect. The sensor's timing
+# is drivers/fx2driver.py's (row_time_s, exposure_s, frame_time_s).
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
     sensor='Aptina MT9P031',
@@ -289,8 +291,7 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,  # 65535 rows x 0.1124 ms/row x 1000 us/ms
-    # Driver narrows to 178 ms at connect.
+    exposure_max_us=7_366_000,  # replaced by the driver's cap at connect (see above)
     binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
