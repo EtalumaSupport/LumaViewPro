@@ -546,7 +546,9 @@ class ProtocolPostProcessor(abc.ABC):
                         if kwargs.get('stitching_mode') == 'fast_preview'
                         else 'Quality'
                     )
-                    remaining = max(0, group_count - current_group)
+                    # current_group already names the group now starting, which
+                    # has yet to run: it is one of the groups the estimate covers.
+                    remaining = max(0, group_count - current_group + 1)
                     average_ms = sum(completed_group_ms) / len(completed_group_ms)
                     estimate_seconds = round((remaining * average_ms) / 1000.0)
                     status = (
