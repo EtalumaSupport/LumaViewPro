@@ -483,6 +483,10 @@ class DiagnosticsAPI:
         # point. The log folder is the support-bundle root, so a benchmark run
         # travels with the logs; writing under the source tree instead both
         # polluted the checkout and left the data point out of the bundle.
+        # Two runs with the same model, SDK and delay inside one second used
+        # to share a name and the later one overwrote the earlier: the stamp
+        # carries microseconds, and the file is created exclusively so a name
+        # that is somehow taken is an error here, never an overwrite.
         try:
             import json
 
@@ -490,14 +494,14 @@ class DiagnosticsAPI:
             sdk = results['pylon_version'] or 'unknown_sdk'
             safe_model = str(model).replace(' ', '_').replace('/', '_')
             safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             timing_dir = pathlib.Path(log_dir) / 'camera_timing'
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
                 f'delay{int(inter_cycle_delay_ms)}ms_{ts}.json'
             )
-            with open(out_path, 'w') as f:
+            with open(out_path, 'x') as f:
                 json.dump(results, f, indent=2)
             results['written_to'] = str(out_path)
         except Exception as e:
@@ -673,11 +677,14 @@ class DiagnosticsAPI:
             serial_t = _safe_token(snapshot.get('camera', {}).get('serial'), 'unknown_serial')
             fw_t = _safe_token(snapshot.get('firmware_version'), 'unknown_fw')
             host_t = _safe_token(snapshot['host']['hostname'], 'unknown_host').replace('.', '_')
-            ts_t = now_utc.strftime('%Y%m%dT%H%M%SZ')
+            # Microseconds, and an exclusive create: two probes of one camera
+            # inside one second would otherwise share a name, and the later
+            # would overwrite the earlier.
+            ts_t = now_utc.strftime('%Y%m%dT%H%M%S%fZ')
 
             fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
             out_path = out_dir / fname
-            with open(out_path, 'w') as f:
+            with open(out_path, 'x') as f:
                 json.dump(snapshot, f, indent=2, default=str)
             snapshot['output_path'] = str(out_path)
         except Exception as e:
