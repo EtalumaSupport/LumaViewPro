@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import ast
+import contextlib
 import datetime
 import enum
 import functools
 import json
 import pathlib
 import re
+import struct
 from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
@@ -429,8 +431,36 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
     stored values were left-justified to fill the container, for which
     container-width scaling is the correct interpretation.
     """
-    with tf.TiffFile(str(path)) as tif:
+    with _open_saved_tiff(path) as tif:
         return _significant_bits_from_open(tif)
+
+
+@contextlib.contextmanager
+def _open_saved_tiff(path: pathlib.Path):
+    """Open a saved TIFF whose first page can be decoded, or raise ValueError.
+
+    A file read while it is still being written, or a damaged one, fails inside
+    tifffile with whatever its parser hit first: a short header raises
+    struct.error, a header with no page yet IndexError, and a page whose header
+    tifffile has reserved but not yet filled in has no pixel type at all. The
+    readers promise ValueError for an undecodable file, which is what their
+    callers catch to skip it, so every such state is raised as that, naming the
+    file, with tifffile's own error chained.
+    """
+    try:
+        tif = tf.TiffFile(str(path))
+    except struct.error as ex:
+        raise ValueError(f'Could not decode image: {path}') from ex
+    except ValueError as ex:
+        raise ValueError(f'Could not decode image: {path}: {ex}') from ex
+    with tif:
+        try:
+            page = tif.pages[0]
+        except IndexError as ex:
+            raise ValueError(f'Could not decode image: {path}: it has no page') from ex
+        if page.dtype is None:
+            raise ValueError(f'Could not decode image: {path}: its first page has no pixel type')
+        yield tif
 
 
 def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
@@ -555,8 +585,13 @@ def _load_pixels_and_timestamp(
         # second open just for the depth tag -- or the timestamp -- would double
         # the file opens and IFD parses of every post-processing or video run.
         timestamp = None
-        with tf.TiffFile(str(path)) as tif:
-            image = tif.asarray()
+        with _open_saved_tiff(path) as tif:
+            try:
+                image = tif.asarray()
+            except RuntimeError as ex:
+                # The compression codecs (deflate, LZW) raise their own
+                # RuntimeError subclasses on pixel data cut short.
+                raise ValueError(f'Could not decode image: {path}: {ex}') from ex
             sig = _significant_bits_from_open(tif)
             if read_timestamp:
                 try:
@@ -613,12 +648,13 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
 
     Raises:
         FileNotFoundError: the path does not exist.
+        ValueError: the file cannot be decoded as an image.
     """
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
     if is_tiff(path):
-        with tf.TiffFile(str(path)) as tif:
+        with _open_saved_tiff(path) as tif:
             page = tif.pages[0]
             return tuple(page.shape), page.dtype
     image, _ = load_pixels(path, collapse_legacy_false_color=False)
@@ -977,7 +1013,7 @@ def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.da
     is None when the file carries no readable capture time (both helpers
     resolve absent / unparseable metadata to None by contract).
     """
-    with tf.TiffFile(str(path)) as tif:
+    with _open_saved_tiff(path) as tif:
         sig = _significant_bits_from_open(tif)
         timestamp = _timestamp_from_structured(_structured_metadata(tif))
     return sig, timestamp
