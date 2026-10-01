@@ -65,6 +65,13 @@ uniform vec4       color;
 """
 
 
+def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: bool) -> str:
+    """The window title's frame-rate part: tenths in engineering mode, whole
+    numbers otherwise."""
+    digits = 1 if engineering else 0
+    return f'Capture: {capture_fps:.{digits}f} | Display: {display_fps:.{digits}f} FPS'
+
+
 # ============================================================================
 # ShaderViewer -- GPU Shader-Based Image Display with Pan/Zoom
 # ============================================================================
@@ -286,7 +293,9 @@ void main (void) {
         if scope_display:
             capture_fps = scope_display._capture_fps_value
             display_fps = scope_display._display_fps_value
-            title = f'LumaViewPro {ctx.version} -- Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
+            title = f'LumaViewPro {ctx.version} -- ' + frame_rate_title(
+                capture_fps, display_fps, engineering=ctx.engineering_mode
+            )
             if ctx.engineering_mode:
                 mbps = scope_display._camera_mbps
                 title += f' | Camera: {mbps:.1f} MB/s'
