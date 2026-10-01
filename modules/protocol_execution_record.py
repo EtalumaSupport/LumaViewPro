@@ -7,6 +7,7 @@ import pathlib
 import pandas as pd
 
 from lvp_logger import logger
+from modules.exceptions import RecordIncompleteError
 
 
 class ProtocolExecutionRecord:
@@ -101,32 +102,25 @@ class ProtocolExecutionRecord:
         self._capture_attempts += 1
 
     def complete(self) -> None:
-        """Finalize the record, warning the user if fewer rows were written
-        than captures attempted.
+        """Finalize the record.
 
         Reconciled on every ending: a run writes every image it captured
         however it ends, so a shortfall is always a fault.
+
+        Raises:
+            RecordIncompleteError: fewer rows were written than captures
+                attempted. Raised to the run's files completion, whose
+                reporter tells the person once.
         """
+        self._close_outfile()
         if self._mode == 'to_file':
             missing = self._capture_attempts - self._rows_written
             if missing > 0:
-                logger.error(
-                    f'ProtocolExecutionRecord: {missing} of '
-                    f'{self._capture_attempts} attempted captures left no row '
-                    f'in {self._outfile.name} -- those images are absent from '
-                    'the record and will be skipped by post-processing.'
+                raise RecordIncompleteError(
+                    missing=missing,
+                    attempted=self._capture_attempts,
+                    record_name=self._outfile.name,
                 )
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Protocol',
-                    'Protocol Record Incomplete',
-                    f'{missing} of {self._capture_attempts} captures were not '
-                    'written to the protocol record. Those images, if saved, '
-                    'will be missing from stitching and video builds. Check '
-                    'the log for the cause.',
-                )
-        self._close_outfile()
 
     def _close_outfile(self):
         # Execution record is written in append mode; nothing to close

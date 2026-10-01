@@ -812,6 +812,54 @@ class RunImagesNotSavedError(CaptureError):
         self.not_written = not_written
 
 
+class RunCleanupFailedError(CaptureError):
+    """Steps that put the scope back after a run did not finish.
+
+    The run's own ending stands; what failed is the restore after it, so
+    the LEDs, the camera's gain and exposure or the stage may not be where
+    the person expects. The run's outcome names the steps too.
+
+    Attributes:
+        steps: Each failed step's name, in the order they failed.
+    """
+
+    title = 'Protocol cleanup issues'
+
+    def __init__(self, failures: list[tuple[str, str]]):
+        lines = '\n'.join(f'  - {step}: {detail}' for step, detail in failures)
+        # "ended", not "completed": a stopped or failed run is cleaned up too.
+        super().__init__(
+            f'Protocol ended but {len(failures)} cleanup step(s) failed:\n{lines}\n'
+            'Check LED state, camera settings, and stage position.',
+            'cleanup_failed',
+        )
+        self.steps = [step for step, _ in failures]
+
+
+class RecordIncompleteError(CaptureError):
+    """Captures a run made are missing from its execution record.
+
+    Post-processing reads the record to find a run's images, so an image
+    with no row is skipped by stitching and video builds.
+
+    Attributes:
+        missing: Captures with no row.
+        attempted: Captures the run attempted.
+    """
+
+    title = 'Protocol Record Incomplete'
+
+    def __init__(self, *, missing: int, attempted: int, record_name: str):
+        super().__init__(
+            f'{missing} of {attempted} captures were not written to the protocol '
+            f'record ({record_name}). Those images, if saved, will be missing from '
+            'stitching and video builds. Check the log for the cause.',
+            'record_incomplete',
+        )
+        self.missing = missing
+        self.attempted = attempted
+
+
 class DiskSpaceCriticalError(CaptureError):
     """An image was not saved because the save drive is nearly full.
 

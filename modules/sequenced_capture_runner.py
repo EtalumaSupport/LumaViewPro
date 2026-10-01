@@ -2173,6 +2173,7 @@ class SequencedCaptureRunner:
                 run_complete=run_complete,
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
+                record_cleanup_failures=run.record_cleanup_failures,
             )
             self._start_hyperstack_build()
         finally:

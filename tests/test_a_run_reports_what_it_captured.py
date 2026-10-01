@@ -301,3 +301,29 @@ class TestTheFileCountCountsImages:
         assert outcomes == ['incomplete']
         assert (batch.written, batch.not_written) == (0, 1)
         assert batch.not_written_reason == 'write_batch_video_unfinished'
+
+
+class TestARunWhoseCleanupFailedSaysWhich:
+    def test_the_outcome_names_the_step_and_the_person_is_told_once(self, tmp_path):
+        # A REST caller waiting on the run was told 'completed' while the
+        # scope was not put back; only the GUI's popup said so.
+        from modules.exceptions import RunCleanupFailedError
+
+        with (
+            _reports_of(RunCleanupFailedError) as reported,
+            open_composite_session(headless_settings(tmp_path)) as (session, runner),
+        ):
+
+            def unreachable(snapshot):
+                raise RuntimeError('the camera lane is gone')
+
+            session.scope.imaging.restore_camera_state = unreachable
+            outcome = _run(runner, tmp_path / 'runs', _two_steps())
+        assert outcome.status == 'completed', outcome
+        assert outcome.cleanup_failures == ('Restore camera gain/exposure',), outcome
+        assert len(reported) == 1, reported
+
+    def test_a_clean_cleanup_names_none(self, tmp_path):
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            outcome = _run(runner, tmp_path / 'runs', _two_steps())
+        assert outcome.cleanup_failures == (), outcome

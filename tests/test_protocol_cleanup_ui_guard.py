@@ -59,18 +59,25 @@ def test_a_raising_cleanup_callback_does_not_reach_the_event_loop(immediate_gui_
     protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
 
 
-def test_a_raising_cleanup_callback_is_logged_with_its_step_name(immediate_gui_dispatcher):
+def test_a_raising_cleanup_callback_is_logged_with_its_step_name(
+    immediate_gui_dispatcher, monkeypatch
+):
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda ex, *a, **k: reported.append(ex))
     protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
 
-    assert logger.exception.called, (
-        'a cleanup callback that raised produced no log record; silent '
+    # The one reporter logs a fault once, with its traceback.
+    assert len(reported) == 1, (
+        'a cleanup callback that raised produced no report; silent '
         'swallowing is the failure mode this guard must not introduce'
     )
-    logged = ' '.join(str(call) for call in logger.exception.call_args_list)
-    assert 'Sync layer panel' in logged, (
-        'the log must name WHICH cleanup step failed -- a bare traceback '
+    assert 'Sync layer panel' in str(reported[0]), (
+        'the report must name WHICH cleanup step failed -- a bare traceback '
         'from a deferred callback gives the reader no run context'
     )
+    assert isinstance(reported[0].__cause__, RuntimeError), "the traceback is the callback's"
 
 
 def test_a_healthy_cleanup_callback_still_runs(immediate_gui_dispatcher):
@@ -103,12 +110,12 @@ def test_a_failure_before_the_summary_is_collected_not_self_reported(immediate_g
     separately here would drop the summary's count and split one run's
     story across two messages.
     """
-    errors: list[str] = []
+    errors: list[tuple[str, str]] = []
     not_sent = threading.Event()
 
     protocol_cleanup._schedule_cleanup_ui(_boom, 'Restore layer shader', errors, not_sent)
 
     assert len(errors) == 1, f'the failure must be collected for the summary; got {errors}'
-    assert errors[0].startswith('Restore layer shader: RuntimeError'), (
-        f'collected wording must match the surrounding except blocks; got {errors[0]!r}'
+    assert errors[0][0] == 'Restore layer shader' and errors[0][1].startswith('RuntimeError'), (
+        f'collected shape must match the surrounding except blocks; got {errors[0]!r}'
     )

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+from modules.exceptions import RunCleanupFailedError
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
@@ -43,7 +44,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 def _schedule_cleanup_ui(
     func,
     step_label: str,
-    cleanup_errors: list[str],
+    cleanup_errors: list[tuple[str, str]],
     summary_sent: threading.Event,
 ) -> None:
     """Schedule a cleanup UI callback that must not take the app down.
@@ -81,27 +82,21 @@ def _schedule_cleanup_ui(
         try:
             return func(dt)
         except Exception as ex:
-            # The exception detail belongs in the log that ships with a
-            # bundle. The popup speaks to a researcher, who can act on
-            # "check the stage position" and not on a traceback.
-            logger.exception(f'[PROTOCOL] {step_label} failed after the run')
             if not summary_sent.is_set():
-                cleanup_errors.append(f'{step_label}: {type(ex).__name__}: {ex}')
+                # The summary carries the step and its message; the
+                # traceback belongs in the log that ships with a bundle.
+                logger.exception(f'[PROTOCOL] {step_label} failed after the run')
+                cleanup_errors.append((step_label, f'{type(ex).__name__}: {ex}'))
                 return
-            try:
-                from modules.notification_center import notifications
+            from modules.notification_center import notifications
 
-                notifications.warning(
-                    'Protocol',
-                    'Protocol cleanup issues',
-                    # Says nothing of the images: this runs for any step
-                    # after the run, whether or not its files were all
-                    # written, and the files are told on their own.
-                    f'One step after the run did not finish: {step_label}.\n'
-                    'Check LED state, camera settings, and stage position.',
-                )
-            except Exception as notify_ex:
-                logger.error(f'[PROTOCOL] Failed to surface cleanup-callback error: {notify_ex}')
+            # Says nothing of the images: this runs for any step after the
+            # run, whether or not its files were all written, and the files
+            # are told on their own. Chained, so the one report logs the
+            # traceback.
+            failed = RunCleanupFailedError([(step_label, f'{type(ex).__name__}: {ex}')])
+            failed.__cause__ = ex
+            notifications.report_outcome(failed, solicited=False, category='Protocol')
 
     _schedule_ui(_guarded, 0)
 
@@ -139,7 +134,7 @@ class RunCompleteNotice:
 
     def send(
         self,
-        cleanup_errors: list[str] | None = None,
+        cleanup_errors: list[tuple[str, str]] | None = None,
         summary_sent: threading.Event | None = None,
     ) -> None:
         """Schedule ``run_complete`` unless it was already; later calls do nothing.
@@ -238,6 +233,9 @@ def run_cleanup(
     logger_name: str = 'SequencedCaptureRunner',
     # How the run ended, and why.
     ending: RunEnding,
+    # Where the run's outcome takes the names of the steps that failed to
+    # put the scope back; called once, with none when every step finished.
+    record_cleanup_failures: Callable[[tuple[str, ...]], None],
 ) -> bool:
     """Core cleanup logic -- restores state, sends run_complete, ends executors.
 
@@ -268,7 +266,7 @@ def run_cleanup(
     # the next step (fault tolerance -- all six must run regardless of
     # any one failing); total silence at the end was the bug. One
     # summary popup, not six.
-    cleanup_errors: list[str] = []
+    cleanup_errors: list[tuple[str, str]] = []
     # Flipped once the summary below has gone out. A guarded UI callback
     # that fails before this is collected into the summary like every
     # other step; one that fails after it has to report itself.
@@ -277,8 +275,7 @@ def run_cleanup(
     try:
         cancel_scheduled_events_fn()
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}')
-        cleanup_errors.append(f'Cancel scheduled events: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Cancel scheduled events', f'{type(ex).__name__}: {ex}'))
 
     # --- Unwind any in-flight autofocus BEFORE restoring LEDs ---
     # The AF worker lights its own channel during setup and restores
@@ -373,8 +370,7 @@ def run_cleanup(
                 f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
             )
         except Exception as ex:
-            logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
-            cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
+            cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
     logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
     # --- Restore layer shader / false-color (UI side) ---
@@ -396,8 +392,7 @@ def run_cleanup(
                 summary_sent,
             )
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring layer shader during cleanup: {ex}')
-        cleanup_errors.append(f'Restore layer shader: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Restore layer shader', f'{type(ex).__name__}: {ex}'))
 
     # --- Restore autofocus states ---
     # Empty states (the common case when no AF was active for this scan)
@@ -414,8 +409,7 @@ def run_cleanup(
             for layer, layer_data in autofocus_snapshot.states.items():
                 autofocus_snapshot.restore(layer=layer, value=layer_data)
         except Exception as ex:
-            logger.error(f'[PROTOCOL] Error restoring autofocus states during cleanup: {ex}')
-            cleanup_errors.append(f'Restore autofocus states: {type(ex).__name__}: {ex}')
+            cleanup_errors.append(('Restore autofocus states', f'{type(ex).__name__}: {ex}'))
 
     # --- Put the layer panel back on the settings ---
     # The run displayed each step in the panel without writing the user's
@@ -431,8 +425,7 @@ def run_cleanup(
                 summary_sent,
             )
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error scheduling the layer panel sync during cleanup: {ex}')
-        cleanup_errors.append(f'Sync layer panel: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Sync layer panel', f'{type(ex).__name__}: {ex}'))
 
     # --- Restore camera gain and exposure ---
     # Before the return moves and the executors' end: live preview after the
@@ -446,8 +439,7 @@ def run_cleanup(
             logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
             scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
-        cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
 
     # --- Return to position ---
     try:
@@ -470,8 +462,7 @@ def run_cleanup(
             'overlapping run/abort cycle'
         )
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error returning to position during cleanup: {ex}')
-        cleanup_errors.append(f'Return to position: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Return to position', f'{type(ex).__name__}: {ex}'))
 
     # --- End executors ---
     scan_in_progress.clear()
@@ -508,25 +499,15 @@ def run_cleanup(
     # tolerance ran each step regardless; the user needs to know LED
     # state, camera settings, or stage position may not be what they
     # expect.
+    # The run's outcome names the steps, so a caller waiting on the run
+    # learns the scope was not put back; the person is told once, here.
+    record_cleanup_failures(tuple(step for step, _ in cleanup_errors))
     if cleanup_errors:
-        try:
-            from modules.notification_center import notifications
+        from modules.notification_center import notifications
 
-            err_summary = '\n'.join(f'  - {e}' for e in cleanup_errors)
-            # "ended", not "completed": this summary also fires on aborted
-            # runs, and claiming completion on an abort misleads the
-            # post-mortem reader.
-            notifications.warning(
-                'Protocol',
-                'Protocol cleanup issues',
-                f'Protocol ended but {len(cleanup_errors)} cleanup step(s) failed:\n'
-                f'{err_summary}\n'
-                f'Check LED state, camera settings, and stage position.',
-            )
-        except Exception as ex:
-            # Best-effort -- a notification failure during cleanup must
-            # not prevent the completion callbacks from firing.
-            logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
+        notifications.report_outcome(
+            RunCleanupFailedError(cleanup_errors), solicited=False, category='Protocol'
+        )
 
     # The one summary has now gone out (or there was nothing to say). Any
     # guarded UI callback that fails from here on has missed it and must

@@ -25,6 +25,7 @@ import threading
 from unittest.mock import MagicMock
 
 from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
+from modules.exceptions import RecordIncompleteError
 from modules.notification_center import notifications
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -124,8 +125,10 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
     )
 
     warnings = []
-    monkeypatch.setattr(notifications, 'warning', lambda *a, **k: warnings.append(a))
-    record.complete()
+    try:
+        record.complete()
+    except RecordIncompleteError as shortfall:
+        warnings.append(shortfall)
     assert len(warnings) == 1, (
         'complete() must stay un-latched: it does no filesystem I/O and its '
         'reconcile warning is the only surviving report of the lost row'
@@ -169,6 +172,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         write_batch=RunWriteBatch(_FakeExecutor()),
         run_complete=RunCompleteNotice(callbacks, protocol=None, ending=ending, run_dir=None),
         ending=ending,
+        record_cleanup_failures=lambda steps: None,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1

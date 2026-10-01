@@ -85,7 +85,11 @@ def test_a_callback_that_fails_after_the_run_does_not_say_the_images_were_saved(
     import threading
 
     shown = []
-    monkeypatch.setattr(notifications, 'warning', lambda *a, **k: shown.append(a))
+    monkeypatch.setattr(
+        notifications,
+        'report_outcome',
+        lambda ex, *a, **k: shown.append(('Protocol', ex.title, str(ex))),
+    )
     monkeypatch.setattr(protocol_cleanup, '_schedule_ui', lambda fn, *a, **k: fn(0))
     summary_sent = threading.Event()
     summary_sent.set()

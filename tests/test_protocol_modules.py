@@ -448,6 +448,7 @@ class TestRunCleanup:
                 callbacks, protocol=None, ending=ending, run_dir=None
             ),
             'ending': ending,
+            'record_cleanup_failures': lambda steps: None,
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a
@@ -844,10 +845,10 @@ class TestRunCleanupCancelledHandoff:
         args, _ = self._args(apply_led_transition_fn=broken_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
-            mock_notif.warning.assert_called_once()
+            mock_notif.report_outcome.assert_called_once()
             # Aborted runs get this summary too; the wording must not
             # claim completion.
-            assert 'completed' not in mock_notif.warning.call_args[0][2]
+            assert 'completed' not in str(mock_notif.report_outcome.call_args[0][0])
 
 
 class TestFinalStepKeepsLedWhenCleanupRestoresIt:
@@ -962,11 +963,17 @@ class TestProtocolRecordReconciliation:
         )
 
     def _capture_warnings(self, monkeypatch):
-        from modules.notification_center import notifications
+        # The shortfall is raised to the run's files completion, whose
+        # reporter tells the person; _complete collects what was raised.
+        return []
 
-        fired = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append((a, k)))
-        return fired
+    def _complete(self, rec, fired):
+        from modules.exceptions import RecordIncompleteError
+
+        try:
+            rec.complete()
+        except RecordIncompleteError as shortfall:
+            fired.append(((shortfall.title, str(shortfall)), {}))
 
     def test_shortfall_fires_one_warning(self, tmp_path, monkeypatch):
         fired = self._capture_warnings(monkeypatch)
@@ -977,7 +984,7 @@ class TestProtocolRecordReconciliation:
         rec.note_capture_attempt()
         self._add_row(rec, 'a')
         self._add_row(rec, 'b')
-        rec.complete()
+        self._complete(rec, fired)
         assert len(fired) == 1, 'a record shortfall must fire exactly one warning'
         # The body names the gap count so the L1 reader knows the magnitude.
         body = ' '.join(str(x) for x in fired[0][0])
@@ -990,7 +997,7 @@ class TestProtocolRecordReconciliation:
         rec.note_capture_attempt()
         self._add_row(rec, 'a')
         self._add_row(rec, 'b')
-        rec.complete()
+        self._complete(rec, fired)
         assert fired == [], 'attempts == rows recorded -> no warning'
 
     def test_failed_row_write_is_a_shortfall(self, tmp_path, monkeypatch):
@@ -1003,7 +1010,7 @@ class TestProtocolRecordReconciliation:
         self._add_row(rec, 'a')
         monkeypatch.setattr(rec, '_outfile', tmp_path / 'nonexistent_dir' / 'record.tsv')
         self._add_row(rec, 'b')  # write raises inside add_step, swallowed + logged
-        rec.complete()
+        self._complete(rec, fired)
         assert len(fired) == 1, 'a failed row write must register as a shortfall'
 
     def test_an_aborted_run_is_reconciled_too(self, tmp_path, monkeypatch):
@@ -1016,5 +1023,5 @@ class TestProtocolRecordReconciliation:
         rec.note_capture_attempt()
         rec.note_capture_attempt()
         self._add_row(rec, 'a')
-        rec.complete()
+        self._complete(rec, fired)
         assert len(fired) == 1, 'an aborted run with a gap must warn like any other run'

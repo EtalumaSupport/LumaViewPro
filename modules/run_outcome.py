@@ -163,8 +163,9 @@ class RunOutcome:
 
     The first four fields are the run's ENDING, copied from the
     RunEnding whatever ended the run recorded; the next three describe
-    the merge, the next two the autofocus characterization data, and
-    the last what the run captured. A non-composite run carries merged=False and an empty
+    the merge, the next two the autofocus characterization data, then
+    what the run captured, and last which steps putting the scope back
+    after it did not finish. A non-composite run carries merged=False and an empty
     merge_reason under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
@@ -204,6 +205,11 @@ class RunOutcome:
         captures: What the run captured of what it was asked for. None
             only for a run settled before its cleanup counted -- a run
             torn down by a shutdown before it ended.
+        cleanup_failures: The steps putting the scope back after the run
+            that did not finish ('Restore LED states', 'Return to
+            position', ...); empty when every one did, so the LEDs,
+            camera settings and stage are as the run found them. None
+            only for a run settled before its cleanup ran.
     """
 
     status: str
@@ -217,6 +223,7 @@ class RunOutcome:
     af_data_path: str | None
     af_focus_z_um: float | None
     captures: CaptureTally | None
+    cleanup_failures: tuple[str, ...] | None
 
     @classmethod
     def from_ending(
@@ -227,6 +234,7 @@ class RunOutcome:
         artifact_path: str | None,
         merge_reason: str,
         captures: CaptureTally | None,
+        cleanup_failures: tuple[str, ...] | None,
         af_data_path: str | None = None,
         af_focus_z_um: float | None = None,
     ) -> RunOutcome:
@@ -254,6 +262,7 @@ class RunOutcome:
             af_data_path=af_data_path,
             af_focus_z_um=af_focus_z_um,
             captures=captures,
+            cleanup_failures=cleanup_failures,
         )
 
 
@@ -274,6 +283,7 @@ class PendingRunOutcome:
         self._af_data_path: str | None = None
         self._af_focus_z_um: float | None = None
         self._captures: CaptureTally | None = None
+        self._cleanup_failures: tuple[str, ...] | None = None
         self._settled = threading.Event()
 
     @property
@@ -321,6 +331,15 @@ class PendingRunOutcome:
         with self._lock:
             self._captures = tally
 
+    def record_cleanup_failures(self, steps: tuple[str, ...]) -> None:
+        """Record which steps putting the scope back did not finish.
+
+        Held here for the reason the captures are; recorded by cleanup
+        before the outcome settles, empty when every step finished.
+        """
+        with self._lock:
+            self._cleanup_failures = steps
+
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
 
@@ -359,6 +378,7 @@ class PendingRunOutcome:
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
+                cleanup_failures=self._cleanup_failures,
             )
             self._settled.set()
             return True
@@ -392,6 +412,7 @@ class PendingRunOutcome:
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
+                cleanup_failures=self._cleanup_failures,
             )
             self._settled.set()
             return True
@@ -425,6 +446,7 @@ class PendingRunOutcome:
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
+                cleanup_failures=self._cleanup_failures,
             )
             self._settled.set()
             return True

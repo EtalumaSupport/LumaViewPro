@@ -304,6 +304,7 @@ class TestTheTwoFieldsCannotDisagree:
             artifact_path=None,
             merge_reason='',
             captures=None,
+            cleanup_failures=None,
             af_data_path='/tmp/a.csv',
         )
         assert outcome.af_data_saved is True
@@ -311,7 +312,12 @@ class TestTheTwoFieldsCannotDisagree:
 
     def test_no_path_makes_it_unsaved(self):
         outcome = RunOutcome.from_ending(
-            _ending(), merged=False, artifact_path=None, merge_reason='', captures=None
+            _ending(),
+            merged=False,
+            artifact_path=None,
+            merge_reason='',
+            captures=None,
+            cleanup_failures=None,
         )
         assert outcome.af_data_saved is False
         assert outcome.af_data_path is None

@@ -1717,6 +1717,7 @@ def _run_cleanup_kwargs(**overrides):
             run_dir=overrides.pop('run_dir', None),
         ),
         'ending': ending,
+        'record_cleanup_failures': lambda steps: None,
     }
     kwargs.update(overrides)
     return kwargs
@@ -1735,7 +1736,11 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         from modules.protocol_state_machine import ProtocolState
 
         captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            notifications,
+            'report_outcome',
+            lambda ex, *a, **k: captured.append(('Protocol', ex.title, str(ex))),
+        )
         # Invoke UI-scheduled callables immediately so their raise lands in
         # the cleanup step's try/except (headless schedule_ui swallows).
         monkeypatch.setattr('modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0))
@@ -1786,7 +1791,11 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         from modules.protocol_cleanup import run_cleanup
 
         captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            notifications,
+            'report_outcome',
+            lambda ex, *a, **k: captured.append(('Protocol', ex.title, str(ex))),
+        )
         kwargs = _run_cleanup_kwargs(
             cancel_scheduled_events_fn=MagicMock(side_effect=RuntimeError('cancel boom'))
         )
@@ -1805,7 +1814,11 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         from modules.protocol_cleanup import run_cleanup
 
         captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            notifications,
+            'report_outcome',
+            lambda ex, *a, **k: captured.append(('Protocol', ex.title, str(ex))),
+        )
         run_cleanup(**_run_cleanup_kwargs())
         assert captured == [], f'clean cleanup must not notify; got {captured}'
 
@@ -3619,7 +3632,11 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         from modules.protocol_state_machine import ProtocolState
 
         captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            notifications,
+            'report_outcome',
+            lambda ex, *a, **k: captured.append(('Protocol', ex.title, str(ex))),
+        )
         monkeypatch.setattr('modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0))
         kwargs = _run_cleanup_kwargs(
             callbacks=ProtocolCallbacks(
