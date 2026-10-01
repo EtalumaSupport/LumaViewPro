@@ -1182,6 +1182,10 @@ class ScopeSession:
         )
         self.scope.initialize(config)
         self._store_delivered_frame()
+        # The camera streams from here on, in every host that configures a
+        # scope, so the imaging API starts watching the stream here: a stall
+        # nobody is reading is reported to every client, not only to a GUI.
+        self.scope.imaging.start_stream_check(self._scheduler)
         # Read once so a session that changes nothing still records the
         # scale it starts with (the read records the optics). On a turreted
         # scope the slot is not known until the turret is homed, so the

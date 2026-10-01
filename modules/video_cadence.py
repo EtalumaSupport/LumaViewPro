@@ -120,6 +120,12 @@ class StallWatch:
         """
         self._threshold_s = max(self._threshold_s, threshold_s)
 
+    def quiet_for_s(self, now: float) -> float:
+        """Seconds since the progress value last changed; 0 before the first call."""
+        if self._last_change_ts is None:
+            return 0.0
+        return now - self._last_change_ts
+
     def stalled(self, progress_value, now: float) -> bool:
         """True when ``progress_value`` has not changed for the threshold."""
         if self._last_change_ts is None or progress_value != self._last_value:

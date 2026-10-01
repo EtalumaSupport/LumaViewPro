@@ -821,6 +821,31 @@ class FileWriterNotStuckError(Refusal, Exception):
         self.pending = pending
 
 
+class CameraStreamStalledError(CaptureError):
+    """The camera stopped delivering frames while it stayed connected and streaming.
+
+    A camera's link or grab loop can stall without the device being removed:
+    it reports itself connected and grabbing, and no frame arrives. Nothing
+    is waiting on the stream when that happens, so the imaging API reports it
+    when its stream check sees the frame count stand still for longer than a
+    frame at the current exposure can take.
+
+    Attributes:
+        seconds: How long no new frame had arrived when the stall was seen.
+    """
+
+    title = 'Camera Not Delivering Frames'
+
+    def __init__(self, seconds: float):
+        super().__init__(
+            f'The camera has delivered no new frame for {seconds:.0f} s, although it is '
+            'connected and streaming. Check the USB cable and power connections; if '
+            'frames do not resume, restart LumaViewPro.',
+            'camera_stream_stalled',
+        )
+        self.seconds = seconds
+
+
 class FrameListenerNotRegisteredError(CaptureError):
     """The camera driver would not take a frame listener, so it will receive no frames.
 

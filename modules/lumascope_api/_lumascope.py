@@ -1188,6 +1188,15 @@ class Lumascope:
         """
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
+        # Stop watching the stream first: the teardown below stops it on
+        # purpose, and a stall check still running would report that as a
+        # camera fault. Best-effort, like the LED shutoff below: a failure is
+        # logged and the teardown carries on.
+        try:
+            self.imaging.stop_stream_check()
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] stopping the stream check failed: {ex}')
+
         # Shut the lanes before anything is turned off, without waiting for
         # the work in flight: shutting a lane drops what is queued on it, so
         # an LED on or a move still waiting behind the current task cannot

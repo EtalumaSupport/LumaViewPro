@@ -28,6 +28,7 @@ from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
+    CameraStreamStalledError,
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
 )
@@ -36,6 +37,7 @@ from modules.lumascope_api.frame_record import FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
+from modules.video_cadence import StallWatch, prologue_stall_threshold_s
 
 
 class AutoGainConvergence(enum.Enum):
@@ -175,6 +177,7 @@ def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
+    from modules.scheduler import Scheduler
     from drivers.camera import Camera
 
 _api_log = _logging.getLogger('LVP.api')
@@ -489,6 +492,13 @@ class ImagingAPI:
         # composition root assigns _driver after this constructor runs, so
         # binding the driver itself here would capture nothing.
         self.frame_validity = FrameValidity(self._frames_delivered)
+        # The stream check's state (start_stream_check). The watch and its
+        # bound are written only on the scheduler's thread, by _check_stream.
+        self._stream_check_scheduler: Scheduler | None = None
+        self._stream_check_handle: object | None = None
+        self._stream_watch: StallWatch | None = None
+        self._stream_watch_bound_s: float | None = None
+        self._stream_stall_reported = False
 
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
@@ -4577,6 +4587,85 @@ class ImagingAPI:
         except Exception as e:
             logger.warning(f'[SCOPE API ] stop_camera_temp_logging unschedule failed: {e}')
         self._camera_temp_event = None
+
+    # --- Stream check ---
+    # How often the stream check looks at the frame count. Well inside the
+    # shortest stall bound (video_cadence.STALL_FLOOR_S), so a stall is seen
+    # within a second of the bound passing.
+    _STREAM_CHECK_INTERVAL_S = 1.0
+
+    def start_stream_check(self, scheduler: Scheduler) -> None:
+        """Watch the camera stream, and report a stall when frames stop arriving.
+
+        A camera can stall without being removed: it stays connected and
+        grabbing and no frame arrives. Nobody is waiting on the stream then,
+        so the imaging API watches its own frame count on the session's
+        scheduler, in every host, and reports ``CameraStreamStalledError``
+        unsolicited once per stall. A stall is the count standing still
+        while the camera is connected and streaming, for longer than a frame
+        at the current exposure can take (``prologue_stall_threshold_s``).
+        Any stop of the stream -- a frame-size, format or binning change
+        restarts it -- starts the watch again from the next frame.
+
+        Internal scheduling -- the session arms it at bring-up and the
+        scope's disconnect stops it; not part of the L2 API surface.
+
+        Args:
+            scheduler: The session's scheduler (``schedule_interval`` /
+                ``unschedule``).
+        """
+        self.stop_stream_check()
+        self._stream_check_scheduler = scheduler
+        self._stream_watch = None
+        self._stream_stall_reported = False
+        self._stream_check_handle = scheduler.schedule_interval(
+            self._check_stream, self._STREAM_CHECK_INTERVAL_S
+        )
+
+    def stop_stream_check(self) -> None:
+        """Stop the stream check. Idempotent.
+
+        Internal scheduling -- pair of ``start_stream_check``, called by the
+        scope's disconnect; not part of the L2 API surface.
+        """
+        handle = self._stream_check_handle
+        self._stream_check_handle = None
+        if handle is not None:
+            self._stream_check_scheduler.unschedule(handle)
+
+    def _check_stream(self, _dt: float = 0) -> None:
+        if not (self._scope.camera_connected and self.is_streaming()):
+            # A camera that is not streaming delivers nothing by design; the
+            # watch starts again from the stream's next frame.
+            self._stream_watch = None
+            self._stream_stall_reported = False
+            return
+        exposure_s = max(0.0, self.longest_exposure_ms or 0.0) / 1000.0
+        bound_s = prologue_stall_threshold_s(exposure_s)
+        watch = self._stream_watch
+        if watch is None or self._stream_watch_bound_s != bound_s:
+            # A new exposure changes how long a healthy frame can take; the
+            # bound is set from it and the window starts again.
+            watch = self._stream_watch = StallWatch(bound_s)
+            self._stream_watch_bound_s = bound_s
+        delivered = self._frames_delivered()
+        now = time.monotonic()
+        if not watch.stalled(delivered, now):
+            if self._stream_stall_reported:
+                logger.info(f'[CAM Class ] Camera stream resumed: frames_delivered={delivered}')
+            self._stream_stall_reported = False
+            return
+        if self._stream_stall_reported:
+            return
+        self._stream_stall_reported = True
+        seconds = watch.quiet_for_s(now)
+        logger.info(
+            f'[CAM Class ] Camera stream stalled: frames_delivered={delivered} unchanged '
+            f'for {seconds:.1f} s (bound {bound_s:.1f} s at exposure {exposure_s * 1000.0:.1f} ms)'
+        )
+        notifications.report_outcome(
+            CameraStreamStalledError(seconds), solicited=False, category='Camera'
+        )
 
     # --- Frame-flow listeners ---
     def add_camera_listener(self, listener) -> None:
