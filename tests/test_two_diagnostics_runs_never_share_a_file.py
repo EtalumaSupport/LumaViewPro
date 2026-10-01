@@ -106,6 +106,12 @@ def test_two_probes_in_one_instant_do_not_overwrite(frozen_clock):
     assert len(list((frozen_clock / 'camera_probe').iterdir())) == 1
 
 
+def test_the_probe_name_carries_the_microseconds(frozen_clock):
+    result = _scope_with(_ProbeCamera()).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
+
+    assert result['output_path'].endswith('__20261001T120000123456Z.json')
+
+
 def test_the_name_carries_the_microseconds(frozen_clock):
     scope = build_scope(simulate=True)
     if not scope.imaging.is_streaming():
