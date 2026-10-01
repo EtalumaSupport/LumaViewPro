@@ -287,6 +287,42 @@ class TestTheFileCountCountsImages:
         assert batch.not_written_reason == 'write_batch_disk_full'
         assert len(lost) == 1 and lost[0].reason == 'write_batch_disk_full', lost
 
+    def test_the_disk_floor_is_told_once(self, tmp_path, monkeypatch):
+        # The floor's own popup says the run stopped to protect the data.
+        # The image it refused and the record row never written are that
+        # same cause, and showed as two more popups after it.
+        from modules.notification_center import notifications
+
+        shown = []
+        notify = notifications.notify
+
+        def _shown(severity, category, title, message, **kw):
+            delivered = notify(severity, category, title, message, **kw)
+            if delivered:
+                shown.append(title)
+            return delivered
+
+        files = []
+        with (
+            _reports_of(RunImagesNotSavedError) as lost,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            import modules.protocol_run_loop  # noqa: F401
+
+            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            monkeypatch.setattr(notifications, 'notify', _shown)
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            )
+            _files_complete(files)
+        assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
+        assert files == ['incomplete'], files
+        assert len(lost) == 1, 'the lost image is still reported, to the log'
+        assert shown == ['Disk Space Critical'], shown
+
     def test_a_video_whose_file_did_not_finish_is_not_written(self):
         # A video step writes its file on its own lane, outside the batch;
         # when the file does not finish, the run's image is still missing.

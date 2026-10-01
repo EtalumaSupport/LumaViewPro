@@ -81,6 +81,13 @@ class RunEnding:
     message: str
 
 
+# Endings whose own popup already told the person the run's files were not
+# all written: the disk floor, a stuck file writer, a video writer that
+# died. The images not saved and the record rows missing after one of them
+# are that same cause, so they are logged and not shown again.
+FILES_LOST_ENDINGS = frozenset({'disk_space_critical', 'file_writer_stalled', 'video_writer_died'})
+
+
 class EndingLatch:
     """One run's ending, recorded once by whoever got there first.
 

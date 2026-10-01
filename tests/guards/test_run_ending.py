@@ -158,6 +158,16 @@ def test_every_vocabulary_entry_has_a_producer():
     )
 
 
+def test_every_ending_that_tells_of_lost_files_is_one_a_site_records():
+    # The files report stays quiet after these endings because their popup
+    # already told the person; a name no site records would leave that
+    # report shown twice, with nothing failing.
+    from modules.run_outcome import FILES_LOST_ENDINGS
+
+    unrecorded = FILES_LOST_ENDINGS - _recorded_reasons()
+    assert not unrecorded, sorted(unrecorded)
+
+
 def test_no_cleanup_call_states_an_ending_without_one():
     """_cleanup takes exactly two arguments: the ending and the run it ends.
 

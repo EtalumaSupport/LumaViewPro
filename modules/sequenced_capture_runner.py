@@ -29,6 +29,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
     ProtocolRunRefusedError,
+    RecordIncompleteError,
     Remedy,
     RunAlreadyEndedError,
     RunCheckFailedError,
@@ -41,6 +42,7 @@ from modules.protocol import Protocol
 import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.run_outcome import (
+    FILES_LOST_ENDINGS,
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
@@ -2038,6 +2040,15 @@ class SequencedCaptureRunner:
             self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
             and run_complete.ending.status in ('completed', 'incomplete')
         )
+        already_told = run_complete.ending.reason in FILES_LOST_ENDINGS
+
+        def _complete_record() -> None:
+            try:
+                record.complete()
+            except RecordIncompleteError as short:
+                notifications.report_outcome(
+                    short, solicited=False, category='Protocol', log_only=already_told
+                )
 
         def _files_written(outcome: str) -> None:
             # One line per run, when its last write lands: a run's images
@@ -2063,18 +2074,20 @@ class SequencedCaptureRunner:
             # reported where it stops.
             actions = []
             if write_batch.not_written and not merge_reports_files:
-                # The person's one report of a lost image: no other surface
-                # tells them, and this is when the count is final.
+                # The person's one report of a lost image, made when the count
+                # is final; logged only when the ending's popup told them.
                 lost = RunImagesNotSavedError(
                     written=write_batch.written,
                     not_written=write_batch.not_written,
                     reason=reason,
                 )
                 actions.append(
-                    lambda: notifications.report_outcome(lost, solicited=False, category='Protocol')
+                    lambda: notifications.report_outcome(
+                        lost, solicited=False, category='Protocol', log_only=already_told
+                    )
                 )
             if record is not None:
-                actions.append(record.complete)
+                actions.append(_complete_record)
             actions.append(run_complete.send)
             actions.append(
                 lambda: schedule_files_complete(
