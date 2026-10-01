@@ -1330,7 +1330,8 @@ scope.imaging.active_cached                        # True if grabbing
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
 scope.imaging.camera_identity                      # {'model','serial','timestamp_tick_frequency_hz'} for provenance records; all None camera-absent
-scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
+scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is
+                                                   # connected; a failed read of a connected camera raises. Returns:
 # {
 #   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
 #   'pixel_size_um': 2.2, 'shutter': 'rolling',

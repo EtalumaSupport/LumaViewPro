@@ -1061,34 +1061,34 @@ class DiagnosticsAPI:
         Returns:
             dict with model, sensor, pixel_size_um, shutter, resolution,
             gain_range, max_exposure, binning_sizes. None if no camera.
+
+        Raises:
+            Whatever the driver raises reading a connected camera, so a
+            failed read is never mistaken for an absent camera.
         """
         if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return None
-        try:
-            driver = self._scope._camera_driver
-            profile = driver.profile
-            # Exposure floor: the driver's LIVE minimum. The ExposureTime node
-            # minimum drifts above the connect-time value once other settings
-            # change, so the cached profile floor goes stale; get_min_exposure
-            # reads the live node (and itself falls back to the cached floor).
-            exposure_min_ms = driver.get_min_exposure()
-            exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
-            return {
-                'model': profile.model_name,
-                'sensor': profile.sensor,
-                'pixel_size_um': profile.pixel_size_um,
-                'shutter': profile.shutter,
-                'resolution': profile.native_resolution,
-                'gain_min_db': profile.gain.total_min_db,
-                'gain_max_db': profile.gain.total_max_db,
-                'exposure_min_us': exposure_min_us,
-                'exposure_min_ms': exposure_min_ms,
-                'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
-                'binning_sizes': profile.binning_sizes,
-            }
-        except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_profile_info failed: {e}')
-            return None
+        driver = self._scope._camera_driver
+        profile = driver.profile
+        # Exposure floor: the driver's LIVE minimum. The ExposureTime node
+        # minimum drifts above the connect-time value once other settings
+        # change, so the cached profile floor goes stale; get_min_exposure
+        # reads the live node (and itself falls back to the cached floor).
+        exposure_min_ms = driver.get_min_exposure()
+        exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
+        return {
+            'model': profile.model_name,
+            'sensor': profile.sensor,
+            'pixel_size_um': profile.pixel_size_um,
+            'shutter': profile.shutter,
+            'resolution': profile.native_resolution,
+            'gain_min_db': profile.gain.total_min_db,
+            'gain_max_db': profile.gain.total_max_db,
+            'exposure_min_us': exposure_min_us,
+            'exposure_min_ms': exposure_min_ms,
+            'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
+            'binning_sizes': profile.binning_sizes,
+        }
 
     def get_system_info(self) -> dict:
         """Get consolidated system information for all hardware.
