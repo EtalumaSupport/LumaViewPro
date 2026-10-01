@@ -594,7 +594,8 @@ class ScopeDisplay(Image):
 
     @staticmethod
     def _camera_settled(imaging) -> bool:
-        """Whether the camera has finished every change that alters its cadence.
+        """Whether every camera-side change (exposure, gain, LED, frame size,
+        ...) has finished switching over.
 
         Read from the API's frame validity, the one record of which hardware
         changes are still switching over. Stage motion is left out: a move
