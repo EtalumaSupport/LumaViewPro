@@ -60,11 +60,12 @@ class RunEnding:
     """How a run ended, and why, in the shape a refusal already uses.
 
     Attributes:
-        status: One of 'completed', 'aborted', 'failed',
-            'failed_at_start'. 'aborted' is an ending someone asked
-            for (a Stop, or the application tearing the run down);
-            'failed' is one the instrument imposed, including the
-            strike ceiling for scans that kept failing.
+        status: One of 'completed', 'incomplete', 'aborted', 'failed',
+            'failed_at_start'. 'incomplete' is a run that reached its
+            end without every capture it was asked for; 'aborted' is an
+            ending someone asked for (a Stop, or the application tearing
+            the run down); 'failed' is one the instrument imposed,
+            including the strike ceiling for scans that kept failing.
         reason: Machine-readable cause, stable enough for a caller to
             branch on ('motion_timeout', 'disk_space_critical',
             'stopped', ...).
@@ -112,21 +113,67 @@ class EndingLatch:
 
 
 @dataclasses.dataclass(frozen=True)
+class FailedCapture:
+    """One capture a run was asked for that produced no image.
+
+    Attributes:
+        scan: The scan it belonged to, counting from 0.
+        step_index: The step's row in the protocol, counting from 0.
+        step_name: The step's name, as the protocol has it.
+        cause: Why no image came, in the words the log records.
+    """
+
+    scan: int
+    step_index: int
+    step_name: str
+    cause: str
+
+
+@dataclasses.dataclass(frozen=True)
+class CaptureTally:
+    """The captures a run was asked for, and what became of each.
+
+    Counted once per (scan, step): a scan that is run again after a
+    transient failure re-captures its earlier steps into the same slots,
+    so a retry never counts a capture twice. A dark frame is captured --
+    the camera delivered it -- and its row says it was dark.
+
+    Attributes:
+        asked: Captures the run was asked for: scans times steps for a run
+            that saves images, 0 for one that saves none (an autofocus
+            scan, a standalone autofocus).
+        captured: Captures that produced an image.
+        failed: Captures that produced none, in the order they failed.
+            ``asked - captured - len(failed)`` were never reached.
+    """
+
+    asked: int
+    captured: int
+    failed: tuple[FailedCapture, ...]
+
+    @property
+    def missing(self) -> int:
+        """Captures asked for that produced no image, failed or never reached."""
+        return self.asked - self.captured
+
+
+@dataclasses.dataclass(frozen=True)
 class RunOutcome:
     """How a run ended, and what its merge produced.
 
     The first four fields are the run's ENDING, copied from the
     RunEnding whatever ended the run recorded; the next three describe
-    the merge, and the last two describe the autofocus characterization
-    data. A non-composite run carries merged=False and an empty
+    the merge, the next two the autofocus characterization data, and
+    the last what the run captured. A non-composite run carries merged=False and an empty
     merge_reason under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
 
     Attributes:
-        status: One of 'completed', 'aborted', 'failed',
+        status: One of 'completed', 'incomplete', 'aborted', 'failed',
             'failed_at_start'.
-        reason: Why the RUN ended ('stopped', 'motion_timeout', ...).
+        reason: Why the RUN ended ('stopped', 'motion_timeout',
+            'captures_failed', ...).
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
         merged: True only when an artifact was produced.
@@ -153,6 +200,9 @@ class RunOutcome:
             from "gave up". Set only by a standalone autofocus run: a run
             that autofocuses at several steps has no one focus to report,
             and reads None.
+        captures: What the run captured of what it was asked for. None
+            only for a run settled before its cleanup counted -- a run
+            torn down by a shutdown before it ended.
     """
 
     status: str
@@ -165,6 +215,7 @@ class RunOutcome:
     af_data_saved: bool
     af_data_path: str | None
     af_focus_z_um: float | None
+    captures: CaptureTally | None
 
     @classmethod
     def from_ending(
@@ -174,6 +225,7 @@ class RunOutcome:
         merged: bool,
         artifact_path: str | None,
         merge_reason: str,
+        captures: CaptureTally | None,
         af_data_path: str | None = None,
         af_focus_z_um: float | None = None,
     ) -> RunOutcome:
@@ -200,6 +252,7 @@ class RunOutcome:
             af_data_saved=af_data_path is not None,
             af_data_path=af_data_path,
             af_focus_z_um=af_focus_z_um,
+            captures=captures,
         )
 
 
@@ -219,6 +272,7 @@ class PendingRunOutcome:
         self._outcome: RunOutcome | None = None
         self._af_data_path: str | None = None
         self._af_focus_z_um: float | None = None
+        self._captures: CaptureTally | None = None
         self._settled = threading.Event()
 
     @property
@@ -254,6 +308,17 @@ class PendingRunOutcome:
         """
         with self._lock:
             self._af_focus_z_um = z_um
+
+    def record_captures(self, tally: CaptureTally) -> None:
+        """Record what the run captured of what it was asked for.
+
+        Held here for the reason the autofocus data is: every settle path
+        composes from this object, so all of them report the same count.
+        Recorded where cleanup decides the ending, which precedes every
+        settle but a shutdown's.
+        """
+        with self._lock:
+            self._captures = tally
 
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
@@ -292,6 +357,7 @@ class PendingRunOutcome:
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
+                captures=self._captures,
             )
             self._settled.set()
             return True
@@ -324,6 +390,7 @@ class PendingRunOutcome:
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
+                captures=self._captures,
             )
             self._settled.set()
             return True
@@ -356,6 +423,7 @@ class PendingRunOutcome:
                 merge_reason=merge_reason,
                 af_data_path=self._af_data_path,
                 af_focus_z_um=self._af_focus_z_um,
+                captures=self._captures,
             )
             self._settled.set()
             return True

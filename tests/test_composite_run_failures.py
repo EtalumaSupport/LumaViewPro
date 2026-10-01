@@ -186,11 +186,12 @@ class TestAChannelThatCapturesNothing:
                 f'code is what a REST or SDK caller maps to a response, so it '
                 f'is part of the contract, not prose'
             )
-            # The run itself did everything asked of it; only the merge came
-            # up empty. Collapsing the two into one field is what made a
+            # The run reached its end but one channel captured nothing, so
+            # the RUN says 'incomplete'; the merge's own word stays in
+            # merge_reason. Collapsing the two into one field is what made a
             # caller unable to tell this from a run that aborted.
-            assert settled.status == 'completed', (
-                f'a merge that produced nothing reported the RUN as {settled.status!r}'
+            assert settled.status == 'incomplete', (
+                f'a run whose channel captured nothing reported the RUN as {settled.status!r}'
             )
 
     def test_a_rejected_capture_leaves_no_image_behind(self, tmp_path):
@@ -405,7 +406,9 @@ class TestTheFormatTheCompositeFollows:
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
                 artifact = pathlib.Path(
-                    runner.run_composite(sequence_name='live_jpg', parent_dir=str(tmp_path))
+                    runner.run_composite(
+                        sequence_name='live_jpg', parent_dir=str(tmp_path)
+                    ).artifact_path
                 )
 
             run_dir = single_run_dir(tmp_path)
@@ -433,7 +436,9 @@ class TestTheFormatTheCompositeFollows:
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
                 artifact = pathlib.Path(
-                    runner.run_composite(sequence_name='coerced', parent_dir=str(tmp_path))
+                    runner.run_composite(
+                        sequence_name='coerced', parent_dir=str(tmp_path)
+                    ).artifact_path
                 )
 
             assert artifact.name.endswith('.ome.tiff'), (

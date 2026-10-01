@@ -7,6 +7,7 @@ loop, writer and file lane; only the camera driver's grab is replaced
 where a test needs a capture to produce no frame.
 """
 
+import contextlib
 import csv
 import pathlib
 
@@ -102,3 +103,124 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
         # Cleanup's camera restore writes nothing to a removed camera; each
         # write would report the camera absent again after the ending did.
         assert writes_after_removal == [], writes_after_removal
+
+
+@contextlib.contextmanager
+def _incomplete_reports():
+    """Every RunIncompleteError reported while the block runs."""
+    from modules.exceptions import RunIncompleteError
+    from modules.notification_center import notifications
+
+    reported = []
+    report = notifications.report_outcome
+
+    def counted(outcome, *a, **kw):
+        if isinstance(outcome, RunIncompleteError):
+            reported.append(outcome)
+        return report(outcome, *a, **kw)
+
+    notifications.report_outcome = counted
+    try:
+        yield reported
+    finally:
+        notifications.report_outcome = report
+
+
+class TestARunWithFailedCapturesEndsIncomplete:
+    def test_a_run_whose_every_capture_failed_is_not_completed(self, tmp_path):
+        # The bench's two lines, as a test: two steps, no frame from either,
+        # and the run said 'completed'.
+        seen = []
+        with (
+            _incomplete_reports() as reported,
+            open_composite_session(headless_settings(tmp_path)) as (session, runner),
+        ):
+            session.scope._camera_driver.grab_new_capture = _no_frame
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                _two_steps(),
+                callbacks={'run_complete': lambda **kw: seen.append(kw['status'])},
+            )
+        assert (outcome.status, outcome.reason) == ('incomplete', 'captures_failed'), outcome
+        assert (outcome.captures.asked, outcome.captures.captured) == (2, 0), outcome.captures
+        assert [failed.step_name for failed in outcome.captures.failed] == ['C1', 'C2']
+        assert seen == ['incomplete'], 'run_complete told its subscribers a different ending'
+        assert len(reported) == 1, reported
+
+    def test_a_success_between_failures_does_not_hide_them(self, tmp_path):
+        # A success resets the three-in-a-row abort, so a run failing every
+        # other capture never stops; it must still not end 'completed'.
+        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            camera = session.scope._camera_driver
+            real_grab = camera.grab_new_capture
+
+            def update_step_number(step):
+                # 1-based, and step 1 never gets the call: armed below.
+                camera.grab_new_capture = _no_frame if step % 2 == 1 else real_grab
+
+            camera.grab_new_capture = _no_frame
+            steps = [_step(f'C{i}', i, x=20.0 + i, gain=1.0) for i in range(8)]
+            outcome = _run(
+                runner,
+                tmp_path / 'runs',
+                steps,
+                callbacks={'update_step_number': update_step_number},
+            )
+        assert outcome.status == 'incomplete', outcome
+        assert (outcome.captures.asked, outcome.captures.captured) == (8, 4), outcome.captures
+        assert [failed.step_name for failed in outcome.captures.failed] == [
+            'C0',
+            'C2',
+            'C4',
+            'C6',
+        ]
+
+    def test_a_run_that_captured_everything_is_completed_and_says_so(self, tmp_path):
+        with (
+            _incomplete_reports() as reported,
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+        ):
+            outcome = _run(runner, tmp_path / 'runs', _two_steps())
+        assert outcome.status == 'completed', outcome
+        assert (outcome.captures.asked, outcome.captures.captured) == (2, 2), outcome.captures
+        assert outcome.captures.failed == ()
+        assert reported == []
+
+    def test_a_run_that_saves_no_images_asks_for_none(self, tmp_path):
+        # An autofocus scan saves nothing; it cannot fall short of captures
+        # it was never asked for.
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            pending = runner.run_single_scan(
+                protocol=_protocol(_two_steps()),
+                parent_dir=str(tmp_path / 'runs'),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+                enable_image_saving=False,
+            )
+            outcome = pending.wait(timeout_s=WAIT_S)
+        assert outcome.status == 'completed', outcome
+        assert outcome.captures.asked == 0, outcome.captures
+
+
+class TestACompositeMissingAChannel:
+    def test_it_merges_the_rest_and_says_which_is_missing(self, tmp_path):
+        from tests.test_composite_run_failures import _FAILING, _fail_these_channels
+
+        step_colors = ('BF', _FAILING, 'Green')
+        settings = headless_settings(tmp_path, acquiring=step_colors)
+        with (
+            _incomplete_reports() as reported,
+            open_composite_session(settings) as (session, runner),
+        ):
+            outcome = runner.run_composite(
+                sequence_name='two_of_three',
+                parent_dir=str(tmp_path),
+                callbacks=_fail_these_channels(
+                    session.scope._camera_driver, step_colors, {_FAILING}
+                ),
+            )
+        assert outcome.merged and pathlib.Path(outcome.artifact_path).exists(), outcome
+        assert outcome.status == 'incomplete', outcome
+        assert len(outcome.captures.failed) == 1, outcome.captures
+        assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures
+        assert len(reported) == 1, reported

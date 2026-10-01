@@ -175,6 +175,7 @@ class TestTheRunReportsAndCarriesOn:
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
+            captures_asked=1,
         )
         scope = writer._scope
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})

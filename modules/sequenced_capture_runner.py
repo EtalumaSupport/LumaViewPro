@@ -32,6 +32,7 @@ from modules.exceptions import (
     Remedy,
     RunAlreadyEndedError,
     RunCheckFailedError,
+    RunIncompleteError,
     RunStartError,
     describe_unknown_positions,
 )
@@ -1440,6 +1441,11 @@ class SequencedCaptureRunner:
                 engineering_mode=self._engineering_mode,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
+                captures_asked=(
+                    plan.n_scans * self._protocol.num_steps()
+                    if plan.enable_image_saving and not plan.disable_saving_artifacts
+                    else 0
+                ),
             )
 
             # From here each lane serves only the run's queue, and only work
@@ -1701,6 +1707,39 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
+    def _account_for_captures(self, ending: RunEnding) -> RunEnding:
+        """Record what the run captured, and say 'incomplete' when it fell short.
+
+        Only a run that would end 'completed' becomes 'incomplete': a stop
+        stays 'aborted' and a fault stays 'failed', because what ended the
+        run is the first thing a caller needs and the tally is on the
+        outcome either way. Decided here, where the ending is read once, so
+        run_complete, the run-end log and the outcome all carry one word.
+
+        The person is told here, once: the unattended mute is already down.
+        A composite is told by its merge instead, which knows whether the
+        channels it has made a composite, so its one report says both.
+        """
+        writer = getattr(self, '_image_writer', None)
+        outcome = getattr(self, '_run_outcome', None)
+        if writer is None:
+            return ending
+        tally = writer.capture_tally
+        if outcome is not None:
+            outcome.record_captures(tally)
+        if ending.status != 'completed' or tally.missing <= 0:
+            return ending
+        incomplete = RunIncompleteError(
+            asked=tally.asked,
+            captured=tally.captured,
+            failed_steps=[failed.step_name for failed in tally.failed],
+        )
+        if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+        return RunEnding('incomplete', 'captures_failed', incomplete.title, str(incomplete))
+
     def _settle_run_outcome(self, ending: RunEnding) -> None:
         """Arm the merge on a completed composite; settle every other ending.
 
@@ -1737,7 +1776,7 @@ class SequencedCaptureRunner:
                 if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
                     outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
-                ending.status != 'completed'
+                ending.status not in ('completed', 'incomplete')
                 or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE
             ):
                 outcome.resolve_if_pending(ending)
@@ -1884,6 +1923,17 @@ class SequencedCaptureRunner:
         )
         has_turret = self._scope.capabilities.has_turret
         tiling_configs_file_loc = self._tiling_configs_file_loc
+        # A composite missing a channel is told by the merge, once, beside
+        # what the channels it has made: the run's shortfall alone when the
+        # merge succeeds, inside the merge failure when it does not.
+        incomplete = None
+        if ending.status == 'incomplete':
+            tally = self._image_writer.capture_tally
+            incomplete = RunIncompleteError(
+                asked=tally.asked,
+                captured=tally.captured,
+                failed_steps=[failed.step_name for failed in tally.failed],
+            )
 
         def _fail(reason: str, detail: str) -> None:
             # The one place a merge failure becomes visible: one log line,
@@ -1894,6 +1944,8 @@ class SequencedCaptureRunner:
             from modules.notification_center import notifications
 
             logger.error(f'[{self.LOGGER_NAME}] Composite merge failed ({reason}): {detail}')
+            if incomplete is not None:
+                detail = f'{incomplete} {detail}'
             notifications.error('Protocol', 'Composite Failed', detail)
             outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
 
@@ -1932,6 +1984,10 @@ class SequencedCaptureRunner:
             if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
                 outcome.resolve(token, merged=True, artifact_path=paths[0], merge_reason='')
+                if incomplete is not None:
+                    from modules.notification_center import notifications
+
+                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
             else:
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
 
@@ -2069,7 +2125,7 @@ class SequencedCaptureRunner:
             # wrote, while the word is what the loop knew on its way out.
             latched = self._ending.get()
             forced_dark = self._fatal_abort_event.is_set()
-            ending = latched or ending
+            ending = self._account_for_captures(latched or ending)
             run_complete = RunCompleteNotice(
                 self._callbacks, protocol=self._protocol, ending=ending, run_dir=self._run_dir
             )

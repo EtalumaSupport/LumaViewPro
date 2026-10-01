@@ -3113,6 +3113,7 @@ def _bare_protocol_writer(**overrides):
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
         'labware': plate(),
+        'captures_asked': 1,
     }
     scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)

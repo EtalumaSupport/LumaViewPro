@@ -118,7 +118,7 @@ class TestCompositeOutcomeIsObservable:
             self._COMPLETED, merged=True, artifact_path='/runs/1/A1_Composite_1.tiff'
         )
 
-        assert runner.run_composite() == '/runs/1/A1_Composite_1.tiff', (
+        assert runner.run_composite().artifact_path == '/runs/1/A1_Composite_1.tiff', (
             'an L2 caller must learn WHERE the merged composite landed; '
             'returning nothing makes a missing artifact indistinguishable '
             'from a successful merge'

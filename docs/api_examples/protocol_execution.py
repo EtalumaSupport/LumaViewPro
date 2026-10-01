@@ -144,8 +144,9 @@ def main():
     #   print(f"Output dir: {runner.run_dir()}")
     #
     #   # Wait for the run to end, then read HOW it ended. None means the
-    #   # bound expired; otherwise status is completed/aborted/failed/
-    #   # failed_at_start and reason is the machine-readable cause.
+    #   # bound expired; otherwise status is completed/incomplete/aborted/
+    #   # failed/failed_at_start and reason is the machine-readable cause;
+    #   # result.captures says what was captured of what was asked for.
     #   result = pending.wait(timeout_s=300)
     #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #

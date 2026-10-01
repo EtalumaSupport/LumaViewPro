@@ -296,6 +296,7 @@ class TestOneRunOneEncoding:
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
+            captures_asked=1,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

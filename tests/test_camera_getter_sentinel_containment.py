@@ -684,6 +684,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        captures_asked=1,
     )
     recorded = []
     monkeypatch.setattr(

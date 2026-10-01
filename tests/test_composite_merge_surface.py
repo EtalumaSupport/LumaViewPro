@@ -47,7 +47,9 @@ class TestASuccessfulCompositeIsSilent:
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
             _bus_at_popup_threshold() as seen,
         ):
-            artifact = runner.run_composite(sequence_name='quiet', parent_dir=str(tmp_path))
+            artifact = runner.run_composite(
+                sequence_name='quiet', parent_dir=str(tmp_path)
+            ).artifact_path
 
         assert pathlib.Path(artifact).exists()
         assert _about_the_composite(seen) == [], (

@@ -766,6 +766,42 @@ class RunFilesNotWrittenError(CaptureError):
         super().__init__(message, reason)
 
 
+class RunIncompleteError(CaptureError):
+    """A run reached its end without every capture it was asked for.
+
+    The run's outcome carries it as status ``'incomplete'``, reason
+    ``'captures_failed'``, in these words; the person is told once when the
+    run ends. The images that were captured are saved.
+
+    Attributes:
+        asked: Captures the run was asked for.
+        captured: Captures that produced an image.
+        failed_steps: The name of each step whose capture failed, in the
+            order they failed.
+    """
+
+    title = 'Run Incomplete'
+    _NAMED_AT_MOST = 5
+
+    def __init__(self, *, asked: int, captured: int, failed_steps: list[str]):
+        missing = asked - captured
+        message = f'{missing} of the {asked} captures this run was asked for produced no image'
+        if failed_steps:
+            names = failed_steps[: self._NAMED_AT_MOST]
+            more = len(failed_steps) - len(names)
+            message += (
+                ' (failed: ' + ', '.join(names) + (f', and {more} more' if more else '') + ')'
+            )
+        never_reached = missing - len(failed_steps)
+        if never_reached:
+            message += f'; {never_reached} were never reached'
+        message += '. The images that were captured are saved; check the log for each failure.'
+        super().__init__(message, 'captures_failed')
+        self.asked = asked
+        self.captured = captured
+        self.failed_steps = list(failed_steps)
+
+
 class RunWriteRefusedError(CaptureError):
     """A write was handed to a run whose writes have ended.
 

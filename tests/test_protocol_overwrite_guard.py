@@ -90,6 +90,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        captures_asked=1,
     )
     recorded = []
     monkeypatch.setattr(

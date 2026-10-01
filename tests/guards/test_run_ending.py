@@ -99,6 +99,7 @@ COVERAGE = {
     'dispatch_refused',
     'start_failed',
     'completed',
+    'captures_failed',
 }
 
 ENDING_FILES = [
@@ -421,6 +422,13 @@ def _cleanup_stub(latched=None, forced_dark=False):
     stub._ending = latch
     stub._fatal_abort_event = fatal
     stub._image_writer = None  # no video lane to drain
+    # The ending is read through the runner's own account of its captures;
+    # with no writer it hands the ending back unchanged.
+    import modules.sequenced_capture_runner as scr
+
+    stub._account_for_captures = lambda ending: scr.SequencedCaptureRunner._account_for_captures(
+        stub, ending
+    )
     return stub
 
 

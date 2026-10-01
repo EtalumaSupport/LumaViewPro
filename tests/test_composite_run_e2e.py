@@ -140,7 +140,7 @@ class TestCompositeRunEndToEnd:
         # composite landed beside protocol data.
         _session, runner, tmp_path = composite_session
 
-        artifact = pathlib.Path(runner.run_composite(sequence_name='unplaced'))
+        artifact = pathlib.Path(runner.run_composite(sequence_name='unplaced').artifact_path)
 
         assert artifact.exists()
         assert (tmp_path / 'Manual' / 'Composites') in artifact.parents, artifact
@@ -148,7 +148,7 @@ class TestCompositeRunEndToEnd:
     def test_the_returned_path_is_a_readable_composite(self, composite_session):
         _session, runner, tmp_path = composite_session
 
-        artifact = runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
+        artifact = runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)).artifact_path
 
         assert artifact, 'run_composite returned no path for a run that succeeded'
         path = pathlib.Path(artifact)
@@ -184,7 +184,9 @@ class TestCompositeRunEndToEnd:
         # composite ends up beside the NEXT run's frames.
         _session, runner, tmp_path = composite_session
 
-        artifact = pathlib.Path(runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)))
+        artifact = pathlib.Path(
+            runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)).artifact_path
+        )
 
         assert single_run_dir(tmp_path) in artifact.parents, (
             f'{artifact} is not inside the run directory that produced it'
@@ -231,7 +233,9 @@ class TestCompositeRunEndToEnd:
         monkeypatch.setattr(piw, 'save_image', _slow_save)
 
         _session, runner, tmp_path = composite_session
-        artifact = pathlib.Path(runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)))
+        artifact = pathlib.Path(
+            runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)).artifact_path
+        )
 
         run_dir = single_run_dir(tmp_path)
         frames = sorted(p.name for p in run_dir.glob('*.tiff'))
@@ -248,8 +252,12 @@ class TestCompositeRunEndToEnd:
         # the second, and only a real run exercises that reset.
         _session, runner, tmp_path = composite_session
 
-        first = pathlib.Path(runner.run_composite(sequence_name='e2e_1', parent_dir=str(tmp_path)))
-        second = pathlib.Path(runner.run_composite(sequence_name='e2e_2', parent_dir=str(tmp_path)))
+        first = pathlib.Path(
+            runner.run_composite(sequence_name='e2e_1', parent_dir=str(tmp_path)).artifact_path
+        )
+        second = pathlib.Path(
+            runner.run_composite(sequence_name='e2e_2', parent_dir=str(tmp_path)).artifact_path
+        )
 
         assert first != second, 'the second composite overwrote the first'
         assert first.exists() and second.exists(), (
@@ -327,7 +335,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         _session, runner, tmp_path = composite_session
 
         artifact = pathlib.Path(
-            runner.run_composite(sequence_name='equiv', parent_dir=str(tmp_path))
+            runner.run_composite(sequence_name='equiv', parent_dir=str(tmp_path)).artifact_path
         )
         run_dir = single_run_dir(tmp_path)
 

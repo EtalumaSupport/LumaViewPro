@@ -284,7 +284,9 @@ class TestPreRunStateSurvivesACompleteRun:
                 'the pre-run setup did not light the channel under test'
             )
 
-            artifact = runner.run_composite(sequence_name='restore', parent_dir=str(tmp_path))
+            artifact = runner.run_composite(
+                sequence_name='restore', parent_dir=str(tmp_path)
+            ).artifact_path
             assert pathlib.Path(artifact).exists(), 'the run under test did not complete'
 
             lit = _lit_channels(session)
@@ -328,7 +330,9 @@ def ordered_composite(tmp_path, monkeypatch):
     expected = get_composite_channels(settings)
     with open_composite_session(settings) as (session, runner):
         events = _record_led_commands(monkeypatch, session)
-        artifact = runner.run_composite(sequence_name='order', parent_dir=str(tmp_path))
+        artifact = runner.run_composite(
+            sequence_name='order', parent_dir=str(tmp_path)
+        ).artifact_path
         yield {
             'expected': expected,
             'events': events,

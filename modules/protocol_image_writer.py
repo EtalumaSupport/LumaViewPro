@@ -36,7 +36,7 @@ from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
-from modules.run_outcome import EndingLatch, RunEnding
+from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -509,6 +509,10 @@ class ProtocolImageWriter:
         # against. Its files name their wells and plate from it, not from
         # the plate the scope has selected, which a headless run never sets.
         labware: WellPlate,
+        # How many captures the run is asked for: scans times steps for a
+        # run that saves images, 0 for one that saves none. The runner
+        # knows the scan count; the writer counts what became of each.
+        captures_asked: int,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -529,6 +533,14 @@ class ProtocolImageWriter:
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
+        # One entry per (scan, step) slot: None when it produced an image,
+        # its FailedCapture when it did not. A slot, not a count, so a scan
+        # run again after a transient failure overwrites its earlier steps
+        # instead of counting them twice. Written on the protocol thread,
+        # read by cleanup on whichever thread ended the run.
+        self._captures_asked = captures_asked
+        self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
+        self._capture_slots_lock = threading.Lock()
 
     def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
@@ -702,6 +714,21 @@ class ProtocolImageWriter:
         )
         self._leds_off()
 
+    @property
+    def capture_tally(self) -> CaptureTally:
+        """What this run captured of what it was asked for, so far."""
+        with self._capture_slots_lock:
+            slots = list(self._capture_slots.values())
+        return CaptureTally(
+            asked=self._captures_asked,
+            captured=sum(1 for slot in slots if slot is None),
+            failed=tuple(slot for slot in slots if slot is not None),
+        )
+
+    def _note_captured(self, *, curr_step, scan_count) -> None:
+        with self._capture_slots_lock:
+            self._capture_slots[(scan_count, curr_step)] = None
+
     def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
         """The strike counter + the 3-strike fatal abort, row-free.
 
@@ -710,6 +737,13 @@ class ProtocolImageWriter:
         short run would otherwise step through to a normal ending before a
         third strike.
         """
+        with self._capture_slots_lock:
+            self._capture_slots[(scan_count, curr_step)] = FailedCapture(
+                scan=scan_count,
+                step_index=curr_step,
+                step_name=str(step.get('Name', '?')),
+                cause=cause,
+            )
         if self._scope.imaging.camera_removed:
             logger.error(
                 f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
@@ -1175,6 +1209,7 @@ class ProtocolImageWriter:
                         return False
 
                     self._consecutive_capture_failures = 0
+                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
                     # The drain and the execution-record row finish on the
                     # step's own thread; the run moves on. Video always
                     # extinguishes -- leds_off called above.
@@ -1244,6 +1279,7 @@ class ProtocolImageWriter:
                     capture_info = self._scope.imaging.last_capture_info or {}
                     if not capture_info.get('dark_saved'):
                         self._consecutive_capture_failures = 0
+                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
                     # The instrument's account of this frame, taken with it on
                     # the camera lane; read here, on the thread that captured,
                     # before anything can capture again.

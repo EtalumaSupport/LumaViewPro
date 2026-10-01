@@ -261,7 +261,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         session.scope.imaging.start_streaming()
 
         artifact = pathlib.Path(
-            runner.run_composite(sequence_name='after', parent_dir=str(tmp_path))
+            runner.run_composite(sequence_name='after', parent_dir=str(tmp_path)).artifact_path
         )
         assert artifact.exists(), 'the composite produced no file after the camera came back'
 

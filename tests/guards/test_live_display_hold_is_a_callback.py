@@ -61,6 +61,7 @@ def _writer(callbacks):
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        captures_asked=1,
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

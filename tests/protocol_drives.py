@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
 
 
@@ -226,6 +227,8 @@ def scan_ready_runner(step, **state):
     # prepare() always carries the target the takeover writes to the camera.
     runner._autogain_settings = {'target_brightness': 0.5}
     runner._image_writer = MagicMock()
+    # This drive saves nothing, so its run is asked for no captures.
+    runner._image_writer.capture_tally = CaptureTally(asked=0, captured=0, failed=())
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
     runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')

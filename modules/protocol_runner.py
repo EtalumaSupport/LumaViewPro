@@ -527,7 +527,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         merge_timeout_s: float = 900.0,
         engineering_mode: bool | None = None,
-    ) -> str:
+    ) -> RunOutcome:
         """Capture one frame per acquiring channel and merge them.
 
         A composite is a single-position run through the same engine as
@@ -540,10 +540,13 @@ class ProtocolRunner:
         gets the same run a GUI click does.
 
         The merged artifact is the run's real product, so this BLOCKS until
-        the merge settles and returns where the artifact landed. A run that
-        reported 'completed' while the merged file was missing would be
-        indistinguishable from a successful one to every headless caller,
-        which is the boundary this run kind exists to fix.
+        the merge settles and returns the run's outcome, the artifact's path
+        on it. A run that reported 'completed' while the merged file was
+        missing would be indistinguishable from a successful one to every
+        headless caller, which is the boundary this run kind exists to fix;
+        and a composite merged from fewer channels than were asked for says
+        so, with status 'incomplete' and the failed channels in
+        ``captures``, beside its path.
 
         Args:
             sequence_name: Name for the output folder.
@@ -558,7 +561,9 @@ class ProtocolRunner:
                 built in.
 
         Returns:
-            The path of the merged composite.
+            The run's RunOutcome: ``merged`` True, ``artifact_path`` the
+            merged composite, ``status`` 'completed' or 'incomplete', and
+            ``captures`` what each channel produced.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -589,7 +594,7 @@ class ProtocolRunner:
             # vocabulary it is reading.
             code = settled.merge_reason or settled.reason
             raise CaptureError(f'no composite was produced ({code})', code)
-        return settled.artifact_path
+        return settled
 
     def _run(
         self,
