@@ -557,7 +557,7 @@ class TestIntegrationAutofocus:
     def test_autofocus_step_completes(self, af_executor, scope, tmp_path):
         """Single step with auto_focus=True completes using real AF executor."""
         # Set up focus simulation
-        scope._camera_driver.set_test_pattern('focus_target')
+        scope._camera_driver.set_test_pattern(True, 'focus_target')
         scope._camera_driver.set_focal_z(5000.0)
 
         protocol = _make_protocol(
@@ -586,7 +586,7 @@ class TestIntegrationAutofocus:
         grabbed with wrong settings.
         """
         # Set up focus simulation
-        scope._camera_driver.set_test_pattern('focus_target')
+        scope._camera_driver.set_test_pattern(True, 'focus_target')
         scope._camera_driver.set_focal_z(5000.0)
 
         af = AutofocusRunner(
