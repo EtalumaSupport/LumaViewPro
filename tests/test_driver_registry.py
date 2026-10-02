@@ -170,6 +170,36 @@ class TestDriverRegistryUnit:
             'connect_failed', ('Broken',), 'RuntimeError: no hardware'
         )
 
+    def test_a_board_that_was_found_outranks_a_driver_that_raised(self):
+        """The LED registry holds the FX2 driver wherever pyusb is installed, and
+        it raises when no FX2 is attached; that raise must not hide what the
+        EL-0940 board said about itself (its port held by another program)."""
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('fx2like', priority=100)
+        class Fx2Like:
+            def __init__(self, **kw):
+                raise RuntimeError('No Lumascope FX2 device was found')
+
+        @reg.register('held', priority=50)
+        class Held:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self):
+                return False
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        _instance, fallback = reg.create_with_fallback('auto')
+        assert fallback == DriverFallback(
+            'port_in_use', ('Fx2Like', 'Held'), 'RuntimeError: No Lumascope FX2 device was found'
+        )
+
     def test_a_real_driver_comes_with_no_fallback(self):
         reg = DriverRegistry('fake')
 

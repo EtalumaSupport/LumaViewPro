@@ -74,8 +74,8 @@ class PartStatus:
 class Substitution:
     """A saved setting the camera could not take, and what bring-up used instead.
 
-    The saved value stays saved: it is the person's preference, and the
-    camera that cannot take it may not be the one they set it on.
+    What becomes of the saved value is the setting's own rule, not this
+    record's: the record says what was saved and what ran.
     """
 
     setting: str

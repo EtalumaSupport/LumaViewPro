@@ -217,6 +217,22 @@ class TestASimulatedScopeReportsNothing:
             s.shutdown()
 
 
+class TestASimulatedManualScope:
+    def test_its_motor_board_is_neither_up_nor_missing(self, tmp_path, heard):
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS620'),
+            simulate=True,
+            warn_pre_release=False,
+        )
+        try:
+            motor = s.bring_up_record().part(MOTOR)
+            assert (motor.up, motor.expected, motor.cause) == (False, False, None)
+            assert s.bring_up_record().missing == ()
+            assert heard == []
+        finally:
+            s.shutdown()
+
+
 class TestNothingCameUp:
     def test_one_notice_and_no_fault(self, monkeypatch, tmp_path, heard):
         s = _bring_up(

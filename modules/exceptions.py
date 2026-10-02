@@ -314,9 +314,7 @@ class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
 
     def __init__(self, saved: str, used: str):
         super().__init__(
-            f'This camera does not support the saved {saved} image mode; it starts in '
-            f'{used} instead. Pick an image mode in Microscope Settings to update the '
-            'saved value.'
+            f'This camera does not support the saved {saved} image mode; it runs in {used} instead.'
         )
         self.saved = saved
         self.used = used

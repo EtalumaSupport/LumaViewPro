@@ -363,53 +363,48 @@ class DriverRegistry:
                 )
 
         # All real drivers exhausted -- fall back to null if one is registered.
-        # Three distinct cases the operator needs to be able to tell apart:
-        #   1. last_error set                -- at least one driver raised.
-        #      Log the error type + message (no traceback -- see below).
-        #   2. found_false_names non-empty   -- at least one driver instantiated
-        #      but reported `found=False` (SerialBoard with no port, FX2 with
-        #      no device). Name the drivers that were tried so the operator
-        #      can see WHICH hardware path was probed.
-        #   3. neither                       -- registry actually empty for
-        #      this kind. Misconfiguration; the import that wires up the
-        #      driver is missing.
-        # Pre-fix the case-3 message used to fire for case-2 too, which made
-        # "no real drivers attempted (none registered)" look like an empty
-        # registry when actually `found=False` had been returned. Bit us
-        # 2026-04-15 chasing why FX2 wasn't in the picture.
+        # The cause is the most specific verdict any driver reached, not the
+        # last one to fail: a kind can hold drivers for boards this scope
+        # does not have (the FX2 LED driver is registered wherever pyusb is,
+        # and raises when no FX2 is attached), and that raise must not hide
+        # what the board this scope does have said about itself -- a port
+        # held by another program, or a board that answers nothing. A board
+        # that was found outranks one that raised, which outranks none found.
+        # The last error's type and message travel as the detail, never its
+        # traceback: a missing board at startup is an expected fallback, and
+        # the stack is always the same driver connect() chain. The empty
+        # registry is told apart from "every driver said found=False", which
+        # once read as "no real drivers registered" and cost a day chasing
+        # why the FX2 was not in the picture.
         for entry in null_candidates:
             tried = tuple(e.cls.__name__ for e in real_candidates)
-            if last_error is not None:
-                # Name the error type + message but not the traceback: a
-                # missing board at startup is an expected fallback, and the
-                # stack is always the same driver connect() chain. The type
-                # and message are the diagnostic payload.
-                detail = f'{type(last_error).__name__}: {last_error}'
-                logger.warning(
-                    f'[registry] {self._kind}: all real drivers failed, '
-                    f'falling back to {entry.cls.__name__}. '
-                    f'Last error: {detail}'
-                )
-                fallback = DriverFallback('connect_failed', tried, detail)
-            elif not_responsive_names:
+            detail = '' if last_error is None else f'{type(last_error).__name__}: {last_error}'
+            last_error_note = f' Last error: {detail}' if detail else ''
+            if not_responsive_names:
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers connected but '
                     f'returned zero bytes to the connect sequence -- the board '
                     f'is powered and enumerated but its firmware is not '
                     f'answering, which needs a power cycle. Tried: '
                     f'{", ".join(not_responsive_names)}. '
-                    f'Falling back to {entry.cls.__name__}'
+                    f'Falling back to {entry.cls.__name__}.{last_error_note}'
                 )
-                fallback = DriverFallback('not_responding', tried)
+                fallback = DriverFallback('not_responding', tried, detail)
             elif not_connected_names:
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers constructed '
                     f'but reported is_connected()=False (port held by another '
                     f'process, or open() failed). Tried: '
                     f'{", ".join(not_connected_names)}. '
-                    f'Falling back to {entry.cls.__name__}'
+                    f'Falling back to {entry.cls.__name__}.{last_error_note}'
                 )
-                fallback = DriverFallback('port_in_use', tried)
+                fallback = DriverFallback('port_in_use', tried, detail)
+            elif last_error is not None:
+                logger.warning(
+                    f'[registry] {self._kind}: all real drivers failed, '
+                    f'falling back to {entry.cls.__name__}.{last_error_note}'
+                )
+                fallback = DriverFallback('connect_failed', tried, detail)
             elif found_false_names:
                 logger.log(
                     logging.INFO if absence_expected else logging.WARNING,

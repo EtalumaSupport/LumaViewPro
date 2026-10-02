@@ -515,7 +515,9 @@ class Lumascope:
             self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
                 model, sim_axes, sim_tier, motorconfig_defaults
             )
-            parts[MOTOR] = PartStatus(MOTOR, up=True)
+            # A simulated manual scope gets the null board, as the bench
+            # finds none: not up, and not missing once the model says so.
+            parts[MOTOR] = PartStatus(MOTOR, up=bool(sim_axes))
         else:
             self._motion_driver, fallback = motor_registry.create_with_fallback(
                 'auto',
@@ -901,9 +903,9 @@ class Lumascope:
         # grab-loop restart. The spinner handler returns early during init.
         # A saved 12-bit mode on a camera with no 12-bit format is the same
         # case as the binning above: the camera decides what it can deliver,
-        # the saved preference stays, and the substitution is on the record.
-        # Only against a connected camera: with none, no formats are
-        # reported and nothing is known about what the mode needs.
+        # and the substitution is on the record. Only against a connected
+        # camera: with none, no formats are reported and nothing is known
+        # about what the mode needs.
         mode = config.image_mode
         formats = self.imaging.get_supported_pixel_formats()
         if self.camera_connected and mode not in image_mode.available_modes(formats):
@@ -1388,7 +1390,7 @@ class Lumascope:
         # driver first so MotionAPI._driver resolves correctly at
         # construction time. The diagnostic has no settings to say what the
         # model expects, so it is held to every board, and it reports
-        # nothing: the support report that builds it is the record's reader.
+        # nothing: its record is on the scope for whoever asks.
         instance._led_driver, led_fallback = led_registry.create_with_fallback('auto')
         instance._motion_driver, motor_fallback = motor_registry.create_with_fallback(
             'auto', motorconfig_defaults=motorconfig_defaults
@@ -1448,12 +1450,9 @@ class Lumascope:
         instance.protocols = ProtocolsAPI(instance)
         instance.runtime_state = RuntimeState(instance)
 
-        # No-hardware probe mirrors __init__ -- diagnostic mode is never
-        # simulate=True, so a NullLED + NullMotor + no camera means we
-        # really do have no hardware.
-        instance._no_hardware = isinstance(instance._led_driver, NullLEDBoard) and isinstance(
-            instance._motion_driver, NullMotionBoard
-        )
+        # No hardware when neither board came up, read from the record as
+        # __init__ reads it; the diagnostic probes no camera.
+        instance._no_hardware = not any(status.up for status in instance._bring_up_parts.values())
 
         logger.info(
             '[SCOPE API ] Diagnostic scope created '
