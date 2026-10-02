@@ -28,6 +28,7 @@ settings-write + step-write path production runs.
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 import threading
 from types import SimpleNamespace
@@ -92,6 +93,8 @@ def _make_env(proto, z_positions, *, z_known=True):
     carries a recording stub for it -- tests assert it fired exactly when a
     step Z was written, and the extraction logger records any swallowed
     exception so a silent failure inside the handler cannot pass unnoticed.
+    The protocol is handed to the handler, as the click handler hands it the
+    panel's; the fake ctx carries none, as the real one carries none.
     """
     from modules.exceptions import ProtocolError
 
@@ -101,7 +104,6 @@ def _make_env(proto, z_positions, *, z_known=True):
             'Blue': {'focus': 7000.0},
         },
         settings_lock=threading.Lock(),
-        protocol=proto,
         scope=SimpleNamespace(
             motion=SimpleNamespace(
                 get_current_position=MagicMock(side_effect=z_positions),
@@ -128,7 +130,7 @@ def _make_env(proto, z_positions, *, z_known=True):
         _schedule_step_views_refresh=MagicMock(),
         _log=log,
     )
-    return fn, ctx, fake_self
+    return functools.partial(fn, protocol=proto), ctx, fake_self
 
 
 class TestSaveFocusSelectedStepOnly:

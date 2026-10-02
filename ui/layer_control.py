@@ -773,16 +773,19 @@ class LayerControl(BoxLayout):
         # at when they clicked, not whatever is selected when the queued task
         # eventually runs (the two diverge if the user navigates or deletes
         # steps in the click-to-execute window). This also keeps the worker
-        # thread out of the widget tree.
-        protocol_settings = ctx.motion_settings.ids.get('protocol_settings_id')
-        selected_step = int(protocol_settings.curr_step) if protocol_settings is not None else -1
+        # thread out of the widget tree. The protocol is taken the same way,
+        # from the panel that holds it: the panel replaces its protocol on
+        # New and Load, so the one being edited is the one it holds now.
+        protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
+        protocol = protocol_settings._protocol
+        selected_step = int(protocol_settings.curr_step)
         run_reported(
-            lambda: self.execute_save_focus(selected_step=selected_step),
+            lambda: self.execute_save_focus(protocol, selected_step=selected_step),
             None,
             f'SAVE_FOCUS_{self.layer}',
         )
 
-    def execute_save_focus(self, selected_step: int = -1):
+    def execute_save_focus(self, protocol, selected_step: int = -1):
         """Save the current Z as this layer's focus, and as the selected step's Z.
 
         A cache read and store writes, run inline by the boundary; the
@@ -804,8 +807,7 @@ class LayerControl(BoxLayout):
         # born at the identical layer focus, so equality is the default
         # state, not evidence of user intent. Only an explicit
         # selection earns the write.
-        protocol = getattr(ctx, 'protocol', None)
-        if protocol is not None and selected_step >= 0:
+        if selected_step >= 0:
             if selected_step >= protocol.num_steps():
                 logger.info(
                     f'[LVP Main  ] save_focus: selected step {selected_step} is '
@@ -865,11 +867,15 @@ class LayerControl(BoxLayout):
     def apply_focus_to_channel_steps(self):
         gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.layer}')
         logger.info('[LVP Main  ] LayerControl.apply_focus_to_channel_steps()')
+        # As Save Focus: the protocol the panel holds at the click.
+        protocol = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol
         run_reported(
-            self.execute_apply_focus_to_channel_steps, None, f'APPLY_FOCUS_TO_STEPS_{self.layer}'
+            lambda: self.execute_apply_focus_to_channel_steps(protocol),
+            None,
+            f'APPLY_FOCUS_TO_STEPS_{self.layer}',
         )
 
-    def execute_apply_focus_to_channel_steps(self):
+    def execute_apply_focus_to_channel_steps(self, protocol):
         """Save the current Z as this layer's focus and write it into every step of the channel.
 
         Run inline by the boundary, as Save Focus is.
@@ -882,13 +888,6 @@ class LayerControl(BoxLayout):
         pos = ctx.scope.motion.get_current_position('Z')
         with ctx.settings_lock:
             settings[self.layer]['focus'] = pos
-        protocol = getattr(ctx, 'protocol', None)
-        if protocol is None:
-            logger.info(
-                f'[LVP Main  ] apply_focus_to_channel_steps: no protocol '
-                f'loaded; layer {self.layer} focus saved only'
-            )
-            return
         updated = protocol.apply_focus_all_layer_steps(layer=self.layer, z=pos)
         logger.info(
             f'[LVP Main  ] apply_focus_to_channel_steps: layer={self.layer} '
