@@ -265,6 +265,63 @@ class HyperstacksSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
         super().__init__(message)
 
 
+class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Nothing came up at bring-up: no LED board, no motor board, no camera.
+
+    One notice for the whole scope, in place of one per part: the person
+    with no instrument attached needs to be told once, not three times.
+    """
+
+    title = 'No hardware detected'
+    reason = 'no_hardware'
+
+    def __init__(self):
+        super().__init__(
+            'No microscope hardware was detected. You can continue in software-only '
+            'mode (live view + protocol design will work; capture will not). To '
+            'connect hardware, power on the scope and reconnect the USB cable, then '
+            'restart LumaViewPro.'
+        )
+
+
+class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The saved binning is one this camera does not offer; bring-up kept the camera's.
+
+    The saved value stays saved, as the person's preference.
+    """
+
+    title = 'Saved binning not supported'
+    reason = 'binning_substituted'
+
+    def __init__(self, saved: int, used: int):
+        super().__init__(
+            f'The saved {saved}x{saved} binning is not supported by this camera; it '
+            f'starts at {used}x{used} instead. Pick a binning in Microscope Settings '
+            'to update the saved value.'
+        )
+
+
+class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The saved image mode needs a pixel depth this camera lacks; bring-up used one it has.
+
+    Attributes:
+        saved: The saved mode's label.
+        used: The label of the mode bring-up started in.
+    """
+
+    title = 'Image mode not supported'
+    reason = 'image_mode_substituted'
+
+    def __init__(self, saved: str, used: str):
+        super().__init__(
+            f'This camera does not support the saved {saved} image mode; it starts in '
+            f'{used} instead. Pick an image mode in Microscope Settings to update the '
+            'saved value.'
+        )
+        self.saved = saved
+        self.used = used
+
+
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
 
@@ -299,6 +356,146 @@ class InstallationFileError(Exception):
             'restore the file'
         )
         self.file_path = file_path
+
+
+class BringUpError(Exception):
+    """A part of the scope did not come up as it should have; the rest of the scope runs.
+
+    Reported, never raised: bring-up goes on without the part, and the
+    person is told once what is missing and what to do about it. The record
+    of the bring-up (``ScopeSession.bring_up_record``) keeps the fact for a
+    client that asks later.
+
+    Attributes:
+        reason: The machine-readable code a client branches on.
+    """
+
+    title = 'Hardware Unavailable'
+
+    def __init__(self, message: str, reason: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class CameraNotAvailableError(BringUpError):
+    """The camera did not come up; the heading and the advice follow the cause.
+
+    Attributes:
+        reason: ``'camera_in_use'`` (another application holds it),
+            ``'camera_port_in_use'``, ``'camera_not_detected'`` or
+            ``'camera_not_initialized'`` (anything else).
+    """
+
+    _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'camera_in_use': (
+            'Camera in use',
+            'Camera appears to be open in another application (Pylon Viewer, another '
+            'LVP instance, etc.). Close it and restart LVP.',
+        ),
+        'camera_port_in_use': (
+            'Camera port in use',
+            'Camera port is in use by another program. Close the other program and restart LVP.',
+        ),
+        'camera_not_detected': (
+            'Camera not detected',
+            'Camera not found. Check USB cable and power.',
+        ),
+        'camera_not_initialized': (
+            'Camera not initialized',
+            'Could not connect to the camera. Check USB cable, power, and close other '
+            'programs that may hold the camera.',
+        ),
+    }
+
+    def __init__(self, reason: str):
+        self.title, message = self._WORDS[reason]
+        super().__init__(message, reason)
+
+
+class LedBoardUnavailableError(BringUpError):
+    """The LED board did not come up on a scope whose other parts did.
+
+    Said once at bring-up rather than once per failed illumination command:
+    without it the first symptom is a sample under a dark objective and
+    controls that appear to do nothing. The advice follows the cause.
+
+    Attributes:
+        reason: The registry's fallback cause: ``'not_detected'``,
+            ``'port_in_use'``, ``'not_responding'``, ``'connect_failed'`` or
+            ``'no_driver'``.
+    """
+
+    title = 'LED Board Unavailable'
+
+    _ADVICE: ClassVar[dict[str, str]] = {
+        'not_detected': (
+            'The LED control board was not found on USB, so illumination is not '
+            'available this session. Check the USB cable and 24V power, then restart '
+            'LumaViewPro.'
+        ),
+        'port_in_use': (
+            'The LED control board was found but its port could not be opened, so '
+            'illumination is not available this session. Close other programs holding '
+            'the port (a serial monitor, Thonny), then restart LumaViewPro.'
+        ),
+        'not_responding': (
+            'The LED control board did not respond, so illumination is not available '
+            'this session. Power-cycle the microscope and restart LumaViewPro to '
+            'restore illumination.'
+        ),
+        'connect_failed': (
+            'Could not connect to the LED control board, so illumination is not '
+            'available this session. Check the USB cable and 24V power, then restart '
+            'LumaViewPro.'
+        ),
+        'no_driver': (
+            'No LED control board driver is installed, so illumination is not available '
+            'this session. Reinstall LumaViewPro.'
+        ),
+    }
+
+    def __init__(self, reason: str):
+        super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
+
+
+class LedSafetyOffNotTakenError(BringUpError):
+    """The LED board connected but did not confirm the LEDs-off sent on connect.
+
+    Sample safety: firmware before the confirmation existed can leave channels
+    on, photobleaching whatever is on the stage.
+
+    Attributes:
+        reason: ``'safety_off_failed'``.
+    """
+
+    title = 'LED Safety Off Not Confirmed'
+
+    def __init__(self, detail: str):
+        super().__init__(
+            'The LED board connected but the safety LEDS_OFF command did not complete '
+            f'({detail}). If the LEDs are stuck on, turn off illumination manually '
+            'before placing a sample.',
+            'safety_off_failed',
+        )
+
+
+class PartialHardwareError(BringUpError):
+    """Parts this scope's model has did not come up; the rest of the scope runs.
+
+    Attributes:
+        reason: ``'partial_hardware'``.
+        missing: Each missing part with its cause, as ``PartStatus.describe``
+            writes it.
+    """
+
+    title = 'Partial Hardware Detected'
+
+    def __init__(self, missing: Iterable[str]):
+        self.missing = tuple(missing)
+        super().__init__(
+            f'Not connected: {", ".join(self.missing)}. Some features will be unavailable.',
+            'partial_hardware',
+        )
 
 
 class ObjectiveUnknownError(Refusal, ConfigError):

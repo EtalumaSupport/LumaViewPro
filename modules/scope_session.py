@@ -69,6 +69,7 @@ _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 if TYPE_CHECKING:
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
+    from modules.lumascope_api.bring_up import BringUpRecord
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_runner import ProtocolRunner
@@ -1258,6 +1259,23 @@ class ScopeSession:
             logger.info(
                 '[Session  ] objective at bring-up: unknown until the turret is in a known slot'
             )
+
+    def bring_up_record(self) -> 'BringUpRecord':
+        """What bring-up found, substituted and set aside, for a client that asks later.
+
+        Which parts came up and, for each that did not, why; what bring-up
+        used in place of a saved setting the camera could not take, the
+        saved value beside it; and the settings file set aside with its
+        reason, while the app runs on the shipped template. A client given
+        to ``create(outcome_listener=...)`` heard these as outcomes; this is
+        the same facts held, read-through from the scope and the settings
+        store, for one that connects afterwards.
+        """
+        from modules.lumascope_api.bring_up import SettingsSetAside
+
+        rejected = settings_init.rejected_current_json
+        set_aside = None if rejected is None else SettingsSetAside(*rejected)
+        return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
 
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?

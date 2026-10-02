@@ -350,9 +350,24 @@ def diagnostic_scope():
     """Lumascope.create_diagnostic() with each board connect answered by its
     null driver, as on a machine with no scope. The diagnostic path's own
     wiring is what a test reads; the real boards are unreachable from a test."""
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from drivers.registry import DriverFallback
     from modules.lumascope_api import _lumascope
 
-    with patch.object(_lumascope, '_try_connect_board', lambda label, ctor, null_ctor: null_ctor()):
+    absent = DriverFallback('not_detected', ())
+    with (
+        patch.object(
+            _lumascope.led_registry,
+            'create_with_fallback',
+            lambda name='auto', **kw: (NullLEDBoard(), absent),
+        ),
+        patch.object(
+            _lumascope.motor_registry,
+            'create_with_fallback',
+            lambda name='auto', **kw: (NullMotionBoard(), absent),
+        ),
+    ):
         instance = _lumascope.Lumascope.create_diagnostic()
     try:
         yield instance

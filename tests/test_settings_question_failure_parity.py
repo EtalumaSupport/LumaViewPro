@@ -447,10 +447,16 @@ class TestTheQuestionIsAskable:
             raise PermissionError(13, 'The process cannot access the file', src)
 
         monkeypatch.setattr(settings_init.os, 'replace', _locked)
+        from modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
+
         ctx = SimpleNamespace(
             session=SimpleNamespace(
                 settings_are_provisional=settings_init.settings_are_provisional,
                 retire_rejected_settings=settings_init.retire_rejected_current_json,
+                bring_up_record=lambda: BringUpRecord(
+                    parts=(),
+                    settings_set_aside=SettingsSetAside(*settings_init.rejected_current_json),
+                ),
             )
         )
         clock = _FakeClock()

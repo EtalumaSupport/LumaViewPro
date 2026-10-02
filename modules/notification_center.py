@@ -32,6 +32,7 @@ from enum import IntEnum, StrEnum
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from modules.exceptions import (
+    BringUpError,
     CameraSettingRejected,
     CaptureError,
     ConfigError,
@@ -57,6 +58,7 @@ _outcome_logger = logging.getLogger('LVP.outcomes')
 # str() is a developer's words -- a Python class name, a repr -- so the
 # person reads a generic sentence and the log carries the rest.
 _TYPED_FAULTS = (
+    BringUpError,
     CameraSettingRejected,
     CaptureError,
     ProtocolError,

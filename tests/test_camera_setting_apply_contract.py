@@ -47,6 +47,10 @@ class _RecordingNotifications:
         self.errors = []
         self.warnings = []
         self.criticals = []
+        self.reported = []
+
+    def report_outcome(self, exception, **kw):
+        self.reported.append(exception)
 
     def error(self, category, title, message, **kw):
         self.errors.append((category, title, message))
@@ -293,7 +297,7 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
         acceleration_pct=100,
         stage_offset={'x': 0, 'y': 0},
         scale_bar_enabled=False,
-        capture_depth=8,
+        image_mode='8bit',
     )
 
 
@@ -358,12 +362,11 @@ def test_initialize_reconciles_unsupported_persisted_binning(monkeypatch):
     # A settings file written against a different camera persists a factor
     # this camera does not support (sim supports [1, 2, 4]); initialize must
     # apply the camera-reported factor instead, and say so.
-    applied, _frames, errors, _ = _drive_initialize(_init_config(8), monkeypatch)
+    applied, _frames, _errors, _ = _drive_initialize(_init_config(8), monkeypatch)
     assert applied == [1], (
         f'unsupported persisted binning must fall back to the '
         f'camera-reported factor; applied {applied}'
     )
-    assert any('persisted binning' in e for e in errors), errors
 
 
 def test_initialize_passes_supported_persisted_binning_through(monkeypatch):
@@ -379,32 +382,35 @@ def test_initialize_refits_persisted_frame_at_reconciled_binning(monkeypatch):
     # camera-reported 1x, the frame must be refit from that native intent
     # (capped at the sim's 1920x1200 native, aligned to its 48x4 grid ->
     # 1920x1200), NOT applied as a tiny 484x304 ROI at 1x.
-    applied, frames, errors, _ = _drive_initialize(
+    applied, frames, _errors, _ = _drive_initialize(
         _init_config(8, frame_width=484, frame_height=304), monkeypatch
     )
     assert applied == [1]
     assert frames != [(484, 304)], 'the persisted displayed size must be refit, not reused'
     assert frames == [(1920, 1200)], frames
-    assert any('persisted binning' in e for e in errors), errors
 
 
 def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch):
     # The reconciliation is user-visible, not just a log line: the saved
     # binning silently coming up different needs a popup naming the fix
     # (pick a binning in Microscope Settings to update the saved value).
+    from modules.exceptions import BinningSubstitutedNotice
+
     recorder = _RecordingNotifications()
     monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', recorder)
     _drive_initialize(_init_config(8), monkeypatch)
-    saved_binning_warnings = [w for w in recorder.warnings if w[1] == 'Saved binning not supported']
-    assert len(saved_binning_warnings) == 1, recorder.warnings
+    substituted = [e for e in recorder.reported if isinstance(e, BinningSubstitutedNotice)]
+    assert len(substituted) == 1, recorder.reported
 
 
 def test_initialize_supported_binning_fires_no_reconciliation_warning(monkeypatch):
+    from modules.exceptions import BinningSubstitutedNotice
+
     recorder = _RecordingNotifications()
     monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', recorder)
     _drive_initialize(_init_config(2), monkeypatch)
-    assert not any(w[1] == 'Saved binning not supported' for w in recorder.warnings), (
-        recorder.warnings
+    assert not any(isinstance(e, BinningSubstitutedNotice) for e in recorder.reported), (
+        recorder.reported
     )
 
 

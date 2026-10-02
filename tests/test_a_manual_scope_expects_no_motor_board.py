@@ -85,12 +85,14 @@ def test_the_scope_tells_the_probe_whether_its_model_has_a_motor_board(
 
     def create(name='auto', **kwargs):
         asked.append(kwargs.get('absence_expected'))
-        return NullMotionBoard()
+        return NullMotionBoard(), None
 
-    monkeypatch.setattr(lumascope_module.motor_registry, 'create', create)
+    monkeypatch.setattr(lumascope_module.motor_registry, 'create_with_fallback', create)
     # No real port is opened in the suite: the LED board is answered null.
     monkeypatch.setattr(
-        lumascope_module.led_registry, 'create', lambda name='auto', **kwargs: NullLEDBoard()
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
     build_scope(
         simulate=False,

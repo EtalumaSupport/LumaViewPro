@@ -1,39 +1,38 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The support report's scope hands its motor board the shipped defaults.
 
-`Lumascope.create_diagnostic` builds the boards itself, not through the
-registry, and the motor driver takes the shipped motor defaults as a
-required argument. Built without them, the constructor raised, the
-connect helper's broad catch turned that into "connect failed", and the
-support report ran against a null motor board on every machine, telling
-the person to check a cable that was fine.
+`Lumascope.create_diagnostic` asks the registry for its boards, and the
+motor driver takes the shipped motor defaults as a required argument.
+Built without them, the constructor raised, the registry's broad catch
+turned that into a fallback, and the support report ran against a null
+motor board on every machine, telling the person to check a cable that
+was fine.
 """
 
 import modules.lumascope_api._lumascope as lumascope_module
+from drivers.null_ledboard import NullLEDBoard
+from drivers.null_motorboard import NullMotionBoard
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
-
-
-class _NoBoard:
-    """Answers "not on USB" without touching a port."""
-
-    def __init__(self, **kwargs):
-        self.found = False
 
 
 def test_the_support_report_scope_builds_its_motor_board_with_the_shipped_defaults(
     monkeypatch,
 ):
-    built = []
+    asked = []
 
-    def motor_board(**kwargs):
-        built.append(kwargs)
-        return _NoBoard()
+    def motor_create(name='auto', **kwargs):
+        asked.append(kwargs)
+        return NullMotionBoard(), None
 
-    monkeypatch.setattr(lumascope_module, 'MotorBoard', motor_board)
-    monkeypatch.setattr(lumascope_module, 'LEDBoard', _NoBoard)
+    monkeypatch.setattr(lumascope_module.motor_registry, 'create_with_fallback', motor_create)
+    monkeypatch.setattr(
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullLEDBoard(), None),
+    )
 
     scope = lumascope_module.Lumascope.create_diagnostic()
     try:
-        assert built == [{'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS}]
+        assert asked == [{'motorconfig_defaults': SHIPPED_MOTOR_DEFAULTS}]
     finally:
         scope.disconnect()

@@ -1,26 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for ScopeInitConfig and the partial-hardware notification filter.
+"""Tests for ScopeInitConfig.
 
-Background: pre-fix, `Lumascope.__init__` warned "Partial Hardware
-Detected" whenever any of LED / motor / camera failed to construct.
-For an LS620 (which legitimately has no motor -- `Focus=false,
-XYStage=false, Turret=false` in scopes.json) every startup popped the
-warning twice (once for the initial connect attempt and once on the
-auto-reconnect). The fix moves the notification into
-`Lumascope.initialize(config)` and filters `missing` against the
-scope's expected hardware as captured on `ScopeInitConfig`.
+The config carries what the selected scope's model expects: an LS620 has no
+motor board (`Focus=false, XYStage=false, Turret=false` in scopes.json), so
+its missing board is not reported as a failure. What bring-up reports from
+those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 """
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import pytest
 
-from modules.notification_center import NotificationCenter, Severity
 from modules.scope_init_config import ScopeInitConfig
 from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN, MotorBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.null_ledboard import NullLEDBoard
-from tests.scope_fakes import build_scope
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -112,14 +104,14 @@ class TestFromSettings:
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
-        # No image_mode key -> 8-bit default.
+        # No image_mode key -> the 8-bit default mode.
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
-        assert config.capture_depth == 8
-        # A 12-bit image mode resolves to a 12-bit capture depth, so
-        # initialize() applies a 12-bit native pixel format up front.
+        assert config.image_mode == '8bit'
+        # A 12-bit image mode is carried as itself, so initialize() applies a
+        # 12-bit native pixel format up front, or says it cannot.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
         config = ScopeInitConfig.from_settings(twelve, labware=None, turreted=False)
-        assert config.capture_depth == 12
+        assert config.image_mode == '12bit_scientific'
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
@@ -219,117 +211,3 @@ class TestAccelerationBound:
             MotorBoard.set_acceleration_limit(
                 board, axis='X', parameter='acceleration', val_pct=ACCELERATION_PCT_MAX + 1
             )
-
-
-# ---------- _notify_partial_hardware filter ----------
-
-
-def _make_scope_with_no_hardware():
-    """Sim scope, disconnected -- which leaves the Null* drivers and no
-    camera, and frees the simulated boards -- with `_simulated` flipped
-    off so the early-return doesn't fire."""
-    scope = build_scope(simulate=True)
-    scope.disconnect()
-    assert isinstance(scope._led_driver, NullLEDBoard)
-    assert isinstance(scope._motion_driver, NullMotionBoard)
-    assert scope._camera_driver is None
-    scope._simulated = False
-    return scope
-
-
-@pytest.fixture
-def captured_warnings(monkeypatch):
-    """Swap a fresh NotificationCenter (no dedup) into lumascope_api so
-    each test sees only its own notifications."""
-    fresh_nc = NotificationCenter(dedup_window_s=0)
-    received = []
-    fresh_nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', fresh_nc)
-    return received
-
-
-class TestNotifyPartialHardware:
-    def test_simulator_never_warns(self, captured_warnings):
-        scope = build_scope(simulate=True)
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            turreted=False,
-            scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
-        )
-        scope._notify_partial_hardware(config)
-        assert captured_warnings == []
-
-    def test_ls620_no_motor_no_warning(self, captured_warnings):
-        scope = _make_scope_with_no_hardware()
-        # LS620 has Layers -- pretend the LED board did connect by
-        # swapping Null out for a real-ish object.
-        scope._led_driver = object()  # truthy non-Null sentinel
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            turreted=False,
-            scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
-        )
-        scope._notify_partial_hardware(config)
-        # No motor expected, LED present, no camera attached -> only
-        # camera should be reported as missing.
-        assert len(captured_warnings) == 1
-        assert 'Camera' in captured_warnings[0].message
-        assert 'Motor Controller' not in captured_warnings[0].message
-
-    def test_ls820_motor_failed_warns(self, captured_warnings):
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            turreted=False,
-            scope_config=_LS820_CONFIG,
-        )
-        scope._notify_partial_hardware(config)
-        assert len(captured_warnings) == 1
-        assert 'Motor Controller' in captured_warnings[0].message
-
-    def test_no_scope_config_warns_for_missing_motor(self, captured_warnings):
-        """Backward-compat: callers that don't supply scope_config get
-        the pre-filter behavior (any Null driver -> warning)."""
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
-        scope._notify_partial_hardware(config)
-        assert len(captured_warnings) == 1
-        assert 'Motor Controller' in captured_warnings[0].message
-
-    def test_active_camera_does_not_warn(self, captured_warnings):
-        """Connected camera (driver.active=True) must not produce a
-        Camera warning. Guards against the pattern where a `hasattr`
-        check probes a name that no longer exists post-driver-rename
-        and the OR short-circuits to a false-positive missing-Camera."""
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-
-        class _ConnectedMotor:
-            def is_connected(self):
-                return True
-
-            def motor_stop(self):
-                pass
-
-        scope._motion_driver = _ConnectedMotor()
-
-        class _ActiveCam:
-            active = True
-
-        scope._camera_driver = _ActiveCam()
-
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            turreted=False,
-            scope_config=_LS820_CONFIG,
-        )
-        scope._notify_partial_hardware(config)
-        assert captured_warnings == []

@@ -697,20 +697,6 @@ class LumaViewProApp(TooltipMixin, App):
         load_autofocus_log_enable(source_path)
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
-        if lumaview.scope.no_hardware:
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='No hardware detected',
-                    message=(
-                        'No microscope hardware was detected. You can continue in software-only '
-                        'mode (live view + protocol design will work; capture will not). To '
-                        'connect hardware, power on the scope and reconnect the USB cable, then '
-                        'restart LumaViewPro.'
-                    ),
-                ),
-                0,
-            )
-
         # ScopeSession owns startup orchestration so REST API, headless tools and
         # the GUI all hit the same path.
         # The GUI homes through the ui_helpers wrapper, which sets the window
@@ -827,12 +813,10 @@ class LumaViewProApp(TooltipMixin, App):
         mean running with saves silently disabled -- the user changes settings
         all session and loses every one of them at exit, with nothing said.
         """
-        import modules.settings_init as settings_init
-
         if not ctx.session.settings_are_provisional():
             return
 
-        _path, reason = settings_init.rejected_current_json
+        reason = ctx.session.bring_up_record().settings_set_aside.reason
 
         def _after_revert():
             # The retire is a file rename that can fail under a Windows
@@ -943,98 +927,92 @@ class LumaViewProApp(TooltipMixin, App):
         # API says is shown and decides nothing more.
         from ui.notification_popup import notification_popup_bridge
 
-        try:
-            from kivy.core.window import Window
+        from kivy.core.window import Window
 
-            # Window min size uses SDL point coordinates -- do NOT use dp()
-            Window.minimum_width = 1024
-            Window.minimum_height = 600
-            Window.bind(on_resize=self._on_resize)
-            Window.bind(on_request_close=self.on_request_close)
-            # Window-level lifecycle bindings -- log every event the OS /
-            # window manager / global keyboard shortcut can deliver
-            # outside any registered widget. Without these, a shutdown
-            # triggered by Alt-F4 / window-X / OS-close leaves the GUI
-            # log silent and post-mortem cannot name the trigger.
-            Window.bind(on_close=self._on_window_close)
-            Window.bind(on_keyboard=self._on_window_keyboard)
-            # SDL2-only events: minimize / maximize / restore. Bind under
-            # try/except so non-SDL2 window providers (rare) don't crash.
-            # Handler names are constructed dynamically here, so
-            # _on_window_minimize/_maximize/_restore have no static
-            # references -- dead-code scanners must not flag them.
-            for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
-                try:
-                    Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
-                except Exception as _e:
-                    logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
-            Window.bind(focus=self._on_window_focus)
-
-            # Clock.schedule_once is the UI dispatcher: the executor lanes
-            # post callbacks to the Kivy main thread without importing
-            # Kivy themselves.
-            from kivy.clock import Clock
-
-            _ui = Clock.schedule_once
-
-            # Also set the global dispatcher for kivy_utils.schedule_ui()
-            from modules.kivy_utils import set_ui_dispatcher
-
-            set_ui_dispatcher(_ui)
-
-            # The Session composes the instrument -- the scope (the camera
-            # registry picks by priority, Pylon -> IDS -> FX2, reading the
-            # labware and objective catalogues), the executor topology and the autofocus
-            # pair -- and brings the scope up (configure from settings,
-            # then release the camera start gate) before it returns. What
-            # only this host knows goes in by name. The pre-release
-            # warning is gated off: the GUI ships in the same commit as
-            # the API, so it has nothing to tell it and would only reach
-            # the user's console. A raise inside the factory tears down
-            # what it had started before it reaches here.
-            def _compose(from_settings):
-                return ScopeSession.create(
-                    settings=from_settings,
-                    source_path=source_path,
-                    simulate=simulate_mode,
-                    warn_pre_release=False,
-                    ui_dispatcher=_ui,
-                    af_ui_update_func=_handle_autofocus_ui,
-                    settings_saved_hook=_notify_plugins_of_settings_save,
-                    engineering_mode=ENGINEERING_MODE,
-                    display_ctx_provider=lambda: app_context.ctx,
-                    sim_camera_stall=sim_camera_stall,
-                    outcome_listener=notification_popup_bridge,
-                )
-
-            # A stored value the settings store cannot configure a scope
-            # from -- a malformed binning label, a missing frame -- reaches
-            # here as ConfigError, and there is nothing above build() to
-            # catch it, so without this the app does not launch at all. Come
-            # up on the shipped template instead, the same recovery
-            # settings_init already runs for an unreadable current.json.
-            # The user's file is NOT repaired: a value we cannot interpret
-            # is not a value we may overwrite.
+        # Window min size uses SDL point coordinates -- do NOT use dp()
+        Window.minimum_width = 1024
+        Window.minimum_height = 600
+        Window.bind(on_resize=self._on_resize)
+        Window.bind(on_request_close=self.on_request_close)
+        # Window-level lifecycle bindings -- log every event the OS /
+        # window manager / global keyboard shortcut can deliver
+        # outside any registered widget. Without these, a shutdown
+        # triggered by Alt-F4 / window-X / OS-close leaves the GUI
+        # log silent and post-mortem cannot name the trigger.
+        Window.bind(on_close=self._on_window_close)
+        Window.bind(on_keyboard=self._on_window_keyboard)
+        # SDL2-only events: minimize / maximize / restore. Bind under
+        # try/except so non-SDL2 window providers (rare) don't crash.
+        # Handler names are constructed dynamically here, so
+        # _on_window_minimize/_maximize/_restore have no static
+        # references -- dead-code scanners must not flag them.
+        for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
             try:
-                scope_session = _compose(settings)
-            except ConfigError as unusable:
-                logger.exception(
-                    '[LVP Main  ] Stored settings cannot configure a scope; '
-                    'coming up on the shipped defaults.'
-                )
-                # Republishes the store IN PLACE and marks the session
-                # provisional, so `settings` below is the template and every
-                # save raises until the user resolves it. Reassigning the name
-                # here instead would strand every other holder of this dict on
-                # the rejected values.
-                fall_back_to_template(logger, source_path, str(unusable))
-                scope_session = _compose(settings)
-            lumaview = MainDisplay(scope=scope_session.scope)
-            cell_count_content = CellCountControls()
-            graphing_controls = GraphingControls()
-        except Exception:
-            logger.exception('[LVP Main  ] Cannot compose the session or open the main display.')
-            raise
+                Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
+            except Exception as _e:
+                logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
+        Window.bind(focus=self._on_window_focus)
+
+        # Clock.schedule_once is the UI dispatcher: the executor lanes
+        # post callbacks to the Kivy main thread without importing
+        # Kivy themselves.
+        from kivy.clock import Clock
+
+        _ui = Clock.schedule_once
+
+        # Also set the global dispatcher for kivy_utils.schedule_ui()
+        from modules.kivy_utils import set_ui_dispatcher
+
+        set_ui_dispatcher(_ui)
+
+        # The Session composes the instrument -- the scope (the camera
+        # registry picks by priority, Pylon -> IDS -> FX2, reading the
+        # labware and objective catalogues), the executor topology and the autofocus
+        # pair -- and brings the scope up (configure from settings,
+        # then release the camera start gate) before it returns. What
+        # only this host knows goes in by name. The pre-release
+        # warning is gated off: the GUI ships in the same commit as
+        # the API, so it has nothing to tell it and would only reach
+        # the user's console. A raise inside the factory tears down
+        # what it had started before it reaches here.
+        def _compose(from_settings):
+            return ScopeSession.create(
+                settings=from_settings,
+                source_path=source_path,
+                simulate=simulate_mode,
+                warn_pre_release=False,
+                ui_dispatcher=_ui,
+                af_ui_update_func=_handle_autofocus_ui,
+                settings_saved_hook=_notify_plugins_of_settings_save,
+                engineering_mode=ENGINEERING_MODE,
+                display_ctx_provider=lambda: app_context.ctx,
+                sim_camera_stall=sim_camera_stall,
+                outcome_listener=notification_popup_bridge,
+            )
+
+        # A stored value the settings store cannot configure a scope
+        # from -- a malformed binning label, a missing frame -- reaches
+        # here as ConfigError, and there is nothing above build() to
+        # catch it, so without this the app does not launch at all. Come
+        # up on the shipped template instead, the same recovery
+        # settings_init already runs for an unreadable current.json.
+        # The user's file is NOT repaired: a value we cannot interpret
+        # is not a value we may overwrite. The fallback writes the one log
+        # line for the rejection, carrying its cause; a raise out of here
+        # is the process's crash, recorded once by the crash hook.
+        try:
+            scope_session = _compose(settings)
+        except ConfigError as unusable:
+            # Republishes the store IN PLACE and marks the session
+            # provisional, so `settings` below is the template and every
+            # save raises until the user resolves it. Reassigning the name
+            # here instead would strand every other holder of this dict on
+            # the rejected values.
+            fall_back_to_template(logger, source_path, str(unusable))
+            scope_session = _compose(settings)
+        lumaview = MainDisplay(scope=scope_session.scope)
+        cell_count_content = CellCountControls()
+        graphing_controls = GraphingControls()
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.

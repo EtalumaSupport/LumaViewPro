@@ -51,12 +51,14 @@ def test_the_session_hands_the_setting_to_the_led_driver(monkeypatch, tmp_path, 
 
     def led_create(name='auto', **kwargs):
         asked.append(kwargs)
-        return NullLEDBoard()
+        return NullLEDBoard(), None
 
     real_camera_create = lumascope_module.camera_registry.create
-    monkeypatch.setattr(lumascope_module.led_registry, 'create', led_create)
+    monkeypatch.setattr(lumascope_module.led_registry, 'create_with_fallback', led_create)
     monkeypatch.setattr(
-        lumascope_module.motor_registry, 'create', lambda name='auto', **kwargs: NullMotionBoard()
+        lumascope_module.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullMotionBoard(), None),
     )
     # No real camera in the suite: the by-name path builds the simulated one.
     monkeypatch.setattr(
@@ -109,16 +111,18 @@ def test_the_illumination_cache_check_traces_by_the_sessions_setting(tmp_path, e
         session.scope.disconnect()
 
 
-class _NoBoard:
-    """Answers "not on USB" without touching a port."""
-
-    def __init__(self, **kwargs):
-        self.found = False
-
-
 def test_the_support_report_scope_never_traces(monkeypatch):
-    monkeypatch.setattr(lumascope_module, 'MotorBoard', _NoBoard)
-    monkeypatch.setattr(lumascope_module, 'LEDBoard', _NoBoard)
+    # No real port is opened in the suite: both boards are answered null.
+    monkeypatch.setattr(
+        lumascope_module.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullMotionBoard(), None),
+    )
+    monkeypatch.setattr(
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullLEDBoard(), None),
+    )
 
     scope = lumascope_module.Lumascope.create_diagnostic()
     try:

@@ -197,26 +197,16 @@ class MicroscopeSettings(BoxLayout):
             self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
-            # capability, then select the stored mode. A stored 12-bit mode on
-            # an 8-bit-only camera falls back to 8-bit and tells the user.
+            # capability, then show the mode bring-up resolved. A stored
+            # 12-bit mode on an 8-bit-only camera was substituted at bring-up,
+            # which said so; the record carries what it used.
             # Setting the spinner text fires select_image_mode (on_text), which
             # caches the mode and applies the pixel format.
-            formats = self.load_image_modes()
+            self.load_image_modes()
             mode = image_mode.resolve_settings_image_mode(settings)
-            # Only downgrade when the camera DEFINITIVELY lacks 12-bit (formats
-            # known and without Mono12). An empty list here means the camera
-            # is not up yet -- keep the stored mode; the options refresh when
-            # the spinner is next opened.
-            if formats and mode not in image_mode.available_modes(formats):
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Camera',
-                    'Image mode not supported',
-                    'This camera supports 8-bit capture only; the saved 12-bit '
-                    'image mode was changed to 8-bit.',
-                )
-                mode = image_mode.IMAGE_MODE_8BIT
+            substituted = ctx.session.bring_up_record().substitution('image_mode')
+            if substituted is not None:
+                mode = substituted.used
                 settings['image_mode'] = mode
             self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 

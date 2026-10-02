@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import dataclasses
 import sys
 import types
 import warnings
@@ -8,8 +9,6 @@ import warnings
 from lvp_logger import logger
 
 # Import Lumascope Hardware files
-from drivers.motorboard import MotorBoard
-from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
 import modules.image_mode as image_mode
@@ -34,6 +33,8 @@ from drivers.camera import Camera
 # by kind ('pylon', 'sim') via create(). No name below is referenced
 # directly here; dropping these empties the registry -- simulate mode then
 # finds no 'sim' drivers and startup aborts.
+from drivers.ledboard import LEDBoard  # noqa: F401
+from drivers.motorboard import MotorBoard  # noqa: F401
 from drivers.pyloncamera import PylonCamera  # noqa: F401
 from drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
@@ -43,7 +44,25 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
-from modules.exceptions import CameraSettingRejected, ScopeDisconnectError
+from modules.exceptions import (
+    BinningSubstitutedNotice,
+    CameraNotAvailableError,
+    CameraSettingRejected,
+    ImageModeSubstitutedNotice,
+    LedBoardUnavailableError,
+    LedSafetyOffNotTakenError,
+    NoHardwareDetectedNotice,
+    PartialHardwareError,
+    ScopeDisconnectError,
+)
+from modules.lumascope_api.bring_up import (
+    CAMERA,
+    LED,
+    MOTOR,
+    BringUpRecord,
+    PartStatus,
+    Substitution,
+)
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -130,163 +149,42 @@ AxisState = _api_constants.AxisState
 
 
 # ---------------------------------------------------------------------------
-# Notify-on-failure helpers
-#
-# #632/#539 introduced `_try_connect_board` to replace the silent
-# `try/except: NullBoard()` pattern that hid LED-side failures. The
-# helpers are hoisted to module scope so they can be reused by
-# `__init__`, `create_diagnostic`, and any future connect path without
-# duplicating the error-class routing. The module-scope helpers are
-# the single source of truth; call sites should be one-liners.
+# What a part's failure to come up means, for the bring-up record
 # ---------------------------------------------------------------------------
 
 
-def _notify_board_failure(label, short, message):
-    """Surface a board-connect failure to the user via notification_center.
+def _camera_failure_cause(exc: BaseException) -> str:
+    """The record's cause for a camera that raised while connecting.
 
-    Safe to call from any thread. Falls back to a debug log if the
-    notification_center import fails (e.g. during very-early startup).
+    The camera registry raises whatever the backend raised (pypylon,
+    ids_peak, FX2, simulated). pypylon's RuntimeException for "camera already
+    open in another application" is the frequent case -- Pylon Viewer or a
+    second LVP -- and gets its own cause. Matched by type name so pypylon is
+    not imported on a host without it.
     """
-    try:
-        from modules.notification_center import notifications
+    if type(exc).__name__ in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
+        return 'camera_in_use'
+    if isinstance(exc, PermissionError):
+        return 'camera_port_in_use'
+    if isinstance(exc, FileNotFoundError):
+        return 'camera_not_detected'
+    return 'camera_not_initialized'
 
-        notifications.warning(label, f'{label} {short}', message)
-    except Exception as nx:
-        logger.debug(f'{label}: notification center unavailable: {nx}')
 
+def _board_status(part: str, board, fallback) -> 'PartStatus':
+    """The record of a board the registry built, real or null.
 
-def _try_connect_board(label, ctor, null_ctor):
-    """Construct a board, classify any failure, notify the user, fall back
-    to `null_ctor()` so callers don't crash on missing hardware.
-
-    The board constructor (LEDBoard / MotorBoard / ...) calls
-    SerialBoard.connect() internally, which catches its OWN exceptions and
-    logs without re-raising. That means a PermissionError on open leaves
-    `board.found=True` (port was discovered) but `board.driver=None` (open
-    failed) -- we detect that here and surface it as a clear failure instead
-    of silently substituting Null*.
-
-    Every case logs visibly and notifies the user with an actionable,
-    error-class-specific message.
+    A real LED board reports a connect-time LEDS_OFF that did not complete
+    through ``last_safety_off_error``; it is the one problem a board that
+    came up can have, and a sample-safety one (older firmware can leave
+    channels on), so it is on the record.
     """
-    try:
-        board = ctor()
-        if not getattr(board, 'found', False):
-            logger.error(f'{label}: not detected on USB')
-            _notify_board_failure(
-                label, 'not detected', f'{label} not found on USB. Check USB cable and 24V power.'
-            )
-            return null_ctor()
-        if getattr(board, 'driver', None) is None:
-            logger.error(
-                f'{label}: detected on {board.port} but driver failed to open '
-                f'(port may be held by another program -- Thonny, etc.)'
-            )
-            _notify_board_failure(
-                label,
-                'port in use or unreachable',
-                f'{label} detected on {board.port} but the port could not be opened. '
-                f'Close other programs holding the port (Thonny, serial monitors), '
-                f'then restart LVP.',
-            )
-            return null_ctor()
-        # Surface board-specific post-connect safety failures. LEDBoard
-        # uses last_safety_off_error to report a connect-time LEDS_OFF
-        # send failure (sample safety -- pre-v3.0.4 firmware can leave
-        # channels stuck on, photobleaching the sample). Caller sees a
-        # clear notification rather than the warning-level log getting
-        # buried.
-        safety_err = getattr(board, 'last_safety_off_error', None)
-        if safety_err:
-            _notify_board_failure(
-                label,
-                'safety LEDS_OFF failed',
-                f'{label} connected but the safety LEDS_OFF command did '
-                f'not complete ({safety_err}). If the LEDs are stuck on, '
-                f'turn off illumination manually before placing a sample.',
-            )
-        return board
-    except PermissionError as e:
-        logger.error(f'{label}: PermissionError opening port: {e}')
-        _notify_board_failure(
-            label,
-            'port in use',
-            f'{label} port is in use by another program (e.g. Thonny). '
-            f'Close the other program and restart LVP to reconnect.',
-        )
-        return null_ctor()
-    except FileNotFoundError as e:
-        logger.error(f'{label}: FileNotFoundError on port: {e}')
-        _notify_board_failure(
-            label, 'port not found', f'{label} port disappeared during connect. Check USB cable.'
-        )
-        return null_ctor()
-    except Exception as e:
-        logger.error(f'{label}: connect failed: {type(e).__name__}: {e}')
-        _notify_board_failure(
-            label,
-            'connect failed',
-            f'Could not connect to {label}. Check the USB cable and 24V power, then restart LVP.',
-        )
-        return null_ctor()
-
-
-def _is_total_cold_start(led_driver, motion_driver) -> bool:
-    """True when LED + motor have already both fallen back to Null* drivers,
-    which means the about-to-fail camera will trigger the
-    no_hardware path. In that case the per-component notifications
-    are redundant -- the consolidated 'No hardware detected' popup
-    in lumaviewpro.py says it all -- so the individual notifications
-    are skipped to avoid 4 popups stacking on top of each other.
-    """
-    return isinstance(led_driver, NullLEDBoard) and isinstance(motion_driver, NullMotionBoard)
-
-
-def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
-    """Surface camera-init failure to the user.
-
-    The camera registry raises a variety of exception types depending on
-    which backend (pypylon, ids_peak, FX2, simulated). pypylon's
-    RuntimeException for "camera already open in another application"
-    is the high-frequency case that Pylon Viewer / a second LVP instance
-    produces and deserves a dedicated message.
-    """
-    exc_type = type(exc).__name__
-    # Don't import pypylon at module load (adds cold-start time on
-    # non-Pylon rigs). Match by type name string instead.
-    if exc_type in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
-        title = 'Camera in use'
-        body = (
-            'Camera appears to be open in another application '
-            '(Pylon Viewer, another LVP instance, etc.). '
-            'Close it and restart LVP.'
-        )
-    elif isinstance(exc, PermissionError):
-        title = 'Camera port in use'
-        body = 'Camera port is in use by another program. Close the other program and restart LVP.'
-    elif isinstance(exc, FileNotFoundError):
-        title = 'Camera not detected'
-        body = 'Camera not found. Check USB cable and power.'
-    else:
-        title = 'Camera not initialized'
-        body = (
-            'Could not connect to the camera. '
-            'Check USB cable, power, and close other programs that '
-            'may hold the camera.'
-        )
-    if suppress_if_cold_start:
-        # Cold-start with no hardware -- caller has already detected
-        # this is the third strike and a consolidated "No hardware
-        # detected" popup will fire from lumaviewpro.on_start. Per-
-        # component popups stacking with the consolidated one is the
-        # 4-popup spam Eric reported.
-        logger.warning(
-            f'[SCOPE API ] Camera not initialized (suppressed user '
-            f'notification, no_hardware path will fire consolidated): '
-            f'{title}: {body}'
-        )
-        return
-    _notify_board_failure('Camera', title, body)
+    if fallback is not None:
+        return PartStatus(part, up=False, cause=fallback.cause, detail=fallback.detail)
+    safety_error = getattr(board, 'last_safety_off_error', None)
+    if safety_error:
+        return PartStatus(part, up=True, cause='safety_off_failed', detail=str(safety_error))
+    return PartStatus(part, up=True)
 
 
 class Lumascope:
@@ -593,6 +491,10 @@ class Lumascope:
         # camera cache, objective/turret state, the scope's lanes.
         # Driver construction + sub-API wiring happen below.
         self._init_minimal(simulated=simulate, ui_dispatcher=ui_dispatcher)
+        # What each part did while connecting, written as the drivers are
+        # built below and read back as the bring-up record. A simulated part
+        # always comes up: the simulator is what it stands in for.
+        parts: dict[str, PartStatus] = {}
 
         # LED state slots (_led_listeners, _led_state, _lit_by,
         # _led_state_lock, _led_listeners_lock, _led_lock) live on
@@ -613,12 +515,14 @@ class Lumascope:
             self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
                 model, sim_axes, sim_tier, motorconfig_defaults
             )
+            parts[MOTOR] = PartStatus(MOTOR, up=True)
         else:
-            self._motion_driver = motor_registry.create(
+            self._motion_driver, fallback = motor_registry.create_with_fallback(
                 'auto',
                 absence_expected=motor_absence_expected,
                 motorconfig_defaults=motorconfig_defaults,
             )
+            parts[MOTOR] = _board_status(MOTOR, self._motion_driver, fallback)
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
@@ -650,10 +554,15 @@ class Lumascope:
                 connection=sim_fx2.connection, debug_wire=fx2_debug_wire
             )
             logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
+            parts[LED] = PartStatus(LED, up=True)
         elif simulate:
             self._led_driver = self._build_simulated_led_board(model, sim_tier)
+            parts[LED] = PartStatus(LED, up=True)
         else:
-            self._led_driver = led_registry.create('auto', debug_wire=fx2_debug_wire)
+            self._led_driver, fallback = led_registry.create_with_fallback(
+                'auto', debug_wire=fx2_debug_wire
+            )
+            parts[LED] = _board_status(LED, self._led_driver, fallback)
 
         # ----- Camera -----
         # Driver selection via camera_registry. `camera_type` accepts:
@@ -685,6 +594,9 @@ class Lumascope:
             camera_kwargs['illumination_func'] = lambda: sum(
                 ma for _, ma in live_lit_pairs(self.illumination)
             )
+        # The exception a camera raised while connecting, kept until bring-up
+        # reports it so the report carries the backend's own traceback.
+        self._camera_failure: BaseException | None = None
         try:
             if sim_fx2 is not None:
                 from drivers.fx2driver import FX2Camera
@@ -702,24 +614,17 @@ class Lumascope:
                     if sim_camera_stall is not None:
                         self._camera_driver.hold_frames(sim_camera_stall)
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
+            parts[CAMERA] = PartStatus(CAMERA, up=True)
         except Exception as _cam_exc:
-            logger.error(
-                f'[SCOPE API ] Camera Board Not Initialized: {type(_cam_exc).__name__}: {_cam_exc}'
+            self._camera_failure = _cam_exc
+            parts[CAMERA] = PartStatus(
+                CAMERA,
+                up=False,
+                cause=_camera_failure_cause(_cam_exc),
+                detail=f'{type(_cam_exc).__name__}: {_cam_exc}',
             )
-            # Prior behavior logged only; the user saw no popup and
-            # every camera-dependent UI action silently returned None/False.
-            # Same pattern #632/#539 fixed for the LED + motor boards.
-            # Suppress the per-component popup when LED + motor have
-            # already fallen back to Null*: the consolidated "No
-            # hardware detected" popup will fire later and the
-            # individual one is redundant.
-            _notify_camera_failure(
-                _cam_exc,
-                suppress_if_cold_start=_is_total_cold_start(
-                    self._led_driver,
-                    self._motion_driver,
-                ),
-            )
+        self._bring_up_parts = parts
+        self._bring_up_substitutions: list[Substitution] = []
 
         # ----- Layer identity -----
         # What the layers on this unit ARE (names, LED addresses,
@@ -765,45 +670,13 @@ class Lumascope:
         self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
 
-        # Partial-hardware notification deferred to initialize(config) --
-        # we need scope-config knowledge to distinguish "LS620 correctly
-        # has no motor" from "LS820 motor failed to connect."
+        # What came up is reported by initialize(config): it takes the
+        # model's expectations, which say whether a missing motor board on an
+        # LS620 is the manual scope it is or an LS820 whose board failed.
 
-        # Track whether any real hardware was found.
-        # Camera check reads the (private) driver handle directly because
-        # there is no public camera attribute to read: the camera surface
-        # is `self.imaging`, and `self.camera` does not exist. Do not add
-        # one without checking for probes that assume it -- code has been
-        # written against that name before, and `getattr(scope, 'camera',
-        # None)` silently yields None rather than failing, so the branch
-        # behind it simply never runs.
-        self._no_hardware = (
-            not simulate
-            and isinstance(self._led_driver, NullLEDBoard)
-            and isinstance(self._motion_driver, NullMotionBoard)
-            and self._camera_driver is None
-        )
-        if self._no_hardware:
-            logger.warning(
-                '[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)'
-            )
-        elif not simulate and isinstance(self._led_driver, NullLEDBoard):
-            # Illumination is gone but the rest of the scope came up, so the
-            # consolidated no-hardware popup above stays silent and nothing
-            # else would tell the operator. Without this the first symptom is
-            # a sample under a dark objective and controls that appear to do
-            # nothing. Say it once here rather than once per failed command.
-            logger.warning(
-                '[SCOPE API ] LED board unavailable; illumination controls will not work'
-            )
-            notifications.warning(
-                'Illumination',
-                'LED Board Unavailable',
-                'The LED control board did not respond, so illumination is '
-                'not available this session. The rest of the microscope is '
-                'working. Power-cycle the microscope and restart LumaViewPro '
-                'to restore illumination.',
-            )
+        # Whether any real hardware was found: read from the record, the one
+        # account of what came up, so this and the report cannot disagree.
+        self._no_hardware = not simulate and not any(status.up for status in parts.values())
 
         # Most per-instance state lives on the sub-APIs: imaging owns
         # camera-stream state + locks, motion owns per-axis state +
@@ -925,7 +798,7 @@ class Lumascope:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._motion_expected = config.expects_motion
-        self._notify_partial_hardware(config)
+        self._report_bring_up(config)
         # The safety-off is bound to the impl like every other write here,
         # never to the public dispatcher: bring-up is the scope configuring
         # itself, not a command from a caller, so it takes no lane and asks
@@ -983,22 +856,19 @@ class Lumascope:
                 refit = binning.native_to_displayed(
                     native, camera_binning, self.imaging.get_pixel_alignment()
                 )
-                logger.error(
-                    f'[SCOPE API ] initialize: persisted binning {binning_size} '
-                    f'is not supported by the connected camera '
-                    f'(available: {available_binning}); keeping the '
-                    f'camera-reported {camera_binning} and refitting the '
-                    f'frame {frame_width}x{frame_height} -> '
-                    f'{refit["width"]}x{refit["height"]}'
+                logger.info(
+                    f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '
+                    f'at binning {binning_size} is refit to {refit["width"]}x'
+                    f'{refit["height"]} at the camera-reported {camera_binning} '
+                    f'(available: {available_binning})'
                 )
-                notifications.warning(
-                    'Camera',
-                    'Saved binning not supported',
-                    f'The saved {binning_size}x{binning_size} binning is not '
-                    f'supported by this camera; it starts at '
-                    f'{camera_binning}x{camera_binning} instead. Pick a '
-                    f'binning in Microscope Settings to update the saved '
-                    f'value.',
+                self._bring_up_substitutions.append(
+                    Substitution('binning', saved=binning_size, used=camera_binning)
+                )
+                notifications.report_outcome(
+                    BinningSubstitutedNotice(binning_size, camera_binning),
+                    solicited=False,
+                    category='Camera',
                 )
                 binning_size = camera_binning
                 frame_width, frame_height = refit['width'], refit['height']
@@ -1029,8 +899,26 @@ class Lumascope:
         # push that the image-mode spinner enqueues -- removes the race where
         # the format lands after streaming begins and forces a redundant
         # grab-loop restart. The spinner handler returns early during init.
+        # A saved 12-bit mode on a camera with no 12-bit format is the same
+        # case as the binning above: the camera decides what it can deliver,
+        # the saved preference stays, and the substitution is on the record.
+        # Only against a connected camera: with none, no formats are
+        # reported and nothing is known about what the mode needs.
+        mode = config.image_mode
+        formats = self.imaging.get_supported_pixel_formats()
+        if self.camera_connected and mode not in image_mode.available_modes(formats):
+            used = image_mode.IMAGE_MODE_8BIT
+            self._bring_up_substitutions.append(Substitution('image_mode', saved=mode, used=used))
+            notifications.report_outcome(
+                ImageModeSubstitutedNotice(
+                    image_mode.IMAGE_MODE_LABELS[mode], image_mode.IMAGE_MODE_LABELS[used]
+                ),
+                solicited=False,
+                category='Camera',
+            )
+            mode = used
         pixel_format = image_mode.select_capture_pixel_format(
-            config.capture_depth, self.imaging.get_supported_pixel_formats()
+            image_mode.resolve_image_mode(mode)['capture_depth'], formats
         )
         if pixel_format is not None:
             try:
@@ -1053,32 +941,61 @@ class Lumascope:
         self.imaging._start_streaming_impl()
         logger.info('[SCOPE API ] Scope initialized')
 
-    def _notify_partial_hardware(self, config) -> None:
-        """Warn user about missing hardware, filtered by scope expectations.
+    def bring_up_record(self) -> BringUpRecord:
+        """What this scope's bring-up found and substituted.
 
-        An LS620 with no motor is not a failure -- its scopes.json says
-        Focus/XYStage/Turret are all false. Only warn for hardware the
-        scope was supposed to have. Simulators never warn. The
-        no_hardware total-cold-start case skips this notification --
-        lumaviewpro.on_start fires a single consolidated "No hardware
-        detected" popup that covers the same ground.
+        Composition wiring for the session, not part of the L2 API surface:
+        the session adds what it knows (the settings file set aside) and
+        offers the whole as ``ScopeSession.bring_up_record``. Before
+        ``initialize`` every part is expected, as an unconfigured scope is
+        held to every board.
         """
+        return BringUpRecord(
+            parts=tuple(self._bring_up_parts.values()),
+            substitutions=tuple(self._bring_up_substitutions),
+        )
+
+    def _report_bring_up(self, config) -> None:
+        """Report, once, what did not come up, from the record's facts.
+
+        The model's expectations arrive with the config: an LS620 with no
+        motor board is the manual scope it is, not a failure, so only a part
+        the model has is missing. A camera that failed is reported whatever
+        the model, with the backend's own traceback behind it. When nothing
+        came up the person is told once, not once per part. A simulated part
+        is never reported: the simulator is what it stands in for.
+        """
+        parts = self._bring_up_parts
+        parts[MOTOR] = dataclasses.replace(parts[MOTOR], expected=config.expects_motion)
+        parts[LED] = dataclasses.replace(parts[LED], expected=config.expects_led)
+        if self._no_hardware:
+            notifications.report_outcome(
+                NoHardwareDetectedNotice(), solicited=False, category='Hardware'
+            )
+            return
+        camera = parts[CAMERA]
+        if not camera.up:
+            failed = CameraNotAvailableError(camera.cause)
+            failed.__cause__ = self._camera_failure
+            self._camera_failure = None
+            notifications.report_outcome(failed, solicited=False, category='Camera')
         if self._simulated:
             return
-        if self._no_hardware:
-            return
-        missing = []
-        if config.expects_led and isinstance(self._led_driver, NullLEDBoard):
-            missing.append('LED Board')
-        if config.expects_motion and isinstance(self._motion_driver, NullMotionBoard):
-            missing.append('Motor Controller')
-        if not getattr(self._camera_driver, 'active', None):
-            missing.append('Camera')
+        led = parts[LED]
+        if not led.up:
+            notifications.report_outcome(
+                LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
+            )
+        elif led.cause == 'safety_off_failed':
+            notifications.report_outcome(
+                LedSafetyOffNotTakenError(led.detail), solicited=False, category='Illumination'
+            )
+        missing = self.bring_up_record().missing
         if missing:
-            notifications.warning(
-                'Hardware',
-                'Partial Hardware Detected',
-                f'Not connected: {", ".join(missing)}. Some features will be unavailable.',
+            notifications.report_outcome(
+                PartialHardwareError(status.describe() for status in missing),
+                solicited=False,
+                category='Hardware',
             )
 
     # --- The scope's lanes, for the session that composes around it ---
@@ -1467,18 +1384,21 @@ class Lumascope:
         # Shared state-slot init (audit #35) -- same call __init__ makes.
         instance._init_minimal(simulated=False)
 
-        # Connect boards -- motion driver first so MotionAPI._driver resolves
-        # correctly at construction time. The helpers are at module scope so
-        # __init__, create_diagnostic, and future callers share one code path.
-        from drivers.null_ledboard import NullLEDBoard
-        from drivers.null_motorboard import NullMotionBoard
-
-        instance._led_driver = _try_connect_board('LED board', LEDBoard, NullLEDBoard)
-        instance._motion_driver = _try_connect_board(
-            'Motor board',
-            lambda: MotorBoard(motorconfig_defaults=motorconfig_defaults),
-            NullMotionBoard,
+        # Connect boards through the registries, as __init__ does -- motion
+        # driver first so MotionAPI._driver resolves correctly at
+        # construction time. The diagnostic has no settings to say what the
+        # model expects, so it is held to every board, and it reports
+        # nothing: the support report that builds it is the record's reader.
+        instance._led_driver, led_fallback = led_registry.create_with_fallback('auto')
+        instance._motion_driver, motor_fallback = motor_registry.create_with_fallback(
+            'auto', motorconfig_defaults=motorconfig_defaults
         )
+        instance._bring_up_parts = {
+            MOTOR: _board_status(MOTOR, instance._motion_driver, motor_fallback),
+            LED: _board_status(LED, instance._led_driver, led_fallback),
+        }
+        instance._bring_up_substitutions = []
+        instance._camera_failure = None
 
         # Construct MotionAPI and populate per-axis state (mirrors __init__ sequence).
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle

@@ -26,12 +26,7 @@ _EXEMPT_FILES = frozenset({'modules/notification_center.py'})
 # (file, enclosing function) -> (direct posts in it, the open work that moves
 # them). The count, so a new post in a listed function is not waved through
 # with the one already there.
-_BRING_UP = 'step 6 slice C, bring-up'
 _NOT_YET_TYPED = {
-    ('modules/lumascope_api/_lumascope.py', '_notify_board_failure'): (1, _BRING_UP),
-    ('modules/lumascope_api/_lumascope.py', 'Lumascope.__init__'): (1, _BRING_UP),
-    ('modules/lumascope_api/_lumascope.py', 'Lumascope.initialize'): (1, _BRING_UP),
-    ('modules/lumascope_api/_lumascope.py', 'Lumascope._notify_partial_hardware'): (1, _BRING_UP),
     ('modules/lumascope_api/imaging.py', 'ImagingAPI._notify_camera_absent'): (
         1,
         "primary's ASK-1, the camera-absent setters",

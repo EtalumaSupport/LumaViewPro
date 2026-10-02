@@ -66,10 +66,14 @@ def _no_motor_defaults(data):
 def _stub_real_boards(monkeypatch):
     # No real port is opened in the suite: both boards are answered null.
     monkeypatch.setattr(
-        lumascope_module.motor_registry, 'create', lambda name='auto', **kw: NullMotionBoard()
+        lumascope_module.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullMotionBoard(), None),
     )
     monkeypatch.setattr(
-        lumascope_module.led_registry, 'create', lambda name='auto', **kw: NullLEDBoard()
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kw: (NullLEDBoard(), None),
     )
 
 

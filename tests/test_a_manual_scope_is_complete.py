@@ -124,12 +124,14 @@ def test_a_real_scope_asks_the_registry_for_real_motor_drivers_only(monkeypatch)
 
     def create(name='auto', **kwargs):
         asked.append((name, kwargs))
-        return NullMotionBoard()
+        return NullMotionBoard(), None
 
-    monkeypatch.setattr(lumascope_module.motor_registry, 'create', create)
+    monkeypatch.setattr(lumascope_module.motor_registry, 'create_with_fallback', create)
     # No real port is opened in the suite: the LED board is answered null.
     monkeypatch.setattr(
-        lumascope_module.led_registry, 'create', lambda name='auto', **kwargs: NullLEDBoard()
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullLEDBoard(), None),
     )
     scope = build_scope(
         simulate=False,
@@ -150,12 +152,14 @@ def test_a_real_scope_asks_the_registry_for_real_led_drivers_only(monkeypatch):
 
     def create(name='auto', **kwargs):
         asked.append((name, kwargs))
-        return NullLEDBoard()
+        return NullLEDBoard(), None
 
-    monkeypatch.setattr(lumascope_module.led_registry, 'create', create)
+    monkeypatch.setattr(lumascope_module.led_registry, 'create_with_fallback', create)
     # No real port is opened in the suite: the motor board is answered null.
     monkeypatch.setattr(
-        lumascope_module.motor_registry, 'create', lambda name='auto', **kwargs: NullMotionBoard()
+        lumascope_module.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **kwargs: (NullMotionBoard(), None),
     )
     scope = build_scope(
         simulate=False,

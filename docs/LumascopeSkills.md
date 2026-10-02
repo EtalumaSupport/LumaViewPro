@@ -773,7 +773,23 @@ Each call carries one `Notification` (`modules.notification_center`):
 | `wall_time`, `timestamp` | Wall-clock seconds, and a monotonic time for ordering within the process |
 | `severity`, `category`, `operation_key` | The log level, the subsystem, and the operation a notice-then-outcome pair is about |
 
-The subscription is process-wide: a listener hears every session in the process, and the mute and dedup state is shared. A listener that raises is logged at ERROR with its traceback and the others are still told. A session that already exists has finished bring-up; what bring-up reported is heard only by a listener given to `create`.
+The subscription is process-wide: a listener hears every session in the process, and the mute and dedup state is shared. A listener that raises is logged at ERROR with its traceback and the others are still told. A session that already exists has finished bring-up; what bring-up reported is heard only by a listener given to `create`. What it found is held for a client that comes later:
+
+```python
+record = session.bring_up_record()         # modules.lumascope_api.bring_up.BringUpRecord
+for part in record.parts:                  # 'motor', 'led', 'camera', in that order
+    print(part.part, part.up, part.expected, part.cause, part.detail)
+record.missing                             # the parts this scope's model has and lacks
+record.part('led').cause                   # None, or why: 'not_detected', 'port_in_use', 'not_responding',
+                                           # 'connect_failed', 'no_driver'; for the camera 'camera_in_use',
+                                           # 'camera_port_in_use', 'camera_not_detected', 'camera_not_initialized';
+                                           # on an LED board that came up, 'safety_off_failed'
+record.substitution('binning')             # Substitution(setting, saved, used), or None; also 'image_mode'
+record.settings_set_aside                  # SettingsSetAside(path, reason) while the app runs on the shipped
+                                           # template because the user's file could not be used; else None
+```
+
+Bring-up reports these once, as outcomes, to the listener given to `create`: a camera that did not come up is a fault under its own heading (`reason` as above), an LED board missing on a scope whose other parts came up is `LedBoardUnavailableError` (`reason` the cause), a part the model has and lacks is listed in one `PartialHardwareError` (`'partial_hardware'`, each part with its cause), a refused connect-time LEDs-off is `LedSafetyOffNotTakenError`, and when nothing came up the one outcome is the notice `NoHardwareDetectedNotice` (`'no_hardware'`). A saved binning or image mode the camera cannot take is substituted, reported once as a notice (`'binning_substituted'`, `'image_mode_substituted'`) and left saved: it is the person's preference. A manual scope's missing motor board is expected and reported nowhere.
 
 ### Holding the scope for a diagnostic
 

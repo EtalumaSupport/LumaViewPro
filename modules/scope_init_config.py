@@ -78,7 +78,9 @@ class ScopeInitConfig:
     acceleration_pct: int
     stage_offset: dict
     scale_bar_enabled: bool
-    capture_depth: int
+    # The saved image mode, which names the capture depth bring-up applies;
+    # a camera without that depth starts in 8-bit and says so.
+    image_mode: str
     expects_motion: bool = True
     expects_led: bool = True
     high_conversion_gain: bool = False
@@ -131,9 +133,6 @@ class ScopeInitConfig:
         binning_size = binning.binning_size_str_to_int(
             text=settings.get('binning', {}).get('size', '1x1')
         )
-        capture_depth = image_mode.resolve_image_mode(
-            image_mode.resolve_settings_image_mode(settings)
-        )['capture_depth']
         expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')
         if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
@@ -163,7 +162,7 @@ class ScopeInitConfig:
             ),
             stage_offset=settings.get('stage_offset', {'x': 0, 'y': 0}),
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
-            capture_depth=capture_depth,
+            image_mode=image_mode.resolve_settings_image_mode(settings),
             expects_motion=expects_motion,
             expects_led=expects_led,
             high_conversion_gain=settings.get('camera', {}).get('high_conversion_gain', False),
