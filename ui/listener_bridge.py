@@ -5,17 +5,20 @@
 Lumascope publishes position, LED and camera-setting changes to
 registered listeners (``add_position_listener``, ``add_led_listener``,
 ``add_camera_listener``). This module holds the GUI's handlers for
-them: stage redraw on motion, LED button state on LED change, gain /
-exposure text on camera-setting change.
+the first two: stage redraw on motion, LED button state on LED change.
+Camera-setting changes have no GUI handler: a layer's gain and exposure
+boxes show the stored setting, and what the camera applied (a quantizing
+camera answers 1000 ms with 1000.0057) is the API's to answer and the
+saved frame's to record, never the box's to show.
 
 It belongs in ``ui/`` because every handler ends in a widget write.
 The layers below publish the events and hold the truth; they do not
 import this one.
 
-Two things earn a class here rather than three sets of closures at the
+Two things earn a class here rather than a set of closures per listener at the
 registration site. The coalescing state (a ``_pending_*`` map per
 listener, so a burst of events costs at most one UI update per frame)
-is one implementation instead of three slightly different copies. And
+is one implementation instead of slightly different copies. And
 the scheduler arrives as the ``ui_dispatcher`` argument rather than an
 imported ``Clock``, so a test can drive the handlers synchronously and
 assert what they wrote.
@@ -40,7 +43,7 @@ from ui.layer_control import LayerControl
 
 
 class UIListenerBridge:
-    """Wires Lumascope's three push-listener events to UI updates.
+    """Wires Lumascope's position and LED push-listener events to UI updates.
 
     The bridge owns the per-listener coalescing state (each listener
     deduplicates rapid back-to-back events, scheduling at most one UI
@@ -150,69 +153,6 @@ class UIListenerBridge:
 
         self._ui_dispatch(_reconcile, 0)
 
-    def _on_camera_setting_changed(self, param, value):
-        """Camera listener -- fires on set_gain_db / set_exposure_ms.
-
-        Updates the OPEN tab's text fields with what the camera is
-        actually running at (after AF, auto-gain, REST API, etc.).
-        Never writes back into the slider -- that was the root cause of
-        the handler-recursion feedback loop in #617.
-
-        During a protocol run the engine cycles gain/exposure across
-        channels; the listener no-ops to avoid showing channel-N's
-        values in the UI for channel-M's open tab.
-        """
-        ctx = self._ctx
-
-        def _update_camera_ui(dt, p=param, v=value):
-            if not ctx.ready:
-                return
-            if ctx.session.is_protocol_running:
-                return
-            opened_layer = common_utils.get_opened_layer(ctx.image_settings)
-            if not opened_layer:
-                return
-            try:
-                layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
-            except Exception:
-                return
-            if not layer_obj:
-                return
-            # Respect an _initializing flag set by another code path
-            # (e.g. layer switch via set_step_state).
-            if layer_obj._initializing:
-                return
-
-            settings = ctx.settings
-            imaging = ctx.lumaview.scope.imaging
-            # A capped layer is left alone. Its box holds the user's stored
-            # intent while the camera runs at the most this body can do, so
-            # the two legitimately disagree and the camera's number is not
-            # this box's to show: writing it would both hide the intent and
-            # arm the text handler to commit the camera's value back over it
-            # on the next focus change. The remaining comparison is the one
-            # this guard was built for -- reject a report caused by ANOTHER
-            # layer (a composite, an autofocus restore), where the camera and
-            # this layer's own setting have no reason to agree.
-            if p == 'gain':
-                rounded = round(v, 1)
-                expected = imaging.applied_gain_db_for(settings[opened_layer]['gain_db'])
-                if expected.capped or abs(rounded - expected.applied) > 0.5:
-                    return
-                text = str(rounded)
-                if layer_obj.ids['gain_text'].text != text:
-                    layer_obj.ids['gain_text'].text = text
-            elif p == 'exposure':
-                rounded = round(v, 2)
-                expected = imaging.applied_exposure_ms_for(settings[opened_layer]['exposure_ms'])
-                if expected.capped or abs(rounded - expected.applied) > 0.5:
-                    return
-                text = str(rounded)
-                if layer_obj.ids['exp_text'].text != text:
-                    layer_obj.ids['exp_text'].text = text
-
-        self._ui_dispatch(_update_camera_ui, 0)
-
     # ------------------ Lifecycle ------------------
 
     def register_all(self):
@@ -224,5 +164,4 @@ class UIListenerBridge:
         """
         self._scope.motion.add_position_listener(self._on_position_change)
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
-        self._scope.imaging.add_camera_listener(self._on_camera_setting_changed)
-        logger.info('[UIListenerBridge] registered position + LED + camera listeners')
+        logger.info('[UIListenerBridge] registered position + LED listeners')

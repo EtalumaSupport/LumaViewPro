@@ -316,7 +316,7 @@ class LayerControl(BoxLayout):
             return
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
-        # set_step_state, camera listener), on_value fires and re-enters
+        # set_step_state), on_value fires and re-enters
         # here. Without this guard, the handler overwrites the caller's
         # settings write and schedules a redundant apply_settings. Callers
         # are responsible for writing settings explicitly when they use
