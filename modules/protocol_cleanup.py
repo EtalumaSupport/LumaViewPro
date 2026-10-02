@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
-from modules.exceptions import RunCleanupFailedError
+from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
@@ -522,17 +522,9 @@ def run_cleanup(
     # suppressed; the first crossing already logged from the run's write batch.
     blocked_s = write_batch.blocked_s
     if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
-        try:
-            from modules.notification_center import notifications
+        from modules.notification_center import notifications
 
-            notifications.warning(
-                'Protocol',
-                'Very Slow File Writes',
-                'Very slow writes are occurring on the save disk. '
-                'Please confirm your computer and storage are OK.',
-            )
-        except Exception as ex:
-            logger.error(f'[PROTOCOL] Failed to surface slow-write notification: {ex}')
+        notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
 
     # --- run_complete now; files_complete comes with the run's last write ---
     logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')

@@ -139,8 +139,8 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monke
     captured: list = []
 
     class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append(message)
+        def report_outcome(self, outcome, *, category, **kw):
+            captured.append(str(outcome))
 
     monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
@@ -163,8 +163,8 @@ def test_load_soft_warns_same_base_across_tile_groups(tmp_path, monkeypatch):
     captured: list = []
 
     class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append((category, title, message))
+        def report_outcome(self, outcome, *, category, **kw):
+            captured.append((category, outcome.title, str(outcome)))
 
     monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
@@ -731,8 +731,8 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
     notified: list = []
 
     class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            notified.append(message)
+        def report_outcome(self, outcome, *, category, **kw):
+            notified.append(str(outcome))
 
     monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 

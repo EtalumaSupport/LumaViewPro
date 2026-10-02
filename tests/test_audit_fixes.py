@@ -1645,6 +1645,7 @@ class TestRule14_A7_HyperstackBuildNotify:
         import pathlib
 
         import modules.stack_builder as stack_builder_module
+        from modules.exceptions import Notice
         from modules.notification_center import notifications
 
         reported = []
@@ -1665,7 +1666,8 @@ class TestRule14_A7_HyperstackBuildNotify:
             wait_for_images=lambda: None,
         )
 
-        ((exception, kw),) = reported
+        # The announcement is reported too; what went wrong is the rest.
+        ((exception, kw),) = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]
         assert exception is failure
         assert kw['solicited'] is False
         assert kw['operation_key'] == builder.return_value.operation_key

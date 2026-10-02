@@ -1117,8 +1117,8 @@ class TestTheRecordedPosition:
         shown = []
         monkeypatch.setattr(
             manual_recording_module.notifications,
-            'warning',
-            lambda category, title, message, **kwargs: shown.append((title, message)),
+            'report_outcome',
+            lambda outcome, **kwargs: shown.append((outcome.title, str(outcome))),
         )
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
@@ -1168,8 +1168,8 @@ class TestTheRecordedPosition:
         shown = []
         monkeypatch.setattr(
             manual_recording_module.notifications,
-            'warning',
-            lambda category, title, message, **kwargs: shown.append(title),
+            'report_outcome',
+            lambda outcome, **kwargs: shown.append(outcome.title),
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.motion.unknown = {'Z': 'homing'}
@@ -1184,8 +1184,8 @@ class TestTheRecordedPosition:
         shown = []
         monkeypatch.setattr(
             manual_recording_module.notifications,
-            'warning',
-            lambda category, title, message, **kwargs: shown.append(message),
+            'report_outcome',
+            lambda outcome, **kwargs: shown.append(str(outcome)),
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.runtime_state.plate_transform = lambda: None

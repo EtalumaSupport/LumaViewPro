@@ -118,8 +118,8 @@ class TestWhereTheFileLands:
         shown = []
         monkeypatch.setattr(
             notifications,
-            'warning',
-            lambda category, title, message, **kwargs: shown.append(title),
+            'report_outcome',
+            lambda outcome, **kwargs: shown.append(outcome.title),
         )
         with session.scope.motion._axis_state_lock:
             session.scope.motion._axis_state['X'] = AxisState.UNKNOWN

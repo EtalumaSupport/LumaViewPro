@@ -29,6 +29,7 @@ from modules.exceptions import (
     CameraSettingRejected,
     DiskSpaceCriticalError,
     ObjectiveUnknownError,
+    RunFailedError,
     RunFilesNotWrittenError,
     RunWriteRefusedError,
 )
@@ -622,7 +623,11 @@ class ProtocolImageWriter:
         self._scope.illumination.force_off()
         from modules.notification_center import notifications
 
-        notifications.critical(domain, title, message)
+        notifications.report_outcome(
+            RunFailedError(reason=reason, title=title, message=message),
+            solicited=False,
+            category=domain,
+        )
 
     @property
     def video_busy(self) -> bool:

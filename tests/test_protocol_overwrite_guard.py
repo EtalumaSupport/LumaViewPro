@@ -190,8 +190,8 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, monkeypatch):
     captured: list = []
 
     class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append(message)
+        def report_outcome(self, outcome, *, category, **kw):
+            captured.append(str(outcome))
 
     monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
@@ -246,8 +246,8 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
     captured_notifications: list = []
 
     class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured_notifications.append((category, title, message))
+        def report_outcome(self, outcome, *, category, **kw):
+            captured_notifications.append((category, outcome.title, str(outcome)))
 
     monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 

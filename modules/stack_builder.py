@@ -10,7 +10,7 @@ import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
-from modules.exceptions import CaptureError
+from modules.exceptions import CaptureError, HyperstacksSavedNotice, HyperstacksSavingNotice
 from modules.notification_center import notifications
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -50,12 +50,8 @@ def build_hyperstacks_for_run(
     """
     builder = StackBuilder(has_turret=has_turret)
     key = builder.operation_key
-    notifications.notice(
-        'Post-processing',
-        'Saving Hyperstacks',
-        'Building hyperstacks from the run. This can take several minutes; '
-        'a message will confirm completion.',
-        operation_key=key,
+    notifications.report_outcome(
+        HyperstacksSavingNotice(), solicited=False, category='Post-processing', operation_key=key
     )
     try:
         wait_for_images()
@@ -72,14 +68,12 @@ def build_hyperstacks_for_run(
             operation_key=key,
         )
         return
-    if result.get('degraded'):
-        body = result['message']
-    else:
-        body = (
-            f'{result["new_count"]} hyperstack(s) saved to {result["output_root"]}.'
-            f'{result["accounting_note"]}'
-        )
-    notifications.notice('Post-processing', 'Hyperstacks Saved', body, operation_key=key)
+    notifications.report_outcome(
+        HyperstacksSavedNotice(result),
+        solicited=False,
+        category='Post-processing',
+        operation_key=key,
+    )
 
 
 class StackBuilder(ProtocolPostProcessor):

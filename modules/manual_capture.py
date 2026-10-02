@@ -20,7 +20,11 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays
 from modules.activity_claim import Taking, acting, current_taking
-from modules.exceptions import CaptureError, HardwareCommandRefusedError
+from modules.exceptions import (
+    CaptureError,
+    CapturePositionNotRecordedNotice,
+    HardwareCommandRefusedError,
+)
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 
@@ -195,12 +199,8 @@ class ManualCaptureController:
             # XY stage has no well to know, and homing would not give it one.
             from modules.notification_center import notifications
 
-            logger.warning('[Capture] Saved without a well or position: X or Y is unknown')
-            notifications.warning(
-                'Capture',
-                'Position Not Recorded',
-                'The stage position is unknown, so this image was saved without a well '
-                'or position. Home the scope to record them.',
+            notifications.report_outcome(
+                CapturePositionNotRecordedNotice(), solicited=False, category='Capture'
             )
         # A zero-well plate or an unknown position has no label; no leading
         # underscore for it.

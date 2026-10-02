@@ -22,7 +22,7 @@ import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
 import modules.scope_session as scope_session
-from modules.exceptions import FileWriterNotStuckError, RunFilesNotWrittenError
+from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
 from tests.af_drives import af_runner_and_scope, drive_af
 from tests.test_a_late_write_records_its_frame import _protocol, _step
@@ -239,6 +239,7 @@ class TestNothingBuildsFromAFolderMissingImages:
         )
 
         loaded.assert_not_called()
-        [(ex, kw)] = reported
+        # The announcement is reported too; what went wrong is the rest.
+        [(ex, kw)] = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]
         assert ex.reason == 'write_batch_abandoned'
         assert kw['fault_title'] == 'Hyperstacks Not Saved'

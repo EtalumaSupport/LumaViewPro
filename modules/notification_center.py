@@ -184,7 +184,8 @@ class Notification:
     # The same for both deliveries of one outcome (muted, then shown when a
     # person asks for it); different for every other outcome.
     outcome_id: int = field(default_factory=_next_outcome_id)
-    # A refusal's machine-readable code; empty for anything else.
+    # The outcome's machine-readable code, read from its type; empty for a
+    # post that declares none.
     reason: str = ''
     shown: bool = True
     # Wall-clock seconds, for a client in another process; ``timestamp`` is
@@ -288,10 +289,10 @@ class NotificationCenter:
         of work, so a UI listener can replace the earlier message rather than
         stack on it.
 
-        ``reason`` is the machine-readable code of a refusal, written into
-        the log line and nowhere else: two refusals can share a title, and a
-        support bundle has to tell them apart from the one line a shown
-        refusal leaves.
+        ``reason`` is the outcome's machine-readable code, written into the
+        log line and carried on the notification: two outcomes can share a
+        title, and a support bundle has to tell them apart from the one line
+        a shown outcome leaves, as a client has to from the record.
 
         ``remedy`` is the action an outcome names as its answer, carried to the
         listeners on the notification.
@@ -443,11 +444,11 @@ class NotificationCenter:
         A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
         a refusal that is not shown at WARNING and a notice that is not shown
         at NOTICE, with no traceback. A shown outcome's display line is
-        ``notify()``'s own, so a shown refusal is one WARNING line, naming its
-        reason code when it has one, a shown notice one NOTICE line, and a
-        shown fault is its traceback line and that one. A refusal is shown as
+        ``notify()``'s own, naming the type's reason code when it has one, so
+        a shown refusal is one WARNING line, a shown notice one NOTICE line,
+        and a shown fault is its traceback line and that one. A refusal is shown as
         a warning and a notice as a notice, each under its ``title``; a fault
-        as an error, in its own words when its type writes them for a person
+        as an error, or as critical when its type says ``fatal``, in its own words when its type writes them for a person
         and in a generic sentence when it does not, under its ``title`` or
         ``fault_title``. A quiet outcome is never shown. An outcome's
         ``remedy`` travels with it whatever its kind, and a fault whose type
@@ -520,6 +521,7 @@ class NotificationCenter:
                 words,
                 solicited=solicited,
                 operation_key=operation_key,
+                reason=reason,
                 remedy=remedy,
                 kind=OutcomeKind.NOTICE,
                 outcome_id=outcome_id,
@@ -527,13 +529,15 @@ class NotificationCenter:
         else:
             body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY
             title = getattr(exception, 'title', None) or fault_title
-            delivered = self.error(
+            fatal = bool(getattr(exception, 'fatal', False))
+            delivered = (self.critical if fatal else self.error)(
                 category,
                 title,
                 body,
                 solicited=solicited,
                 operation_key=operation_key,
-                fatal=bool(getattr(exception, 'fatal', False)),
+                fatal=fatal,
+                reason=reason,
                 remedy=remedy,
                 kind=OutcomeKind.FAULT,
                 outcome_id=outcome_id,

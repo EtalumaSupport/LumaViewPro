@@ -53,6 +53,7 @@ from modules.exceptions import (
     HyperstackRefusedError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
+    RecordingPositionNotRecordedNotice,
     RecordingRefusedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
@@ -922,20 +923,11 @@ def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
     unknown = [ax for ax in ('X', 'Y', 'Z') if ax in scope.motion.axes_without_position()]
     if not unknown and to_plate is not None:
         return
-    reasons = []
-    if unknown:
-        axes = ', '.join(unknown)
-        reasons.append(
-            f'The scope does not know its {axes} position, so frames record it only '
-            'once it is known. Home the scope to record it.'
-        )
-    if to_plate is None:
-        reasons.append(
-            'No labware or stage offset is selected, so frames record no plate position.'
-        )
-    message = ' '.join(reasons)
-    logger.warning(f'[ManualRecord] {message}')
-    notifications.warning('Recording', 'Position Not Recorded', message)
+    notifications.report_outcome(
+        RecordingPositionNotRecordedNotice(unknown_axes=unknown, has_plate=to_plate is not None),
+        solicited=False,
+        category='Recording',
+    )
 
 
 def _discard_if_empty(frames_folder: Path | None) -> None:

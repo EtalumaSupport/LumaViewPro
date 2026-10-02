@@ -16,7 +16,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from modules.exceptions import RunFilesNotWrittenError
+from modules.exceptions import Notice, RunFilesNotWrittenError
 from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK, ImageCaptureConfig
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -80,13 +80,16 @@ class TestRunnerHyperstackTrigger:
         _join(runner._start_hyperstack_build())
 
         builder.load_folder.assert_not_called()
-        notifications.report_outcome.assert_called_once()
-        (raised,) = notifications.report_outcome.call_args.args
+        # The announcement is reported too; what went wrong is the rest.
+        (failure,) = [
+            call
+            for call in notifications.report_outcome.call_args_list
+            if not isinstance(call.args[0], Notice)
+        ]
+        (raised,) = failure.args
         assert isinstance(raised, RunFilesNotWrittenError)
         assert raised.reason == 'write_batch_timeout'
-        assert notifications.report_outcome.call_args.kwargs['operation_key'] is (
-            builder.operation_key
-        )
+        assert failure.kwargs['operation_key'] is builder.operation_key
 
     def test_the_build_holds_the_path_the_run_armed_it_with(self, tmp_path, monkeypatch):
         # The build runs on a daemon thread that outlives the run: the

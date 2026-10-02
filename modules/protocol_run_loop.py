@@ -17,7 +17,7 @@ from lvp_logger import logger
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
-from modules.exceptions import describe_unknown_positions
+from modules.exceptions import RunFailedError, describe_unknown_positions
 from modules.run_outcome import PendingRunOutcome, RunEnding
 
 if TYPE_CHECKING:
@@ -451,11 +451,6 @@ class ProtocolRunLoop:
 
                 consecutive_scan_failures += 1
                 if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:
-                    logger.error(
-                        f'[PROTOCOL] {consecutive_scan_failures} consecutive '
-                        'scan failures with no successful scan between -- '
-                        'aborting protocol'
-                    )
                     from modules.notification_center import notifications
 
                     message = (
@@ -464,9 +459,15 @@ class ProtocolRunLoop:
                         'and the log for the cause, save the protocol, then '
                         'restart LumaViewPro and the protocol.'
                     )
-                    notifications.error('Protocol', 'Protocol Aborted', message, fatal=True)
                     ending = RunEnding(
                         'failed', 'consecutive_scan_failures', 'Protocol Aborted', message
+                    )
+                    notifications.report_outcome(
+                        RunFailedError(
+                            reason=ending.reason, title=ending.title, message=ending.message
+                        ),
+                        solicited=False,
+                        category='Protocol',
                     )
                     p._ending.set_if_unset(ending)
                     p._cleanup(ending, run)

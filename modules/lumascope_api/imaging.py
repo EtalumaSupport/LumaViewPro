@@ -26,9 +26,12 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
+    AutoGainNotSettledError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     CameraStreamStalledError,
+    ExposureAtMaximumNotice,
+    ExposureAtMinimumNotice,
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
 )
@@ -1518,29 +1521,14 @@ class ImagingAPI:
         if not lock.resume_after_capture:
             return
         if lock.state is AutoGainConvergence.MAXED:
-            notifications.info(
-                'Auto-gain',
-                'Exposure at the maximum',
-                f'Auto-exposure reached the {lock.ceiling_ms:g} ms ceiling for this '
-                'channel and the scene was still too dark. Add light or raise the '
-                'auto-exposure ceiling in Advanced Settings.',
-            )
+            outcome = ExposureAtMaximumNotice(lock.ceiling_ms)
         elif lock.state is AutoGainConvergence.AT_MINIMUM:
-            notifications.info(
-                'Auto-gain',
-                'Exposure at the minimum',
-                f'Auto-exposure settled at {lock.exposure_ms:g} ms, below the '
-                f'{lock.floor_ms:g} ms usable floor for this channel; the setting keeps '
-                'the floor. The scene is too bright: reduce the light.',
-            )
+            outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.floor_ms)
         elif lock.state is AutoGainConvergence.FAILED:
-            notifications.error(
-                'Auto-gain',
-                'Auto-gain did not settle',
-                'The camera reported no usable exposure or gain when auto-gain was '
-                'locked, so the previous settings were kept and any capture was taken '
-                'without an exposure check. Check the live view, then try again.',
-            )
+            outcome = AutoGainNotSettledError()
+        else:
+            return
+        notifications.report_outcome(outcome, solicited=False, category='Auto-gain')
 
     def _clamp_exposure_to_ceiling_before_arm(self, ceiling_ms: object) -> None:
         """Bring the exposure inside the auto loop's range before enabling it.

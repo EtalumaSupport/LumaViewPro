@@ -18,7 +18,12 @@ import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
-from modules.exceptions import AutofocusAborted, CameraSettingRejected
+from modules.exceptions import (
+    AutofocusAborted,
+    AutofocusFailedError,
+    AutofocusZNotRestoredError,
+    CameraSettingRejected,
+)
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import (
     LedTransition,
@@ -373,17 +378,13 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
             params_repr = repr(getattr(self, '_params', None))[:500]
-            logger.exception(
-                f'[AF] Error during loop: {type(ex).__name__}: {ex} | _params={params_repr}'
-            )
             _af_log.exception(f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}')
             # An unattended run's mute keeps this off the screen; the run
-            # captures at its fallback Z and the log above is the record.
-            notifications.error(
-                'Autofocus',
-                'Autofocus Failed',
-                'Autofocus stopped on an unexpected error; the log has the details.',
-            )
+            # captures at its fallback Z and the report is the record. Chained,
+            # so the one report logs the traceback.
+            failed = AutofocusFailedError('unexpected_error')
+            failed.__cause__ = ex
+            notifications.report_outcome(failed, solicited=False, category='Autofocus')
             raise
 
         finally:
@@ -455,26 +456,18 @@ class AutofocusRunner:
                         _af_log.info(
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
-                    except Exception:
-                        logger.warning(
-                            '[AF] pre-AF Z restore in finally failed; the stage '
-                            'may be left at the last AF search position',
-                            exc_info=True,
-                        )
+                    except Exception as restore_ex:
                         # Which of two things the user must do depends on how the
                         # restore failed: a move that faulted has lost Z, and no
                         # move is accepted on it until a home; a refused target
-                        # left Z known, where the sweep parked it.
-                        z_lost = 'Z' in self._scope.motion.axes_without_position()
-                        notifications.warning(
-                            'Autofocus',
-                            'Z Position Not Restored',
-                            'Could not restore Z position after autofocus stopped. '
-                            + (
-                                'The Z position is now unknown -- home the scope before moving it.'
-                                if z_lost
-                                else 'Z was left at the last autofocus search position.'
-                            ),
+                        # left Z known, where the sweep parked it. Chained, so the
+                        # one report logs the restore's traceback.
+                        not_restored = AutofocusZNotRestoredError(
+                            z_lost='Z' in self._scope.motion.axes_without_position()
+                        )
+                        not_restored.__cause__ = restore_ex
+                        notifications.report_outcome(
+                            not_restored, solicited=False, category='Autofocus'
                         )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
@@ -792,15 +785,9 @@ class AutofocusRunner:
         # Detect degenerate focus curve (all zeros, all NaN, or flat)
         scores = df['score']
         if scores.max() == 0 or scores.isna().all():
-            logger.warning(
-                'Autofocus: degenerate focus curve (all scores zero or NaN) -- '
-                'no focus found; returning the stage to its pre-autofocus Z'
-            )
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            notifications.error(
-                'Autofocus',
-                'Autofocus Failed',
-                'Focus curve is flat or invalid -- check sample and illumination',
+            notifications.report_outcome(
+                AutofocusFailedError('flat_focus_curve'), solicited=False, category='Autofocus'
             )
             # Restore Z precision ON before bailing so the pre-AF position
             # the unwind restores is reached accurately.

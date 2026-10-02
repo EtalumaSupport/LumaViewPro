@@ -25,6 +25,7 @@ import modules.stack_builder as stack_builder
 from modules.common_utils import PostFunction
 from modules.exceptions import (
     CaptureError,
+    Notice,
     PostProcessingFailedError,
     PostProcessingRefusedError,
 )
@@ -195,11 +196,18 @@ def test_a_z_projection_with_no_z_stack_says_where_one_lives():
 # ---------------------------------------------------------------------------
 
 
-def _hyperstack_build(monkeypatch, tmp_path, answer):
+def _hyperstack_build(monkeypatch, tmp_path, answer, posts):
+    # A notice is reported through the reporter too; it is kept with the
+    # posts, so the reports are what went wrong.
     reports = []
-    monkeypatch.setattr(
-        notifications, 'report_outcome', lambda exception, **kw: reports.append((exception, kw))
-    )
+
+    def _report(exception, **kw):
+        if isinstance(exception, Notice):
+            posts.append(('notice', exception.title, kw))
+        else:
+            reports.append((exception, kw))
+
+    monkeypatch.setattr(notifications, 'report_outcome', _report)
 
     def _load_folder(self, **kwargs):
         if isinstance(answer, BaseException):
@@ -224,7 +232,7 @@ def test_the_post_run_build_announces_then_answers_under_one_key(tmp_path, monke
         'accounting_note': '',
     }
 
-    reports = _hyperstack_build(monkeypatch, tmp_path, answer)
+    reports = _hyperstack_build(monkeypatch, tmp_path, answer, posts)
 
     assert [(m, t) for m, t, _ in posts] == [
         ('notice', 'Saving Hyperstacks'),
@@ -239,7 +247,7 @@ def test_the_post_run_builds_failure_replaces_its_announcement_in_its_own_words(
 ):
     fault = CaptureError('Plane 3 of well A1 could not be read.', 'unreadable_input_frame')
 
-    reports = _hyperstack_build(monkeypatch, tmp_path, fault)
+    reports = _hyperstack_build(monkeypatch, tmp_path, fault, posts)
 
     assert [(m, t) for m, t, _ in posts] == [('notice', 'Saving Hyperstacks')]
     ((reported, kw),) = reports

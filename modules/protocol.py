@@ -15,7 +15,12 @@ import copy
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError, ProtocolError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ConfigError,
+    DuplicateCaptureFilenamesNotice,
+    ProtocolError,
+    ProtocolRunRefusedError,
+)
 from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
@@ -2664,20 +2669,13 @@ class Protocol:
             collision_key = cls._capture_collision_key(protocol_df)
             dup_mask = collision_key.duplicated(keep=False)
             if dup_mask.any():
-                n_collisions = int(dup_mask.sum())
-                n_unique = len(collision_key.loc[dup_mask].drop_duplicates())
-                warn_msg = (
-                    f'Protocol has {n_collisions} steps sharing '
-                    f'{n_unique} capture filenames. The protocol can be '
-                    f'edited, but running it will be refused until each '
-                    f'step produces a unique filename -- rename the '
-                    f'colliding steps first.'
-                )
-                logger.warning(f'Protocol load: {warn_msg}')
-                notifications.warning(
+                notifications.report_outcome(
+                    DuplicateCaptureFilenamesNotice(
+                        colliding_steps=int(dup_mask.sum()),
+                        shared_names=len(collision_key.loc[dup_mask].drop_duplicates()),
+                    ),
+                    solicited=False,
                     category='Protocol',
-                    title='Duplicate filenames in protocol',
-                    message=warn_msg,
                 )
 
         return cls(

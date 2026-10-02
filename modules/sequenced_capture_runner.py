@@ -28,14 +28,17 @@ from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim,
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
+    CompositeFailedError,
     ProtocolRunRefusedError,
     RecordIncompleteError,
     Remedy,
     RunAlreadyEndedError,
     RunCheckFailedError,
+    RunFailedToStartError,
     RunImagesNotSavedError,
     RunIncompleteError,
     RunStartError,
+    SingleScanNotice,
     describe_unknown_positions,
 )
 from modules.protocol import Protocol
@@ -376,21 +379,17 @@ class SequencedCaptureRunner:
             duration = protocol.duration()
             if period.total_seconds() == 0:
                 n_scans = 1
-                single_scan_reason = 'the capture period is 0'
+                single_scan = True
             else:
                 n_scans = max(1, int(duration / period))
-                single_scan_reason = (
-                    f'the duration ({duration}) is shorter than the capture period ({period})'
-                    if duration < period
-                    else None
-                )
-            if single_scan_reason is not None:
+                single_scan = duration < period
+            if single_scan:
                 from modules.notification_center import notifications
 
-                notifications.notice(
-                    'Protocol',
-                    'Single Scan',
-                    f'This run performs a single scan because {single_scan_reason}.',
+                notifications.report_outcome(
+                    SingleScanNotice(period=period, duration=duration),
+                    solicited=False,
+                    category='Protocol',
                 )
 
             if max_scans is not None:
@@ -1571,7 +1570,11 @@ class SequencedCaptureRunner:
         # set_unattended_run(False) restores popups.
         from modules.notification_center import notifications
 
-        notifications.error('Protocol', ending.title, ending.message)
+        notifications.report_outcome(
+            RunFailedToStartError(reason=ending.reason, title=ending.title, message=ending.message),
+            solicited=False,
+            category='Protocol',
+        )
 
     def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
         """End the run now: abort, mark it dark, record the cause, darken.
@@ -1950,10 +1953,11 @@ class SequencedCaptureRunner:
             # is the record, and the button handed the UI back at run end.
             from modules.notification_center import notifications
 
-            logger.error(f'[{self.LOGGER_NAME}] Composite merge failed ({reason}): {detail}')
             if incomplete is not None:
                 detail = f'{incomplete} {detail}'
-            notifications.error('Protocol', 'Composite Failed', detail)
+            notifications.report_outcome(
+                CompositeFailedError(detail, reason), solicited=False, category='Protocol'
+            )
             outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible

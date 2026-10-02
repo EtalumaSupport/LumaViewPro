@@ -370,17 +370,19 @@ def test_run_cleanup_surfaces_slow_write_warning(monkeypatch):
     from tests.test_audit_fixes import _run_cleanup_kwargs
 
     captured = []
-    monkeypatch.setattr(nc_notifications, 'warning', lambda *a, **k: captured.append(a))
+    monkeypatch.setattr(
+        nc_notifications, 'report_outcome', lambda outcome, **k: captured.append(outcome.title)
+    )
 
     slow_batch = MagicMock(spec=RunWriteBatch, blocked_s=45.0, pending=0)
     run_cleanup(**_run_cleanup_kwargs(write_batch=slow_batch))
-    assert any(a[1] == 'Very Slow File Writes' for a in captured), (
+    assert 'Very Slow File Writes' in captured, (
         f'45s of blocked writes must surface the slow-write warning; saw {captured}'
     )
 
     captured.clear()
     run_cleanup(**_run_cleanup_kwargs())
-    assert not any(a[1] == 'Very Slow File Writes' for a in captured), (
+    assert 'Very Slow File Writes' not in captured, (
         'a run with no blocked-wait must not warn about slow writes'
     )
 

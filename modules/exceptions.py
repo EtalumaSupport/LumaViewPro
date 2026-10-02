@@ -103,10 +103,166 @@ class Notice:
 
     Attributes:
         title: The heading the person reads above the message.
+        reason: The machine-readable code a client branches on, since two
+            notices can share a title.
     """
 
     title: str
+    reason: str
     remedy: Remedy | None = None
+
+
+class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Auto-gain reached its exposure ceiling and the scene was still too dark.
+
+    The setting keeps the ceiling; the person can add light or raise it.
+    """
+
+    title = 'Exposure at the maximum'
+    reason = 'exposure_at_maximum'
+
+    def __init__(self, ceiling_ms: float):
+        super().__init__(
+            f'Auto-exposure reached the {ceiling_ms:g} ms ceiling for this '
+            'channel and the scene was still too dark. Add light or raise the '
+            'auto-exposure ceiling in Advanced Settings.'
+        )
+
+
+class ExposureAtMinimumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Auto-gain settled below the channel's usable exposure floor.
+
+    The setting keeps the floor, since it cannot hold the raw value.
+    """
+
+    title = 'Exposure at the minimum'
+    reason = 'exposure_at_minimum'
+
+    def __init__(self, exposure_ms: float, floor_ms: float):
+        super().__init__(
+            f'Auto-exposure settled at {exposure_ms:g} ms, below the '
+            f'{floor_ms:g} ms usable floor for this channel; the setting keeps '
+            'the floor. The scene is too bright: reduce the light.'
+        )
+
+
+class CapturePositionNotRecordedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A still was saved, without its well or position, because X or Y is unknown."""
+
+    title = 'Position Not Recorded'
+    reason = 'position_not_recorded'
+
+    def __init__(self):
+        super().__init__(
+            'The stage position is unknown, so this image was saved without a well '
+            'or position. Home the scope to record them.'
+        )
+
+
+class RecordingPositionNotRecordedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A frames recording started that cannot yet record where its frames are.
+
+    An unknown axis is recorded from the moment it becomes known; with no
+    labware or stage offset there is no plate frame to record X and Y in.
+
+    Attributes:
+        unknown_axes: The axes whose position is unknown at the start.
+        has_plate: Whether a plate frame exists to record X and Y in.
+    """
+
+    title = 'Position Not Recorded'
+    reason = 'position_not_recorded'
+
+    def __init__(self, *, unknown_axes: list[str], has_plate: bool):
+        sentences = []
+        if unknown_axes:
+            sentences.append(
+                f'The scope does not know its {", ".join(unknown_axes)} position, so '
+                'frames record it only once it is known. Home the scope to record it.'
+            )
+        if not has_plate:
+            sentences.append(
+                'No labware or stage offset is selected, so frames record no plate position.'
+            )
+        super().__init__(' '.join(sentences))
+        self.unknown_axes = list(unknown_axes)
+        self.has_plate = has_plate
+
+
+class DuplicateCaptureFilenamesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A loaded protocol has steps that would save to the same file name.
+
+    The file still loads, so the steps can be renamed in the app; the run is
+    refused at start until each step's file name is unique.
+    """
+
+    title = 'Duplicate filenames in protocol'
+    reason = 'duplicate_capture_filenames'
+
+    def __init__(self, *, colliding_steps: int, shared_names: int):
+        super().__init__(
+            f'Protocol has {colliding_steps} steps sharing {shared_names} capture '
+            'filenames. The protocol can be edited, but running it will be refused '
+            'until each step produces a unique filename -- rename the colliding '
+            'steps first.'
+        )
+
+
+class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A run spent long enough waiting on the save disk to say so at its end."""
+
+    title = 'Very Slow File Writes'
+    reason = 'slow_file_writes'
+
+    def __init__(self):
+        super().__init__(
+            'Very slow writes are occurring on the save disk. '
+            'Please confirm your computer and storage are OK.'
+        )
+
+
+class SingleScanNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A timed run will perform one scan, because of its period and duration."""
+
+    title = 'Single Scan'
+    reason = 'single_scan'
+
+    def __init__(self, *, period, duration):
+        if period.total_seconds() == 0:
+            because = 'the capture period is 0'
+        else:
+            because = f'the duration ({duration}) is shorter than the capture period ({period})'
+        super().__init__(f'This run performs a single scan because {because}.')
+
+
+class HyperstacksSavingNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A run's hyperstacks are being built, which can take minutes."""
+
+    title = 'Saving Hyperstacks'
+    reason = 'hyperstacks_saving'
+
+    def __init__(self):
+        super().__init__(
+            'Building hyperstacks from the run. This can take several minutes; '
+            'a message will confirm completion.'
+        )
+
+
+class HyperstacksSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A run's hyperstacks were built: how many and where, or what was degraded."""
+
+    title = 'Hyperstacks Saved'
+    reason = 'hyperstacks_saved'
+
+    def __init__(self, result: dict):
+        if result.get('degraded'):
+            message = result['message']
+        else:
+            message = (
+                f'{result["new_count"]} hyperstack(s) saved to {result["output_root"]}.'
+                f'{result["accounting_note"]}'
+            )
+        super().__init__(message)
 
 
 class ProtocolError(Exception):
@@ -932,6 +1088,111 @@ class RunIncompleteError(CaptureError):
         self.asked = asked
         self.captured = captured
         self.failed_steps = list(failed_steps)
+
+
+class RunFailedError(CaptureError):
+    """The instrument ended a run: the fault that ended it, in its own words.
+
+    Fatal: the person is told even during an unattended run, since the run
+    they left is no longer running. The title and words are the run's
+    ending's, so a client reading the run's outcome and one hearing this
+    read the same.
+
+    Attributes:
+        title: The ending's heading.
+        reason: The ending's machine-readable cause.
+    """
+
+    fatal = True
+
+    def __init__(self, *, reason: str, title: str, message: str):
+        super().__init__(message, reason)
+        self.title = title
+
+
+class RunFailedToStartError(CaptureError):
+    """A run was committed to and did not start, in its ending's words.
+
+    Not fatal: it is reported after the run's cleanup has lifted the
+    unattended mute, so the person who started it sees it.
+
+    Attributes:
+        title: The ending's heading.
+        reason: The ending's machine-readable cause.
+    """
+
+    def __init__(self, *, reason: str, title: str, message: str):
+        super().__init__(message, reason)
+        self.title = title
+
+
+class CompositeFailedError(CaptureError):
+    """A run's composite was not merged; the run's own images stand.
+
+    Attributes:
+        reason: Why the merge did not happen.
+    """
+
+    title = 'Composite Failed'
+
+
+class AutoGainNotSettledError(CaptureError):
+    """Auto-gain locked with no usable exposure or gain from the camera.
+
+    The previous settings were kept, so a capture taken with it had no
+    exposure check.
+    """
+
+    title = 'Auto-gain did not settle'
+
+    def __init__(self):
+        super().__init__(
+            'The camera reported no usable exposure or gain when auto-gain was '
+            'locked, so the previous settings were kept and any capture was taken '
+            'without an exposure check. Check the live view, then try again.',
+            'auto_gain_not_settled',
+        )
+
+
+class AutofocusFailedError(CaptureError):
+    """An autofocus sweep chose no focus; the stage goes back to where it started.
+
+    Attributes:
+        reason: ``'flat_focus_curve'`` (every score zero or invalid) or
+            ``'unexpected_error'`` (the sweep raised; its cause is chained).
+    """
+
+    title = 'Autofocus Failed'
+    _WORDS: ClassVar[dict[str, str]] = {
+        'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
+        'unexpected_error': 'Autofocus stopped on an unexpected error; the log has the details.',
+    }
+
+    def __init__(self, reason: str):
+        super().__init__(self._WORDS[reason], reason)
+
+
+class AutofocusZNotRestoredError(CaptureError):
+    """Autofocus stopped without a result and could not put Z back.
+
+    What the person must do depends on how the restore failed: a move that
+    faulted has lost Z, and no move is accepted on it until a home; a
+    refused target left Z known, where the sweep parked it.
+
+    Attributes:
+        reason: ``'z_position_lost'`` or ``'z_left_at_search_position'``.
+    """
+
+    title = 'Z Position Not Restored'
+
+    def __init__(self, *, z_lost: bool):
+        if z_lost:
+            reason = 'z_position_lost'
+            what = 'The Z position is now unknown -- home the scope before moving it.'
+        else:
+            reason = 'z_left_at_search_position'
+            what = 'Z was left at the last autofocus search position.'
+        super().__init__(f'Could not restore Z position after autofocus stopped. {what}', reason)
 
 
 class RunWriteRefusedError(CaptureError):
