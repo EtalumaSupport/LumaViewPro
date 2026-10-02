@@ -100,10 +100,11 @@ def _outcome_words(exception: BaseException) -> str:
 class Severity(IntEnum):
     """Notification severity levels (matches Python logging levels).
 
-    NOTICE sits between INFO and WARNING: user-facing status that must
-    reach the popup bridge (start/done of a long unattended operation)
-    without misdeclaring itself as a fault. WARNING stays "something
-    didn't work"; INFO stays log-only for normal users.
+    NOTICE sits between INFO and WARNING: user-facing status (start/done
+    of a long unattended operation) that says so without misdeclaring
+    itself as a fault. WARNING stays "something didn't work". The level
+    says how a post is logged, not whether it is shown: ``shown`` on the
+    notification says that.
     """
 
     DEBUG = logging.DEBUG  # 10
