@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import datetime
-import json
 import logging
 import os
 import threading
@@ -130,234 +129,205 @@ class MicroscopeSettings(BoxLayout):
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
 
-    # load settings from JSON file
-    def load_settings(self, filename='./data/current.json'):
+    # Fill the panel from the settings store
+    def load_settings(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
         ctx = _app_ctx.ctx
 
         lumaview = ctx.lumaview
         settings = ctx.settings
 
-        try:
-            # Settings are imported at the very beginning of file
+        # Settings are imported at the very beginning of file
 
-            if settings['profiling']['enabled']:
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
-                # Joined to the data directory, never CWD-relative: an
-                # installed build cannot write beside its executable.
-                profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')
-                MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
-                logger.info('[LVP Main  ] Memory Profiler started.')
+        if settings['profiling']['enabled']:
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
+            # Joined to the data directory, never CWD-relative: an
+            # installed build cannot write beside its executable.
+            profiling_save_path = os.path.join(ctx.source_path, 'logs/profiling')
+            MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+            logger.info('[LVP Main  ] Memory Profiler started.')
 
-            # Handle / object-type leak diagnostic. Same opt-in pattern as
-            # the memory profiler above; settings-driven so customers and
-            # bench operators can enable without rebuilding.
-            if settings.get('profiling', {}).get('handle_trace_enabled', False):
-                from lib import handle_trace as _handle_trace
+        # Handle / object-type leak diagnostic. Same opt-in pattern as
+        # the memory profiler above; settings-driven so customers and
+        # bench operators can enable without rebuilding.
+        if settings.get('profiling', {}).get('handle_trace_enabled', False):
+            from lib import handle_trace as _handle_trace
 
-                _handle_trace.enable(
-                    obj_sample_every=int(
-                        settings['profiling'].get('handle_trace_obj_sample_every', 1000)
-                    )
+            _handle_trace.enable(
+                obj_sample_every=int(
+                    settings['profiling'].get('handle_trace_obj_sample_every', 1000)
                 )
-
-            # update GUI values from JSON data:
-
-            # The Session adopted the model the hardware reports at
-            # bring-up; render it (control visibility + read-only model
-            # label + stage redraw, in that order).
-            self.reconfigure_for_scope()
-
-            # Image mode selector: populate the options from the camera's
-            # capability, then show the mode bring-up resolved. A stored
-            # 12-bit mode on an 8-bit-only camera was substituted at bring-up,
-            # which said so; the record carries what it used.
-            # Setting the spinner text fires select_image_mode (on_text), which
-            # caches the mode and applies the pixel format.
-            self.load_image_modes()
-            mode = image_mode.resolve_settings_image_mode(settings)
-            substituted = ctx.session.bring_up_record().substitution('image_mode')
-            if substituted is not None:
-                mode = substituted.used
-                settings['image_mode'] = mode
-            self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
-
-            self.ids['live_image_output_format_spinner'].text = settings['image_output_format'][
-                'live'
-            ]
-            # JPG quality slider reflects the saved preference; enable
-            # state is set by select_live_image_output_format (JPG only).
-            jpg_quality = int(settings.get('jpg_quality', 90))
-            self.ids['jpg_quality_slider'].value = jpg_quality
-            self.ids['jpg_quality_value_label'].text = str(jpg_quality)
-            self.select_live_image_output_format()
-
-            self.ids['sequenced_image_output_format_spinner'].text = settings[
-                'image_output_format'
-            ]['sequenced']
-            self.select_sequenced_image_output_format()
-
-            # The exposure/gain slider caps from the live camera (the resolver
-            # applies the documented no-camera fallback; #616). The gain cap
-            # keeps the slider honest per-camera -- a universal 48 dB let LS620
-            # users overdrive past the usable range and black out the image.
-            max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
-            ctx.max_exposure = max_exposure
-            max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
-            ctx.max_gain = max_gain
-
-            if not settings['video_as_frames']:
-                self.ids['video_recording_format_spinner'].text = 'mp4'
-            else:
-                self.ids['video_recording_format_spinner'].text = 'Frames'
-
-            self.select_video_recording_format()
-
-            if 'live_view_fps' in settings:
-                ctx.live_view_fps = settings['live_view_fps']
-            else:
-                ctx.live_view_fps = 30
-
-            fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
-            logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
-
-            # Set Frame Size UI
-            binning_size_str = settings['binning']['size']
-
-            # settings['frame'] holds the DISPLAYED (post-binning) size, and the
-            # box shows that size unscaled -- the unbinned ROI is carried
-            # separately as frame['native_width'/'native_height']. The framing
-            # redraw agrees: it writes the box from the same stored number, which
-            # the Session stores from what the camera delivered. Multiplying by the binning
-            # factor here contradicted all of that and would show a 2x2 user twice
-            # the size the camera delivers.
-            self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
-
-            # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
-            # was applied by the Session's bring-up
-            # The twin of the labware restore below: writing the spinner
-            # dispatches its text event, and the explicit call emits again, so
-            # cold start recorded two binning selections nobody made. Declared
-            # twice because only one declaration is pending per name -- whichever
-            # emission happens consumes one, and the second replaces any the
-            # first left unconsumed.
-            gui_logger.note_write_back('BINNING', binning_size_str)
-            self.ids['binning_spinner'].text = binning_size_str
-            gui_logger.note_write_back('BINNING', binning_size_str)
-            self.select_binning_size()
-
-            # The settings-to-scope bring-up ran in the Session before this
-            # widget existed: the labware selected, scope.initialize()
-            # applied. The turret, its assignments and the objective shown
-            # are the API's answers -- on a turreted scope the objective is
-            # unknown until the turret is in a known slot. The startup
-            # sequence owns the objective question, so this display asks
-            # nothing.
-            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
-
-            if settings['scale_bar']['enabled']:
-                self.ids['enable_scale_bar_btn'].state = 'down'
-            else:
-                self.ids['enable_scale_bar_btn'].state = 'normal'
-
-            protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-            protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
-            protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
-            # Restoring the stored labware dispatches the spinner's event, and
-            # the explicit call below emits again -- neither is a user pick.
-            # Declared twice because only one declaration is pending per name:
-            # whichever of the two emissions happens consumes one, and the
-            # second declaration replaces any the first left unconsumed.
-            gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
-            protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-            gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
-            protocol_settings.select_labware()
-            # Apply the persisted step-location view at startup; the toggle
-            # that edits this now lives in Advanced Settings.
-            ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
-
-            zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
-            # Restoring the stored position dispatches the spinner's event, which
-            # would read as the user choosing it during startup.
-            gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
-            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
-            zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
-            zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
-
-            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-                text_label=settings['zstack']['position']
             )
 
-            zstack_config = ZStackConfig(
-                range=settings['zstack']['range'],
-                step_size=settings['zstack']['step_size'],
-                current_z_reference=z_reference,
-                current_z_value=None,
-            )
+        # update GUI values from JSON data:
 
-            zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+        # The Session adopted the model the hardware reports at
+        # bring-up; render it (control visibility + read-only model
+        # label + stage redraw, in that order).
+        self.reconfigure_for_scope()
 
-            if 'show_tooltips' in settings:
-                if settings['show_tooltips']:
-                    self.ids['show_tooltips_btn'].state = 'down'
-                    ctx.show_tooltips = True
-                else:
-                    self.ids['show_tooltips_btn'].state = 'normal'
-                    ctx.show_tooltips = False
+        # Image mode selector: populate the options from the camera's
+        # capability, then show the mode bring-up resolved. A stored
+        # 12-bit mode on an 8-bit-only camera was substituted at bring-up,
+        # which said so; the record carries what it used.
+        # Setting the spinner text fires select_image_mode (on_text), which
+        # caches the mode and applies the pixel format.
+        self.load_image_modes()
+        mode = image_mode.resolve_settings_image_mode(settings)
+        substituted = ctx.session.bring_up_record().substitution('image_mode')
+        if substituted is not None:
+            mode = substituted.used
+            settings['image_mode'] = mode
+        self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
-            # Stimulation is firmware-gated. The enable toggle lives in
-            # Advanced Settings now; startup just establishes the setting and
-            # pushes the persisted state down to every layer via the single
-            # owner (which forces it off on unsupported firmware).
-            self.apply_stimulation_support()
+        self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+        # JPG quality slider reflects the saved preference; enable
+        # state is set by select_live_image_output_format (JPG only).
+        jpg_quality = int(settings.get('jpg_quality', 90))
+        self.ids['jpg_quality_slider'].value = jpg_quality
+        self.ids['jpg_quality_value_label'].text = str(jpg_quality)
+        self.select_live_image_output_format()
 
-            for layer in common_utils.get_layers():
-                layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+        self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format'][
+            'sequenced'
+        ]
+        self.select_sequenced_image_output_format()
 
-                # Size the sliders to the camera caps BEFORE the values land
-                # (the Kivy slider clamps the displayed value to its max). A
-                # stored value above the cap stays in the store and is pinned
-                # on the slider; the box keeps the real number.
-                layer_obj.ids['gain_slider'].max = max_gain
-                layer_obj.ids['exp_slider'].max = max_exposure
+        # The exposure/gain slider caps from the live camera (the resolver
+        # applies the documented no-camera fallback; #616). The gain cap
+        # keeps the slider honest per-camera -- a universal 48 dB let LS620
+        # users overdrive past the usable range and black out the image.
+        max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
+        ctx.max_exposure = max_exposure
+        max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        ctx.max_gain = max_gain
 
-            # Render and re-apply any layer the camera cannot fully reach --
-            # the single owner, shared with the capability resync. Ordering:
-            # this runs BEFORE the widgets are filled, so the pinned slider and
-            # the stored value agree the first time they are drawn. Its
-            # explicit apply is a no-op here (the layers are still initializing
-            # from construction); the startup push to the camera is the open
-            # layer's, from complete_initialization.
-            ctx.image_settings.reconcile_layers_to_camera_caps()
+        if not settings['video_as_frames']:
+            self.ids['video_recording_format_spinner'].text = 'mp4'
+        else:
+            self.ids['video_recording_format_spinner'].text = 'Frames'
 
-            for layer in common_utils.get_layers():
-                ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
+        self.select_video_recording_format()
 
-        except json.JSONDecodeError as e:
-            # Real "incompatible JSON" -- file content can't be parsed.
-            logger.error(f'[LVP Main  ] load_settings: JSON parse error in {filename}: {e}')
-        except FileNotFoundError as e:
-            logger.error(f'[LVP Main  ] load_settings: settings file missing: {e}')
-        except Exception as e:
-            # LOG-3 / UI-LOAD-1: this used to log "Incompatible JSON file
-            # for Microscope Settings" for ANY exception during load. The
-            # message must name the actual failure mode -- kivy widget
-            # exceptions, attribute errors, etc. were being misattributed
-            # to the JSON file. Bit us when the wrapped wording sent the
-            # operator to the JSON file when the bug was in widget code,
-            # AND the swallow let execution continue into a second crash
-            # in set_ui_features_for_scope below.
-            logger.exception(
-                f'[LVP Main  ] load_settings failed in {filename}: {type(e).__name__}: {e}'
-            )
-            # Re-raise so the caller (LumaViewProApp.build) sees the
-            # failure and we don't silently degrade through the rest of
-            # the build path. Without this, a kivy WidgetException in the
-            # accordion-widget tree was caught and swallowed, then the
-            # next call to set_ui_features_for_scope hit the same bug
-            # uncaught -- a misleading "double-crash with first one
-            # hidden" pattern.
-            raise
+        if 'live_view_fps' in settings:
+            ctx.live_view_fps = settings['live_view_fps']
+        else:
+            ctx.live_view_fps = 30
+
+        fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
+        logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
+
+        # Set Frame Size UI
+        binning_size_str = settings['binning']['size']
+
+        # settings['frame'] holds the DISPLAYED (post-binning) size, and the
+        # box shows that size unscaled -- the unbinned ROI is carried
+        # separately as frame['native_width'/'native_height']. The framing
+        # redraw agrees: it writes the box from the same stored number, which
+        # the Session stores from what the camera delivered. Multiplying by the binning
+        # factor here contradicted all of that and would show a 2x2 user twice
+        # the size the camera delivers.
+        self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
+
+        # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
+        # was applied by the Session's bring-up
+        # The twin of the labware restore below: writing the spinner
+        # dispatches its text event, and the explicit call emits again, so
+        # cold start recorded two binning selections nobody made. Declared
+        # twice because only one declaration is pending per name -- whichever
+        # emission happens consumes one, and the second replaces any the
+        # first left unconsumed.
+        gui_logger.note_write_back('BINNING', binning_size_str)
+        self.ids['binning_spinner'].text = binning_size_str
+        gui_logger.note_write_back('BINNING', binning_size_str)
+        self.select_binning_size()
+
+        # The settings-to-scope bring-up ran in the Session before this
+        # widget existed: the labware selected, scope.initialize()
+        # applied. The turret, its assignments and the objective shown
+        # are the API's answers -- on a turreted scope the objective is
+        # unknown until the turret is in a known slot. The startup
+        # sequence owns the objective question, so this display asks
+        # nothing.
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+
+        if settings['scale_bar']['enabled']:
+            self.ids['enable_scale_bar_btn'].state = 'down'
+        else:
+            self.ids['enable_scale_bar_btn'].state = 'normal'
+
+        protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
+        protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
+        protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+        # Restoring the stored labware dispatches the spinner's event, and
+        # the explicit call below emits again -- neither is a user pick.
+        # Declared twice because only one declaration is pending per name:
+        # whichever of the two emissions happens consumes one, and the
+        # second declaration replaces any the first left unconsumed.
+        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
+        protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
+        protocol_settings.select_labware()
+        # Apply the persisted step-location view at startup; the toggle
+        # that edits this now lives in Advanced Settings.
+        ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
+
+        zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
+        # Restoring the stored position dispatches the spinner's event, which
+        # would read as the user choosing it during startup.
+        gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
+        zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+        zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
+        zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
+
+        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+            text_label=settings['zstack']['position']
+        )
+
+        zstack_config = ZStackConfig(
+            range=settings['zstack']['range'],
+            step_size=settings['zstack']['step_size'],
+            current_z_reference=z_reference,
+            current_z_value=None,
+        )
+
+        zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+
+        if 'show_tooltips' in settings:
+            if settings['show_tooltips']:
+                self.ids['show_tooltips_btn'].state = 'down'
+                ctx.show_tooltips = True
+            else:
+                self.ids['show_tooltips_btn'].state = 'normal'
+                ctx.show_tooltips = False
+
+        # Stimulation is firmware-gated. The enable toggle lives in
+        # Advanced Settings now; startup just establishes the setting and
+        # pushes the persisted state down to every layer via the single
+        # owner (which forces it off on unsupported firmware).
+        self.apply_stimulation_support()
+
+        for layer in common_utils.get_layers():
+            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+
+            # Size the sliders to the camera caps BEFORE the values land
+            # (the Kivy slider clamps the displayed value to its max). A
+            # stored value above the cap stays in the store and is pinned
+            # on the slider; the box keeps the real number.
+            layer_obj.ids['gain_slider'].max = max_gain
+            layer_obj.ids['exp_slider'].max = max_exposure
+
+        # Render and re-apply any layer the camera cannot fully reach --
+        # the single owner, shared with the capability resync. Ordering:
+        # this runs BEFORE the widgets are filled, so the pinned slider and
+        # the stored value agree the first time they are drawn. Its
+        # explicit apply is a no-op here (the layers are still initializing
+        # from construction); the startup push to the camera is the open
+        # layer's, from complete_initialization.
+        ctx.image_settings.reconcile_layers_to_camera_caps()
+
+        for layer in common_utils.get_layers():
+            ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
 
         self.set_ui_features_for_scope()
 

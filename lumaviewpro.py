@@ -1089,7 +1089,7 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.scope_display.start()
 
         # load settings file (must be after motion_settings is wired)
-        ctx.motion_settings.ids['microscope_settings_id'].load_settings('./data/current.json')
+        ctx.motion_settings.ids['microscope_settings_id'].load_settings()
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
