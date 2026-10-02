@@ -91,7 +91,6 @@ _WIRED = {
 
 # handlers that already existed and gained the emitter inside them
 _IN_HANDLER = {
-    'exp_text': ('ui/layer_control.py', 'LayerControl', 'exp_text', 'text_input'),
     'video_recording_format_spinner': (
         'ui/microscope_settings.py',
         'MicroscopeSettings',
@@ -162,7 +161,7 @@ def test_every_wired_handler_lives_on_the_class_that_owns_the_block():
         )
 
 
-def test_the_three_existing_handlers_still_reach_their_emitter():
+def test_the_existing_handlers_still_reach_their_emitter():
     """The controls whose handler predates this work still log from inside it."""
     for control_id, (module, cls, handler, callee) in _IN_HANDLER.items():
         fn = find_def(module, handler, class_name=cls)
@@ -198,10 +197,7 @@ def test_layer_owned_records_carry_the_channel_suffix():
     looked for the word "layer" somewhere in the handler would pass on a plain
     string literal, which is the bug it is meant to catch.
     """
-    for handler, callee in (
-        ('exp_text', 'text_input'),
-        ('log_histogram_scale', 'toggle'),
-    ):
+    for handler, callee in (('log_histogram_scale', 'toggle'),):
         fn = find_def('ui/layer_control.py', handler, class_name='LayerControl')
         assert fn is not None, f'LayerControl.{handler} moved or was renamed'
 
@@ -219,6 +215,27 @@ def test_layer_owned_records_carry_the_channel_suffix():
             f'so two channel panels share it and one line is silently dropped; '
             f'found {sorted(interpolated)}'
         )
+
+    # The typed boxes (exposure, gain, illumination, ...) record through the
+    # shared text handler, which builds the one record name they all use.
+    helper = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
+    assert helper is not None, f'LayerControl.{_HELPER} moved or was renamed'
+    names = [
+        n.value
+        for n in ast.walk(helper)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == 'record_name' for t in n.targets)
+    ]
+    assert len(names) == 1 and isinstance(names[0], ast.JoinedStr), (
+        f'LayerControl.{_HELPER} must build record_name once, as an f-string'
+    )
+    interpolated = {
+        ast.unparse(v.value) for v in names[0].values if isinstance(v, ast.FormattedValue)
+    }
+    assert 'self.layer' in interpolated, (
+        f'LayerControl.{_HELPER} builds its record name without self.layer; '
+        f'found {sorted(interpolated)}'
+    )
 
 
 # --------------------------------------------------------------------------

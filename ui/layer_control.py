@@ -351,54 +351,30 @@ class LayerControl(BoxLayout):
     def ill_text(self) -> None:
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.ill_text()')
-        # Logged before validation and with the raw text: a rejected entry
-        # returns early below, and until now this box produced no record of its
-        # own at all -- a typed illumination was credited to the LED toggle that
-        # apply_settings happens to reach, which reads as a button press.
-        gui_logger.text_input(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
-        ill_min = self.ids['ill_slider'].min
-        # Before the scope is built the slider's placeholder is the only bound.
-        ill_max = get_layer_illumination_text_max(self.layer)
-        if ill_max is None:
-            ill_max = self.ids['ill_slider'].max
-        try:
-            ill_val = float(self.ids['ill_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid illumination input: {self.ids["ill_text"].text!r}')
-            # Show current valid value so user knows input was rejected (M21)
-            self._initializing = True
-            try:
-                self.ids['ill_text'].text = str(settings[self.layer]['illumination_ma'])
-            finally:
-                self._initializing = False
-            gui_logger.text_input(
-                f'ILLUMINATION_{self.layer}_APPLIED', settings[self.layer]['illumination_ma']
-            )
+        typed_text = self.ids['ill_text'].text
+        if not self._validate_and_apply_text_input(
+            'ill_text',
+            'ill_slider',
+            'illumination_ma',
+            # Before the scope is built there is no bound to read, and the
+            # slider's own max is the only one there is.
+            value_max=get_layer_illumination_text_max(self.layer),
+        ):
             return
-
-        illumination = float(np.clip(ill_val, ill_min, ill_max))
-
-        # Only when clipping moved it; comparing parsed numbers, not strings.
-        if ill_val != illumination:
-            gui_logger.text_input(f'ILLUMINATION_{self.layer}_APPLIED', illumination)
         # Text-entry divergence trace for the > ~150 mA silent-fail
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence
         # point (float from text vs int from slider).
         if _fx2_wire_debug_enabled(settings):
+            illumination = settings[self.layer]['illumination_ma']
             logger.info(
                 '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
-                'parsed_val=%r -> illumination=%r type=%s source=text',
+                '-> illumination=%r type=%s source=text',
                 self.layer,
-                self.ids['ill_text'].text,
-                ill_val,
+                typed_text,
                 illumination,
                 type(illumination).__name__,
             )
-        settings[self.layer]['illumination_ma'] = illumination
-
-        self._show_value_on_widgets('ill_slider', 'ill_text', illumination)
-
         self.apply_settings()
 
     def sum_slider(self):
@@ -554,48 +530,17 @@ class LayerControl(BoxLayout):
             self.apply_exp_slider()
 
     def exp_text(self) -> None:
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.exp_text()')
-        # Logged before validation, and with the raw text: an entry this
-        # handler rejects still returns early, and a rejected keystroke is
-        # exactly the user action a forensic reader needs to see. The layer
-        # suffix is required -- every channel has its own box, and without it
-        # a bundle could not say which channel's exposure was edited.
-        gui_logger.text_input(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
-        exp_min = self.ids['exp_slider'].min
-        # The box is bounded by what the sensor can actually honor, not by the
-        # slider's manual range. With no camera to report a cap there is no
-        # honest ceiling, so the slider's bound is the only one there is.
-        exp_max = get_exposure_text_max()
-        if exp_max is None:
-            exp_max = self.ids['exp_slider'].max
-
-        try:
-            exp_val = float(self.ids['exp_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid exposure input: {self.ids["exp_text"].text!r}')
-            # Show current valid value so user knows input was rejected (M21)
-            self._initializing = True
-            try:
-                self.ids['exp_text'].text = str(settings[self.layer]['exposure_ms'])
-            finally:
-                self._initializing = False
-            gui_logger.text_input(
-                f'EXPOSURE_{self.layer}_APPLIED', settings[self.layer]['exposure_ms']
-            )
-            return
-
-        exposure = float(np.clip(exp_val, exp_min, exp_max))
-
-        # Only when clipping moved it; comparing parsed numbers, not strings.
-        if exp_val != exposure:
-            gui_logger.text_input(f'EXPOSURE_{self.layer}_APPLIED', exposure)
-
-        settings[self.layer]['exposure_ms'] = exposure
-
-        self._show_value_on_widgets('exp_slider', 'exp_text', exposure)
-
-        self.apply_exp_slider()
+        if self._validate_and_apply_text_input(
+            'exp_text',
+            'exp_slider',
+            'exposure_ms',
+            # The box is bounded by what the sensor can actually honor, not by
+            # the slider's manual range. With no camera to report a cap there
+            # is no honest ceiling, so the slider's bound is the only one.
+            value_max=get_exposure_text_max(),
+        ):
+            self.apply_exp_slider()
 
     def stim_freq_slider(self):
         settings = _app_ctx.ctx.settings

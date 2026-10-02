@@ -153,10 +153,17 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         wrapping is asserted below -- an inline write here would be a slider
         write with no suppression, which the handler reads back as a drag."""
         tree = _parse(LAYER_CONTROL)
-        for method in ('ill_text', '_validate_and_apply_text_input', 'exp_text'):
+        body = _source_of(_find_method(tree, 'LayerControl', '_validate_and_apply_text_input'))
+        assert '_show_value_on_widgets' in body, (
+            '_validate_and_apply_text_input must render through _show_value_on_widgets'
+        )
+        assert 'slider.value' not in body, (
+            '_validate_and_apply_text_input must not assign a slider value itself'
+        )
+        for method in ('ill_text', 'exp_text'):
             body = _source_of(_find_method(tree, 'LayerControl', method))
-            assert '_show_value_on_widgets' in body, (
-                f'{method} must render through _show_value_on_widgets'
+            assert '_validate_and_apply_text_input' in body, (
+                f'{method} must commit through the shared text handler'
             )
             assert 'slider.value' not in body, f'{method} must not assign a slider value itself'
 

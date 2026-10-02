@@ -41,7 +41,6 @@ _SITES = {
         'ProtocolSettings',
         'apply_zstacking',
     ),
-    'ill_text': ('ui/layer_control.py', 'LayerControl', 'ill_text'),
     'trendline_spinner': ('ui/post_processing.py', 'GraphingControls', 'update_trendline'),
     'text_cell_count_pixels_per_um_id': (
         'ui/post_processing.py',
