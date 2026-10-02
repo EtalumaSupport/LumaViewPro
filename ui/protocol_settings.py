@@ -505,13 +505,10 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings.get('protocol', {}).get('labware')
             wellplate_loader = ctx.wellplate_loader
-            try:
-                labware_spinner.values = wellplate_loader.get_plate_list()
-                if saved_labware and saved_labware in labware_spinner.values:
-                    gui_logger.note_write_back('LABWARE', saved_labware)
-                    labware_spinner.text = saved_labware
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
+            labware_spinner.values = wellplate_loader.get_plate_list()
+            if saved_labware and saved_labware in labware_spinner.values:
+                gui_logger.note_write_back('LABWARE', saved_labware)
+                labware_spinner.text = saved_labware
 
     def apply_tiling(self) -> None:
         # At entry, not on success: the protocol can refuse the grid, and a
@@ -1101,7 +1098,7 @@ class ProtocolSettings(FloatLayout):
         gui_logger.text_input('STEP_NUMBER', typed)
         try:
             val = int(obj.text)
-        except Exception:
+        except ValueError:
             num_steps = self._protocol.num_steps()
             if num_steps < 1:
                 val = 0
