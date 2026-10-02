@@ -1,15 +1,8 @@
 """P00 -- session bring-up smoke: what the motion API reports headless."""
 
-import tempfile
-
 import harness
 
-LIVE = tempfile.mkdtemp(prefix='probe_motion_', dir=str(harness.SCRATCH))
-
-from modules.scope_session import ScopeSession
-from tests.settings_fixtures import complete_settings
-
-s = ScopeSession.create(complete_settings(live_folder=LIVE), simulate=True)
+s, _live = harness.make_session('probe_motion')
 try:
     m = s.scope.motion
     print('motor_connected:', s.scope.motor_connected)

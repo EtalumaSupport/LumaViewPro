@@ -9,14 +9,10 @@ cannot pass by accident.
 """
 
 import sys
-import tempfile
 import traceback
-from harness import check, report, SCRATCH
-from modules.scope_session import ScopeSession
-from tests.settings_fixtures import complete_settings
+from harness import check, make_session, report
 
-live = tempfile.mkdtemp(prefix='probe_motion_', dir=SCRATCH)
-s = ScopeSession.create(complete_settings(live_folder=live, microscope='LS850T'), simulate=True)
+s, _live = make_session('probe_motion', microscope='LS850T')
 try:
     m = s.scope.motion
     objs = s.objective_helper.get_objectives_list()

@@ -9,16 +9,11 @@ home the turret (vertical_control.py:598).
 """
 
 import sys
-import tempfile
-from harness import check, report, SCRATCH
+from harness import check, make_session, report
 
 
 def main():
-    from modules.scope_session import ScopeSession
-    from tests.settings_fixtures import complete_settings
-
-    live = tempfile.mkdtemp(prefix='probe_motion_', dir=SCRATCH)
-    s = ScopeSession.create(complete_settings(live_folder=live, microscope='LS850T'), simulate=True)
+    s, _live = make_session('probe_motion', microscope='LS850T')
     try:
         m = s.scope.motion
         caps = s.scope.capabilities
