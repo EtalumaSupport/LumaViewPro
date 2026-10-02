@@ -617,6 +617,50 @@ def collect_installed_packages() -> dict:
     return _collect_installed_packages()
 
 
+def git_revision(install_path: str) -> str | None:
+    """The commit the code at *install_path* was built from, or None.
+
+    The banner's ``Git:`` line and any record that names the build read it
+    here, so the two can never disagree.
+    """
+    # SHA lookup precedence:
+    #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
+    #      $Format:%H$ placeholder with the real SHA at archive time.
+    #      In a local git clone the placeholder is unsubstituted ($Format
+    #      prefix); in a ZIP it has been replaced with the 40-char SHA.
+    #   2) `git rev-parse --short HEAD` -- works in local clones with
+    #      .git present. Installer builds wipe .git so this returns
+    #      nothing.
+    # Either path that yields a real value wins; otherwise fall back to
+    # Branch + Built + CommitGUID for triage.
+    _git_hash = None
+    try:
+        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
+            for _line in _af:
+                if _line.startswith('node: ') and not _line.startswith('node: $Format'):
+                    _git_hash = _line.split(': ', 1)[1].strip()[:12]
+                    break
+    except Exception:
+        pass
+    if not _git_hash:
+        try:
+            import subprocess
+
+            _git_hash = (
+                subprocess.check_output(
+                    ['git', 'rev-parse', '--short', 'HEAD'],
+                    cwd=install_path,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                )
+                .decode()
+                .strip()
+            )
+        except Exception:
+            pass
+    return _git_hash
+
+
 def log_environment_banner(
     install_path: str, version_str: str, camera_sdk_lines: list[str]
 ) -> None:
@@ -713,41 +757,7 @@ def log_environment_banner(
     # a developer running `python lumaviewpro.py` from a clone.
     logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
 
-    # SHA lookup precedence:
-    #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
-    #      $Format:%H$ placeholder with the real SHA at archive time.
-    #      In a local git clone the placeholder is unsubstituted ($Format
-    #      prefix); in a ZIP it has been replaced with the 40-char SHA.
-    #   2) `git rev-parse --short HEAD` -- works in local clones with
-    #      .git present. Installer builds wipe .git so this returns
-    #      nothing.
-    # Either path that yields a real value wins; otherwise fall back to
-    # Branch + Built + CommitGUID for triage.
-    _git_hash = None
-    try:
-        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
-            for _line in _af:
-                if _line.startswith('node: ') and not _line.startswith('node: $Format'):
-                    _git_hash = _line.split(': ', 1)[1].strip()[:12]
-                    break
-    except Exception:
-        pass
-    if not _git_hash:
-        try:
-            import subprocess
-
-            _git_hash = (
-                subprocess.check_output(
-                    ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=install_path,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2,
-                )
-                .decode()
-                .strip()
-            )
-        except Exception:
-            pass
+    _git_hash = git_revision(install_path)
     logger.info(
         f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Branch + Built)"}'
     )
