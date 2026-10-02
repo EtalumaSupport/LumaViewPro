@@ -28,10 +28,8 @@ def _fake(motor_connected, *, driver_exc=None, has_turret=False):
     driver.has_turret.return_value = has_turret
     if driver_exc is not None:
         driver.target_status.side_effect = driver_exc
-        driver.home_status.side_effect = driver_exc
     else:
         driver.target_status.return_value = True
-        driver.home_status.return_value = True
     return types.SimpleNamespace(
         _scope=types.SimpleNamespace(motor_connected=motor_connected),
         _driver=driver,
@@ -50,7 +48,6 @@ def test_disconnected_returns_sentinel_without_touching_driver(method, log):
     fake = _fake(motor_connected=False)
     assert getattr(MotionAPI, method)(fake, 'Z') is False
     fake._driver.target_status.assert_not_called()
-    fake._driver.home_status.assert_not_called()
     log.exception.assert_not_called()
     log.warning.assert_not_called()
 

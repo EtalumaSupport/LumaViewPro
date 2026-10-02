@@ -554,7 +554,7 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] Entered engineering mode')
         return True
 
-    def exit_engineering_mode(self) -> str | None:
+    def exit_engineering_mode(self) -> bool:
         """Exit engineering mode back to safe mode (Q command).
 
         The EL-0925 Gen3 firmware (2024-06-05ESWEA) has a `factory()`
@@ -567,15 +567,16 @@ class LEDBoard(SerialBoard):
         recovery inline.
 
         Returns:
-            str | None: Raw Q response, or None if no response was
-                received. Returns even when post-Q recovery had to
-                fire -- caller can ignore the value.
+            bool: True once INFO confirms the board is back in safe
+                mode, with or without the recovery. The Q reply itself
+                is not the answer: a wedged board can echo Q and stay in
+                factory(), and a board that left it may not answer Q.
 
         Raises:
             HardwareError: Q failed AND the Ctrl-D soft reset did not
                 bring the firmware back. Power-cycle is needed.
         """
-        resp = self.exchange_command('Q', timeout=3)
+        self.exchange_command('Q', timeout=3)
         time.sleep(0.3)
         # Drain any remaining output from Q (firmware may print help).
         with self._lock:
@@ -585,7 +586,7 @@ class LEDBoard(SerialBoard):
                     self.driver.read(stale)
 
         # Verify firmware actually returned from factory(). INFO is the
-        # cheap responsiveness probe -- a wedged firmware returns ''
+        # cheap responsiveness probe -- a wedged firmware gives no reply
         # or garbage; a healthy firmware responds with the version
         # banner whose first line begins with 'Version:' (followed by
         # 'EL-0925 Gen3 LED Controller' or similar -- the exact
@@ -594,7 +595,7 @@ class LEDBoard(SerialBoard):
         info_resp = self.exchange_command('INFO', timeout=2)
         if info_resp and 'Version' in info_resp:
             logger.info('[LED Class ] Exited engineering mode')
-            return resp
+            return True
 
         # Wedged inside factory(). Run the Ctrl-C/B/D soft-reset
         # recovery sequence inline. Same shape as SerialBoard
@@ -624,7 +625,7 @@ class LEDBoard(SerialBoard):
         info_resp2 = self.exchange_command('INFO', timeout=3)
         if info_resp2 and 'Version' in info_resp2:
             logger.info('[LED Class ] Exited engineering mode (after Ctrl-D recovery)')
-            return resp
+            return True
 
         logger.error(
             f'[LED Class ] exit_engineering_mode: INFO still returns '

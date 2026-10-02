@@ -436,10 +436,11 @@ class MotorBoard(SerialBoard):
         """Detect which axes the FIRMWARE reports as already homed.
 
         Distinct from has_homed(), which only knows whether THIS process
-        homed since it connected, and from home_status(), which reports
-        whether an axis is on its home switch right now. An axis that
-        homed and then moved to a working position is homed but not at
-        home, and is invisible to a process that did not do the homing --
+        homed since it connected, and from the STATUS register's home
+        bit, which reports whether an axis is on its home switch right
+        now. An axis that homed and then moved to a working position is
+        homed but not at home, and is invisible to a process that did not
+        do the homing --
         so neither of those can say whether the reference frame is valid.
 
         The firmware clears these flags when it boots and sets one only
@@ -538,8 +539,18 @@ class MotorBoard(SerialBoard):
         try:
             resp = self.exchange_command(command)
 
+            if resp is None:
+                # No reply says nothing about what the firmware supports,
+                # so the default serves this call and nothing is cached:
+                # the next call asks the board again.
+                logger.warning(
+                    f'[XYZ Class ] MotorBoard.acceleration_limit({command}): no reply, '
+                    f'using default {DEFAULT_ACCELERATION_LIMIT} for this call'
+                )
+                return DEFAULT_ACCELERATION_LIMIT
+
             # In case firmware doesn't support retrieving the acceleration limits
-            if resp is None or resp.startswith('ERROR'):
+            if resp.startswith('ERROR'):
                 raise ValueError(f'Firmware returned ERROR for {command}')
 
             # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
@@ -668,7 +679,7 @@ class MotorBoard(SerialBoard):
     # callers in this repo outside tests, but bench tools and tests in the
     # companion Firmware repo import and call them -- a caller search here
     # alone reads as dead code and is misleading.
-    def spi_read(self, axis: str, addr: int) -> str:
+    def spi_read(self, axis: str, addr: int) -> str | None:
         """Read a TMC motor driver SPI register.
 
         A dummy ``00`` payload is appended so the firmware accepts the
@@ -679,7 +690,8 @@ class MotorBoard(SerialBoard):
             addr: SPI register address (0x00-0x7F).
 
         Returns:
-            str: Raw response string from the firmware.
+            str | None: Raw response string from the firmware, or None
+                when the board did not answer.
         """
         # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
         # It is expecting a payload.
@@ -702,6 +714,8 @@ class MotorBoard(SerialBoard):
         Raises:
             ValueError: ``axis`` is invalid or ``addr`` is outside
                 [0x00, 0x7F].
+            HardwareError: The board did not answer, so the write is
+                not known to have happened.
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
             raise ValueError(f'Invalid axis {axis!r}')
@@ -714,6 +728,11 @@ class MotorBoard(SerialBoard):
         logger.debug(
             f'[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}'
         )
+        if resp is None:
+            raise HardwareError(
+                f'spi_write({axis}, 0x{addr:02x}): no response from motor board '
+                '(timeout or disconnect)'
+            )
         return resp
 
     # ----------------------------------------------------------
@@ -906,17 +925,6 @@ class MotorBoard(SerialBoard):
         """
         with self._state_lock:
             return self.initial_homing_complete
-
-    def xycenter(self) -> None:
-        """Move the XY stage to centre (home + objective home included).
-
-        Sends the firmware ``CENTER`` command. Logs a warning on no
-        response.
-        """
-        logger.info('[XYZ Class ] MotorBoard.xycenter()')
-        response = self.exchange_command('CENTER')
-        if response is None:
-            logger.warning('[XYZ Class ] xycenter() got no response')
 
     # ----------------------------------------------------------
     # T (Turret) Functions
@@ -1228,39 +1236,18 @@ class MotorBoard(SerialBoard):
     # Ramp and Reference Switch Status Register
     # ----------------------------------------------------------
 
-    # return True if current and target position are at home.
-    def home_status(self, axis: str) -> bool:
-        """Return True if the axis is in the home position.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-
-        Returns:
-            bool: True when the firmware reports the axis at home.
-
-        Raises:
-            Exception: Re-raises any error from the STATUS_R query.
-        """
-
-        # logger.info('[XYZ Class ] MotorBoard.home_status('+axis+')')
-        try:
-            data = int(self.exchange_command('STATUS_R' + axis))
-            bits = format(data, 'b').zfill(32)
-
-            return bits[31] == '1'
-        except Exception:
-            logger.error('[XYZ Class ] MotorBoard.home_status(' + axis + ') inactive')
-            raise
-
     def _record_support(self, command: str, cache_attr: str, resp) -> bool:
         """Interpret a firmware response as a support verdict and cache it.
 
         ``not found`` / ``ERROR``-prefixed replies mean the connected
-        firmware does not implement the command; anything else
-        (including no reply at all -- the legacy-firmware contract is
-        a loud ERROR string, never silence) counts as supported.
+        firmware does not implement the command; any other reply counts
+        as supported. No reply is inconclusive (board absent or wedged,
+        not a capability answer): returns False WITHOUT caching, so a
+        later healthy exchange asks again.
         """
-        resp_str = str(resp) if resp is not None else ''
+        if resp is None:
+            return False
+        resp_str = str(resp)
         supported = not ('not found' in resp_str or resp_str.startswith('ERROR'))
         setattr(self, cache_attr, supported)
         if not supported:
@@ -1274,11 +1261,7 @@ class MotorBoard(SerialBoard):
 
     def _command_supported(self, command: str, cache_attr: str) -> bool:
         """Probe-and-cache whether the connected firmware implements
-        ``command``.
-
-        No reply at all is inconclusive (board absent or wedged, not a
-        capability answer): returns False WITHOUT caching so a later
-        healthy connection re-probes.
+        ``command``; ``_record_support`` reads the reply.
         """
         cached = getattr(self, cache_attr, None)
         if cached is not None:
@@ -1287,8 +1270,6 @@ class MotorBoard(SerialBoard):
         # for the probe -- an unsupported command is an expected answer
         # here, logged at INFO by _record_support instead.
         resp = self.exchange_command(command, expect_unsupported=True)
-        if resp is None:
-            return False
         return self._record_support(command, cache_attr, resp)
 
     def supports_motor_stop(self) -> bool:

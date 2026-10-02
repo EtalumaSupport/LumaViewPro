@@ -23,6 +23,7 @@ from pathlib import Path
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
+from drivers.exceptions import HardwareError
 from drivers.motorboard import MotorBoard
 from drivers.serialboard import SerialBoard
 from modules.path_utils import read_installation_file, resolve_data_file
@@ -203,54 +204,40 @@ def _get_position_steps(board, axis):
     return board.current_pos_steps(axis)
 
 
-def _wait_for_stop(board, axis, timeout=30):
-    """Wait until axis reports position_reached (bit 9 of STATUS)."""
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < timeout:
-        resp = board.exchange_command(f'STATUS_R{axis}')
-        if resp is None:
-            time.sleep(0.1)
-            continue
-        try:
-            status = int(resp)
-        except ValueError:
-            time.sleep(0.1)
-            continue
-        if status & 0x200:  # bit 9 = position_reached
-            return True
-        time.sleep(0.1)
-    return False
-
-
 def _move_to_step(board, axis, position, timeout=30):
-    """Move axis to absolute step position and wait."""
-    board.exchange_command(f'TARGET_W{axis}{position}')
-    return _wait_for_stop(board, axis, timeout)
+    """Move an axis to an absolute step position through the driver and wait.
+
+    Returns:
+        str | None: What went wrong, or None when the axis arrived.
+    """
+    try:
+        board.move(axis, position)
+    except HardwareError as e:
+        return str(e)
+    if not board.wait_for_position(axis, timeout=timeout):
+        return f'{axis} move-away timeout'
+    return None
 
 
-def _home_single(board, axis, timeout=30):
-    """Home a single axis. Returns (success, response, duration_ms)."""
-    cmd = f'{axis}HOME'
+def _home(board, axes):
+    """Home the axes under test through the driver's own home calls, so
+    the tool waits as long as LumaViewPro does and believes the same
+    replies. Z and T home alone; anything else is a full HOME.
+
+    Returns:
+        tuple: (success, response, duration_ms).
+    """
     t0 = time.monotonic()
-    resp = board.exchange_command(cmd)
-    dt = (time.monotonic() - t0) * 1000
-    if resp is None:
-        return False, 'No response', dt
-    ok = 'successful' in resp.lower() or 'complete' in resp.lower()
-    return ok, resp.strip(), dt
-
-
-def _home_all(board, timeout=300):
-    """HOME command (homes all axes). Returns (success, response, duration_ms)."""
-    # HOME can take 60s+ for all axes. MotorBoard has 30s timeout which is
-    # sufficient since the firmware sends the response when done.
-    t0 = time.monotonic()
-    resp = board.exchange_command('HOME')
-    dt = (time.monotonic() - t0) * 1000
-    if resp is None:
-        return False, 'No response (timeout?)', dt
-    ok = 'successful' in resp.lower() or 'complete' in resp.lower() or 'not present' in resp.lower()
-    return ok, resp.strip(), dt
+    try:
+        if axes == ['Z']:
+            board.zhome()
+        elif axes == ['T']:
+            board.thome()
+        else:
+            board.home()
+    except HardwareError as e:
+        return False, str(e), (time.monotonic() - t0) * 1000
+    return True, 'home complete', (time.monotonic() - t0) * 1000
 
 
 def cmd_homing_test(args):
@@ -284,15 +271,18 @@ def cmd_homing_test(args):
             print('ERROR: No axes to test.')
             sys.exit(1)
 
+        if axes in (['X'], ['Y']):
+            # Neither motor firmware has a single-axis X or Y home; XY
+            # homes only as part of HOME.
+            print('ERROR: X and Y home only together, through HOME. Use --axes X Y.')
+            sys.exit(1)
+
         n_cycles = args.cycles
         move_between = args.move_between
 
         # Initial home to establish reference
         print('\n--- Initial home (establishing reference) ---')
-        if len(axes) == 1:
-            ok, resp, dt = _home_single(board, axes[0])
-        else:
-            ok, resp, dt = _home_all(board)
+        ok, resp, dt = _home(board, axes)
 
         if not ok:
             print(f'FAIL: Initial home failed: {resp}')
@@ -339,16 +329,13 @@ def cmd_homing_test(args):
             # Move away from home if requested
             if move_between:
                 for axis in axes:
-                    arrived = _move_to_step(board, axis, move_targets[axis], timeout=20)
-                    if not arrived:
-                        cycle_result['errors'].append(f'{axis} move-away timeout')
+                    error = _move_to_step(board, axis, move_targets[axis], timeout=20)
+                    if error:
+                        cycle_result['errors'].append(error)
                 time.sleep(0.2)
 
             # Home
-            if len(axes) == 1:
-                ok, resp, dt = _home_single(board, axes[0], timeout=30)
-            else:
-                ok, resp, dt = _home_all(board, timeout=60)
+            ok, resp, dt = _home(board, axes)
 
             cycle_result['home_time_ms'] = dt
 

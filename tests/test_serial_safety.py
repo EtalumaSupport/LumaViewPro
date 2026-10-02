@@ -562,12 +562,6 @@ class TestMotorBoardCommands:
         board.thome()
         board.driver.write.assert_called_with(b'THOME\n')
 
-    def test_xycenter_sends_center(self):
-        """xycenter() should send 'CENTER\\n'."""
-        board = self._make_board()
-        board.xycenter()
-        board.driver.write.assert_called_with(b'CENTER\n')
-
     def test_current_pos_sends_actual_read(self):
         """current_pos('Z') should send 'ACTUAL_RZ\\n'."""
         board = self._make_board()
@@ -1910,11 +1904,10 @@ class TestExchangeCommandStopOnEmpty:
         board = self._make_led_board()
         board.driver.readline.side_effect = [b'', b'', b'', b'', b'', b'']
         resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert isinstance(resp, list)
-        assert len(resp) == 6
-        assert all(ln == '' for ln in resp)
-        # Phase B's silent detection sees 6 empty lines and concludes
-        # "silent board" regardless of whether we break or not.
+        assert board.driver.readline.call_count == 6
+        # No line at all is no reply, which silent detection reads as a
+        # silent board.
+        assert resp is None
 
     def test_default_behavior_unchanged(self):
         """Regression: stop_on_empty defaults to False. Existing

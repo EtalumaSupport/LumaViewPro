@@ -956,7 +956,7 @@ class DiagnosticsAPI:
     @staticmethod
     def _exit_led_engineering_mode_impl(drv) -> bool:
         try:
-            return bool(drv.exit_engineering_mode())
+            return drv.exit_engineering_mode()
         except Exception:
             return False
 

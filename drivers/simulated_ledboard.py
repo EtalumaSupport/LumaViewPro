@@ -492,14 +492,16 @@ class SimulatedLEDBoard:
         logger.info('[LED Sim   ] enter_engineering_mode()')
         return True
 
-    def exit_engineering_mode(self) -> str:
-        """Simulated engineering mode exit.
+    def exit_engineering_mode(self) -> bool:
+        """Simulated engineering mode exit. Mirrors
+        `LEDBoard.exit_engineering_mode`: the simulated board is always
+        back in safe mode.
 
         Returns:
-            str: Always ``'Q'`` (mirrors the firmware Q command).
+            bool: Always True.
         """
         logger.info('[LED Sim   ] exit_engineering_mode()')
-        return 'Q'
+        return True
 
     def selftest(self, timeout: float = 180) -> list:
         """Simulated SELFTEST -- returns fake result lines.

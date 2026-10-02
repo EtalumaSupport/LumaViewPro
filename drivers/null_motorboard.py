@@ -145,14 +145,6 @@ class NullMotionBoard:
         """
         return True
 
-    def home_status(self, axis) -> str:
-        """Null implementation: returns sentinel value.
-
-        Returns:
-            str: Always empty string.
-        """
-        return ''
-
     def reference_status(self, axis) -> str:
         """Null implementation: returns sentinel value.
 

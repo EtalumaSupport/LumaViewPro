@@ -762,10 +762,6 @@ class SimulatedMotorBoard:
         """
         return self.initial_homing_complete
 
-    def xycenter(self) -> None:
-        """Move the simulated XY stage to centre (sends CENTER)."""
-        self.exchange_command('CENTER')
-
     def thome(self) -> bool:
         """Simulated turret home. Mirrors `MotorBoard.thome` contract.
 
@@ -939,23 +935,6 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
-    def home_status(self, axis: str) -> bool:
-        """Return True if the axis is at the home position.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-
-        Returns:
-            bool: True when the simulated STATUS_R bit is set; False on
-                read failure (does not raise, unlike production).
-        """
-        try:
-            data = int(self.exchange_command(f'STATUS_R{axis}'))
-            bits = format(data, 'b').zfill(32)
-            return bits[31] == '1'
-        except Exception:
-            return False
-
     def target_status(self, axis: str) -> bool:
         """Return True if the axis has reached its target position.
 

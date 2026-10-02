@@ -832,6 +832,13 @@ class SerialBoard:
                 Safe because neither motor nor LED INFO responses
                 contain intentional empty lines in the middle of
                 their content.
+
+        Returns:
+            str | list[str] | None: The reply line, or the reply lines
+                (padded with '' to ``response_numlines``) for a
+                multi-line read. None when the board gave no reply: no
+                line arrived, the write timed out, or there is no
+                connection.
         """
         with self._lock:
             # Fail fast on silent boards (#619). exchange_command()
@@ -918,7 +925,14 @@ class SerialBoard:
                             resp_lines.append('')
                         break
 
-                response = resp_lines[0] if response_numlines == 1 else resp_lines
+                # A read that produced no line at all is no reply. A read
+                # timeout comes back from readline() as an empty line, and
+                # neither board ever answers a command with one, so handing
+                # the caller '' would let it read silence as an answer.
+                if not saw_content:
+                    response = None
+                else:
+                    response = resp_lines[0] if response_numlines == 1 else resp_lines
 
                 # Drain any remaining data from multi-line response bursts.
                 # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
@@ -935,6 +949,9 @@ class SerialBoard:
                 resp_repr = repr(response)
                 if len(resp_repr) > 200:
                     resp_repr = resp_repr[:200] + '...'
+                if response is None:
+                    _serial_log.info(f'{self._label} {command} -> NO REPLY ({elapsed_ms:.1f}ms)')
+                    return None
                 _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
 
                 resp_str = str(response)
