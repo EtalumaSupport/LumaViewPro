@@ -76,6 +76,11 @@ if TYPE_CHECKING:
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
+def simulated_stuck_write(seconds: float) -> None:
+    """A write to a simulated drive that has stopped answering: it returns after *seconds*."""
+    time.sleep(seconds)
+
+
 def _scheduler_callback_error(exc: BaseException) -> None:
     """A scheduled callback died on its timer thread; say so loudly.
 
@@ -588,6 +593,7 @@ class ScopeSession:
         engineering_mode: bool = False,
         display_ctx_provider: Callable[[], Any] | None = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
+        sim_file_stall: 'SimulatedStall | None' = None,
         outcome_listener: Callable[[Any], None] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
@@ -641,6 +647,11 @@ class ScopeSession:
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
                 simulated with the simulated camera.
+            sim_file_stall: a stall for the session's file lane, so a
+                simulated scope shows a save drive that stops answering:
+                ``after_s`` seconds after bring-up the lane's worker is held
+                for ``for_s`` seconds. Refused beside ``scope`` and unless
+                ``simulate``.
             outcome_listener: heard from before the scope is built, so it
                 hears what bring-up reports; the session's
                 ``add_outcome_listener`` says what it receives. A factory
@@ -661,6 +672,16 @@ class ScopeSession:
                 'ScopeSession.create: sim_camera_stall is refused beside a scope -- the '
                 'stall is set on the camera when the scope is built, so pass it to '
                 'Lumascope(sim_camera_stall=...) instead'
+            )
+        if sim_file_stall is not None and scope is not None:
+            raise ValueError(
+                'ScopeSession.create: sim_file_stall is refused beside a scope -- it '
+                'simulates the drive a scope this factory builds saves to'
+            )
+        if sim_file_stall is not None and not simulate:
+            raise ValueError(
+                'ScopeSession.create: sim_file_stall needs a simulated scope -- a real '
+                "scope's file lane writes to a real drive"
             )
         if scope is not None and ui_dispatcher is not None:
             raise ValueError(
@@ -741,6 +762,8 @@ class ScopeSession:
                 session._outcome_listeners.append(outcome_listener)
             if built_scope:
                 cls._bring_up(session)
+            if sim_file_stall is not None:
+                session._hold_the_file_lane(sim_file_stall)
             return session
         except BaseException:
             # Give the listener back: a host that composes again after this
@@ -749,6 +772,35 @@ class ScopeSession:
             if outcome_listener is not None:
                 notifications.remove_listener(outcome_listener)
             raise
+
+    def _hold_the_file_lane(self, stall: 'SimulatedStall') -> None:
+        """At ``stall.after_s``, hold the file lane's worker for ``stall.for_s``.
+
+        A simulated save drive that stops answering: the lane's one worker
+        sits in a task that does not return for the stall's length, and the
+        writes behind it wait, as they would behind a write to an
+        unresponsive drive. The write path itself is not told; the lane
+        judges the stall as it judges any other.
+        """
+        from modules.sequential_io_executor import IOTask
+
+        held = threading.Event()
+        handles = []
+
+        def _hold(_dt: float = 0) -> None:
+            if held.is_set():
+                return
+            held.set()
+            self.file_io_executor.put(
+                IOTask(action=simulated_stuck_write, kwargs={'seconds': stall.for_s})
+            )
+            for handle in handles:
+                self._scheduler.unschedule(handle)
+
+        handles.append(self._scheduler.schedule_interval(_hold, stall.after_s))
+        if held.is_set():
+            # Fired before its handle was kept (a stall with no delay).
+            self._scheduler.unschedule(handles[0])
 
     @staticmethod
     def _simulator_tier(settings: dict) -> str:

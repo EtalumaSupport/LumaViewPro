@@ -360,6 +360,8 @@ session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=Tru
 
 A simulated scope can also show a stalled camera stream: pass `sim_camera_stall=SimulatedStall(after_s=30, for_s=20)` (from `drivers.simulated_camera`) to `create`, and 30 s after the scope is built the simulated camera stops delivering frames for 20 s while it stays connected and streaming, as a real camera's link can. The GUI takes the same stall as a launch argument beside `--simulate`: `--sim-camera-stall=30,20`. It is refused on real hardware, beside a scope you built yourself (pass it to `Lumascope(sim_camera_stall=...)` instead), and on a model simulated with an FX2 (LS620, LS560), whose camera is not the simulated one.
 
+A simulated session can likewise show a save drive that stops answering: pass `sim_file_stall=SimulatedStall(after_s=60, for_s=120)` to `create`, and 60 s after bring-up the session's file lane is held for 120 s by one write that does not return (`simulated_stuck_write`). A run that ends while its files wait behind it is reported as a stalled file writer (`FileWriterStalledError`) once the write has been stuck for 30 s, with the recovery as its remedy. The GUI takes it as `--sim-file-stall=60,120` beside `--simulate`. It is refused on real hardware and beside a scope you built yourself.
+
 ### Application startup sequence
 
 ```python

@@ -70,6 +70,25 @@ if __name__ == '__main__':
             sim_camera_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
         except ValueError as _stall_error:
             sys.exit(f'--sim-camera-stall=AFTER,FOR (seconds): {_stall_error}')
+    # --sim-file-stall=AFTER,FOR holds the file lane's worker AFTER seconds
+    # into the session, for FOR seconds: a save drive that stops answering,
+    # so a stalled file writer is shown without one.
+    sim_file_stall = None
+    _file_stall_args = [arg for arg in sys.argv if arg.startswith('--sim-file-stall=')]
+    for _arg in _file_stall_args:
+        sys.argv.remove(_arg)
+    if _file_stall_args:
+        from drivers.simulated_camera import SimulatedStall
+
+        try:
+            if len(_file_stall_args) > 1:
+                raise ValueError('give --sim-file-stall once')
+            if not simulate_mode:
+                raise ValueError('--sim-file-stall needs --simulate')
+            _after, _for = _file_stall_args[0].split('=', 1)[1].split(',')
+            sim_file_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
+        except ValueError as _stall_error:
+            sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
 
     ############################################################################
     # ---------------------Directory Initialization-----------------------------#
@@ -987,6 +1006,7 @@ class LumaViewProApp(TooltipMixin, App):
                 engineering_mode=ENGINEERING_MODE,
                 display_ctx_provider=lambda: app_context.ctx,
                 sim_camera_stall=sim_camera_stall,
+                sim_file_stall=sim_file_stall,
                 outcome_listener=notification_popup_bridge,
             )
 
