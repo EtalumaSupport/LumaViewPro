@@ -1207,31 +1207,27 @@ class ProtocolSettings(FloatLayout):
 
     # Delete Current Step of Protocol
     def delete_step(self):
-        try:
-            ctx = _app_ctx.ctx
+        gui_logger.protocol_action('DELETE_STEP', f'curr_step={self.curr_step}')
+        logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
+        run_reported(self.delete_step_ex, self._draw_protocol_steps, 'DELETE_STEP')
 
-            gui_logger.protocol_action('DELETE_STEP', f'curr_step={self.curr_step}')
-            logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
+    def delete_step_ex(self) -> None:
+        """Remove the current step and go to the one that takes its place.
 
-            if self._protocol.num_steps() <= 0:
-                return
+        The move is a navigation that belongs only to a list the protocol
+        has changed, so it is the last call, never reached on a refusal.
+        """
+        if self._protocol.num_steps() <= 0:
+            return
 
-            self._protocol.delete_step(step_idx=self.curr_step)
+        self._protocol.delete_step(step_idx=self.curr_step)
 
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        if self._protocol.num_steps() <= 0:
+            self.curr_step = -1
+        else:
+            self.curr_step = max(self.curr_step - 1, 0)
 
-            if self._protocol.num_steps() <= 0:
-                self.curr_step = -1
-            else:
-                self.curr_step = max(self.curr_step - 1, 0)
-
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step)
-        except Exception as e:
-            logger.error(f'[UI] delete_step failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        self.go_to_step(step_idx=self.curr_step)
 
     def modify_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')

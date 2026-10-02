@@ -1146,6 +1146,11 @@ class Protocol:
         if num_steps < 1:
             return
 
+        # Refused by type like step(): pandas would answer a negative label
+        # with a KeyError, an untyped fault the reporter cannot word.
+        if step_idx < 0:
+            raise ProtocolError('Step index cannot be < 0')
+
         if step_idx >= self.num_steps():
             raise ProtocolError(
                 f'Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.'

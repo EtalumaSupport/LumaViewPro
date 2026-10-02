@@ -203,6 +203,29 @@ def test_deleting_every_step_then_adding_one_points_at_the_new_step(env):
     assert panel.curr_step == 0
 
 
+def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monkeypatch):
+    """A pointer past the end asks the protocol for a step it has not got.
+
+    The protocol's refusal is the answer; the panel hands it to the one
+    reporter under the gesture's label and writes no popup of its own.
+    """
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications,
+        'report_outcome',
+        lambda exc, **kw: reported.append((type(exc).__name__, kw['category'])),
+    )
+    panel = env.panel(num_steps=3, curr_step=7)
+
+    panel.delete_step()
+
+    assert reported == [('ProtocolError', 'UI:DELETE_STEP')]
+    assert _xs(panel._protocol) == [0.0, 1.0, 2.0]
+    assert panel.curr_step == 7
+
+
 def test_delete_removes_the_step_the_last_edit_selected(env):
     panel = env.panel(num_steps=5, curr_step=2)
 

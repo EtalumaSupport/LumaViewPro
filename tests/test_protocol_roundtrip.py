@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolError, ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -2154,6 +2154,15 @@ class TestProtocolDeleteStep:
         proto = _build_protocol([_make_step()])
         proto.delete_step(step_idx=0)
         assert proto.num_steps() == 0
+
+    def test_a_negative_index_is_refused_by_type(self):
+        # A step-list pointer that has gone stale reads -1 or lower; the
+        # protocol answers it as a ProtocolError in its own words, not as
+        # the frame's KeyError.
+        proto = _build_protocol([_make_step(name='a'), _make_step(name='b')])
+        with pytest.raises(ProtocolError):
+            proto.delete_step(step_idx=-1)
+        assert proto.num_steps() == 2
 
     def test_delete_first_of_three(self):
         proto = _build_protocol(
