@@ -666,9 +666,12 @@ grids.available_configs()   # ['1x1', '2x2', '3x3', ...]
 grids.default_config()      # '1x1'
 ```
 
+**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, logged and notified once, and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+
 **Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. With no `before_step` or `after_step` the steps follow the last step; giving both raises `ProtocolError`. It returns the inserted step names in protocol order. When any axis (X, Y, Z, or the turret) does not know its position -- never homed, homing, or lost after a failed home -- it raises `ProtocolRunRefusedError` with reason `step_position_unknown`, naming the axes: the position read keeps answering the last number an axis reported, so a step saved then would record a place the scope no longer vouches for. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is logged and notified once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=... (None when unknown, which is refused), channel_order=..., before_step=... | after_step=...)`.
 
 ```python
+protocol = session.new_protocol()                   # one step per acquiring layer at every well; refused no_acquiring_layer when none acquires
 protocol = session.create_empty_protocol()          # no steps; needs no objective, so it works before one is known
 names = session.add_step(protocol, before_step=0)   # ['custom0000_BF', ...]
 ```

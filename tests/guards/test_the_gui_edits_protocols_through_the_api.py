@@ -63,6 +63,7 @@ NOT_WRITERS = frozenset(
         'from_config',
         'from_file',
         'labware',
+        'layer_acquires',
         'layer_settings',
         'num_steps',
         'period',

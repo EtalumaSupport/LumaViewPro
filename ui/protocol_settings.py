@@ -18,7 +18,6 @@ from modules.config_ui_getters import (
     get_auto_gain_settings,
     get_binning_from_ui,
     get_image_capture_config_from_ui,
-    get_layer_configs,
     get_protocol_time_params,
     get_selected_labware,
     get_zstack_params,
@@ -652,13 +651,10 @@ class ProtocolSettings(FloatLayout):
         built = []
 
         def _build():
-            # The config carries the active objective, so it raises while
-            # that is unknown (a turret move in flight, an unassigned slot);
-            # the boundary shows the API's reason as a refusal.
-            config = ctx.session.get_sequenced_capture_config(
-                tiling=tiling, use_zstacking=use_zstacking
-            )
-            built.append(ctx.scope.protocols.create_protocol(input_config=config))
+            # The Session refuses a build with no channel set to acquire, and
+            # raises while the active objective is unknown (a turret move in
+            # flight, an unassigned slot); the boundary shows its reason.
+            built.append(ctx.session.new_protocol(tiling=tiling, use_zstacking=use_zstacking))
 
         # Inline, so the lines below see what the build produced; a refused
         # or failed build has been shown by the boundary and built nothing.
@@ -668,28 +664,10 @@ class ProtocolSettings(FloatLayout):
         protocol = built[0]
 
         if protocol.num_steps() == 0:
-            # Zero steps has two distinct causes: no channel is enabled for
-            # acquisition, or the labware has no wells (e.g. Blank, a 0x0
-            # plate). Only the first is a channel problem -- attribute it by
-            # checking the same channel predicate Add uses. A no-well labware
-            # with channels enabled creates an empty protocol the user builds
-            # up with Add at the current stage position.
-            layer_configs = get_layer_configs()
-            any_channel_enabled = any(lc['acquire'] is not None for lc in layer_configs.values())
-            if not any_channel_enabled:
-                logger.warning('[LVP Main  ] new_protocol: no channels enabled for acquisition')
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(
-                    title='No Channels Selected',
-                    message=(
-                        'No channels are enabled for acquisition. Please enable '
-                        'at least one channel for image or video capture in the '
-                        'layer settings on the right, then create the protocol '
-                        'again.'
-                    ),
-                )
-                return
+            # A build with no acquiring channel was refused by the Session,
+            # so zero steps here means the labware has no wells (Blank, a
+            # 0x0 plate): an empty protocol the user builds up with Add at
+            # the current stage position.
             logger.info(
                 '[LVP Main  ] new_protocol: labware has no wells; created '
                 'empty protocol (use Add to insert steps)'

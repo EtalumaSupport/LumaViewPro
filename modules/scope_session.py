@@ -1077,6 +1077,26 @@ class ScopeSession:
         self.select_labware(protocol.labware())
         return protocol
 
+    def new_protocol(self, *, tiling: str = '1x1', use_zstacking: bool = False) -> 'Protocol':
+        """Build a protocol from this session's settings, as the GUI's New does.
+
+        One step per acquiring layer at every well of the session's labware,
+        at the current objective, tiled and z-stacked as asked. The
+        protocols API refuses the build when no layer acquires, where an
+        empty protocol would otherwise come back for a click that meant
+        steps; a labware with no wells still gives an empty protocol, which
+        ``add_step`` fills at the current position.
+
+        Raises:
+            ProtocolRunRefusedError: reason ``no_acquiring_layer``, logged
+                and notified once.
+            ConfigError: the config cannot be assembled (the objective in
+                the light path is unknown; a z-stack with no extent).
+        """
+        config = self.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
+        self.scope.protocols.refuse_no_acquiring_layer(config['layer_configs'])
+        return self.scope.protocols.create_protocol(input_config=config)
+
     def create_empty_protocol(self) -> 'Protocol':
         """A protocol with no steps, on this session's labware and timing.
 

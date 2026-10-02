@@ -691,6 +691,16 @@ class Protocol:
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
     @staticmethod
+    def layer_acquires(layer_config: dict) -> bool:
+        """Whether a layer's settings make it a step: acquire is image or video.
+
+        The one answer for the builder, the step add and the refusal that
+        guards both; a second spelling (``is not None``) once let a config
+        with an empty-string acquire pass the add and build no step.
+        """
+        return layer_config['acquire'] in Protocol.VALID_ACQUIRE_MODES
+
+    @staticmethod
     def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
         """The filename base each step's captures render, one per step.
 
@@ -1863,7 +1873,7 @@ class Protocol:
         # The objective is stamped into every step and sizes a spaced tiling
         # grid; a protocol with neither -- an empty one -- is built with no
         # objective (None), since there may be none in the light path to name.
-        acquiring = any(cfg['acquire'] in ('image', 'video') for cfg in layer_configs.values())
+        acquiring = any(cls.layer_acquires(cfg) for cfg in layer_configs.values())
         tiling_mxn = tiling_config.get_mxn_size(tiling)
         single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
         if objective_id is None:
@@ -1943,7 +1953,7 @@ class Protocol:
 
                 for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] not in ['image', 'video']:
+                        if not cls.layer_acquires(layer_config):
                             continue
 
                         x = round(

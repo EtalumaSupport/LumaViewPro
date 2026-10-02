@@ -229,16 +229,10 @@ class ProtocolsAPI:
             ProtocolError: an impossible ``before_step`` / ``after_step``,
                 or both given (raised by the protocol).
         """
+        from modules.protocol import Protocol
+
         self._refuse_unrecordable_step(verb='add', objective_id=objective_id)
-        if not any(cfg['acquire'] is not None for cfg in layer_configs.values()):
-            self._refuse(
-                reason='no_acquiring_layer',
-                title='Protocol Add Step Error',
-                message=(
-                    'Cannot add step: no channel is set to acquire. '
-                    'Set a channel to Image or Video first.'
-                ),
-            )
+        self.refuse_no_acquiring_layer(layer_configs)
 
         ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
         ordered += [layer for layer in layer_configs if layer not in ordered]
@@ -249,7 +243,7 @@ class ProtocolsAPI:
         names: list[str] = []
         for layer in ordered:
             layer_config = layer_configs[layer]
-            if layer_config['acquire'] is None:
+            if not Protocol.layer_acquires(layer_config):
                 continue
             name = protocol.insert_step(
                 step_name=None,
@@ -399,6 +393,34 @@ class ProtocolsAPI:
                 )
                 sc['enabled'] = False
         return stim_configs
+
+    def refuse_no_acquiring_layer(self, layer_configs: dict) -> None:
+        """Refuse a step add or a protocol build when no layer is set to acquire.
+
+        A layer whose ``acquire`` is neither image nor video contributes no
+        step, so with none acquiring an add adds nothing and a build gives
+        an empty protocol; each used to do so silently, the click looking
+        dead. The GUI's Add and New and a script's call share this one
+        refusal.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through ``ScopeSession.new_protocol`` and ``add_step``.
+
+        Raises:
+            ProtocolRunRefusedError: reason ``no_acquiring_layer``. Logged
+                and notified once.
+        """
+        from modules.protocol import Protocol
+
+        if not any(Protocol.layer_acquires(cfg) for cfg in layer_configs.values()):
+            self._refuse(
+                reason='no_acquiring_layer',
+                title='No Channel Set to Acquire',
+                message=(
+                    'No channel is set to acquire, so there is no step to make. '
+                    'Set a channel to Image or Video first.'
+                ),
+            )
 
     def refuse_unaddressable_objectives(self, objective_ids: Iterable[str]) -> None:
         """Refuse unless this scope can put every objective named here in the light path.
