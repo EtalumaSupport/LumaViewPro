@@ -133,10 +133,10 @@ def test_a_long_exposure_stretches_the_frame():
     # Past H + 25 rows of shutter the sensor adds blanking rows: the frame is
     # SW + 1 rows (VBMIN = SW - H + 1).
     device = _running_device()
-    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0x03, 0xE9]))  # 1001, the driver's w + 1
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0x03, 0xEB]))  # 1003, the driver's w + 3
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0x03, 0xE9]))
     device.sensor.write(bytes([fx2driver.REG_EXPOSURE, 0x07, 0xD0]))  # 2000 rows
-    assert device.sensor.frame_period_s() == pytest.approx(2001 * fx2driver.row_time_s(1001))
+    assert device.sensor.frame_period_s() == pytest.approx(2001 * fx2driver.row_time_s(1003))
 
 
 def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_to_back():
@@ -146,7 +146,7 @@ def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_
     import threading
 
     device = _running_device()
-    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 101]))  # the driver writes w + 1
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))  # the driver writes w + 3
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     frame_bytes = len(fx2driver.FRAME_DELIM) + fx2driver.frame_layout(100, 80).frame_bytes
     packets: list[tuple[float, bytes]] = []
@@ -179,7 +179,7 @@ def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_
 @pytest.mark.parametrize('window', [(1900, 1900), (1000, 1000)], ids=['1900x1900', '1000x1000'])
 def test_a_frames_bytes_take_its_period_on_the_wire(window):
     w, h = window
-    period_s = fx2driver.frame_time_s(w + 1, h + 1, 1)
+    period_s = fx2driver.frame_time_s(w + 3, h + 1, 1)
     frame_bytes = len(fx2driver.FRAME_DELIM) + fx2driver.frame_layout(w, h).frame_bytes
     transfers = frame_bytes / bytes_per_transfer(w, h, period_s)
     assert transfers * TRANSFER_S == pytest.approx(period_s)
@@ -187,7 +187,7 @@ def test_a_frames_bytes_take_its_period_on_the_wire(window):
 
 def test_a_frame_is_as_long_as_the_parser_accepts():
     device = _running_device()
-    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 101]))  # the driver writes w + 1
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))  # the driver writes w + 3
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     frame = device.frame()
     assert len(frame) == fx2driver.frame_layout(100, 80).frame_bytes

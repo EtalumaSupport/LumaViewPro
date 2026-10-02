@@ -39,6 +39,7 @@ from drivers.fx2driver import (
     REG_ROW_BLACK,
     FX2Camera,
     FX2LEDController,
+    column_size_for,
     exposure_s,
     frame_layout,
     frame_time_s,
@@ -646,13 +647,13 @@ class TestFX2PhaseBP0(_FX2BenchCase):
         skip = raw[: layout.skip]
         rows = raw[layout.skip : layout.needed].reshape(h, layout.stride)
         padding = raw[layout.needed :]
-        image = rows[:, :w]
+        image = rows[:, layout.column : layout.column + w]
         logger.info(
             '[FX2 bench] P0 %s window %d: skip row values %s; last byte of each row %s; padding row values %s',
             label,
             w,
             Counter(skip.tolist()).most_common(4),
-            Counter(rows[:, w].tolist()).most_common(4),
+            Counter(rows[:, layout.stride - 1].tolist()).most_common(4),
             Counter(padding.tolist()).most_common(4),
         )
         logger.info(
@@ -692,17 +693,17 @@ class TestFX2PhaseBP0(_FX2BenchCase):
         write(_REG_TEST_PATTERN_CONTROL, 0)
 
     def test_measure_conforming_column_sizes(self):
-        """P0 (b): today's Column_Size (w + 1) against RR's 4n - 1 (w - 1, w + 3), 60 s each."""
+        """P0 (b): Column_Size w + 1 against RR's 4n - 1 (w - 1, w + 3), 60 s each."""
         ma = self._light_to_mid_grey()
         for w in (1900, 1896, 1880, 1000, 500):
-            for label, column_size in (
-                ('today', w + 1),
+            for label, written in (
+                ('w + 1', w + 1),
                 ('4n-1 below', w - 1),
                 ('4n-1 above', w + 3),
             ):
                 self.camera.set_frame_size(w, w)
-                if column_size != w + 1:
-                    self.camera._fx2.sensor_reg_write(REG_COL_SIZE, column_size)
+                if written != column_size_for(w):
+                    self.camera._fx2.sensor_reg_write(REG_COL_SIZE, written)
                 time.sleep(2.0)
                 self.spy.reset()
                 self.camera.stream_stats.reset()
@@ -718,7 +719,7 @@ class TestFX2PhaseBP0(_FX2BenchCase):
                     'parser %d good / %d partial / %d shifted',
                     w,
                     label,
-                    column_size,
+                    written,
                     ma,
                     total,
                     common,
@@ -811,7 +812,9 @@ _BENCH_WIDTHS = (1900, 1000, 500)
 
 def _model_period_s(w, ms):
     """The data sheet's frame time for a ``w`` x ``w`` window at a ``ms`` request."""
-    return frame_time_s(w + 1, w + 1, shutter_width_for(ms / 1000.0, w + 1))
+    return frame_time_s(
+        column_size_for(w), w + 1, shutter_width_for(ms / 1000.0, column_size_for(w))
+    )
 
 
 @pytest.mark.fx2_hardware
@@ -1015,3 +1018,113 @@ class TestFX2HostFramingBench(_FX2BenchCase):
                 sorted(set(s['partial_sizes'])),
                 sorted(set(s['shifted_sizes'])),
             )
+
+
+def _wire_rows(frame, stride, h):
+    """The ``h`` stored rows of one wire frame whose rows are ``stride`` bytes, whole rows."""
+    raw = np.frombuffer(frame, dtype=np.uint8)
+    skip = stride + 1
+    return raw[skip : skip + h * stride].reshape(h, stride)
+
+
+def _hot_pixel_shift(a, b, rows=2, columns=8):
+    """The (row, column) offset at which the most hot pixels of ``a`` are hot in ``b``.
+
+    A hot pixel belongs to one sensor pixel, so two readouts of the same
+    sensor columns share them at no column offset.
+    """
+    h, w = a.shape
+    counts = {}
+    for dr in range(-rows, rows + 1):
+        for dc in range(-columns, columns + 1):
+            a_part = a[max(0, -dr) : h - max(0, dr), max(0, -dc) : w - max(0, dc)]
+            b_part = b[max(0, dr) : h - max(0, -dr), max(0, dc) : w - max(0, -dc)]
+            counts[(dr, dc)] = int(np.count_nonzero(a_part & b_part))
+    return max(counts, key=counts.get), counts
+
+
+@pytest.mark.fx2_hardware
+class TestFX2ColumnSizeBench(_FX2BenchCase):
+    """Column_Size w + 3 keeps the sensor columns w + 1 gave, by storing from a row's third pixel.
+
+    Needs the optical path capped light-tight: the sensor's hot pixels are
+    the marks, each fixed to one sensor column, so no specimen is needed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.spy = _WireSpy(self.camera._fx2.stream)
+
+    def tearDown(self):
+        self.spy.remove()
+        self.camera.set_frame_size(1900, 1900)
+        super().tearDown()
+
+    def _mean_wire_rows(self, label, stride, w, h, count=5):
+        frames = [f for f in self.spy.wait_frames(count) if len(f) == stride * (h + 2) + 1]
+        logger.info(
+            '[FX2 bench] H2 row 4, %s: %d wire frames of %d bytes (Column_Size %d)',
+            label,
+            len(frames),
+            stride * (h + 2) + 1,
+            stride,
+        )
+        self.assertTrue(frames, f'no whole wire frame at Column_Size {stride}')
+        return np.mean([_wire_rows(f, stride, h) for f in frames], axis=0)
+
+    def test_h2_row4_the_stored_columns(self):
+        """Row 4: the column shift from w + 1 to w + 3, with the offset (0) and without it (+2)."""
+        self.led.leds_off()
+        self.camera.exposure_t(_BENCH_MS)
+        self.camera.gain(24)
+        w = h = 1900
+        self.camera.set_frame_size(w, h)
+        self.camera._fx2.sensor_reg_write(REG_COL_SIZE, w + 1)
+        time.sleep(2.0)
+        before = self._mean_wire_rows('w + 1', w + 1, w, h)[:, :w]
+
+        self.camera.set_frame_size(w, h)
+        time.sleep(2.0)
+        layout = frame_layout(w, h)
+        rows = self._mean_wire_rows('w + 3', layout.stride, w, h)
+        images = (
+            ('w + 3 with the offset', rows[:, layout.column : layout.column + w]),
+            ('w + 3 without it', rows[:, :w]),
+        )
+        hot_before = before > _DARK_FLOOR
+        logger.info(
+            '[FX2 bench] H2 row 4, w + 1: %d hot pixels (5-frame mean above %.2f), mean %.3f',
+            int(hot_before.sum()),
+            _DARK_FLOOR,
+            float(before.mean()),
+        )
+        for label, image in images:
+            hot = image > _DARK_FLOOR
+            best, counts = _hot_pixel_shift(hot_before, hot)
+            ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+            logger.info(
+                '[FX2 bench] H2 row 4, w + 1 -> %s: %d hot pixels, mean %.3f; best offset '
+                '(rows, columns) %s with %d shared; next %s',
+                label,
+                int(hot.sum()),
+                float(image.mean()),
+                best,
+                counts[best],
+                ranked[1:4],
+            )
+            # A pixel near the floor is hot in some frames' mean and not
+            # others; the share is read again for pixels well above it.
+            for floor in (15.0, 30.0):
+                strong_before = before > floor
+                strong = image > floor
+                best, counts = _hot_pixel_shift(strong_before, strong)
+                logger.info(
+                    '[FX2 bench] H2 row 4, w + 1 -> %s, above %.0f: %d / %d hot pixels; best '
+                    'offset %s with %d shared',
+                    label,
+                    floor,
+                    int(strong_before.sum()),
+                    int(strong.sum()),
+                    best,
+                    counts[best],
+                )

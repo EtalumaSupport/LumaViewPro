@@ -29,6 +29,7 @@ import numpy as np
 
 from lvp_logger import logger
 from drivers.fx2driver import (
+    COLUMN_SIZE_OVER_WIDTH,
     FRAME_DELIM,
     I2C_LED,
     I2C_SENSOR,
@@ -120,11 +121,12 @@ class _Mt9p031:
             self.registers.update(_POWER_ON)
 
     def window(self) -> tuple[int, int]:
-        """The window the frames carry: the output's W x H less two each (``frame_layout``)."""
-        # DS Table 8: W = Column_Size + 1, H = Row_Size + 1.
-        output_w = self.registers[REG_COL_SIZE] + 1
+        """The window the frames carry: the width the driver's Column_Size is for, H less two.
+
+        DS Table 8: H = Row_Size + 1, of which ``frame_layout`` stores all but two.
+        """
         output_h = self.registers[REG_ROW_SIZE] + 1
-        return output_w - 2, output_h - 2
+        return self.registers[REG_COL_SIZE] - COLUMN_SIZE_OVER_WIDTH, output_h - 2
 
     def exposure_s(self) -> float:
         """The integration the shutter width gives at the window's row time."""
@@ -327,12 +329,14 @@ class SimulatedFX2Device:
         a change takes effect on the next frame. The first and last output
         rows are sensor rows the parser does not store, as on the wire.
         ``extra_rows`` rows of zeros after the frame make it the wrong
-        length for its window, the shape the parser counts as shifted.
+        length for its window, the shape the parser counts as shifted. The
+        columns a row carries beyond the window lead it, as on the wire; the
+        simulator renders the specimen only in the window and leaves them 0.
         """
         w, h = self.sensor.window()
         layout = frame_layout(w, h)
         rows = np.zeros((h + 2, layout.stride), dtype=np.uint8)
-        rows[:, :w] = self._pixels(w, h + 2)
+        rows[:, layout.column : layout.column + w] = self._pixels(w, h + 2)
         # The skip is one byte longer than a row. What that byte carries is
         # unmeasured; the parser never reads it.
         first = rows[0].tobytes() + bytes(layout.skip - layout.stride)

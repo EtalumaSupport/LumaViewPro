@@ -399,22 +399,41 @@ FRAME_BYTES = IMG_WIDTH * IMG_HEIGHT  # raw pixel count (8-bit mono)
 FRAME_DELIM = b'\x01\xfe\x00\xff'  # injected between frames by GpifWaveform_Isr
 
 
+# Column_Size over the window's width. RR R0x04 asks for Column_Size in the
+# form 4n - 1, and the window's width is a multiple of 4, so it is w - 1 or
+# w + 3. The sensor outputs Column_Size + 1 columns and the wire drops the
+# first two of them, so w - 1 leaves w - 2 pixels a row, too few.
+COLUMN_SIZE_OVER_WIDTH = 3
+
+
+def column_size_for(w: int) -> int:
+    """The Column_Size the driver writes for a ``w``-wide window."""
+    return w + COLUMN_SIZE_OVER_WIDTH
+
+
 class FrameLayout(NamedTuple):
     """Where a frame's pixels sit in the bytes streamed between two delimiters.
 
-    For a ``w`` x ``h`` window the driver writes Column_Size w + 1 and
-    Row_Size h + 1, and the sensor outputs W = w + 2 columns and H = h + 2
-    rows (DS Table 8). The wire carries each output row as ``stride`` bytes:
-    output columns 2 to w + 1 as the ``w`` pixels, then a 0 sync byte. After
-    ``FRAME_DELIM`` comes the first output row, which the parser skips
-    (``skip`` bytes, one more than a row), then the ``h`` stored rows, then
-    the last output row, which it does not store. Both unstored rows carry
-    sensor data. All of this was measured on an LS620 with the sensor's test
-    patterns, at 1900, 1896 and 1000 wide. A whole frame is ``frame_bytes``
-    long; anything else between two frame ends is damaged.
+    For a ``w`` x ``h`` window the driver writes ``column_size_for(w)`` and
+    Row_Size h + 1, and the sensor outputs W = Column_Size + 1 columns and
+    H = h + 2 rows (DS Table 8). The wire carries each output row as
+    ``stride`` (Column_Size) bytes: output columns 2 to W - 1 as pixels, then
+    a 0 sync byte. A row carries more pixels than the window's ``w``; the
+    ``w`` stored are the last of them, from byte ``column``: under the
+    Mirror_Column the driver sets, the columns are read out in reverse
+    (DS p28), so the extra ones come first, and storing the last ``w`` keeps
+    the sensor columns a Column_Size of w + 1 gave. After ``FRAME_DELIM``
+    comes the first output row, which the parser skips (``skip`` bytes, one
+    more than a row), then the ``h`` stored rows, then the last output row,
+    which it does not store. Both unstored rows carry sensor data. The row's
+    length, its sync byte and the two dropped columns were measured on an
+    LS620 with the sensor's test patterns, at 1900, 1896 and 1000 wide. A
+    whole frame is ``frame_bytes`` long; anything else between two frame
+    ends is damaged.
     """
 
     stride: int
+    column: int
     skip: int
     needed: int
     frame_bytes: int
@@ -431,7 +450,9 @@ def frame_layout(w: int, h: int) -> FrameLayout:
             whole and never 4 bytes. It is odd when both sides are multiples
             of 4, as ``set_frame_size`` rounds them.
     """
-    stride = w + 1
+    stride = column_size_for(w)
+    # A row's pixels are the stride less its sync byte.
+    column = stride - 1 - w
     skip = stride + 1
     needed = skip + h * stride
     frame_bytes = needed + stride
@@ -440,7 +461,7 @@ def frame_layout(w: int, h: int) -> FrameLayout:
             f'a {w}x{h} window streams {frame_bytes} bytes a frame; the stream can find '
             f'the end only of an odd-length frame (sides that are multiples of 4)'
         )
-    return FrameLayout(stride, skip, needed, frame_bytes)
+    return FrameLayout(stride, column, skip, needed, frame_bytes)
 
 
 # MT9P031 register addresses
@@ -1979,7 +2000,7 @@ class FX2Camera(Camera):
             # One shutter row at the full window: the shortest exposure
             # every window the driver allows can give (a narrower window's
             # row is shorter, so it reaches this to within its own row).
-            self.profile.exposure_min_us = exposure_s(1, self._column_size(IMG_WIDTH)) * 1e6
+            self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
             # Cap exposure at the legacy LVC 178 ms value (matches what
             # was known-safe in the original LumaviewClassic UI). Once the
             # shutter width passes H + 25 rows the sensor adds blanking rows
@@ -2203,7 +2224,7 @@ class FX2Camera(Camera):
                     raw_2d = np.lib.stride_tricks.as_strided(
                         remaining, shape=(h, layout.stride), strides=(layout.stride, 1)
                     )
-                    image = raw_2d[:, :w].copy()
+                    image = raw_2d[:, layout.column : layout.column + w].copy()
                     # The FX2 sensor is 8-bit only, so the delivered array's
                     # container width IS its payload depth; stamp it from the
                     # frame so depth and pixels stay paired.
@@ -2329,9 +2350,9 @@ class FX2Camera(Camera):
         h = (h // step) * step
 
         # The sensor outputs one column and one row more than the sizes
-        # written (DS Table 8), and the wire keeps w of those w + 2 columns
-        # and h of those h + 2 rows (frame_layout).
-        sensor_w = self._column_size(w)
+        # written (DS Table 8), and the parser keeps w of those columns and
+        # h of those h + 2 rows (frame_layout).
+        sensor_w = column_size_for(w)
         sensor_h = h + 1
         col_start = self._column_start(sensor_w)
         # Centre the window on the active pixel area (2592 x 1944 with
@@ -2438,7 +2459,7 @@ class FX2Camera(Camera):
         if not self.is_connected():
             return False
         target_ms = float(exposure_ms)
-        rows = shutter_width_for(target_ms / 1000.0, self._column_size(self._width))
+        rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
         if _cam_log is not None:
             _cam_log.info(
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
@@ -2449,14 +2470,9 @@ class FX2Camera(Camera):
 
     def get_exposure_t(self) -> float:
         """The integration the sensor holds, in ms: the request to within a row."""
-        column_size = self._column_size(self._width)
-        shutter_width = shutter_width_for(self._exposure_ms / 1000.0, column_size)
-        return exposure_s(shutter_width, column_size) * 1000.0
-
-    @staticmethod
-    def _column_size(w: int) -> int:
-        """The Column_Size the driver writes for a ``w``-wide window."""
-        return w + 1
+        sensor_w = column_size_for(self._width)
+        shutter_width = shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
+        return exposure_s(shutter_width, sensor_w) * 1000.0
 
     @staticmethod
     def _column_start(column_size: int) -> int:

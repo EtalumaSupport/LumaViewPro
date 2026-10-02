@@ -55,9 +55,84 @@ def test_the_column_start_at_the_benched_widths(sim, camera, w, start):
     assert sim.device.sensor.registers[fx2driver.REG_COL_START] == start
 
 
+def test_every_window_writes_column_size_4n_minus_1_and_keeps_its_column_start(sim, camera):
+    # RR R0x04: Column_Size in the form 4n - 1; w + 3, since w - 1 leaves too
+    # few pixels a row. Column_Start stays what a Column_Size of w + 1 gave,
+    # so the stored image is the same sensor columns.
+    registers = sim.device.sensor.registers
+    for w in range(100, 1901, 4):
+        camera.set_frame_size(w, 100)
+        assert registers[fx2driver.REG_COL_SIZE] == w + 3, w
+        start_at_w_plus_1 = ((2592 - (w + 1)) // 2 + 16) // 4 * 4 + 2
+        assert registers[fx2driver.REG_COL_START] == start_at_w_plus_1, w
+
+
+def test_the_stored_pixels_are_the_last_w_a_row_carries():
+    # Under Mirror_Column the columns Column_Size adds beyond the window come
+    # first on the wire; storing the first w would move the image two sensor
+    # columns. Each wire byte here carries its own column index.
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    w, h = 100, 80
+    layout = fx2driver.frame_layout(w, h)
+    row = bytes(range(layout.stride - 1)) + b'\x00'
+    body = bytes(layout.skip - layout.stride) + row * (h + 2)
+    assert len(body) == layout.frame_bytes
+    t = fx2driver.ISO_TRANSACTION_SIZE
+    whole = len(body) - len(body) % t
+    stream = fx2driver._ByteStream()
+    stream.packet(fx2driver.FRAME_DELIM)
+    for i in range(0, whole, t):
+        stream.packet(body[i : i + t])
+    stream.packet(body[whole:])
+
+    cam = object.__new__(FX2Camera)
+    cam._fx2 = SimpleNamespace(
+        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+    )
+    cam._grabbing = True
+    cam._width, cam._height = w, h
+    cam.stream_stats = fx2driver.StreamStats()
+    stored = []
+    cam.cam_image_handler = SimpleNamespace(
+        _store_frame=lambda image, ts, significant_bits: stored.append(image)
+    )
+    loop = threading.Thread(target=cam._grab_loop, daemon=True)
+    loop.start()
+    deadline = time.monotonic() + 2.0
+    while not stored and time.monotonic() < deadline:
+        time.sleep(0.01)
+    cam._grabbing = False
+    loop.join(2.0)
+
+    assert len(stored) == 1
+    image = stored[0]
+    assert image.shape == (h, w)
+    assert (image == list(range(2, w + 2))).all()
+
+
+def test_the_simulated_frame_puts_the_window_where_the_parser_stores_it(sim, monkeypatch):
+    # The wire leads each row with the columns beyond the window; a simulator
+    # that put its pixels first would have the parser store an image moved
+    # two columns, with the window's last two columns lost.
+    import numpy as np
+
+    device = sim.device
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
+    pattern = np.tile(np.arange(1, 101, dtype=np.uint8), (82, 1))
+    monkeypatch.setattr(device, '_pixels', lambda w, h: pattern)
+    layout = fx2driver.frame_layout(100, 80)
+    body = np.frombuffer(device.frame(), dtype=np.uint8)
+    rows = body[layout.skip : layout.needed].reshape(80, layout.stride)
+    assert (rows[:, layout.column : layout.column + 100] == pattern[1:81]).all()
+
+
 def test_the_simulated_frame_carries_sensor_rows_where_the_parser_stores_none(sim):
     device = sim.device
-    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 101]))
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     device.leds.brightness[ord('A')] = 255
     layout = fx2driver.frame_layout(100, 80)
@@ -69,4 +144,4 @@ def test_the_simulated_frame_carries_sensor_rows_where_the_parser_stores_none(si
         body[layout.skip + r * layout.stride : layout.skip + (r + 1) * layout.stride]
         for r in range(80)
     ]
-    assert all(row[100] == 0 for row in stored), 'each row ends in the 0 sync byte'
+    assert all(row[layout.stride - 1] == 0 for row in stored), 'each row ends in the 0 sync byte'
