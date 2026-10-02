@@ -411,7 +411,7 @@ class FrameLayout(NamedTuple):
     the last output row, which it does not store. Both unstored rows carry
     sensor data. All of this was measured on an LS620 with the sensor's test
     patterns, at 1900, 1896 and 1000 wide. A whole frame is ``frame_bytes``
-    long; anything else between two delimiters is damaged.
+    long; anything else between two frame ends is damaged.
     """
 
     stride: int
@@ -421,11 +421,26 @@ class FrameLayout(NamedTuple):
 
 
 def frame_layout(w: int, h: int) -> FrameLayout:
-    """The wire layout of a ``w`` x ``h`` window: what the parser reads and a device sends."""
+    """The wire layout of a ``w`` x ``h`` window: what the parser reads and a device sends.
+
+    Raises:
+        ValueError: The window's frame is an even number of bytes. The stream
+            finds a frame's end as the one packet that is not a whole number
+            of ISO transactions, and the delimiter as the one 4-byte packet;
+            that needs every frame's length odd, so its last packet is never
+            whole and never 4 bytes. It is odd when both sides are multiples
+            of 4, as ``set_frame_size`` rounds them.
+    """
     stride = w + 1
     skip = stride + 1
     needed = skip + h * stride
-    return FrameLayout(stride, skip, needed, needed + stride)
+    frame_bytes = needed + stride
+    if frame_bytes % 2 == 0:
+        raise ValueError(
+            f'a {w}x{h} window streams {frame_bytes} bytes a frame; the stream can find '
+            f'the end only of an odd-length frame (sides that are multiples of 4)'
+        )
+    return FrameLayout(stride, skip, needed, frame_bytes)
 
 
 # MT9P031 register addresses
@@ -582,6 +597,12 @@ ISO_ALT_INTERFACE = 3  # Alt interface 3 = ISO IN, 3x1024/microframe
 ISO_NUM_TRANSFERS = 16  # Pending transfers in flight
 ISO_NUM_PACKETS = 256  # ISO packets per transfer (C# reference uses 256)
 ISO_MAX_PACKET_SIZE = 3072  # 3 x 1024 bytes per microframe
+# The size of one transaction on the ISO endpoint (EP2's 1024-byte buffers).
+# A microframe's packet is a whole number of them, except where the firmware
+# commits a frame's last bytes early (INPKTEND): that short packet is where
+# the device ends each frame. The delimiter written after a frame comes
+# alone, as a 4-byte packet.
+ISO_TRANSACTION_SIZE = 1024
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +723,8 @@ class StreamStats:
             self._good_count = 0
             self._total_bytes = 0
             self._usb_errors = 0
+            self._delimiters_missing = 0
+            self._delimiters_wrong = 0
             self._start_time = time.monotonic()
             self._delimiters_seen = 0
 
@@ -748,19 +771,13 @@ class StreamStats:
         with self._lock:
             return self._shifted_count, self._partial_count
 
-    def record_bytes(self, n: int) -> None:
-        """Add ``n`` to the total-bytes counter. Thread-safe.
-
-        Args:
-            n: Number of bytes received.
-        """
+    def record_counts(self, counts: StreamCounts) -> None:
+        """Add what the stream counted since it was last asked. Thread-safe."""
         with self._lock:
-            self._total_bytes += n
-
-    def record_usb_error(self) -> None:
-        """Increment the USB error counter. Thread-safe."""
-        with self._lock:
-            self._usb_errors += 1
+            self._total_bytes += counts.arrived
+            self._usb_errors += counts.usb_errors
+            self._delimiters_missing += counts.delimiters_missing
+            self._delimiters_wrong += counts.delimiters_wrong
 
     def get_fps(self) -> tuple[float, float]:
         """Return ``(current_fps, avg_fps)``. Current = last 2 seconds.
@@ -784,7 +801,7 @@ class StreamStats:
             dict: Keys include ``elapsed_s``, ``good_frames``,
                 ``partial_frames``, ``shifted_frames``, ``total_MB``,
                 ``throughput_MBps``, ``fps_current``, ``fps_average``,
-                ``usb_errors``.
+                ``usb_errors``, ``delimiters_missing``, ``delimiters_wrong``.
         """
         with self._lock:
             now = time.monotonic()
@@ -807,6 +824,8 @@ class StreamStats:
             'fps_current': round(cur_fps, 1),
             'fps_average': round(avg_fps, 2),
             'usb_errors': self._usb_errors,
+            'delimiters_missing': self._delimiters_missing,
+            'delimiters_wrong': self._delimiters_wrong,
         }
 
 
@@ -815,93 +834,132 @@ class StreamStats:
 # ---------------------------------------------------------------------------
 
 
-class _ByteStream:
-    """The bytes the device streams, owned in one place. Thread-safe.
+class StreamCounts(NamedTuple):
+    """What a stream counted between two asks."""
 
-    The transport's reader appends; the camera's grab loop takes what has
-    arrived, puts back what it could not parse, and flushes at a window
-    change. Every access goes through these methods, so a reader can never
-    be left extending a buffer the parser no longer reads -- the failure of
-    handing the parser the reader's own bytearray, which the parser then
-    replaced with a new one on its first take.
+    arrived: int
+    usb_errors: int
+    delimiters_missing: int
+    delimiters_wrong: int
+
+
+class _ByteStream:
+    """The device's packets, assembled into frames where the device ends them. Thread-safe.
+
+    The transport hands over each ISO packet, and each failure, in the order
+    they arrived. A packet that is not a whole number of ISO transactions is
+    the frame's last: the firmware commits a frame's tail early, and that
+    short packet arrives at the end of every frame. The 4-byte delimiter the
+    firmware writes between frames comes as a packet of its own and is
+    checked but never framed on, since at some windows the firmware loses it
+    or writes 4 other bytes in its place, which glued two frames into one
+    when frames were found by it. A failure marks the frame it falls in, so
+    a frame that lost bytes on USB is never stored, whatever its length.
+
+    The grab loop takes the frames ended since it last asked, all of them,
+    and flushes at a window change. Every access goes through these methods,
+    so a reader can never be left feeding a buffer the parser no longer reads.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._buf = bytearray()
-        self._arrived = 0
+        # A frame longer than this can be stored at no window: the bound on
+        # a frame whose end never comes.
+        self._longest = frame_layout(IMG_WIDTH, IMG_HEIGHT).frame_bytes
+        self._frame = bytearray()
+        self._damaged = False
+        self._ended: list[tuple[bytearray, bool]] = []
+        # Whether the last packet ended a frame, so the next one is due to
+        # be the delimiter.
+        self._delimiter_due = False
+        self._zero_counts()
         # When bytes last arrived: an unplug stops them without any error,
         # so the silence is how the driver hears it.
         self._last_arrival = time.monotonic()
-        # Whether anything arrived since the grab loop last put its unparsed
-        # tail back. Without new bytes that tail holds no delimiter it did not
-        # already look for, and taking it again only spins the loop.
-        self._fresh = False
 
-    def append(self, data: bytes | bytearray) -> None:
-        """Add bytes that arrived from the device."""
+    def _zero_counts(self) -> None:
+        self._arrived = 0
+        self._usb_errors = 0
+        self._delimiters_missing = 0
+        self._delimiters_wrong = 0
+
+    def packet(self, data: bytes | bytearray) -> None:
+        """One ISO packet's bytes, as it arrived from the device."""
+        if not data:
+            return
         with self._lock:
-            self._buf.extend(data)
             self._arrived += len(data)
             self._last_arrival = time.monotonic()
-            self._fresh = True
+            if len(data) == len(FRAME_DELIM):
+                if data != FRAME_DELIM:
+                    self._delimiters_wrong += 1
+                self._delimiter_due = False
+                return
+            if self._delimiter_due:
+                self._delimiters_missing += 1
+                self._delimiter_due = False
+            self._frame.extend(data)
+            if len(data) % ISO_TRANSACTION_SIZE:
+                self._end_frame()
+                self._delimiter_due = True
+            elif len(self._frame) > self._longest:
+                self._end_frame()
+
+    def fail(self) -> None:
+        """A packet, transfer or read that failed: its bytes are missing from the frame."""
+        with self._lock:
+            self._usb_errors += 1
+            self._damaged = True
+
+    def _end_frame(self) -> None:
+        self._ended.append((self._frame, self._damaged))
+        self._frame = bytearray()
+        self._damaged = False
+
+    def take_frames(self) -> list[tuple[bytearray, bool]]:
+        """The frames ended since the last call, oldest first, each with whether it is damaged."""
+        with self._lock:
+            ended, self._ended = self._ended, []
+            return ended
+
+    def take_counts(self) -> StreamCounts:
+        """What arrived and what went wrong since the last call."""
+        with self._lock:
+            counts = StreamCounts(
+                self._arrived,
+                self._usb_errors,
+                self._delimiters_missing,
+                self._delimiters_wrong,
+            )
+            self._zero_counts()
+            return counts
 
     def seconds_since_arrival(self, now: float) -> float:
         """How long, at ``now`` (``time.monotonic()``), since a byte last arrived."""
         with self._lock:
             return now - self._last_arrival
 
-    def take_arrived_count(self) -> int:
-        """How many bytes arrived since the last call.
-
-        Counted where they arrive, because the grab loop takes the same
-        bytes more than once: what it puts back while waiting for a frame's
-        closing delimiter comes back in its next take.
-        """
-        with self._lock:
-            arrived, self._arrived = self._arrived, 0
-            return arrived
-
-    def take(self, at_least: int) -> bytearray | None:
-        """Everything buffered, or None while fewer than ``at_least`` bytes are
-        or nothing has arrived since the last ``put_back``."""
-        with self._lock:
-            if len(self._buf) < at_least or not self._fresh:
-                return None
-            taken = self._buf
-            self._buf = bytearray()
-            self._fresh = False
-            return taken
-
-    def put_back(self, data: bytes | bytearray, *, limit: int, keep: int) -> None:
-        """Return unparsed bytes ahead of what arrived since the take.
-
-        Past ``limit`` bytes only the newest ``keep`` are kept. One lock
-        acquisition covers both, so the reader cannot append between them.
-        Bytes that arrived since the take keep the buffer due another take.
-        """
-        with self._lock:
-            self._buf[:0] = data
-            if len(self._buf) > limit:
-                del self._buf[:-keep]
+    def _clear(self) -> None:
+        self._frame = bytearray()
+        self._damaged = False
+        self._ended = []
+        self._delimiter_due = False
 
     def flush(self) -> None:
-        """Drop everything buffered. What arrived stays counted: it did arrive."""
+        """Drop the frames ended and the one in assembly. What arrived stays counted: it did arrive."""
         with self._lock:
-            self._buf.clear()
-            self._fresh = False
+            self._clear()
 
     def restart(self) -> None:
-        """A new stream: nothing buffered and nothing counted from the last one.
+        """A new stream: nothing assembled and nothing counted from the last one.
 
         The silence is timed from here, so a stream is not heard as silent
         before its first bytes have had time to come.
         """
         with self._lock:
-            self._buf.clear()
-            self._arrived = 0
+            self._clear()
+            self._zero_counts()
             self._last_arrival = time.monotonic()
-            self._fresh = False
 
 
 # ---------------------------------------------------------------------------
@@ -996,7 +1054,6 @@ class _LibusbTransport(_PyusbTransport):
         self._event_thread: threading.Thread | None = None
         self._streaming = False
         self._stream: _ByteStream | None = None
-        self._on_error = None
         self._on_gone = None
 
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
@@ -1004,13 +1061,11 @@ class _LibusbTransport(_PyusbTransport):
             return self._handle.controlWrite(0x40, request, value, index, data, timeout=timeout)
         return super().control_out(request, value, index, data, timeout)
 
-    def start_stream(
-        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
-    ) -> None:
-        """Stream ISO data into ``stream``.
+    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
+        """Stream ISO packets, and each failed transfer or packet, into ``stream``.
 
-        ``on_error`` is called per failed transfer or packet; ``on_gone`` when a
-        transfer cannot be resubmitted because the device has left the bus.
+        ``on_gone`` is called when a transfer cannot be resubmitted because the
+        device has left the bus.
         """
         self._release_idle()
 
@@ -1034,7 +1089,6 @@ class _LibusbTransport(_PyusbTransport):
         # handle is released.
         self._handle = handle
         self._stream = stream
-        self._on_error = on_error
         self._on_gone = on_gone
         self._streaming = True
 
@@ -1112,7 +1166,6 @@ class _LibusbTransport(_PyusbTransport):
         self._ctx = None
         self._handle = None
         self._stream = None
-        self._on_error = None
         self._on_gone = None
 
         self._reopen_idle()
@@ -1120,27 +1173,22 @@ class _LibusbTransport(_PyusbTransport):
     def _iso_callback(self, transfer):
         """libusb1 callback -- called when an ISO transfer completes.
 
-        A transfer that fails, and a failed packet inside one that completed,
-        are each counted as a USB error: the packet's bytes are missing from
-        the stream, which is what turns the frame around it into a partial.
+        Each packet goes to the stream as a packet, since a packet's length
+        is where the device marks a frame's end. A failed packet, and a
+        transfer that failed whole, go to the stream in their place: their
+        bytes are missing from the frame they fell in.
         """
         status = transfer.getStatus()
         if status == usb1.TRANSFER_CANCELLED:
             return
         if status == usb1.TRANSFER_COMPLETED:
-            failed_packets = 0
-            received = bytearray()
             for packet_status, buf in transfer.iterISO():
                 if packet_status != usb1.TRANSFER_COMPLETED:
-                    failed_packets += 1
-                elif len(buf) > 0:
-                    received.extend(buf)
-            if received:
-                self._stream.append(received)
-            for _ in range(failed_packets):
-                self._on_error()
+                    self._stream.fail()
+                else:
+                    self._stream.packet(buf)
         else:
-            self._on_error()
+            self._stream.fail()
         # Resubmit for continuous streaming.
         if self._streaming:
             try:
@@ -1191,13 +1239,13 @@ class _WinUsbTransport(_PyusbTransport):
             return self._reader.device.control_transfer(0x40, request, value, index, data=data)
         return super().control_out(request, value, index, data, timeout)
 
-    def start_stream(
-        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
-    ) -> None:
-        """Stream ISO data into ``stream``; ``on_error`` is called per failed read or packet.
+    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
+        """Stream ISO packets, and each failed read or packet, into ``stream``.
 
-        ``on_gone`` is not called: the WinUSB reader reports no removal of its
-        own, so an unplug is heard as the stream's silence.
+        The reader calls both from its one thread, in arrival order, so a
+        failure lands in the frame it fell in. ``on_gone`` is not called: the
+        WinUSB reader reports no removal of its own, so an unplug is heard as
+        the stream's silence.
         """
         from drivers.winusb_iso import WinUsbIsoReader
 
@@ -1211,8 +1259,8 @@ class _WinUsbTransport(_PyusbTransport):
             alt_interface=ISO_ALT_INTERFACE,
             num_slots=ISO_NUM_TRANSFERS,
             packets_per_xfer=ISO_NUM_PACKETS,
-            on_data=stream.append,
-            on_error=on_error,
+            on_data=stream.packet,
+            on_error=stream.fail,
         )
         reader.start()
         # Held before START, so a START that raises leaves the running
@@ -1601,19 +1649,15 @@ class _FX2Connection:
 
     # -- the stream ---------------------------------------------------------
 
-    def start_stream(self, on_error: Callable[[], None]) -> None:
-        """Start the device streaming into ``stream``, emptied first.
-
-        Args:
-            on_error: Called once per failed transfer or failed packet.
-        """
+    def start_stream(self) -> None:
+        """Start the device streaming into ``stream``, emptied first."""
         with self._lock:
             self.stream.restart()
             self._gone_reported.clear()
             # Marked before the transport starts: a start that raises part
             # way leaves what it opened for stop_stream to release.
             self._streaming = True
-            self._transport.start_stream(self.stream, on_error, self._gone_reported.set)
+            self._transport.start_stream(self.stream, self._gone_reported.set)
 
     def stop_stream(self) -> None:
         """Stop the stream; control returns to the idle handle. Does nothing when stopped."""
@@ -2069,7 +2113,7 @@ class FX2Camera(Camera):
             _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._grabbing = True  # set BEFORE starting threads that check it
-        self._fx2.start_stream(on_error=self.stream_stats.record_usb_error)
+        self._fx2.start_stream()
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 
@@ -2086,13 +2130,14 @@ class FX2Camera(Camera):
         if self._grab_thread is not None:
             self._grab_thread.join(timeout=3.0)
             self._grab_thread = None
-        # Bytes that arrived after the grab loop's last take belong to this stream.
-        self.stream_stats.record_bytes(self._fx2.stream.take_arrived_count())
+        # What arrived after the grab loop's last pass belongs to this stream.
+        self.stream_stats.record_counts(self._fx2.stream.take_counts())
 
         s = self.stream_stats.summary()
         logger.info(
             '[FX2 Cam   ] streaming stopped: %d frames in %.1fs (%.1f fps avg), '
-            '%d partial, %d shifted, %d USB errors, %.1f MB total',
+            '%d partial, %d shifted, %d USB errors, %.1f MB total, '
+            'delimiters %d missing / %d wrong',
             s['good_frames'],
             s['elapsed_s'],
             s['fps_average'],
@@ -2100,6 +2145,8 @@ class FX2Camera(Camera):
             s['shifted_frames'],
             s['usb_errors'],
             s['total_MB'],
+            s['delimiters_missing'],
+            s['delimiters_wrong'],
         )
 
     def is_grabbing(self) -> bool:
@@ -2108,20 +2155,11 @@ class FX2Camera(Camera):
     # -- Grab loop ---------------------------------------------------------
 
     def _grab_loop(self):
-        """Extract frames from the connection's byte stream.
-
-        Departures from the LVC reference:
-        - ``local_buf`` is explicitly initialized before the loop instead
-          of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
-        - The trim-after-prepend is one operation on the stream with the
-          prepend (``put_back``) instead of two lock acquisitions, which
-          could race against the reader appending.
-        """
+        """Store the frames the connection's stream assembles, each checked against the window."""
         stats = self.stream_stats
         stream = self._fx2.stream
         last_stats_log = time.monotonic()
         first_frame_logged = False
-        local_buf: bytearray | None = None  # explicit init
         watch = _UnplugWatch(self._fx2)
         # When the last frame was stored, and the discards counted by then:
         # bytes that keep arriving while nothing is stored are a stream the
@@ -2141,59 +2179,29 @@ class FX2Camera(Camera):
             w = self._width
             h = self._height
             layout = frame_layout(w, h)
-            stride, skip_first_row, needed = layout.stride, layout.skip, layout.needed
 
-            local_buf = stream.take(needed)
-
-            if local_buf is None:
+            counts = stream.take_counts()
+            frames = stream.take_frames()
+            if not frames and not counts.arrived:
                 time.sleep(0.005)
                 continue
+            stats.record_counts(counts)
 
-            stats.record_bytes(stream.take_arrived_count())
-
-            # Scan for frame delimiters.
-            buf = local_buf
-            while True:
-                idx = buf.find(FRAME_DELIM)
-                if idx < 0:
-                    # No complete frame -- put unconsumed data back and
-                    # trim if it's gotten out of hand.
-                    stream.put_back(buf, limit=needed * 3, keep=needed * 2)
-                    break
-
-                frame_data = buf[:idx]
-                buf = buf[idx + len(FRAME_DELIM) :]
-
-                # Strict frame validation. The MT9P031 + FX2 GPIF emits
-                # frames with EXACTLY one extra row of stride padding
-                # beyond the math (`needed`). Measured 2026-04-15 on
-                # 175 samples of clean streaming: 173/175 (98.9%) were
-                # exactly `needed + stride` bytes, the other 2 were
-                # corrupt (1 partial, 1 oversized). The +stride extra
-                # is hardware-constant for fixed frame size; the
-                # `as_strided` block below silently truncates it.
-                #
-                # PRIOR BEHAVIOR: the check was
-                # `len(frame_data) >= needed`, which silently accepted
-                # arbitrary oversized frames as "good" and reshaped
-                # them from a misaligned offset -> visually corrupt
-                # frames flagged as good, no telemetry. The partial-
-                # frame counter only fires on undersize and missed
-                # this entirely.
-                #
-                # CURRENT BEHAVIOR: strict equality on `expected`.
-                # Anything else is discarded, distinct shifted/partial
-                # counters give honest telemetry on which failure mode
-                # dominates. If frame size or readout config ever
-                # changes such that the +stride invariant breaks, the
-                # shifted counter will spike and we re-measure.
-                expected = layout.frame_bytes
-
-                if len(frame_data) == expected:
+            for frame_data, damaged in frames:
+                # Only a frame of exactly its window's length, with nothing
+                # lost on USB, is stored: the length is fixed for a window,
+                # and anything else would be reshaped from a misaligned
+                # offset into a corrupt image. A frame of another length
+                # (from the old window after a change, rows too many, or
+                # two frames run together) is shifted; one cut short or
+                # missing bytes is partial.
+                if damaged:
+                    stats.record_partial_frame(len(frame_data))
+                elif len(frame_data) == layout.frame_bytes:
                     raw = np.frombuffer(frame_data, dtype=np.uint8)
-                    remaining = raw[skip_first_row:]
+                    remaining = raw[layout.skip :]
                     raw_2d = np.lib.stride_tricks.as_strided(
-                        remaining, shape=(h, stride), strides=(stride, 1)
+                        remaining, shape=(h, layout.stride), strides=(layout.stride, 1)
                     )
                     image = raw_2d[:, :w].copy()
                     # The FX2 sensor is 8-bit only, so the delivered array's
@@ -2213,20 +2221,13 @@ class FX2Camera(Camera):
                             '[FX2 Cam   ] first frame: %dx%d, stride=%d, %d bytes, mean=%.1f',
                             w,
                             h,
-                            stride,
+                            layout.stride,
                             len(frame_data),
                             float(image.mean()),
                         )
-                elif len(frame_data) > needed:
-                    # Wrong size but bigger than minimum -- either
-                    # oversized (missed delimiter, two frames glued)
-                    # or sized between `needed` and `expected`
-                    # (off-by-rows). Either way, the bytes are
-                    # misaligned and would render as garbage.
+                elif len(frame_data) > layout.needed:
                     stats.record_shifted_frame(len(frame_data))
-                elif len(frame_data) > 0:
-                    # Severely undersized -- bytes dropped before the
-                    # next delimiter was found.
+                else:
                     stats.record_partial_frame(len(frame_data))
 
             now = time.monotonic()
@@ -2250,7 +2251,7 @@ class FX2Camera(Camera):
                 logger.info(
                     '[FX2 Cam   ] stream: %.1f fps (avg %.2f), '
                     '%d good / %d partial / %d shifted, '
-                    '%.1f MB/s, %d errors',
+                    '%.1f MB/s, %d errors, delimiters %d missing / %d wrong',
                     s['fps_current'],
                     s['fps_average'],
                     s['good_frames'],
@@ -2258,6 +2259,8 @@ class FX2Camera(Camera):
                     s['shifted_frames'],
                     s['throughput_MBps'],
                     s['usb_errors'],
+                    s['delimiters_missing'],
+                    s['delimiters_wrong'],
                 )
 
     def _on_unplugged(self, reason: str) -> None:

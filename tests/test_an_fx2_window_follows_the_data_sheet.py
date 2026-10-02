@@ -61,7 +61,7 @@ def test_the_simulated_frame_carries_sensor_rows_where_the_parser_stores_none(si
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     device.leds.brightness[ord('A')] = 255
     layout = fx2driver.frame_layout(100, 80)
-    body = device.frame()[len(fx2driver.FRAME_DELIM) :]
+    body = device.frame()
     first, last = body[: layout.skip], body[layout.needed :]
     assert any(first[:100]), 'the first output row is sensor data, not zeros'
     assert any(last[:100]), 'the last output row is sensor data, not zeros'

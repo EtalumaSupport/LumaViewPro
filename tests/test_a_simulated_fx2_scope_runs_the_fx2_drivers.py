@@ -13,6 +13,8 @@ channel lit.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -147,12 +149,12 @@ def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_
     device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 101]))  # the driver writes w + 1
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     frame_bytes = len(fx2driver.FRAME_DELIM) + fx2driver.frame_layout(100, 80).frame_bytes
-    chunks: list[bytes] = []
+    packets: list[tuple[float, bytes]] = []
     two_frames = threading.Event()
 
     def sink(data: bytes) -> None:
-        chunks.append(data)
-        if sum(map(len, chunks)) > 2 * frame_bytes:
+        packets.append((time.monotonic(), data))
+        if sum(len(p) for _t, p in packets) > 2 * frame_bytes:
             two_frames.set()
 
     device.attach(sink)
@@ -163,8 +165,14 @@ def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_
         device.stop()
     per_transfer = bytes_per_transfer(100, 80, device.sensor.frame_period_s())
     assert per_transfer < frame_bytes
-    assert all(abs(len(c) - per_transfer) <= 1 for c in chunks)
-    stream = b''.join(chunks)
+    # The packets the wire carries: the delimiter alone, whole transactions,
+    # and the frame's short last packet.
+    short = (frame_bytes - len(fx2driver.FRAME_DELIM)) % (2 * fx2driver.ISO_TRANSACTION_SIZE)
+    assert {len(p) for _t, p in packets} <= {4, 2 * fx2driver.ISO_TRANSACTION_SIZE, short}
+    # A frame's packets come over several transfers, not at once.
+    first = [t for t, _p in packets[: len(packets) // 2]]
+    assert first[-1] - first[0] >= TRANSFER_S
+    stream = b''.join(p for _t, p in packets)
     assert stream.find(fx2driver.FRAME_DELIM, 1) == frame_bytes
 
 
@@ -182,8 +190,10 @@ def test_a_frame_is_as_long_as_the_parser_accepts():
     device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 101]))  # the driver writes w + 1
     device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
     frame = device.frame()
-    assert frame.startswith(fx2driver.FRAME_DELIM)
-    assert len(frame) - len(fx2driver.FRAME_DELIM) == fx2driver.frame_layout(100, 80).frame_bytes
+    assert len(frame) == fx2driver.frame_layout(100, 80).frame_bytes
+    packets = device.packets()
+    assert packets[0] == fx2driver.FRAME_DELIM
+    assert sum(map(len, packets[1:])) == len(frame)
 
 
 def test_a_request_the_device_does_not_model_raises():

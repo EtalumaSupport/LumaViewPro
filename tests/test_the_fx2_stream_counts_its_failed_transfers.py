@@ -22,20 +22,18 @@ FAILED = object()  # any status that is neither completed nor cancelled
 
 
 def _camera():
-    """The libusb transport's ISO callback, feeding a stream and a camera's counts.
+    """The libusb transport's ISO callback, feeding a stream.
 
     Not streaming, so the callback does not resubmit the transfer.
     """
-    stats = fx2driver.StreamStats()
     transport = fx2driver._LibusbTransport()
     transport._stream = fx2driver._ByteStream()
-    transport._on_error = stats.record_usb_error
-    transport.stream_stats = stats
     return transport
 
 
 def _received(cam):
-    return bytes(cam._stream.take(0))
+    """Each frame the stream ended, with whether a failure fell inside it."""
+    return [(bytes(data), damaged) for data, damaged in cam._stream.take_frames()]
 
 
 def _transfer(status, packets=()):
@@ -43,7 +41,7 @@ def _transfer(status, packets=()):
 
 
 def _errors(cam):
-    return cam.stream_stats.summary()['usb_errors']
+    return cam._stream.take_counts().usb_errors
 
 
 def test_a_transfer_that_fails_is_counted():
@@ -57,14 +55,16 @@ def test_each_failed_packet_in_a_completed_transfer_is_counted_and_its_bytes_are
     packets = [(COMPLETED, b'ab'), (FAILED, b'xx'), (COMPLETED, b'cd'), (FAILED, b'')]
     cam._iso_callback(_transfer(COMPLETED, packets))
     assert _errors(cam) == 2
-    assert _received(cam) == b'abcd'
+    # Each short packet ends a frame. The failed packet's bytes are in none,
+    # and the frame it fell in is marked, so it is never stored.
+    assert _received(cam) == [(b'ab', False), (b'cd', True)]
 
 
 def test_a_clean_transfer_counts_nothing():
     cam = _camera()
     cam._iso_callback(_transfer(COMPLETED, [(COMPLETED, b'ab'), (COMPLETED, b'')]))
     assert _errors(cam) == 0
-    assert _received(cam) == b'ab'
+    assert _received(cam) == [(b'ab', False)]
 
 
 def test_a_cancelled_transfer_is_the_stream_stopping_not_an_error():

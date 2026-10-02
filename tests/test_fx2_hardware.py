@@ -32,7 +32,6 @@ import pytest
 # this import succeeds against the conftest mock and the marker below
 # skips the tests at collection time.
 from drivers.fx2driver import (
-    FRAME_DELIM,
     IMG_WIDTH,
     REG_EXPOSURE,
     REG_COL_SIZE,
@@ -555,31 +554,29 @@ _DARK_FLOOR = 255 * 0.03  # ImagingAPI._DARK_FLOOR_FRACTION on an 8-bit frame
 
 
 class _WireSpy:
-    """Wraps the stream's ``take()``: the length of every whole wire frame, and the first few.
+    """Wraps the stream's ``take_frames()``: the length of every frame it ended, and the first few.
 
-    Each take starts just after a delimiter (the grab loop puts the tail back
-    from there), so every segment but a take's last is one whole frame.
+    Each is the bytes between two of the device's frame ends, the delimiter
+    left out, whether or not the grab loop stores it.
     """
 
     def __init__(self, stream):
         self._stream = stream
-        self._take = stream.take
+        self._take = stream.take_frames
         self._lock = threading.Lock()
         self.sizes = Counter()
         self.frames = []
         self._keep = 0
-        stream.take = self._spy
+        stream.take_frames = self._spy
 
-    def _spy(self, at_least):
-        buf = self._take(at_least)
-        if buf is not None:
-            segments = bytes(buf).split(FRAME_DELIM)
-            with self._lock:
-                for seg in segments[:-1]:
-                    self.sizes[len(seg)] += 1
-                    if len(self.frames) < self._keep:
-                        self.frames.append(seg)
-        return buf
+    def _spy(self):
+        ended = self._take()
+        with self._lock:
+            for frame, _damaged in ended:
+                self.sizes[len(frame)] += 1
+                if len(self.frames) < self._keep:
+                    self.frames.append(bytes(frame))
+        return ended
 
     def reset(self, keep=0):
         with self._lock:
@@ -599,7 +596,7 @@ class _WireSpy:
             return list(self.frames)
 
     def remove(self):
-        del self._stream.take
+        del self._stream.take_frames
 
 
 def _phase_values(image):
@@ -946,4 +943,75 @@ class TestFX2PhaseBBench(_FX2BenchCase):
                     round(float(stack[:, r::2, c::2].mean()), 3)
                     for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))
                 ],
+            )
+
+
+@pytest.mark.fx2_hardware
+class TestFX2HostFramingBench(_FX2BenchCase):
+    """Frames end at the device's own end-of-frame packet; the delimiter is only counted."""
+
+    def _stream_line(self, label, s):
+        logger.info(
+            '[FX2 bench] H1 %s: %.1f s, %d good / %d partial / %d shifted, %d USB errors, '
+            'delimiters %d missing / %d wrong, %.2f fps, %.2f MB/s, shifted sizes %s, '
+            'partial sizes %s',
+            label,
+            s['elapsed_s'],
+            s['good_frames'],
+            s['partial_frames'],
+            s['shifted_frames'],
+            s['usb_errors'],
+            s['delimiters_missing'],
+            s['delimiters_wrong'],
+            s['fps_average'],
+            s['throughput_MBps'],
+            sorted(set(s['shifted_sizes'])),
+            sorted(set(s['partial_sizes'])),
+        )
+
+    def test_h1_row1_sixty_seconds_at_eight_windows(self):
+        """Row 1: no frame lost at any window; the delimiter faults counted, not glued."""
+        self.led.led_on(_BLUE, 200)
+        self.camera.exposure_t(_BENCH_MS)
+        for w in (1900, 1896, 1880, 1860, 1852, 1844, 1000, 500):
+            self.camera.set_frame_size(w, w)
+            time.sleep(2.0)
+            self.camera.stream_stats.reset()
+            time.sleep(_STEP_S)
+            s = self.camera.stream_stats.summary()
+            self._stream_line(f'row 1, {w} wide (Blue 200 mA, 50 ms)', s)
+            logger.info(
+                '[FX2 bench] H1 row 1, %d wide: %.3f fps stored against the model %.3f (%+.2f%%)',
+                w,
+                s['good_frames'] / s['elapsed_s'],
+                1 / _model_period_s(w, _BENCH_MS),
+                (s['good_frames'] / s['elapsed_s'] * _model_period_s(w, _BENCH_MS) - 1) * 100,
+            )
+
+    def test_h1_row2_five_window_changes(self):
+        """Row 2: the old window's frames in flight discarded, every stored frame the new shape."""
+        self.led.led_on(_BLUE, 200)
+        self.camera.exposure_t(_BENCH_MS)
+        for w in (1896, 1880, 1000, 500, 1900):
+            _ok, _img, _at, _bits, before = self.camera.grab_latest()
+            self.camera.stream_stats.reset()
+            self.camera.set_frame_size(w, w)
+            # Only frames stored after the change: the one stored before it is the old shape.
+            frames = [
+                f
+                for f in _timed_frames(self.camera, 200, timeout_s=3.0)
+                if before is None or f[0] > before
+            ]
+            s = self.camera.stream_stats.summary()
+            shapes = sorted({img.shape for _seq, _at, img in frames})
+            logger.info(
+                '[FX2 bench] H1 row 2, change to %d wide: %d frames stored in 3 s, shapes %s, '
+                '%d partial / %d shifted discarded (sizes %s / %s)',
+                w,
+                len(frames),
+                shapes,
+                s['partial_frames'],
+                s['shifted_frames'],
+                sorted(set(s['partial_sizes'])),
+                sorted(set(s['shifted_sizes'])),
             )

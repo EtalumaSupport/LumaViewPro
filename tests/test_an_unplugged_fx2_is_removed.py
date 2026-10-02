@@ -149,25 +149,12 @@ def test_a_second_stop_of_the_stream_does_not_reach_the_transport(session, monke
     assert len(stops) == 1
 
 
-def test_a_buffered_tail_with_nothing_new_is_not_taken_again():
-    stream = _ByteStream()
-    stream.append(b'x' * 100)
-    taken = stream.take(50)
-    assert taken is not None
-    stream.put_back(taken, limit=1000, keep=500)
-
-    assert stream.take(50) is None
-
-    stream.append(b'y')
-    assert stream.take(50) is not None
-
-
 def test_the_stream_says_how_long_since_a_byte_arrived():
     stream = _ByteStream()
     stream.restart()
     time.sleep(0.2)
     assert stream.seconds_since_arrival(time.monotonic()) >= 0.2
-    stream.append(b'z')
+    stream.packet(b'z')
     assert stream.seconds_since_arrival(time.monotonic()) < 0.1
 
 

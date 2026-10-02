@@ -7,7 +7,7 @@ it. On Windows the camera read the WinUSB reader's own bytearray and took from
 it by replacing it with a new one, so after the first take the reader kept
 filling an object the parser no longer read: no frame was stored after the
 first, and the reader's buffer grew by the stream's rate. Now the connection
-owns the stream's bytes, every reader appends through it, and the transport
+owns the stream, every reader hands its packets to it, and the transport
 moves control onto the stream's handle and back.
 """
 
@@ -29,12 +29,14 @@ DRIVER = Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
 # ---------------------------------------------------------------------------
 
 W = H = 100
-_STRIDE = W + 1
-_NEEDED = _STRIDE + 1 + H * _STRIDE
-_FRAME = fx2driver.FRAME_DELIM + bytes(_NEEDED + _STRIDE)  # one well-formed frame
+_BODY = bytes(fx2driver.frame_layout(W, H).frame_bytes)
+# One well-formed frame as the device sends it: the delimiter, then the frame
+# in packets of two transactions, the last one short.
+_STEP = 2 * fx2driver.ISO_TRANSACTION_SIZE
+_FRAME = [fx2driver.FRAME_DELIM] + [_BODY[i : i + _STEP] for i in range(0, len(_BODY), _STEP)]
 
 
-def test_the_grab_loop_stores_every_frame_a_reader_appends_after_its_first_take():
+def test_the_grab_loop_stores_every_frame_a_reader_hands_on_after_its_first_take():
     stream = fx2driver._ByteStream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(
@@ -51,24 +53,18 @@ def test_the_grab_loop_stores_every_frame_a_reader_appends_after_its_first_take(
     loop = threading.Thread(target=cam._grab_loop, daemon=True)
     loop.start()
     for _ in range(40):
-        stream.append(_FRAME)  # the reader's only way in
+        for packet in _FRAME:
+            stream.packet(packet)  # the reader's only way in
         time.sleep(0.005)
     deadline = time.monotonic() + 2.0
-    while len(stored) < 39 and time.monotonic() < deadline:
+    while len(stored) < 40 and time.monotonic() < deadline:
         time.sleep(0.01)
     cam._grabbing = False
     loop.join(2.0)
 
-    # 39, not 40: the last frame has no delimiter after it yet.
-    assert len(stored) == 39
+    # Every one: a frame ends in its own last packet, not at the next delimiter.
+    assert len(stored) == 40
     assert set(stored) == {(H, W)}
-
-
-def test_a_put_back_past_its_limit_keeps_only_the_newest_bytes():
-    stream = fx2driver._ByteStream()
-    stream.append(b'new')
-    stream.put_back(b'0123456789', limit=12, keep=5)
-    assert bytes(stream.take(0)) == b'89new'
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +181,7 @@ def test_control_goes_through_the_stream_while_it_runs_and_back_after(monkeypatc
     write = fx2driver.VR_I2C_WRITE
 
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
-    conn.start_stream(on_error=lambda: None)
+    conn.start_stream()
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
     conn.stop_stream()
     conn.i2c_write(fx2driver.I2C_LED, [0xFF])
@@ -203,7 +199,7 @@ def test_control_goes_through_the_stream_while_it_runs_and_back_after(monkeypatc
 def test_the_iso_transfers_are_pending_before_the_device_starts_streaming(monkeypatch):
     events = []
     conn = _connection_on_libusb(monkeypatch, events)
-    conn.start_stream(on_error=lambda: None)
+    conn.start_stream()
     conn.stop_stream()
 
     start = events.index(('iso', fx2driver.VR_START_STREAMING))
@@ -272,7 +268,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     )
     transport = fx2driver._WinUsbTransport()
     try:
-        transport.start_stream(fx2driver._ByteStream(), on_error=lambda: None, on_gone=lambda: None)
+        transport.start_stream(fx2driver._ByteStream(), on_gone=lambda: None)
     except RuntimeError:
         pass
     transport.stop_stream()

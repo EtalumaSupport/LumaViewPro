@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 
 import numpy as np
@@ -32,6 +33,7 @@ from drivers.fx2driver import (
     I2C_LED,
     I2C_SENSOR,
     ISO_NUM_PACKETS,
+    ISO_TRANSACTION_SIZE,
     PID_APP,
     PID_BOOT,
     REG_COL_SIZE,
@@ -203,8 +205,13 @@ class SimulatedFX2Device:
         self._thread: threading.Thread | None = None
         self._specimen: dict[tuple[int, int], list[np.ndarray]] = {}
         self._frame_index = 0
-        self._pending = bytearray()
+        self._pending: deque[bytes] = deque()
         self.extra_rows = 0
+        # Every Nth frame's delimiter lost, or written as other bytes: the
+        # two ways the shipped firmware fails it at some windows. 0 is never.
+        self.lost_delimiter_every = 0
+        self.wrong_delimiter_every = 0
+        self._frames_sent = 0
 
     # -- the wire ------------------------------------------------------------
 
@@ -278,7 +285,7 @@ class SimulatedFX2Device:
     # -- the stream ----------------------------------------------------------
 
     def attach(self, sink: Callable[[bytes], None]) -> None:
-        """Where the ISO pipe delivers: the transport opens it before START."""
+        """Where the ISO pipe delivers, one packet a call: the transport opens it before START."""
         self._sink = sink
 
     def detach(self) -> None:
@@ -314,7 +321,7 @@ class SimulatedFX2Device:
             thread.join(timeout=2.0)
 
     def frame(self) -> bytes:
-        """The next frame as the wire carries it: the delimiter, then the frame's bytes.
+        """The next frame's bytes as the wire carries them, without the delimiter.
 
         The window, exposure and gain are read here, at the frame's start, so
         a change takes effect on the next frame. The first and last output
@@ -330,7 +337,32 @@ class SimulatedFX2Device:
         # unmeasured; the parser never reads it.
         first = rows[0].tobytes() + bytes(layout.skip - layout.stride)
         extra = bytes(layout.stride * self.extra_rows)
-        return b''.join((FRAME_DELIM, first, rows[1:].tobytes(), extra))
+        return b''.join((first, rows[1:].tobytes(), extra))
+
+    def packets(self) -> list[bytes]:
+        """The next frame as ISO packets: the delimiter, then the frame.
+
+        The frame goes in packets of two transactions, the size the bench
+        saw most, and its last bytes, fewer than that and not a whole
+        transaction, go as the short packet the firmware commits at a
+        frame's end. The delimiter comes alone, as on the wire; the faults
+        drop it or write other bytes in its place.
+        """
+        self._frames_sent += 1
+        n = self._frames_sent
+        out = []
+        if self.lost_delimiter_every and n % self.lost_delimiter_every == 0:
+            pass
+        elif self.wrong_delimiter_every and n % self.wrong_delimiter_every == 0:
+            # A pixel byte where the delimiter's first byte belongs, as the
+            # bench captured it.
+            out.append(b'\x29' + FRAME_DELIM[1:])
+        else:
+            out.append(FRAME_DELIM)
+        body = self.frame()
+        step = 2 * ISO_TRANSACTION_SIZE
+        out.extend(body[i : i + step] for i in range(0, len(body), step))
+        return out
 
     def _pixels(self, w: int, h: int) -> np.ndarray:
         """The specimen field as this sensor sees it: black unless an LED is lit."""
@@ -345,12 +377,14 @@ class SimulatedFX2Device:
         return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
 
     def _stream_loop(self) -> None:
-        """Deliver the frames back to back, a transfer every ``TRANSFER_S``.
+        """Deliver the frames' packets back to back, a transfer every ``TRANSFER_S``.
 
-        Each wait runs to a deadline kept from the stream's start, so the
-        time spent building a frame is inside its period, not added to it.
+        Each transfer carries the packets whose bytes have come due by then;
+        a packet not yet due waits for the next. Each wait runs to a deadline
+        kept from the stream's start, so the time spent building a frame is
+        inside its period, not added to it.
         """
-        self._pending = bytearray()
+        self._pending = deque()
         owed = 0.0
         deadline = time.monotonic()
         while self._streaming.is_set():
@@ -359,12 +393,14 @@ class SimulatedFX2Device:
                 return
             w, h = self.sensor.window()
             owed += bytes_per_transfer(w, h, self.sensor.frame_period_s())
-            n = int(owed)
-            owed -= n
-            while len(self._pending) < n:
-                self._pending += self.frame()
-            sink(bytes(self._pending[:n]))
-            del self._pending[:n]
+            while True:
+                if not self._pending:
+                    self._pending.extend(self.packets())
+                if len(self._pending[0]) > owed:
+                    break
+                packet = self._pending.popleft()
+                owed -= len(packet)
+                sink(packet)
             deadline += TRANSFER_S
             if self._stop.wait(max(0.0, deadline - time.monotonic())):
                 return
@@ -375,7 +411,7 @@ class SimulatedFX2Transport:
 
     def __init__(self, device: SimulatedFX2Device):
         self.device = device
-        self._on_error: Callable[[], None] | None = None
+        self._stream: _ByteStream | None = None
         self._on_gone: Callable[[], None] | None = None
 
     def find(self, pid: int) -> SimulatedFX2Device | None:
@@ -395,13 +431,11 @@ class SimulatedFX2Transport:
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         return self.device.vendor_out(request, value, index, data)
 
-    def start_stream(
-        self, stream: _ByteStream, on_error: Callable[[], None], on_gone: Callable[[], None]
-    ) -> None:
+    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
         # A transfer fails here only through the faults below.
-        self._on_error = on_error
+        self._stream = stream
         self._on_gone = on_gone
-        self.device.attach(stream.append)
+        self.device.attach(stream.packet)
         self.device.vendor_out(VR_START_STREAMING, 0, 0, b'')
 
     def stop_stream(self) -> None:
@@ -412,7 +446,7 @@ class SimulatedFX2Transport:
         except RuntimeError:
             self.device.stop()
         self.device.detach()
-        self._on_error = None
+        self._stream = None
         self._on_gone = None
 
     # -- faults --------------------------------------------------------------
@@ -428,8 +462,8 @@ class SimulatedFX2Transport:
         self.device.halt()
         self.device.pid = None
         for _ in range(resubmit_failures):
-            if self._on_error is not None:
-                self._on_error()
+            if self._stream is not None:
+                self._stream.fail()
             if self._on_gone is not None:
                 self._on_gone()
 
@@ -445,6 +479,14 @@ class SimulatedFX2Transport:
         to the window.
         """
         self.device.extra_rows = rows
+
+    def lose_delimiters(self, every: int) -> None:
+        """Every ``every``-th frame from now goes with no delimiter after the one before; 0 stops."""
+        self.device.lost_delimiter_every = every
+
+    def garble_delimiters(self, every: int) -> None:
+        """Every ``every``-th frame from now has 4 other bytes in its delimiter's place; 0 stops."""
+        self.device.wrong_delimiter_every = every
 
     def close(self) -> None:
         self.device.stop()
