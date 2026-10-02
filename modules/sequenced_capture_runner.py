@@ -29,6 +29,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
     CompositeFailedError,
+    FileWriterStalledError,
     ProtocolRunRefusedError,
     RecordIncompleteError,
     Remedy,
@@ -51,6 +52,7 @@ from modules.run_outcome import (
     RunEnding,
 )
 
+from modules.scheduler import Scheduler
 from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
 import threading
@@ -258,6 +260,10 @@ class SequencedCaptureRunner:
         # start, passed to AF steps as the parent lease, released in
         # cleanup. None outside a run.
         self._led_lease = None
+        # The session's scheduler and the stalled-writer check on it, armed
+        # at bring-up (start_file_writer_check); None until then.
+        self._file_writer_check_scheduler = None
+        self._file_writer_check_handle = None
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
         # Defensive default so attribute access before the first start()
@@ -869,24 +875,19 @@ class SequencedCaptureRunner:
             # owns recovery, and this layer cannot reach it.
             if batch.stalled(WRITE_STALL_FATAL_S):
                 unsaved = batch.pending
+                stalled = FileWriterStalledError.stalled_sentence(
+                    self._the_run_holding_the_scope(self._run_trigger_source),
+                    batch.describe_stuck_write(),
+                )
                 self._refuse(
                     holder_trigger=self._run_trigger_source,
                     reason='files_writing_stalled',
-                    title='File Writer Stalled',
+                    title=FileWriterStalledError.title,
                     message=(
-                        f'{self._the_run_holding_the_scope(self._run_trigger_source)} has '
-                        'stopped writing its files '
-                        f'({batch.describe_stuck_write()}). '
-                        'Recover the file writer before starting a new run: '
-                        f'its {unsaved} unsaved image(s) will be lost, and a partial '
-                        'file from the stuck write may remain on disk, locked until '
-                        'that write releases it.'
+                        f'{stalled} Recover the file writer before starting a new run: '
+                        f'{FileWriterStalledError.cost_sentence(unsaved)}'
                     ),
-                    remedy=Remedy(
-                        member='recover_file_writer',
-                        confirm_text=f'Discard {unsaved} unsaved and unlock',
-                        cancel_text='Keep waiting',
-                    ),
+                    remedy=FileWriterStalledError.recovery(unsaved),
                 )
             self._refuse(
                 reason='files_writing',
@@ -1810,6 +1811,47 @@ class SequencedCaptureRunner:
     def write_batch(self) -> RunWriteBatch | None:
         """The live or last run's writes, or None when no run has started."""
         return self._write_batch
+
+    _FILE_WRITER_CHECK_INTERVAL_S = 1.0
+
+    def start_file_writer_check(self, scheduler: Scheduler) -> None:
+        """Watch a finished run's file writer, and report it once when it stalls.
+
+        Nobody waits on a run's files after the run ends, so a writer stuck
+        on one would be heard of only when the next run was refused. The
+        check runs on the session's scheduler, in every host, and reports
+        ``FileWriterStalledError`` unsolicited, carrying the recovery as its
+        remedy, once for each stuck write.
+
+        Internal scheduling -- the session arms it at bring-up, and the
+        session's scheduler stops with the session; not part of the L2 API
+        surface.
+
+        Args:
+            scheduler: The session's scheduler (``schedule_interval`` /
+                ``unschedule``).
+        """
+        if self._file_writer_check_handle is not None:
+            self._file_writer_check_scheduler.unschedule(self._file_writer_check_handle)
+        self._file_writer_check_scheduler = scheduler
+        self._file_writer_check_handle = scheduler.schedule_interval(
+            self._check_file_writer, self._FILE_WRITER_CHECK_INTERVAL_S
+        )
+
+    def _check_file_writer(self, _dt: float = 0) -> None:
+        batch = self._write_batch
+        # A live run's own writes answer for a stuck writer; the watch is for
+        # the drain nobody is waiting on.
+        if batch is None or not batch.draining or not batch.stall_to_report(WRITE_STALL_FATAL_S):
+            return
+        from modules.notification_center import notifications
+
+        stalled = FileWriterStalledError(
+            self._the_run_holding_the_scope(self._run_trigger_source),
+            batch.describe_stuck_write(),
+            batch.pending,
+        )
+        notifications.report_outcome(stalled, solicited=False, category='Protocol')
 
     def is_live_run(self, run: 'PendingRunOutcome | None') -> bool:
         """Whether *run* -- the object a start() returned -- is the live run.

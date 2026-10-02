@@ -344,18 +344,22 @@ def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session
     assert panel.ids['run_scan_btn'].state == 'down'
 
 
-def test_a_stalled_drain_offers_recovery_once(app_ctx, session, monkeypatch):
+def test_a_stalled_drain_opens_no_offer_of_its_own(app_ctx, session, monkeypatch):
+    """The run engine reports a stalled writer, with its recovery; the drain tick only redraws."""
+    import ui.notification_popup as notification_popup
+
     offers = []
-    monkeypatch.setattr(ps, '_offer_wedged_writer_recovery', lambda: offers.append(1))
+    monkeypatch.setattr(
+        notification_popup, 'show_confirmation_popup', lambda **kw: offers.append(kw)
+    )
     panel = _Panel()
-    panel._wedge_recovery_offered = False
     session.protocol_files_draining = True
     session.protocol_files_stalled = True
 
     panel._drain_tick(0)
     panel._drain_tick(0)
 
-    assert offers == [1]
+    assert offers == []
 
 
 def test_the_runs_timing_goes_on_its_copy_not_the_panels_protocol(app_ctx, engine):

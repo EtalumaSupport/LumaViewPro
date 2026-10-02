@@ -251,31 +251,6 @@ def test_the_panels_step_navigation_is_a_persons_move(monkeypatch):
     assert navigated.call_args.kwargs['step_idx'] == 2
 
 
-def test_the_wedged_writer_recovery_goes_through_the_session(ctx, boundary, monkeypatch):
-    """The Session refuses while a run or a diagnostic holds the scope; the
-    executor's own recovery would not."""
-    import ui.notification_popup as notification_popup
-    import ui.protocol_settings as protocol_settings
-
-    offered = {}
-
-    def _popup(**kwargs):
-        offered.update(kwargs)
-
-    monkeypatch.setattr(notification_popup, 'show_confirmation_popup', _popup)
-    monkeypatch.setattr(protocol_settings, 'run_reported', boundary.run_reported)
-    # The offer names what the Session reports about the run's stuck write.
-    ctx.session.protocol_files_pending = 3
-    ctx.session.protocol_files_stuck_write = 'write x'
-
-    protocol_settings._offer_wedged_writer_recovery()
-    confirm = next(v for k, v in offered.items() if callable(v))
-    confirm()
-
-    assert [s.label for s in boundary.submits] == ['RECOVER_FILE_WRITER']
-    ctx.session.recover_file_writer.assert_called_once_with()
-
-
 def test_the_fire_and_forget_led_and_motion_members_are_gone():
     """A GUI write reaches its lane through submit_reported and the blocking
     member, so a failure is reported once; the *_async members queued the

@@ -1494,6 +1494,51 @@ class CameraStreamStalledError(CaptureError):
         self.seconds = seconds
 
 
+class FileWriterStalledError(CaptureError):
+    """A finished run's file writer stopped making progress on one of its files.
+
+    Nobody is waiting on a run's files once it has ended, so the run engine
+    reports the stall when it sees it, offering the recovery that answers it.
+    The run refusal for the same stall makes the same offer: the sentences
+    and the remedy below are the one wording of both.
+
+    Attributes:
+        remedy: Recovering the file writer, which gives up on the unsaved images.
+    """
+
+    title = 'File Writer Stalled'
+
+    def __init__(self, run: str, stuck: str, unsaved: int):
+        super().__init__(
+            f'{self.stalled_sentence(run, stuck)} Recovering the file writer unlocks '
+            f'the app: {self.cost_sentence(unsaved)}',
+            'files_writing_stalled',
+        )
+        self.remedy = self.recovery(unsaved)
+
+    @staticmethod
+    def stalled_sentence(run: str, stuck: str) -> str:
+        """What stopped: *run* names the run, *stuck* the write in flight."""
+        return f'{run} has stopped writing its files ({stuck}).'
+
+    @staticmethod
+    def cost_sentence(unsaved: int) -> str:
+        """What recovering loses."""
+        return (
+            f'its {unsaved} unsaved image(s) will be lost, and a partial file from the '
+            'stuck write may remain on disk, locked until that write releases it.'
+        )
+
+    @staticmethod
+    def recovery(unsaved: int) -> Remedy:
+        """The offer that answers the stall."""
+        return Remedy(
+            member='recover_file_writer',
+            confirm_text=f'Discard {unsaved} unsaved and unlock',
+            cancel_text='Keep waiting',
+        )
+
+
 class FrameListenerNotRegisteredError(CaptureError):
     """The camera driver would not take a frame listener, so it will receive no frames.
 

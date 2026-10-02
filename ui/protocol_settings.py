@@ -49,38 +49,6 @@ from ui.progress_popup import show_popup
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
-def _offer_wedged_writer_recovery():
-    """Modal offering discard-and-unlock recovery for a stalled file writer.
-
-    Names the stuck write and the cost of recovery; declining leaves the
-    queue untouched, and a run start's refusal carries the same recovery."""
-    from ui.notification_popup import show_confirmation_popup
-
-    session = _app_ctx.ctx.session
-    pending = session.protocol_files_pending
-    stuck = session.protocol_files_stuck_write
-
-    def _recover():
-        logger.warning('[LVP Main  ] User confirmed wedged-writer recovery')
-        # Through the Session, which refuses while a run or a diagnostic
-        # holds the scope; the executor's own recovery would not.
-        run_reported(session.recover_file_writer, None, 'RECOVER_FILE_WRITER')
-
-    show_confirmation_popup(
-        title='File Writer Stalled',
-        message=(
-            f'File saving has stopped making progress ({stuck}). '
-            f'Discarding will unlock the app; {pending} unsaved image(s) '
-            f'from the last run will be lost. A partial file from the stuck '
-            f'write may remain on disk and stay locked until the stuck '
-            f'write releases it.'
-        ),
-        confirm_text=f'Discard {pending} unsaved and unlock',
-        cancel_text='Keep waiting',
-        on_confirm=_recover,
-    )
-
-
 _ABORT_BACKGROUND = './data/icons/abort_protocol_background.png'
 
 
@@ -1422,27 +1390,13 @@ class ProtocolSettings(FloatLayout):
 
         if draining:
             self._drain_tick_trigger()
-        else:
-            self._wedge_recovery_offered = False
-
-    _wedge_recovery_offered = False  # One recovery offer per drain
 
     def _drain_tick(self, dt) -> None:
-        """While a finished run's files drain: the count, and a stalled writer's offer.
+        """While a finished run's files drain, keep the count on the button current.
 
-        A stalled writer would otherwise hold "Writing Files..." forever --
-        the surface stuck-run reports were stuck on -- so the first tick
-        that finds it stalled offers the recovery, once per drain; the run
-        starts re-offer on any later attempt if the person declines.
+        A stalled writer is the run engine's to report, with its recovery;
+        the button only says so.
         """
-        session = _app_ctx.ctx.session
-        if (
-            session.protocol_files_stalled
-            and not session.is_protocol_running
-            and not self._wedge_recovery_offered
-        ):
-            self._wedge_recovery_offered = True
-            _offer_wedged_writer_recovery()
         self.draw_protocol_buttons()
 
     def _press_panel_run(

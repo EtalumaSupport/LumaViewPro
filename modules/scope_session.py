@@ -882,14 +882,14 @@ class ScopeSession:
     def recover_file_writer(self) -> int:
         """Give up on a finished run's unwritten images and unlock a stuck writer.
 
-        L2 counterpart of the GUI's stalled-writer recovery: when a
-        protocol run's file writer stops making progress, every
-        subsequent run is refused with the ``files_writing_stalled``
-        reason until the writer is recovered or the app restarts. This
-        method is that recovery for headless / REST / SDK callers: the
-        run's outstanding images are given up on and counted, and the
-        worker stuck mid-write is abandoned and replaced. Nothing else
-        queued on the lane is discarded.
+        When a protocol run's file writer stops making progress, the run
+        engine reports the stall once (``FileWriterStalledError``) and
+        every subsequent run is refused with the ``files_writing_stalled``
+        reason until the writer is recovered or the app restarts; both
+        carry this method as their remedy, and any caller may call it by
+        name. The run's outstanding images are given up on and counted,
+        and the worker stuck mid-write is abandoned and replaced. Nothing
+        else queued on the lane is discarded.
 
         Returns:
             How many of the run's images were given up on.
@@ -1251,6 +1251,9 @@ class ScopeSession:
         # scope, so the imaging API starts watching the stream here: a stall
         # nobody is reading is reported to every client, not only to a GUI.
         self.scope.imaging.start_stream_check(self._scheduler)
+        # Likewise a finished run's file writer: nobody waits on its files
+        # once the run has ended, so a stuck one is reported to every client.
+        self.sequenced_capture_runner.start_file_writer_check(self._scheduler)
         # Read once so a session that changes nothing still records the
         # scale it starts with (the read records the optics). On a turreted
         # scope the slot is not known until the turret is homed, so the

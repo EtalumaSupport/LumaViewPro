@@ -151,6 +151,9 @@ class RunWriteBatch:
         self._completed = threading.Event()
         self._blocked_s = 0.0
         self._slow_warned = False
+        # The write in flight a stall report has already named, so a stall
+        # is reported once and not on every look; None until one is.
+        self._stall_reported_for = None
 
     @property
     def pending(self) -> int:
@@ -219,6 +222,22 @@ class RunWriteBatch:
     def describe_stuck_write(self) -> str:
         """The write in flight, named for a stall report."""
         return self._executor.describe_running_task()
+
+    def stall_to_report(self, threshold_s: float) -> bool:
+        """True the first time the write in flight is found stalled; False for it after that.
+
+        A declined recovery is not offered again for the same stuck write. A
+        different write found stuck is a new stall, and a new run's batch
+        starts with nothing reported.
+        """
+        if not self.stalled(threshold_s):
+            return False
+        task = self._executor.running_task
+        with self._cond:
+            if task is self._stall_reported_for:
+                return False
+            self._stall_reported_for = task
+            return True
 
     def submit(
         self,
