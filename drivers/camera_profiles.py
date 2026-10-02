@@ -47,7 +47,7 @@ Adding a new camera model
    (in microseconds) -- it's the single source of truth for the maximum
    exposure cap. `_query_dynamic_capabilities()` may overwrite it at
    connect time with an SDK-queried value or a driver-narrowed cap
-   (e.g. FX2's 178 ms safe-frame ceiling). Leave dynamic gain fields
+   (e.g. FX2's 1000 ms ceiling). Leave dynamic gain fields
    (gain.total_min_db, total_max_db) and exposure_min_us as None --
    they will be populated at connect time.
 

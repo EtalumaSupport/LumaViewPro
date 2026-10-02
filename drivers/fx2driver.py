@@ -2001,16 +2001,16 @@ class FX2Camera(Camera):
             # every window the driver allows can give (a narrower window's
             # row is shorter, so it reaches this to within its own row).
             self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
-            # Cap exposure at the legacy LVC 178 ms value (matches what
-            # was known-safe in the original LumaviewClassic UI). Once the
-            # shutter width passes H + 25 rows the sensor adds blanking rows
-            # to stretch the frame (frame_time_s): about 233 ms at 1900
-            # wide, but about 84 ms at 1000 and 32 ms at 500, so at narrow
-            # windows exposures inside this cap already stretch the frame.
-            # The cap was hardware-validated 2026-04-15 at 1900 only, on the
-            # first LS620 GUI run, where dragging the exposure slider above
-            # ~200 ms corrupted the image.
-            SAFE_EXPOSURE_MAX_MS = 178
+            # One second, deliberately: as long as these units need, and no
+            # longer. The stream stays clean far past it (an LS620 ran to the
+            # register's 65535 rows), but the API's fixed 5 s wait for a new
+            # capture and the stream check's bound after a long-to-short
+            # exposure change both misfire above a few seconds, and 65535
+            # rows is only 2.8 s at the narrowest window. Past the readout
+            # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
+            # sensor adds blanking rows and the frame stretches to the
+            # exposure (frame_time_s), which the stream handles.
+            SAFE_EXPOSURE_MAX_MS = 1000
             self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
                 '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',

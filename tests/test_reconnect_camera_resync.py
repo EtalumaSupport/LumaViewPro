@@ -325,10 +325,9 @@ class TestManualExposurePolicy:
     def test_a_body_that_caps_low_narrows_every_class(self):
         """A camera whose own cap sits under the policy ceilings.
 
-        The FX2 boards cap exposure at 178 ms -- above the per-frame readout
-        time the sensor inserts blanking rows, which changes the byte rate
-        mid-stream and desyncs the frame parser. Nothing may hand any layer a
-        bound above what the attached body will honor.
+        A body may cap exposure under a layer's policy ceiling (the FX2
+        boards once capped at 178 ms). Nothing may hand any layer a bound
+        above what the attached body will honor.
         """
         for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
             assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
@@ -353,7 +352,7 @@ class TestTypedExposureCeiling:
     than the sensor on most classes. The box is the physical limit, so the
     two bounds cannot share a source: reading the slider's max made the box
     inherit a policy number, and brightfield read a GUI constant that matched
-    no camera at all -- on a body whose real cap is 178 ms that constant let a
+    no camera at all -- on a body whose cap was then 178 ms that constant let a
     user store an exposure the sensor silently clamped away.
     """
 

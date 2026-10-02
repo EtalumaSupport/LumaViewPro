@@ -924,7 +924,7 @@ class Camera(ABC):
         truth. The profile's value is the sensor-datasheet ceiling by
         default and may be overwritten by `_query_dynamic_capabilities()`
         at connect time with an SDK-queried or driver-narrowed cap
-        (e.g. FX2's 178 ms safe-frame ceiling).
+        (e.g. FX2's 1000 ms ceiling).
         """
         if self.profile and self.profile.exposure_max_us:
             return self.profile.exposure_max_us / 1000.0

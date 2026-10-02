@@ -74,7 +74,7 @@ def test_the_camera_is_the_fx2s_mt9p031(session):
     assert camera.get_max_frame_size() == {'width': 1900, 'height': 1900}
     assert camera.get_supported_pixel_formats() == ('Mono8',)
     assert camera.max_gain == pytest.approx(42.1442, abs=1e-4)  # 128x, DS Table 15
-    assert camera.max_exposure == 178.0
+    assert camera.max_exposure == 1000.0
     assert caps.camera_supports_auto_gain is False
 
 

@@ -534,8 +534,8 @@ class TestFX2CameraProfile:
         assert cam.profile.exposure_min_us is not None
         assert cam.profile.exposure_max_us is not None
 
-    def test_max_exposure_picks_up_dynamic_178ms_cap(self, fake_fx2_conn):
-        """Camera.max_exposure must reflect the dynamic 178 ms cap, not
+    def test_max_exposure_picks_up_dynamic_1000ms_cap(self, fake_fx2_conn):
+        """Camera.max_exposure must reflect the dynamic 1000 ms cap, not
         the static MT9P031 register max (~7,366 ms). The UI exposure
         slider reads `ctx.max_exposure` (= camera.max_exposure) and was
         previously letting users dial past the safe-frame ceiling
@@ -544,11 +544,11 @@ class TestFX2CameraProfile:
         single source -- `profile.exposure_max_us` -- with
         `Camera.max_exposure` a derived property reading from it."""
         cam = fx2driver.FX2Camera()
-        # exposure_max_us is overwritten to 178_000 by _query_dynamic_capabilities
+        # exposure_max_us is overwritten to 1_000_000 by _query_dynamic_capabilities
         # (default from the profile entry is 7_366_000 = sensor register max).
-        assert cam.profile.exposure_max_us == 178_000
+        assert cam.profile.exposure_max_us == 1_000_000
         # max_exposure (in ms) is derived from exposure_max_us / 1000
-        assert cam.max_exposure == 178.0
+        assert cam.max_exposure == 1000.0
 
     def test_pixel_format_is_mono8_only(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()

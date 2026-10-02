@@ -1128,3 +1128,54 @@ class TestFX2ColumnSizeBench(_FX2BenchCase):
                     best,
                     counts[best],
                 )
+
+
+# ---------------------------------------------------------------------------
+# The exposure cap (FX2 plan section 24): 1000 ms, never above. Measurement
+# only, recorded and not asserted. Needs light on the sensor. Run with
+# --driver-log:
+#
+#     pytest tests/test_fx2_hardware.py --run-fx2-hardware --driver-log -k CapBench
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fx2_hardware
+class TestFX2CapBench(_FX2BenchCase):
+    def test_cap_the_ladder_to_the_cap(self):
+        """50 ms up to the published cap and back, at 1900 and 500 wide; 60 s at the cap."""
+        cap_ms = self.camera.max_exposure
+        logger.info('[FX2 bench] cap: the camera publishes %.1f ms', cap_ms)
+        self.camera.gain(0)
+        self.led.led_on(_BLUE, 5)
+        for w in (1900, 500):
+            self.camera.set_frame_size(w, w)
+            for ms in (50, 400, cap_ms, 50):
+                applied_us = self.camera.exposure_t(ms)
+                _new_frames(self.camera, 3, timeout_s=3 * ms / 1000 + 10.0)
+                self.camera.stream_stats.reset()
+                if ms == cap_ms:
+                    time.sleep(60.0)
+                frames = _new_frames(self.camera, 4, timeout_s=4 * ms / 1000 + 10.0)
+                period, _intervals = _frame_period_s(self.camera, 3, timeout_s=4 * ms / 1000 + 10.0)
+                s = self.camera.stream_stats.summary()
+                means = [round(m, 1) for _s, m, _x in frames]
+                logger.info(
+                    '[FX2 bench] cap, %d wide (Blue 5 mA, 0 dB): asked %.0f ms, in effect %.3f ms, '
+                    'period %s s against the model %.4f s, means %s, mean per ms %.4f; %.1f s, '
+                    '%d good / %d partial / %d shifted, %d USB errors, delimiters %d missing / '
+                    '%d wrong',
+                    w,
+                    ms,
+                    applied_us / 1000,
+                    period,
+                    _model_period_s(w, ms),
+                    means,
+                    float(np.mean(means)) / (applied_us / 1000) if means else float('nan'),
+                    s['elapsed_s'],
+                    s['good_frames'],
+                    s['partial_frames'],
+                    s['shifted_frames'],
+                    s['usb_errors'],
+                    s['delimiters_missing'],
+                    s['delimiters_wrong'],
+                )
