@@ -387,19 +387,25 @@ class SimulatedFX2Device:
         a packet not yet due waits for the next. Each wait runs to a deadline
         kept from the stream's start, so the time spent building a frame is
         inside its period, not added to it.
+
+        A frame's bytes come at the rate of the window and shutter it was
+        started with: the sensor finishes the frame it is reading in that
+        frame's period, and a change takes effect on the next.
         """
         self._pending = deque()
         owed = 0.0
+        rate = 0.0
         deadline = time.monotonic()
         while self._streaming.is_set():
             sink = self._sink
             if sink is None:
                 return
-            w, h = self.sensor.window()
-            owed += bytes_per_transfer(w, h, self.sensor.frame_period_s())
+            if not self._pending:
+                rate = self._start_frame()
+            owed += rate
             while True:
                 if not self._pending:
-                    self._pending.extend(self.packets())
+                    rate = self._start_frame()
                 if len(self._pending[0]) > owed:
                     break
                 packet = self._pending.popleft()
@@ -408,6 +414,13 @@ class SimulatedFX2Device:
             deadline += TRANSFER_S
             if self._stop.wait(max(0.0, deadline - time.monotonic())):
                 return
+
+    def _start_frame(self) -> float:
+        """Queue the next frame's packets; return the bytes a transfer carries of it."""
+        w, h = self.sensor.window()
+        rate = bytes_per_transfer(w, h, self.sensor.frame_period_s())
+        self._pending.extend(self.packets())
+        return rate
 
 
 class SimulatedFX2Transport:

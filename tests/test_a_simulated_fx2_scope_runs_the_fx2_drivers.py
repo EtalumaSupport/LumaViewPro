@@ -176,6 +176,39 @@ def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_
     assert stream.find(fx2driver.FRAME_DELIM, 1) == frame_bytes
 
 
+def test_a_window_change_lets_the_frame_in_flight_finish_in_its_own_period():
+    # The sensor finishes the frame it is reading at that frame's rate. Paced
+    # at the new, smaller window's rate, a 1900-wide frame took about 17 s.
+    import threading
+
+    device = _running_device()
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0x07, 0x6F]))  # 1903, the driver's w + 3
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0x07, 0x6D]))  # 1901
+    old_period_s = device.sensor.frame_period_s()
+    delimiters: list[float] = []
+    second = threading.Event()
+
+    def sink(data: bytes) -> None:
+        if data == fx2driver.FRAME_DELIM:
+            delimiters.append(time.monotonic())
+            if len(delimiters) == 2:
+                second.set()
+
+    device.attach(sink)
+    device.vendor_out(fx2driver.VR_START_STREAMING, 0, 0, b'')
+    try:
+        deadline = time.monotonic() + 5.0
+        while not delimiters and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert delimiters
+        device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))
+        device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
+        assert second.wait(10 * old_period_s)
+    finally:
+        device.stop()
+    assert delimiters[1] - delimiters[0] < 1.5 * old_period_s
+
+
 @pytest.mark.parametrize('window', [(1900, 1900), (1000, 1000)], ids=['1900x1900', '1000x1000'])
 def test_a_frames_bytes_take_its_period_on_the_wire(window):
     w, h = window
