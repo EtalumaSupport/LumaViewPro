@@ -45,7 +45,7 @@ def appdata(tmp_path):
         json.dump(template, f, indent=4)
 
     user = dict(template)
-    user['live_folder'] = '/tmp/the-users-own-folder'
+    user['live_folder'] = '/the-users-own-folder'
     with open(data / 'current.json', 'w') as f:
         json.dump(user, f, indent=4)
     return tmp_path
@@ -71,7 +71,7 @@ def _break(appdata, how):
     current = appdata / 'data' / 'current.json'
     if how == 'unparseable':
         with open(current, 'w') as f:
-            f.write('{"live_folder": "/tmp/the-users-own-folder",,,')
+            f.write('{"live_folder": "/the-users-own-folder",,,')
     elif how == 'missing_required':
         with open(current) as f:
             loaded = json.load(f)
@@ -101,12 +101,12 @@ class TestTheFileSurvives:
         settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         # The user's marker is gone -- that is the whole hazard, and why
         # saving is refused until they are told.
-        assert settings_init.settings['live_folder'] != '/tmp/the-users-own-folder'
+        assert settings_init.settings['live_folder'] != '/the-users-own-folder'
 
     def test_a_healthy_file_is_not_provisional(self, appdata):
         settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/tmp/the-users-own-folder'
+        assert settings_init.settings['live_folder'] == '/the-users-own-folder'
 
     def test_a_second_load_does_not_inherit_the_verdict(self, appdata):
         log = __import__('logging').getLogger('t')
@@ -255,7 +255,7 @@ class TestShapeValidation:
         self._load(appdata)
 
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/tmp/the-users-own-folder'
+        assert settings_init.settings['live_folder'] == '/the-users-own-folder'
 
     def test_the_healthy_shipped_template_validates_against_itself(self, appdata):
         # If the rule rejects the app's own shipped config, the rule is wrong.
@@ -281,14 +281,14 @@ class TestALateRejectionGetsTheSamePolicy:
         # settings_init saw the template -- one store with two contents.
         settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
         store = settings_init.settings
-        assert store['live_folder'] == '/tmp/the-users-own-folder'
+        assert store['live_folder'] == '/the-users-own-folder'
 
         settings_init.fall_back_to_template(
             logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
         )
 
         assert settings_init.settings is store, 'the store was rebound; aliases now diverge'
-        assert store['live_folder'] != '/tmp/the-users-own-folder', (
+        assert store['live_folder'] != '/the-users-own-folder', (
             'the store still holds the rejected configuration'
         )
 

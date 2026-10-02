@@ -3,7 +3,6 @@ import datetime
 import json
 import logging
 import os
-import pathlib
 import threading
 
 from kivy.clock import Clock
@@ -161,33 +160,6 @@ class MicroscopeSettings(BoxLayout):
                         settings['profiling'].get('handle_trace_obj_sample_every', 1000)
                     )
                 )
-
-            try:
-                live_folder = pathlib.Path(settings['live_folder'])
-                # Resolve relative paths against Documents app folder when installed,
-                # not CWD (which is Program Files and not writable).
-                if not live_folder.is_absolute():
-                    from lvp_logger import lvp_appdata
-
-                    live_folder = pathlib.Path(lvp_appdata) / live_folder
-                live_folder = live_folder.resolve()
-                live_folder.mkdir(exist_ok=True, parents=True)
-
-            except Exception as e:
-                logger.warning(
-                    f'[LVP Main  ] Unable to find/create live image folder at {settings["live_folder"]}: {e}'
-                )
-                try:
-                    from lvp_logger import lvp_appdata
-
-                    live_folder = pathlib.Path(lvp_appdata) / 'capture'
-                except Exception:
-                    live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
-                live_folder = live_folder.resolve()
-                live_folder.mkdir(exist_ok=True, parents=True)
-                logger.info(f'[LVP Main  ] Defaulting live image folder to {live_folder!s}')
-
-            settings['live_folder'] = str(live_folder)
 
             # update GUI values from JSON data:
 

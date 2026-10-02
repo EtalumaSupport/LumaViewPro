@@ -2,6 +2,7 @@
 import os
 import json
 import logging
+import pathlib
 import time
 
 from modules import labware_loader
@@ -442,6 +443,30 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
 
 
+def _bring_up_live_folder(logger: logging.Logger, settings: dict, directory: str) -> None:
+    """Make ``settings['live_folder']`` absolute and create it.
+
+    The shipped template holds a relative folder, which means the data
+    directory's; left relative, each writer would resolve it against the
+    process's working directory, and an installed build's working directory
+    is not writable. A folder that cannot be created stays the person's:
+    replacing it would send their captures somewhere they will not look and
+    save the replacement over their choice. Captures into it are refused by
+    the capture-location owner, naming it, until it is reachable.
+    """
+    live_folder = pathlib.Path(settings['live_folder'])
+    if not live_folder.is_absolute():
+        live_folder = (pathlib.Path(directory) / live_folder).resolve()
+        settings['live_folder'] = str(live_folder)
+    try:
+        live_folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning(
+            f'[Settings ] The live folder {live_folder} could not be created ({e}); '
+            'captures into it are refused until it is reachable.'
+        )
+
+
 def prepare_settings(
     logger: logging.Logger, directory: str, *, fall_back_to_template: bool
 ) -> tuple:
@@ -511,6 +536,7 @@ def prepare_settings(
                 logger.warning('[Settings ] Could not load settings.json for default merge')
 
         _normalize_turret_slot_keys(prepared)
+        _bring_up_live_folder(logger, prepared, directory)
 
         return prepared, rejected
 
@@ -518,6 +544,7 @@ def prepare_settings(
         prepared = _load_and_validate(logger, template_path)
         _apply_load_migrations(logger, prepared)
         _normalize_turret_slot_keys(prepared)
+        _bring_up_live_folder(logger, prepared, directory)
         return prepared, None
 
     if not os.path.isdir(data_dir):
@@ -616,6 +643,7 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     prepared = _load_and_validate(logger, template_path)
     _apply_load_migrations(logger, prepared)
     _normalize_turret_slot_keys(prepared)
+    _bring_up_live_folder(logger, prepared, lvp_appdata)
 
     settings.clear()
     settings.update(prepared)

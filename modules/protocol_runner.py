@@ -258,9 +258,7 @@ class ProtocolRunner:
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 
         if parent_dir is None:
-            parent_dir = (
-                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Composites'
-            )
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Composites'
 
         return self._run(
             protocol=protocol,
@@ -383,8 +381,7 @@ class ProtocolRunner:
             parent_dir = None
         elif parent_dir is None:
             parent_dir = (
-                pathlib.Path(settings.get('live_folder', '.')).resolve()
-                / 'Autofocus Characterization'
+                pathlib.Path(settings['live_folder']).resolve() / 'Autofocus Characterization'
             )
         return self._run(
             protocol=protocol,
@@ -561,9 +558,7 @@ class ProtocolRunner:
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 
         if parent_dir is None:
-            parent_dir = (
-                pathlib.Path(settings.get('live_folder', '.')).resolve() / 'Manual' / 'Z-Stacks'
-            )
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
 
         return self._run(
             protocol=protocol,
@@ -714,8 +709,7 @@ class ProtocolRunner:
         if parent_dir is None:
             if not disable_saving_artifacts:
                 parent_dir = (
-                    pathlib.Path(self.session.settings.get('live_folder', '.')).resolve()
-                    / 'ProtocolData'
+                    pathlib.Path(self.session.settings['live_folder']).resolve() / 'ProtocolData'
                 )
         else:
             parent_dir = pathlib.Path(parent_dir)
