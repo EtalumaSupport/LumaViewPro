@@ -1227,7 +1227,6 @@ class ProtocolSettings(FloatLayout):
             self._protocol.step(idx=self.curr_step)['Color'],
             name,
         )
-        self._warn_if_steps_invalid('Step modified')
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
@@ -1263,19 +1262,7 @@ class ProtocolSettings(FloatLayout):
         elif self.curr_step < 0:
             self.curr_step += 1
 
-        self._warn_if_steps_invalid('Step added')
         self.go_to_step(step_idx=self.curr_step)
-
-    def _warn_if_steps_invalid(self, what: str) -> None:
-        errors = self._protocol.validate_steps(_app_ctx.ctx.lumaview.scope.objective_helper)
-        if errors:
-            from ui.notification_popup import show_notification_popup
-
-            msg = '\n'.join(errors)
-            show_notification_popup(
-                title='Protocol Validation Warning',
-                message=f'{what} with validation issues:\n\n{msg}',
-            )
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))

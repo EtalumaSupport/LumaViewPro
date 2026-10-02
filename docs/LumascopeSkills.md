@@ -682,6 +682,8 @@ names = session.add_step(protocol, before_step=0)   # ['custom0000_BF', ...]
 name = session.update_step(protocol, 0, layer='Blue')   # 'custom0000_Blue'
 ```
 
+**A step the run will refuse.** A loaded file can carry a step field the run gate rejects (an exposure of 0, an objective not in the catalogue, an illumination above the board's maximum), and an add or update composed from live settings can too. Neither is refused: the load and the edit succeed, so the step can be fixed, and `session.load_protocol`, `add_step` and `update_step` report one notice, reason `protocol_steps_invalid`, listing the validator's lines. The run start refuses the protocol until every step is valid.
+
 ### Video steps and recordings
 
 A protocol step with `Acquire` = `video` records through the session's recording engine for the step's configured duration. This is the supported video path for L2 / headless callers; the GUI's manual Record button is a GUI-hosted convenience on the same engine.

@@ -208,6 +208,24 @@ class DuplicateCaptureFilenamesNotice(Notice, Exception):  # noqa: N818 -- a not
         )
 
 
+class ProtocolStepsInvalidNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A protocol holds a step the run will refuse, after a load or an edit.
+
+    The load and the edit still succeed, so the step can be fixed in the
+    app; the run is refused at start until every step is valid. The words
+    are the validator's own lines, one per field.
+    """
+
+    title = 'Protocol has steps that cannot run'
+    reason = 'protocol_steps_invalid'
+
+    def __init__(self, *, errors: list[str]):
+        super().__init__(
+            f'{len(errors)} step field(s) will be refused when the protocol is run. '
+            'The protocol can be edited; fix these first:\n' + '\n'.join(errors)
+        )
+
+
 class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """A run spent long enough waiting on the save disk to say so at its end."""
 

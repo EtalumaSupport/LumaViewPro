@@ -52,6 +52,12 @@ _NOTICES = [
     ),
     (exc.SlowFileWritesNotice(), 'slow_file_writes'),
     (
+        exc.ProtocolStepsInvalidNotice(
+            errors=['Step 1 (a): Exposure must be more than 0 ms, got 0.0']
+        ),
+        'protocol_steps_invalid',
+    ),
+    (
         exc.SingleScanNotice(
             period=datetime.timedelta(minutes=10), duration=datetime.timedelta(minutes=5)
         ),

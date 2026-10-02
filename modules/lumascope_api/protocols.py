@@ -33,7 +33,11 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
-from modules.exceptions import ProtocolRunRefusedError, unknown_positions_sentence
+from modules.exceptions import (
+    ProtocolRunRefusedError,
+    ProtocolStepsInvalidNotice,
+    unknown_positions_sentence,
+)
 from modules.lumascope_api.imaging import camera_range_words
 
 if TYPE_CHECKING:
@@ -123,7 +127,25 @@ class ProtocolsAPI:
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
+        self._report_invalid_steps(protocol)
         return protocol
+
+    def _report_invalid_steps(self, protocol: Protocol) -> None:
+        """Tell the caller once when the protocol holds a step the run will refuse.
+
+        A loaded file may carry a field the run gate rejects, and an edit
+        composed from live settings may too; neither is refused here, so
+        the step can be fixed in the app, and the run start is where the
+        refusal lives. A notice, like the duplicate-filename one the loader
+        reports: reported, never raised.
+        """
+        from modules.notification_center import notifications
+
+        errors = protocol.validate_steps(self._scope.objective_helper)
+        if errors:
+            notifications.report_outcome(
+                ProtocolStepsInvalidNotice(errors=errors), solicited=True, category='Protocol'
+            )
 
     def create_protocol(
         self,
@@ -262,6 +284,7 @@ class ProtocolsAPI:
             # name lookup: a loaded file may carry duplicate names.
             inserted_at = before_step if before_step is not None else after_step + 1
             before_step, after_step = None, inserted_at
+        self._report_invalid_steps(protocol)
         return names
 
     def update_step(
@@ -312,6 +335,7 @@ class ProtocolsAPI:
             plate_position=plate_position,
             objective_id=objective_id,
         )
+        self._report_invalid_steps(protocol)
         return protocol.step(idx=step_idx)['Name']
 
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
