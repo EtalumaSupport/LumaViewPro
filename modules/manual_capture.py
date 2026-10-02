@@ -18,7 +18,7 @@ from typing import Any
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
-from modules import capture_overlays
+from modules import capture_overlays, path_utils
 from modules.activity_claim import Taking, acting, current_taking
 from modules.exceptions import (
     CaptureError,
@@ -216,10 +216,20 @@ class ManualCaptureController:
             )
         )
 
-        save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
-        if settings['separate_folder_per_channel']:
-            save_folder = save_folder / channel
-        save_folder.mkdir(parents=True, exist_ok=True)
+        # The live folder is asked of the location owner, and only the levels
+        # inside it are created here.
+        try:
+            save_folder = path_utils.require_capture_location(settings['live_folder']) / 'Manual'
+            if settings['separate_folder_per_channel']:
+                save_folder = save_folder / channel
+            save_folder.mkdir(parents=True, exist_ok=True)
+        except path_utils.CaptureLocationError as exc:
+            raise CaptureError(str(exc), 'capture_location_unusable') from exc
+        except OSError as exc:
+            raise CaptureError(
+                f'Could not create {save_folder} in the capture location: {exc}',
+                'capture_location_unusable',
+            ) from exc
 
         # The summing row is the imaged channel's; the delay is a settle
         # between summed frames.

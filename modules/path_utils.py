@@ -17,6 +17,33 @@ class CaptureLocationError(Exception):
     """The capture location cannot hold a new output directory."""
 
 
+def _inaccessible(location: pathlib.Path) -> CaptureLocationError:
+    """The one sentence for a capture location that is not there."""
+    return CaptureLocationError(
+        f'{location} is not an accessible capture location. '
+        'Check that the save location exists and any external drive is '
+        'connected, then try again.'
+    )
+
+
+def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
+    """The live folder as a path, if it is there to capture into.
+
+    A writer creates only its own levels inside the live folder, never the
+    folder itself: the settings owner brings it up at startup, so a live
+    folder that is missing now is an unplugged drive or a stale path, and
+    creating it would put the capture in a new empty directory on whatever
+    is mounted there, where the user will not look for it.
+
+    Raises:
+        CaptureLocationError: the folder does not exist or is not a folder.
+    """
+    folder = pathlib.Path(live_folder)
+    if not folder.is_dir():
+        raise _inaccessible(folder)
+    return folder
+
+
 def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
     """Reserve a new directory at ``desired``, or the next free name after it.
 
@@ -56,11 +83,7 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
             # an unplugged drive, a stale path from another machine. Creating it
             # would put the capture in a new empty directory on whatever volume
             # happens to be mounted there, where the user will not look for it.
-            raise CaptureLocationError(
-                f'{desired.parent} is not an accessible capture location. '
-                'Check that the save location exists and any external drive is '
-                'connected, then try again.'
-            ) from exc
+            raise _inaccessible(desired.parent) from exc
         except OSError as exc:
             raise CaptureLocationError(
                 f'Could not create {candidate} in the capture location: {exc}'

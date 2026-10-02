@@ -316,12 +316,23 @@ class ManualRecordingController:
         else:
             save_folder = Path(settings['live_folder']) / 'Manual'
 
+        # The live folder is there before its free space means anything: a
+        # disk probe on a missing folder raises instead of refusing.
+        try:
+            live_folder = path_utils.require_capture_location(settings['live_folder'])
+        except path_utils.CaptureLocationError as exc:
+            raise RecordingRefusedError(
+                reason='capture_location_unusable',
+                title='Cannot Save Recording',
+                message=str(exc),
+            ) from exc
+
         # PR-2 floor semantics: manual recording is stop-when-I-say, so
         # the pre-flight is a floor check (can we start safely?), not a
         # whole-budget reservation; the rolling check in the write edge
         # carries the guarantee through the recording. Probed on the
         # live folder -- the save subfolders may not exist yet.
-        ok, free_mb = check_disk_space_ok(Path(settings['live_folder']), MIN_REQUIRED_DISK_MB)
+        ok, free_mb = check_disk_space_ok(live_folder, MIN_REQUIRED_DISK_MB)
         if not ok:
             raise RecordingRefusedError(
                 reason='insufficient_disk',
