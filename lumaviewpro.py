@@ -474,8 +474,8 @@ from ui.ui_helpers import (
     _handle_autofocus_ui,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
-    draw_unasked,
     run_reported,
+    run_unasked,
 )
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
@@ -593,7 +593,7 @@ class LumaViewProApp(TooltipMixin, App):
         # contained: a raise out of a clock callback closes the application.
         ctx.session.add_run_state_listener(
             lambda: Clock.schedule_once(
-                lambda dt: draw_unasked(self.publish_run_state, 'RUN_STATE'), 0
+                lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0
             )
         )
 

@@ -11,7 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
-from ui.ui_helpers import draw_unasked
+from ui.ui_helpers import run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -120,7 +120,7 @@ void main (void) {
         # raise out of a clock callback closes the application, so a fault is
         # reported where it stops and the next tick draws again.
         self._status_bar_trigger = Clock.create_trigger(
-            lambda dt: draw_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR'),
+            lambda dt: run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR'),
             0.1,
             interval=True,
         )

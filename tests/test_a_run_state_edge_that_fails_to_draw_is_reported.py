@@ -14,9 +14,9 @@ from modules.notification_center import notifications
 from tests.ast_seams import find_def
 
 
-class TestDrawUnasked:
+class TestRunUnasked:
     def test_a_draw_that_raises_is_reported_unasked_and_not_raised(self, monkeypatch):
-        from ui.ui_helpers import draw_unasked
+        from ui.ui_helpers import run_unasked
 
         reports = []
         monkeypatch.setattr(
@@ -27,13 +27,13 @@ class TestDrawUnasked:
         def _draw():
             raise failure
 
-        draw_unasked(_draw, 'RUN_STATE')
+        run_unasked(_draw, 'RUN_STATE')
 
         assert [e for e, _ in reports] == [failure]
         assert reports[0][1]['solicited'] is False, 'no person asked for a run-state redraw'
 
     def test_each_edge_draws_again_after_a_failed_one(self, monkeypatch):
-        from ui.ui_helpers import draw_unasked
+        from ui.ui_helpers import run_unasked
 
         reports = []
         monkeypatch.setattr(
@@ -46,14 +46,14 @@ class TestDrawUnasked:
             if len(drawn) == 1:
                 raise RuntimeError('the first edge failed to draw')
 
-        draw_unasked(_draw, 'RUN_STATE')
-        draw_unasked(_draw, 'RUN_STATE')
+        run_unasked(_draw, 'RUN_STATE')
+        run_unasked(_draw, 'RUN_STATE')
 
         assert len(drawn) == 2
         assert len(reports) == 1
 
 
-def test_the_apps_run_state_listener_draws_through_draw_unasked():
+def test_the_apps_run_state_listener_draws_through_run_unasked():
     on_start = find_def('lumaviewpro.py', 'on_start', class_name='LumaViewProApp')
     assert on_start is not None, 'LumaViewProApp.on_start is gone'
     listeners = [
@@ -66,6 +66,6 @@ def test_the_apps_run_state_listener_draws_through_draw_unasked():
     assert len(listeners) == 1, 'the App registers one run-state listener'
     registered = ast.unparse(listeners[0])
     assert 'publish_run_state' in registered
-    assert 'draw_unasked' in registered, (
+    assert 'run_unasked' in registered, (
         'publish_run_state runs bare on the clock: a raise in it closes the application'
     )

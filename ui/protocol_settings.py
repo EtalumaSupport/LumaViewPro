@@ -38,6 +38,7 @@ from ui.ui_helpers import (
     reset_stim_ui,
     reset_title,
     run_reported,
+    run_unasked,
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
@@ -161,8 +162,8 @@ class ProtocolSettings(FloatLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _do_update_step_ui(self, *args):
-        """Actual UI update method, called by trigger."""
-        self.update_step_ui_immediate()
+        """The trigger's frame: nobody asked for it, so a raise is reported, not raised."""
+        run_unasked(self.update_step_ui_immediate, 'STEP_UI')
 
     def update_step_ui(self):
         """Triggered version - debounces rapid calls."""
@@ -193,11 +194,8 @@ class ProtocolSettings(FloatLayout):
         if num_steps <= 0 or self.curr_step < 0:
             label.text = ''
             return
-        try:
-            step = self._protocol.step(idx=self.curr_step)
-            label.text = f'{float(step["Z"]):.0f} um'
-        except Exception:
-            label.text = ''
+        step = self._protocol.step(idx=self.curr_step)
+        label.text = f'{float(step["Z"]):.0f} um'
 
     def _update_protocol_size_advisory(self):
         """Show the session's size advisory for this protocol, if it has one.
@@ -1723,10 +1721,10 @@ class ProtocolSettings(FloatLayout):
 
         No run's handle is held here and no person waits for an outcome, so
         it is the engine's shutdown override rather than a Stop, and a
-        failure is logged for the shutdown to carry on past.
+        failure is reported for the shutdown to carry on past.
         """
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
-        try:
-            _app_ctx.ctx.sequenced_capture_runner.force_reset(reason='app shutdown')
-        except Exception as e:
-            logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
+        run_unasked(
+            lambda: _app_ctx.ctx.sequenced_capture_runner.force_reset(reason='app shutdown'),
+            'APP_SHUTDOWN',
+        )

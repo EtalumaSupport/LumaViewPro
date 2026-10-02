@@ -16,7 +16,7 @@ import ui.shader
 
 def test_the_status_bar_tick_draws_through_the_gui_boundary():
     source = inspect.getsource(ui.shader.ShaderViewer.__init__)
-    assert "draw_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')" in source
+    assert "run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')" in source
 
 
 def test_the_title_composition_catches_nothing():

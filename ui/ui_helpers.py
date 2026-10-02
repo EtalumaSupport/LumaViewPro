@@ -123,16 +123,17 @@ def submit_reported(
         _redraw()
 
 
-def draw_unasked(draw: typing.Callable[[], object], label: str) -> None:
-    """Draw for an edge no person asked for; a raise is reported, not raised.
+def run_unasked(call: typing.Callable[[], object], label: str) -> None:
+    """Run for an edge no person asked for; a raise is reported, not raised.
 
-    A run-state edge redraws on the clock. A raise out of a clock callback
-    reaches the main loop and closes the application, and nothing waits on
-    this draw, so its fault stops here -- reported as unasked, which an
-    unattended run's mute and the repeat window apply to -- and the next
-    edge draws again.
+    A run-state edge redraws on the clock, a step-list change redraws the
+    step editor, the application's close stops a live run. A raise out of a
+    clock callback or a shutdown step reaches the main loop and closes the
+    application, and nothing waits on these calls, so a fault stops here --
+    reported as unasked, which an unattended run's mute and the repeat
+    window apply to -- and the next edge runs again.
     """
-    _contained(draw, label, solicited=False)
+    _contained(call, label, solicited=False)
 
 
 def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
