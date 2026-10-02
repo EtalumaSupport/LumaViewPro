@@ -449,6 +449,7 @@ def test_session_recover_file_writer_passthrough():
         file_io_executor=MagicMock(),
         post_processing_executor=MagicMock(),
         protocol_thread=MagicMock(),
+        shutdown=lambda: None,
     )
     session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
 

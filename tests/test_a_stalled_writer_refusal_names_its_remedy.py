@@ -30,6 +30,7 @@ def session():
         file_io_executor=MagicMock(),
         post_processing_executor=MagicMock(),
         protocol_thread=MagicMock(),
+        shutdown=lambda: None,
     )
     return ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
 

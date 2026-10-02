@@ -93,6 +93,20 @@ def disconnect_when_the_test_ends(camera):
     _TEARDOWNS.append(camera.disconnect)
 
 
+def shut_down_when_the_test_ends(session):
+    """Queue a session's shutdown with the test's other teardowns.
+
+    A session runs periodic timers on its own scheduler (the stream check
+    among them) until it is shut down, and each tick re-arms on a new timer
+    thread. Tests build sessions in many places and drop them unclosed; one
+    left behind keeps starting threads for the rest of the worker's run,
+    inside the window of every later test that checks a refused bring-up
+    started nothing. The autouse fixture in `conftest.py` routes every
+    construction here; a second shutdown() is a logged no-op.
+    """
+    _TEARDOWNS.append(session.shutdown)
+
+
 def give_stub_lanes(scope):
     """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
 

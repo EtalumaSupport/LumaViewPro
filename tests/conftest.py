@@ -345,6 +345,28 @@ def _every_simulated_camera_is_disconnected_by_its_test():
         yield
 
 
+@pytest.fixture(scope='session', autouse=True)
+def _every_session_is_shut_down_by_its_test():
+    """Every session, however a test built it, is shut down when that test ends.
+
+    See `tests.scope_fakes.shut_down_when_the_test_ends`. Attached to the
+    construction for the reason the simulated camera's is; a session built by
+    a module-scoped fixture before the test began is left to that fixture.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import shut_down_when_the_test_ends
+
+    built = ScopeSession.__init__
+
+    @functools.wraps(built)
+    def built_and_queued(self, *args, **kwargs):
+        built(self, *args, **kwargs)
+        shut_down_when_the_test_ends(self)
+
+    with patch.object(ScopeSession, '__init__', built_and_queued):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _no_test_leaves_the_popups_muted():
     """A test that ends with the notification centre muted for a run fails.

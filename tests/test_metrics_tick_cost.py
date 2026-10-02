@@ -26,6 +26,8 @@ operator believed it off.
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
+from types import SimpleNamespace
+
 import pytest
 
 from modules import app_context, common_utils, config_helpers
@@ -153,7 +155,7 @@ class TestHandleMetricsLine:
         assert not lines
 
 
-_SCHEDULER = object()
+_SCHEDULER = SimpleNamespace(shutdown=lambda: None)
 
 
 class _EngineeringCtx:
