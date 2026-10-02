@@ -93,6 +93,32 @@ class _RegistryEntry:
     is_simulator: bool
 
 
+@dataclass(frozen=True)
+class DriverFallback:
+    """Why 'auto' handed back the null driver instead of a real one.
+
+    Returned beside the null driver so the caller can record the cause: a
+    null driver says only that nothing is connected, and the operator needs
+    to know whether the board was absent, held by another program, or
+    powered but mute (the registry's log lines said so; a record of the
+    bring-up has to carry it too).
+
+    Attributes:
+        cause: ``'not_detected'`` (every driver reported found=False),
+            ``'port_in_use'`` (a port was found but could not be opened),
+            ``'not_responding'`` (the port opened and the board answered
+            nothing), ``'connect_failed'`` (a driver raised), or
+            ``'no_driver'`` (no real driver is registered for this kind).
+        tried: The driver classes that were tried, by name.
+        detail: The last error's type and message when a driver raised;
+            empty otherwise.
+    """
+
+    cause: str
+    tried: tuple[str, ...]
+    detail: str = ''
+
+
 class DriverRegistry:
     """Name-keyed driver registry with auto-detect support.
 
@@ -210,7 +236,26 @@ class DriverRegistry:
         absence_expected: bool = False,
         **kwargs,
     ) -> Any:
-        """Construct a driver instance.
+        """Construct a driver instance; ``create_with_fallback`` with the verdict dropped."""
+        instance, _fallback = self.create_with_fallback(
+            name, simulate=simulate, absence_expected=absence_expected, **kwargs
+        )
+        return instance
+
+    def create_with_fallback(
+        self,
+        name: str = 'auto',
+        *,
+        simulate: bool = False,
+        absence_expected: bool = False,
+        **kwargs,
+    ) -> tuple[Any, DriverFallback | None]:
+        """Construct a driver instance, and say why it is the null one when it is.
+
+        Returns:
+            ``(instance, fallback)``: ``fallback`` is None for a real driver,
+            and a ``DriverFallback`` naming the cause when every real driver
+            was tried and the null one was handed back.
 
         Args:
             name: Registry key or 'auto'. With 'auto', tries drivers in
@@ -253,7 +298,7 @@ class DriverRegistry:
                 _, why = failure
                 _disconnect_quietly(instance)
                 raise DriverNotLiveError(f'{self._kind} driver {cls.__name__} ({name!r}) {why}')
-            return instance
+            return instance, None
 
         # Auto mode -- pick by priority, filtered by simulate flag.
         candidates = sorted(
@@ -309,7 +354,7 @@ class DriverRegistry:
                 # announce themselves at debug, so on a default-level
                 # field log it could not be inferred at all.
                 logger.info(f'[registry] {self._kind}: using {entry.cls.__name__}')
-                return instance
+                return instance, None
             except Exception as e:
                 last_error = e
                 logger.debug(
@@ -333,16 +378,19 @@ class DriverRegistry:
         # registry when actually `found=False` had been returned. Bit us
         # 2026-04-15 chasing why FX2 wasn't in the picture.
         for entry in null_candidates:
+            tried = tuple(e.cls.__name__ for e in real_candidates)
             if last_error is not None:
                 # Name the error type + message but not the traceback: a
                 # missing board at startup is an expected fallback, and the
                 # stack is always the same driver connect() chain. The type
                 # and message are the diagnostic payload.
+                detail = f'{type(last_error).__name__}: {last_error}'
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers failed, '
                     f'falling back to {entry.cls.__name__}. '
-                    f'Last error: {type(last_error).__name__}: {last_error}'
+                    f'Last error: {detail}'
                 )
+                fallback = DriverFallback('connect_failed', tried, detail)
             elif not_responsive_names:
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers connected but '
@@ -352,6 +400,7 @@ class DriverRegistry:
                     f'{", ".join(not_responsive_names)}. '
                     f'Falling back to {entry.cls.__name__}'
                 )
+                fallback = DriverFallback('not_responding', tried)
             elif not_connected_names:
                 logger.warning(
                     f'[registry] {self._kind}: all real drivers constructed '
@@ -360,6 +409,7 @@ class DriverRegistry:
                     f'{", ".join(not_connected_names)}. '
                     f'Falling back to {entry.cls.__name__}'
                 )
+                fallback = DriverFallback('port_in_use', tried)
             elif found_false_names:
                 logger.log(
                     logging.INFO if absence_expected else logging.WARNING,
@@ -369,6 +419,7 @@ class DriverRegistry:
                     f'Tried: {", ".join(found_false_names)}. '
                     f'Falling back to {entry.cls.__name__}',
                 )
+                fallback = DriverFallback('not_detected', tried)
             else:
                 logger.info(
                     f'[registry] {self._kind}: registry is empty for this '
@@ -376,7 +427,8 @@ class DriverRegistry:
                     f'driver module is imported somewhere). Falling back '
                     f'to {entry.cls.__name__}'
                 )
-            return entry.cls()
+                fallback = DriverFallback('no_driver', tried)
+            return entry.cls(), fallback
 
         # No null driver registered -- raise with the last real-driver error.
         if last_error is not None:

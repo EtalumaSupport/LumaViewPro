@@ -123,6 +123,65 @@ class TestDriverRegistryUnit:
         instance = reg.create('auto')
         assert isinstance(instance, Null)
 
+    def test_the_fallback_names_its_cause_beside_the_null_driver(self):
+        """A null driver says only that nothing is connected; the verdict
+        beside it says why, so a record of the bring-up can carry it."""
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('unfound', priority=100)
+        class Unfound:
+            def __init__(self, **kw):
+                self.found = False
+
+        @reg.register('held', priority=50)
+        class Held:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self):
+                return False
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        instance, fallback = reg.create_with_fallback('auto')
+        assert isinstance(instance, Null)
+        assert fallback == DriverFallback('port_in_use', ('Unfound', 'Held'))
+
+    def test_a_driver_that_raised_is_the_fallback_s_detail(self):
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('broken', priority=100)
+        class Broken:
+            def __init__(self, **kw):
+                raise RuntimeError('no hardware')
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        _instance, fallback = reg.create_with_fallback('auto')
+        assert fallback == DriverFallback(
+            'connect_failed', ('Broken',), 'RuntimeError: no hardware'
+        )
+
+    def test_a_real_driver_comes_with_no_fallback(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                pass
+
+        instance, fallback = reg.create_with_fallback('auto')
+        assert isinstance(instance, Works)
+        assert fallback is None
+
     def test_auto_skips_found_false_drivers(self):
         """Drivers that signal failure via .found=False (SerialBoard
         pattern) are skipped in auto mode, same as if they raised."""
