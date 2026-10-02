@@ -20,7 +20,9 @@ of 2048 + 123 followed by the delimiter.
 
 from __future__ import annotations
 
+import logging
 import sys
+import threading
 import time
 import types
 from types import SimpleNamespace
@@ -203,6 +205,54 @@ def test_a_flush_just_after_a_frame_end_counts_no_missing_delimiter():
     assert stream.take_counts().delimiters_missing == 0
 
 
+def test_a_flush_mid_frame_drops_what_was_assembled():
+    stream = fx2driver._ByteStream()
+    stream.packet(DELIM)
+    _feed(stream, _frame(2048 + 123)[:500])  # half a frame of the old window
+    stream.flush()
+    _feed(stream, _frame(2048 + 123))
+
+    assert _lengths(stream) == [(FB, False)]
+
+
+def _grab_loop_on(stream, w, h):
+    cam = object.__new__(fx2driver.FX2Camera)
+    cam._fx2 = SimpleNamespace(
+        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+    )
+    cam._grabbing = True
+    cam._width, cam._height = w, h
+    cam.stream_stats = fx2driver.StreamStats()
+    stored = []
+    cam.cam_image_handler = SimpleNamespace(
+        _store_frame=lambda image, ts, significant_bits: stored.append(image.shape)
+    )
+    return cam, stored
+
+
+def test_a_frame_a_failure_fell_in_is_not_stored_even_at_its_length():
+    stream = fx2driver._ByteStream()
+    cam, stored = _grab_loop_on(stream, 1896, 1896)
+    first = _frame(2048 + 123)
+    stream.packet(DELIM)
+    _feed(stream, first[:10])
+    stream.fail()  # a failed packet: the frame's length can still come out right
+    _feed(stream, first[10:])
+    _feed(stream, [DELIM, *_frame(2048 + 123)])
+
+    loop = threading.Thread(target=cam._grab_loop, daemon=True)
+    loop.start()
+    deadline = time.monotonic() + 2.0
+    while not stored and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.1)
+    cam._grabbing = False
+    loop.join(2.0)
+
+    assert stored == [(1896, 1896)]
+    assert cam.stream_stats.summary()['partial_frames'] == 1
+
+
 def test_a_stream_with_no_frame_end_is_held_to_one_largest_frame():
     stream = fx2driver._ByteStream()
     longest = fx2driver.frame_layout(fx2driver.IMG_WIDTH, fx2driver.IMG_HEIGHT).frame_bytes
@@ -273,3 +323,45 @@ def test_a_simulated_ls620_stores_every_frame_whatever_its_delimiters(session, f
     assert after['partial_frames'] == before['partial_frames']
     key = 'delimiters_missing' if fault == 'lose_delimiters' else 'delimiters_wrong'
     assert after[key] > before[key]
+
+
+def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, caplog, monkeypatch):
+    monkeypatch.setattr(fx2driver, 'logger', logging.getLogger('fx2_under_test'))
+    caplog.set_level(logging.INFO, logger='fx2_under_test')
+    camera = session.scope._camera_driver
+    camera.STATS_LOG_INTERVAL = 0.2
+    transport = session.scope._led_driver._fx2._transport
+    transport.lose_delimiters(2)
+    transport.garble_delimiters(3)
+    assert _wait_until(
+        lambda: (
+            min(
+                camera.stream_stats.summary()['delimiters_missing'],
+                camera.stream_stats.summary()['delimiters_wrong'],
+            )
+            > 0
+        ),
+        6.0,
+    )
+
+    camera.stop_grabbing()
+
+    s = camera.stream_stats.summary()
+    said = f'delimiters {s["delimiters_missing"]} missing / {s["delimiters_wrong"]} wrong'
+    lines = [r.getMessage() for r in caplog.records]
+    assert any(
+        'stream:' in m and 'delimiters' in m and '0 missing / 0 wrong' not in m for m in lines
+    )
+    assert any('streaming stopped' in m and said in m for m in lines)
+
+
+def test_a_simulated_unplugs_failed_transfers_reach_the_stream():
+    from drivers.simulated_fx2 import SimulatedFX2
+
+    sim = SimulatedFX2()
+    sim.connection.start_stream()
+    sim.connection.stream.take_counts()
+    sim.connection._transport.unplug(resubmit_failures=2)
+
+    assert sim.connection.stream.take_counts().usb_errors == 2
+    sim.connection._transport.close()
