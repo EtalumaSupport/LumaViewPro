@@ -65,3 +65,24 @@ def test_a_raise_from_the_pixel_format_read_is_not_turned_into_8_bit(monkeypatch
     with pytest.raises(RuntimeError):
         cls.load_image_modes(panel)
     assert panel.ids['image_mode_spinner'].values is None
+
+
+def test_a_camera_profile_defect_is_not_turned_into_one_size(monkeypatch):
+    """Behind the panel the API answered [1] for a profile it could not read.
+
+    Every camera has a profile (`Camera.__init__`, `lookup_profile`), so the
+    only way to reach that answer was a defect, which it hid as a camera that
+    cannot bin.
+    """
+    from modules.lumascope_api.imaging import ImagingAPI
+
+    class _NoSizes:
+        def __getattr__(self, name):
+            raise AttributeError(name)
+
+    camera = types.SimpleNamespace(active=True, profile=_NoSizes())
+    monkeypatch.setattr(ImagingAPI, '_driver', property(lambda self: camera))
+    api = ImagingAPI.__new__(ImagingAPI)
+
+    with pytest.raises(AttributeError):
+        api.get_available_binning_sizes()

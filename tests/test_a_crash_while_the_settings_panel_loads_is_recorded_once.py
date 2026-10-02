@@ -36,3 +36,28 @@ def test_a_raise_in_the_load_reaches_the_caller_and_the_panel_logs_nothing(monke
         if r.name == 'LVP.ui.microscope_settings' and r.levelno >= logging.WARNING
     ]
     assert panel_lines == []
+
+
+def test_the_build_calls_the_load_the_way_it_is_declared():
+    """The load takes no file: it fills the panel from the settings store.
+
+    Its filename parameter was read only by the deleted log lines; the app's
+    build is its one caller, and a stale argument there fails only when the
+    app starts.
+    """
+    import ast
+    import inspect
+
+    from tests.ast_seams import parse_module
+    from ui.microscope_settings import MicroscopeSettings
+
+    assert list(inspect.signature(MicroscopeSettings.load_settings).parameters) == ['self']
+    calls = [
+        node
+        for node in ast.walk(parse_module('lumaviewpro.py'))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == 'load_settings'
+    ]
+    assert len(calls) == 1
+    assert not calls[0].args and not calls[0].keywords
