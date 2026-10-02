@@ -68,8 +68,8 @@ Firmware-only (doc_status family):
     daily_log_entries_kept -- a shard commit that drops an entry HEAD has
                 is BLOCKED (a prepend that truncated the file)
     handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
-                outside Branch tips / Next / Rulings / What not to touch,
-                and a new one has all four (WARN, diff-aware)
+                outside Branch tips / Next / Rulings, and a new one has
+                all three (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1081,7 +1081,7 @@ _HANDOVER_RE = re.compile(r'(?:^|/)docs/SESSION_HANDOVER_[^/]+\.md$')
 _HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
 # Mirrors the H2 lines of the handover block in the handover-close skill's
 # references/templates.md; a rename lands in both or every next close WARNs.
-_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings', 'What not to touch')
+_HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings')
 
 
 def _is_handover(path: str) -> bool:
@@ -1093,13 +1093,13 @@ def _is_handover(path: str) -> bool:
 
 def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
     """WARN when a handover gains a heading outside its closed shape, or a
-    new handover arrives without one of the four.
+    new handover arrives without one of the three.
 
     The handover's length lives in sections the writer adds beside the
     template's ("the three facts a builder will rediscover", "what was
     established"), not in the template's own sections, so the shape is
     closed: the plan paragraph under the H1, then exactly Branch tips /
-    Next / Rulings / What not to touch, and nothing deeper. Diff-aware:
+    Next / Rulings, and nothing deeper. Diff-aware:
     only an ADDED heading line fires, so an old handover left as written
     stays silent; a missing section is reported only when every line of
     the file is added (a new handover), for the same reason. WARN, not
@@ -1404,7 +1404,8 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
     MicroPython source and toolchain. The convention held it out of the
     repo in prose only, and 1,020 files got in over five months; sources,
     images and curated vendor docs that had landed there were moved to
-    boards/, tools/ and docs/vendor/ when the directory was untracked.
+    boards/, tools/ and docs/reference/vendor/ when the directory was
+    untracked; bench records worth keeping are promoted to docs/reference/.
     One violation names the first path and the count.
     """
     inside = [p for p in paths if p.replace('\\', '/').startswith('build/')]
@@ -1418,7 +1419,7 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
             'build_untracked',
             f'{len(inside)} staged path(s) under build/ (first: {inside[0]}); build/ is '
             'local and never committed -- sources go to boards/ or tools/, curated '
-            'vendor docs to docs/vendor/, evidence stays on disk or in the archive',
+            'vendor docs and kept bench records to docs/reference/, the rest stays on disk',
         )
     ]
 
