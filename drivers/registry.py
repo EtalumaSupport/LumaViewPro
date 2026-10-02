@@ -366,7 +366,7 @@ class DriverRegistry:
         # The cause is the most specific verdict any driver reached, not the
         # last one to fail: a kind can hold drivers for boards this scope
         # does not have (the FX2 LED driver is registered wherever pyusb is,
-        # and raises when no FX2 is attached), and that raise must not hide
+        # and raises when an FX2 is attached and fails), and that raise must not hide
         # what the board this scope does have said about itself -- a port
         # held by another program, or a board that answers nothing. A board
         # that was found outranks one that raised, which outranks none found.

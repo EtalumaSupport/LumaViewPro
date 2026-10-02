@@ -17,9 +17,10 @@ Three objects live in this file, over one seam:
    through its transport, chosen once per host by ``_platform_transport``:
    ``_LibusbTransport`` (macOS / Linux) or ``_WinUsbTransport`` (Windows).
    Constructed lazily the first time any driver calls
-   ``_FX2Connection.get()``. Raises on any failure; the registry treats a
-   raise as "this driver isn't available" and falls through to the next
-   candidate. Private to the FX2 drivers and the simulated FX2
+   ``_FX2Connection.get()``. Raises ``_FX2AbsentError`` when no FX2 is on
+   the bus, which each driver reports as found=False like every other
+   absent board, and raises on any other failure, which the registry ranks
+   as a driver that failed. Private to the FX2 drivers and the simulated FX2
    (``drivers/simulated_fx2.py``), which builds one on its own transport.
 
 2. ``FX2Camera`` -- registered as ``@camera_registry.register('fx2', ...)``.
@@ -1341,6 +1342,18 @@ def _platform_transport() -> _PyusbTransport:
 # ---------------------------------------------------------------------------
 
 
+class _FX2AbsentError(RuntimeError):
+    """No FX2 is on the bus, under either the application or the bootloader PID.
+
+    Told apart from every other connection failure because it is not one: the
+    registry tries the FX2 drivers on every scope, most of which have no FX2,
+    and a driver that raises is ranked above one that reports found=False. So
+    each FX2 driver turns this, and only this, into found=False; an FX2 that is
+    present and fails (a firmware upload that does not re-enumerate) still
+    raises with its own message.
+    """
+
+
 class _FX2Connection:
     """Singleton owning the FX2 USB device, through a platform transport.
 
@@ -1380,8 +1393,9 @@ class _FX2Connection:
 
         Raises:
             ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
-            RuntimeError: No Lumascope FX2 device was found, or firmware
-                upload did not re-enumerate within the timeout window.
+            _FX2AbsentError: No Lumascope FX2 device is on the bus.
+            RuntimeError: Firmware upload did not re-enumerate within the
+                timeout window.
         """
         if cls._instance is not None:
             return cls._instance
@@ -1449,7 +1463,7 @@ class _FX2Connection:
 
         dev = transport.find(PID_BOOT)
         if dev is None:
-            raise RuntimeError(
+            raise _FX2AbsentError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
             )
 
@@ -1856,15 +1870,14 @@ class FX2Camera(Camera):
     DEFAULT_EXPOSURE_MS = 50.0
 
     def __init__(self, *, connection: _FX2Connection | None = None, **kwargs):
-        # Take the FX2 connection BEFORE super().__init__() -- the Camera
-        # base class calls self.connect() at the end of its __init__,
-        # and that needs self._fx2 live. The registry passes none, so the
-        # camera shares the process's device through _FX2Connection.get();
-        # if that raises (no FX2 hardware, no pyusb, firmware upload
-        # fails), the exception propagates and the registry falls through
-        # to the next camera driver candidate. A simulated FX2 hands its
-        # own connection to both drivers instead.
-        self._fx2 = connection if connection is not None else _FX2Connection.get()
+        # The connection is taken in connect(), which the Camera base class
+        # calls at the end of its __init__ and which is where the base class
+        # has a driver that cannot find its camera leave itself inactive
+        # (found=False). A simulated FX2 hands its own connection to both
+        # drivers; the registry passes none, and the camera shares the
+        # process's device through _FX2Connection.get().
+        self._given_connection = connection
+        self._fx2: _FX2Connection | None = None
 
         # Streaming state -- initialized here so connect() can see them
         # even though connect() runs inside super().__init__().
@@ -1960,6 +1973,19 @@ class FX2Camera(Camera):
         ``scope.imaging.start_streaming()`` after configuration (the
         blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
+        if self._fx2 is None:
+            # No FX2 on the bus leaves the camera inactive, so found=False, as
+            # for every other camera; an FX2 that is present and fails, or a
+            # missing USB library, raises and the registry ranks it as such.
+            try:
+                self._fx2 = (
+                    self._given_connection
+                    if self._given_connection is not None
+                    else _FX2Connection.get()
+                )
+            except _FX2AbsentError as e:
+                logger.debug('[FX2 Cam   ] %s', e)
+                return False
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler(self)
@@ -2643,22 +2669,30 @@ class FX2LEDController:
         return self._FX2_DEBUG_WIRE or self._debug_wire
 
     def __init__(self, *, connection: _FX2Connection | None = None, debug_wire: bool = False):
-        # The registry passes no connection, so this takes the singleton --
-        # raises if no FX2 hardware, registry fallthrough handles that case
-        # cleanly. A simulated FX2 hands in the connection its camera shares.
-        self._fx2 = connection if connection is not None else _FX2Connection.get()
         self._enabled = True
         self._debug_wire = debug_wire
 
         # Attributes the Lumascope API / SerialBoard pattern expects to
         # be able to read directly without method calls. ``driver`` is
-        # a truthy sentinel; ``found`` means construction succeeded;
+        # a truthy sentinel; ``found`` means an FX2 is attached;
         # ``port`` is a human-readable tag for the settings UI.
         self.driver = True
-        self.found = True
         self.port = 'FX2-USB'
         self.firmware_version = 'FX2-Classic'
         self.is_v2 = False
+
+        # The registry passes no connection, so this takes the singleton. A
+        # simulated FX2 hands in the connection its camera shares. No FX2 on
+        # the bus is found=False, as for every other board; an FX2 that is
+        # present and fails raises.
+        try:
+            self._fx2 = connection if connection is not None else _FX2Connection.get()
+        except _FX2AbsentError as e:
+            logger.debug('[FX2 LED   ] %s', e)
+            self._fx2 = None
+            self.found = False
+            return
+        self.found = True
 
     # -- I2C write primitive ----------------------------------------------
 

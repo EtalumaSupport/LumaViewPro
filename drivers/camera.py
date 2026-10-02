@@ -409,12 +409,9 @@ class Camera(ABC):
             self.array = np.array([])
 
     def __del__(self):
-        # Subclass __init__ may raise before super().__init__() runs (e.g.
-        # FX2Camera takes its connection (_FX2Connection.get() when none is
-        # handed in) first so it has self._fx2 ready for the base class's
-        # self.connect() call -- if that get() raises on the
-        # Pylon-fallback path, this instance is partially
-        # constructed and _state_lock + _active never got set). Python
+        # Subclass __init__ may raise before super().__init__() runs, leaving
+        # a partially constructed instance whose _state_lock + _active never
+        # got set. Python
         # still runs __del__ on the partial object; the hasattr gate
         # short-circuits to a clean no-op instead of firing a misleading
         # "__del__ disconnect failed: no attribute _state_lock" warning.
