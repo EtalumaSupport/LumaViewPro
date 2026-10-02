@@ -446,9 +446,10 @@ class NotificationCenter:
         at NOTICE, with no traceback. A shown outcome's display line is
         ``notify()``'s own, naming the type's reason code when it has one, so
         a shown refusal is one WARNING line, a shown notice one NOTICE line,
-        and a shown fault is its traceback line and that one. A refusal is shown as
-        a warning and a notice as a notice, each under its ``title``; a fault
-        as an error, or as critical when its type says ``fatal``, in its own words when its type writes them for a person
+        and a shown fault is its traceback line and that one. A refusal is
+        shown as a warning and a notice as a notice, each under its
+        ``title``; a fault as an error, or as critical when its type says
+        ``fatal``, in its own words when its type writes them for a person
         and in a generic sentence when it does not, under its ``title`` or
         ``fault_title``. A quiet outcome is never shown. An outcome's
         ``remedy`` travels with it whatever its kind, and a fault whose type

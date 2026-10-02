@@ -25,8 +25,8 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.exceptions import (
-    CameraSettingOutOfRangeError,
     AutoGainNotSettledError,
+    CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     CameraStreamStalledError,

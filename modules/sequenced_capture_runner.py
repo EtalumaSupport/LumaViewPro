@@ -1946,8 +1946,8 @@ class SequencedCaptureRunner:
             )
 
         def _fail(reason: str, detail: str) -> None:
-            # The one place a merge failure becomes visible: one log line,
-            # one notification, one resolved outcome -- the shape a run
+            # The one place a merge failure becomes visible: one report,
+            # one resolved outcome -- the shape a run
             # refusal uses, so a caller waiting on the outcome never
             # re-notifies. Success is silent by design: the saved folder
             # is the record, and the button handed the UI back at run end.
