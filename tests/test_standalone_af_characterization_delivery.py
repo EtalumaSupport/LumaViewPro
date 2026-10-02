@@ -136,7 +136,6 @@ class TestStandaloneAfDeliversCharacterizationData:
         swap_lanes(scope, io=io_executor, camera=camera_executor)
         runner = SequencedCaptureRunner(
             scope=scope,
-            stage_offset={'x': 0.0, 'y': 0.0},
             protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
             autofocus_thread=af_thread,

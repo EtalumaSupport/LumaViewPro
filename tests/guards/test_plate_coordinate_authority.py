@@ -159,7 +159,7 @@ class TestHatchesAndBoundaries:
         state._stage_offset = None
 
         with pytest.raises(ConfigError, match='stage offset'):
-            state._require_stage_offset()
+            state.require_stage_offset()
 
 
 class TestEnumeratorsKeepTheirValue:

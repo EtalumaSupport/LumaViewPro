@@ -3152,7 +3152,6 @@ def _make_capture_runner(**overrides):
 
     kwargs = {
         'scope': MagicMock(),
-        'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
@@ -8922,28 +8921,22 @@ class TestFx2DriverLibusbBackendProbe:
 
 
 class TestStageOffsetSnapshot:
-    """SequencedCaptureRunner must snapshot stage_offset at run start
-    (prepare() deepcopies the live source into the plan; start() adopts
-    the plan's copy) so mid-protocol UI mutations don't change the
-    in-flight coordinate transforms. UI edits between runs must still be
-    visible to the next run.
+    """SequencedCaptureRunner must snapshot the scope's stage offset at run
+    start (prepare() deepcopies the runtime store's into the plan; start()
+    adopts the plan's copy) so a change to the store mid-protocol does not
+    change the in-flight coordinate transforms. A change between runs is
+    seen by the next run.
     """
 
     def _make_executor(self, stage_offset):
-        return _bare_capture_runner(stage_offset=stage_offset)
+        exc = _bare_capture_runner()
+        exc._scope.runtime_state.get_stage_offset.return_value = stage_offset
+        return exc
 
     def _snapshot_via_run_start(self, exc):
         """Drive the snapshot the way a run takes it: prepare deepcopies
-        the live source, start adopts the plan's copy."""
+        the scope's offset, start adopts the plan's copy."""
         exc.start(exc.prepare(**_scr_run_kwargs()))
-
-    def test_constructor_holds_live_reference(self):
-        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
-        exc = self._make_executor(src)
-        assert exc._stage_offset_source is src, (
-            '__init__ must hold the live reference in _stage_offset_source '
-            'so between-run edits propagate to the next snapshot.'
-        )
 
     def test_snapshot_deepcopies_stage_offset(self):
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
@@ -9086,7 +9079,6 @@ class TestSequencedCaptureRunnerRunDirCollision:
 
         exc = SequencedCaptureRunner(
             scope=MagicMock(),
-            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             autofocus_thread=MagicMock(in_flight_sweep=None),

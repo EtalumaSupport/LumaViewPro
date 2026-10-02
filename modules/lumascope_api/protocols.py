@@ -545,27 +545,39 @@ class ProtocolsAPI:
                     ),
                 )
 
-    def refuse_unreachable_positions(self, steps: pd.DataFrame) -> None:
-        """Refuse a protocol that needs motion on an axis this scope does not have.
+    def refuse_unreachable_positions(self, steps: pd.DataFrame, labware_key: str) -> None:
+        """Refuse a protocol whose steps this scope's stage cannot reach.
 
-        A move on an axis the scope lacks does nothing and reports nothing,
-        so a run whose steps sit at different places on that axis would
-        image one place and save each image under its step's name and
-        coordinates. A manual scope (no motor board) lacks every axis; a
-        Z-only scope lacks X and Y. Steps that all sit at one place on a
-        missing axis ask for no motion there and are admitted: a
-        single-location time lapse on a manual scope is the case this keeps.
-        Autofocus moves Z, so it needs a Z axis.
+        Two questions, in this order. Presence: a move on an axis the scope
+        lacks does nothing and reports nothing, so a run whose steps sit at
+        different places on that axis would image one place and save each
+        image under its step's name and coordinates. A manual scope (no
+        motor board) lacks every axis; a Z-only scope lacks X and Y. Steps
+        that all sit at one place on a missing axis ask for no motion there
+        and are admitted: a single-location time lapse on a manual scope is
+        the case this keeps. Autofocus moves Z, so it needs a Z axis.
+
+        Travel: a step outside an axis's limits would drive the stage to the
+        end of travel and stop the run there. Judged on the axes the scope
+        has, at the scope's stage offset -- the one the run converts plate
+        positions with -- on the protocol's own plate.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by starting a run, which asks it here.
 
         Args:
-            steps: The protocol's steps table (``Protocol.steps()``).
+            steps: The protocol's steps table (``Protocol.steps()``), its
+                positions already validated as numbers.
+            labware_key: The plate the protocol's X/Y are measured on
+                (``Protocol.labware()``), already validated as known.
 
         Raises:
             ProtocolRunRefusedError: The steps need motion this scope cannot
-                make. It has been logged and shown before it is raised.
+                make (``positions_unreachable``), or lie outside its travel
+                (``positions_outside_travel``). It has been logged and shown
+                before it is raised.
+            ConfigError: The scope has not been initialized, so it has no
+                stage offset to judge X/Y with.
         """
         present = set(self._scope.capabilities.axes)
         needed = []
@@ -585,6 +597,39 @@ class ProtocolsAPI:
                     f'This protocol needs the scope to move, and this scope has no motor for '
                     f'{missing}: {"; ".join(needed)}.\n\nUse a protocol whose steps are all at '
                     'one position on those axes, without autofocus if there is no Z motor.'
+                ),
+            )
+
+        from modules.protocol import axes_outside_travel
+
+        # An axis without software-enforced bounds (the turret's T) answers
+        # None and is not judged.
+        axis_limits = {
+            axis: limits
+            for axis in present
+            if (limits := self._scope.motion.get_axis_limits(axis)) is not None
+        }
+        plate = {}
+        if {'X', 'Y'} & set(axis_limits):
+            plate = {
+                'labware': self._scope.wellplate_loader.get_plate(plate_key=labware_key),
+                'stage_offset': self._scope.runtime_state.require_stage_offset(),
+            }
+        outside = []
+        for idx, step in steps.iterrows():
+            axes = axes_outside_travel(
+                {axis: step[axis] for axis in ('X', 'Y', 'Z')}, axis_limits, **plate
+            )
+            if axes:
+                outside.append(f'step {idx + 1} ({step["Name"]}): {", ".join(axes)}')
+        if outside:
+            self._refuse(
+                reason='positions_outside_travel',
+                title='Positions Outside Stage Travel',
+                message=(
+                    f"{len(outside)} of the {len(steps)} steps fall outside the stage's travel "
+                    f'({common_utils.first_few(outside, separator="; ")}).\n\nMove those steps '
+                    "inside the stage's travel."
                 ),
             )
 

@@ -115,17 +115,21 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame`` or ``binning`` is missing, or
-                ``objective_id`` is missing on a scope with no turret. Every
-                other field has a value ``initialize`` can apply harmlessly
-                when absent; these do not -- a frame the camera never held
-                is silent-wrong geometry, the binning is the other half of
-                that geometry and bring-up stores what the camera delivered
-                at into the same slot, and an objective default that names
-                no shipped objective was prefix-matched to a real one and
-                stamped into every saved image's scale.
+            ConfigError: ``frame``, ``binning`` or ``stage_offset`` is
+                missing, or ``objective_id`` is missing on a scope with no
+                turret. Every other field has a value ``initialize`` can
+                apply harmlessly when absent; these do not -- a frame the
+                camera never held is silent-wrong geometry, the binning is the
+                other half of that geometry and bring-up stores what the
+                camera delivered at into the same slot, an invented stage
+                offset puts every plate position somewhere else on the stage,
+                and an objective default that names no shipped objective was
+                prefix-matched to a real one and stamped into every saved
+                image's scale.
         """
-        required = ('frame', 'binning') if turreted else ('frame', 'binning', 'objective_id')
+        required = ('frame', 'binning', 'stage_offset')
+        if not turreted:
+            required += ('objective_id',)
         missing = [key for key in required if key not in settings]
         if missing:
             raise ConfigError(
@@ -160,7 +164,7 @@ class ScopeInitConfig:
             acceleration_pct=_bounded_acceleration_pct(
                 settings.get('motion', {}).get('acceleration_max_pct', ACCELERATION_PCT_MAX)
             ),
-            stage_offset=settings.get('stage_offset', {'x': 0, 'y': 0}),
+            stage_offset=settings['stage_offset'],
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
             image_mode=image_mode.resolve_settings_image_mode(settings),
             expects_motion=expects_motion,

@@ -302,6 +302,9 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     # a known stage, since the run moves every step itself.
     record_turret_answer(scope)
     home_sim_scope(scope)
+    # And bring-up writes the settings' stage offset into the runtime store,
+    # the one a run's travel check and its plate conversions read.
+    scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
 
 
 def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> None:

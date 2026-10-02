@@ -310,7 +310,7 @@ class RuntimeState:
         """
         return self._coordinate_transformer.stage_to_plate(
             labware=self.get_labware(),
-            stage_offset=self._require_stage_offset(),
+            stage_offset=self.require_stage_offset(),
             sx=sx,
             sy=sy,
         )
@@ -345,13 +345,17 @@ class RuntimeState:
 
         return to_plate
 
-    def _require_stage_offset(self) -> dict:
+    def require_stage_offset(self) -> dict:
         """The stage offset, or a refusal naming why a transform cannot run.
 
         The offset is written once, when the scope initializes. A
         transform attempted before that point would otherwise divide
         None and surface as a TypeError, which tells a user nothing they
         can act on and a REST caller nothing it can branch on.
+
+        A consult seam, not part of the L2 API surface: the transforms here
+        and the run gate's travel check read it; an L2 caller reads the
+        offset with ``get_stage_offset``.
         """
         stage_offset = self.get_stage_offset()
         if stage_offset is None:
@@ -375,7 +379,7 @@ class RuntimeState:
 
         sx, sy = self._coordinate_transformer.plate_to_stage(
             labware=self.get_labware(),
-            stage_offset=self._require_stage_offset(),
+            stage_offset=self.require_stage_offset(),
             px=plate_mm if axis == 'X' else 0,
             py=plate_mm if axis == 'Y' else 0,
         )

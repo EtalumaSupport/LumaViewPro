@@ -256,7 +256,6 @@ def executor(scope, executors):
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
@@ -288,7 +287,6 @@ def real_executor(scope, executors):
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
@@ -530,7 +528,9 @@ class TestRoundTripBasic:
         assert proto.labware() == '384 well microplate'
 
         errors = proto.validate_for_run(
-            objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
+            axes=('X', 'Y', 'Z'),
+            objective_helper=ObjectiveLoader(),
+            wellplate_loader=WellPlateLoader(),
         )
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
         assert labware_errors == [], (

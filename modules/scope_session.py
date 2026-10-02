@@ -278,7 +278,6 @@ class ScopeSession:
 
         self.sequenced_capture_runner = SequencedCaptureRunner(
             scope=scope,
-            stage_offset=settings.get('stage_offset', {}),
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
             autofocus_thread=autofocus_thread,

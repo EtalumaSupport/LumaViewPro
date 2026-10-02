@@ -43,8 +43,6 @@ from modules.protocol_post_processing_result import PostProcResult
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
 from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_validate_steps import (
-    _DEFAULT_AXIS_LIMITS,
-    _STAGE_OFFSET,
     _make_protocol,
     _valid_step,
 )
@@ -85,8 +83,7 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
         ]
     )
     errors = p.validate_for_run(
-        axis_limits=_DEFAULT_AXIS_LIMITS,
-        stage_offset=_STAGE_OFFSET,
+        axes=('X', 'Y', 'Z'),
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )
@@ -116,8 +113,7 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
         ]
     )
     errors = p.validate_for_run(
-        axis_limits=_DEFAULT_AXIS_LIMITS,
-        stage_offset=_STAGE_OFFSET,
+        axes=('X', 'Y', 'Z'),
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )
@@ -747,7 +743,7 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
 
     errors = proto.validate_for_run(
-        axis_limits=None, objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
+        axes=('X', 'Y', 'Z'), objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
     )
     assert any('would save captures' in e for e in errors), errors
 
@@ -787,8 +783,7 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch)
         ]
     )
     errors = p.validate_for_run(
-        axis_limits=_DEFAULT_AXIS_LIMITS,
-        stage_offset=_STAGE_OFFSET,
+        axes=('X', 'Y', 'Z'),
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )
@@ -803,8 +798,7 @@ def test_same_base_same_objective_still_refused_at_run_start():
         ]
     )
     errors = p.validate_for_run(
-        axis_limits=_DEFAULT_AXIS_LIMITS,
-        stage_offset=_STAGE_OFFSET,
+        axes=('X', 'Y', 'Z'),
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )

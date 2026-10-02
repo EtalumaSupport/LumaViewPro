@@ -310,7 +310,6 @@ def _make_runner(scope, execs):
     swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),

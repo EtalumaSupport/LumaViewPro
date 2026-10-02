@@ -234,7 +234,6 @@ def executor(scope, executors):
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
@@ -686,6 +685,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
     'positions_unreachable': ('tests/test_a_run_needs_the_axes_it_moves.py::test_the_rule'),
+    'positions_outside_travel': (
+        'tests/test_a_run_is_refused_outside_the_stage_travel.py::'
+        'test_a_step_past_the_end_of_z_is_refused_naming_the_step_and_the_axis'
+    ),
     'already_tiled': (
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_tiled_protocol_refuses_another_grid'

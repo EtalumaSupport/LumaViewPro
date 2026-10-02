@@ -13,6 +13,7 @@ import pathlib
 import re
 import contextlib
 import copy
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
@@ -93,6 +94,49 @@ def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
                 f'({zstack_params["step_size"]}) must both be greater than zero.'
             ),
         )
+
+
+def axes_outside_travel(
+    position: dict,
+    axis_limits: dict,
+    *,
+    labware: 'labware_module.WellPlate | None' = None,
+    stage_offset: dict | None = None,
+) -> list[str]:
+    """The axes on which one position lies outside the stage's travel.
+
+    The one travel judgment: the run gate and both builders ask it, so a
+    position one of them admits is never one another refuses.
+
+    Args:
+        position: Any of 'X' and 'Y' in plate millimetres, and 'Z' in stage
+            micrometres -- the frames a step stores them in.
+        axis_limits: Axis name to ``{'min', 'max'}`` in stage micrometres. Only
+            the axes present in both this and *position* are judged.
+        labware: The plate X/Y are measured on; required when X or Y is judged.
+        stage_offset: ``{'x', 'y'}`` in micrometres; required when X or Y is
+            judged.
+
+    Returns:
+        The axes outside their limits, in X, Y, Z order; empty when inside.
+    """
+    stage = {}
+    if 'Z' in position:
+        stage['Z'] = float(position['Z'])
+    if ({'X', 'Y'} & set(axis_limits)) and {'X', 'Y'} <= set(position):
+        stage['X'], stage['Y'] = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=stage_offset,
+            px=float(position['X']),
+            py=float(position['Y']),
+        )
+    return [
+        axis
+        for axis in ('X', 'Y', 'Z')
+        if axis in stage
+        and axis in axis_limits
+        and not (axis_limits[axis]['min'] <= stage[axis] <= axis_limits[axis]['max'])
+    ]
 
 
 def _refuse_positions_outside_travel(
@@ -844,42 +888,29 @@ class Protocol:
 
     def validate_for_run(
         self,
-        axis_limits: dict | None = None,
-        stage_offset: dict | None = None,
         *,
+        axes: Iterable[str],
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> list:
-        """Validate protocol is safe to execute on hardware.
+        """Validate that the protocol's steps are well-formed enough to run.
 
-        Checks positions are within axis travel limits. Call this before
-        starting a protocol run. validate_steps() checks field format;
-        this method checks runtime safety.
-
-        Step X/Y are stored in plate millimetres -- the same values the
-        protocol runner feeds through plate_to_stage before moving -- while
-        the axis limits are stage micrometres. This converts X/Y to the stage
-        frame the same way the runner does, so a step that lands off the
-        physical stage is caught here instead of slipping through a
-        plate-mm-vs-stage-um mismatch. Z is stored in stage um and compared
-        directly.
+        validate_steps() checks the camera and objective fields; this adds the
+        checks a run needs on top: unique capture filenames, a known plate, and
+        numeric positions on the axes the scope moves. Whether those
+        positions lie inside the stage's travel is the scope's question, asked
+        by the run gate (``ProtocolsAPI.refuse_unreachable_positions``), which
+        reads them as numbers -- so a position that is not one is reported
+        here, before that gate is reached. An axis the scope does not have is
+        not judged: a Z-only scope's step may carry no plate position at all.
 
         Args:
-            axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in stage um. Example: {'X': {'min': 0, 'max': 120000}, ...}
-            stage_offset: {'x': float, 'y': float} in um, used to convert step
-                X/Y from plate-mm to stage-um. Required when axis_limits
-                includes X or Y; may be None only when X/Y are not checked.
+            axes: The axes the scope has (``capabilities.axes``).
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
 
         Returns:
             List of error strings. Empty list if all checks pass.
-
-        Raises:
-            ValueError: If axis_limits requests an X or Y check but
-                stage_offset is None, since the plate-mm to stage-um
-                conversion cannot run without it.
         """
         errors = []
         steps = self.steps()
@@ -905,99 +936,35 @@ class Protocol:
                         f'Rename these steps so each produces a unique filename.'
                     )
 
-        # Load labware once: it backs both the known-plate check and the
-        # plate-mm -> stage-um conversion the position check needs. Use
-        # is_known_plate() rather than plate_list membership so legacy/alias
-        # names (e.g. "384 well Corning Spheroid Microplate" -> "384 well
-        # microplate") are accepted here exactly as they are at runtime in
-        # get_plate(). Without this, validation hard-fails on names that
-        # would have run fine.
+        # Use is_known_plate() rather than plate_list membership so
+        # legacy/alias names (e.g. "384 well Corning Spheroid Microplate" ->
+        # "384 well microplate") are accepted here exactly as they are at
+        # runtime in get_plate(). Without this, validation hard-fails on
+        # names that would have run fine.
         loader = wellplate_loader
         labware_key = self.labware()
-        labware = None
         if labware_key:
             try:
-                if loader.is_known_plate(labware_key):
-                    labware = loader.get_plate(plate_key=labware_key)
-                else:
+                if not loader.is_known_plate(labware_key):
                     plate_list = loader.get_plate_list()
                     errors.append(
                         f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
                     )
             except Exception as ex:
-                # A loader failure leaves labware unvalidated and disables the
-                # X/Y position check (no plate to convert against); surface it
-                # so the gap is visible rather than a silently-skipped net.
+                # A loader failure leaves labware unvalidated; surface it so
+                # the gap is visible rather than a silently-skipped net.
                 logger.warning(f'[Protocol] Labware validation skipped for {labware_key!r}: {ex}')
 
-        if axis_limits:
-            checks_xy = ('X' in axis_limits) or ('Y' in axis_limits)
-            if checks_xy and labware is not None and stage_offset is None:
-                raise ValueError(
-                    'validate_for_run needs stage_offset to check X/Y travel limits: '
-                    'step X/Y are plate-mm and must convert to stage-um.'
-                )
-            from modules import coord_transformations
-
-            transformer = coord_transformations.CoordinateTransformer()
-            for idx, step in steps.iterrows():
-                label = f'Step {idx + 1} ({step.get("Name", "?")})'
-
-                # Convert this step's plate-mm X/Y into the stage-um frame the
-                # limits are in. stage_x/stage_y stay None when X/Y cannot be
-                # converted (no labware, or a non-numeric coordinate reported
-                # per-axis below), so the limit check is skipped rather than
-                # comparing the wrong frame.
-                stage_x = stage_y = None
-                x_invalid = y_invalid = False
-                if checks_xy and labware is not None:
-                    try:
-                        px = float(step.get('X', 0))
-                    except (ValueError, TypeError):
-                        x_invalid = True
-                    try:
-                        py = float(step.get('Y', 0))
-                    except (ValueError, TypeError):
-                        y_invalid = True
-                    if not x_invalid and not y_invalid:
-                        stage_x, stage_y = transformer.plate_to_stage(
-                            labware=labware, stage_offset=stage_offset, px=px, py=py
-                        )
-
-                for axis in ('X', 'Y', 'Z'):
-                    if axis not in axis_limits:
-                        continue
-                    if axis == 'Z':
-                        # Z is stored in stage um; no conversion needed.
-                        try:
-                            pos = float(step.get('Z', 0))
-                        except (ValueError, TypeError):
-                            errors.append(f'{label}: Z position is not a valid number')
-                            continue
-                    elif labware is None:
-                        # Cannot convert without labware; the missing/unknown
-                        # plate is already reported above and blocks the run.
-                        continue
-                    elif axis == 'X':
-                        if x_invalid:
-                            errors.append(f'{label}: X position is not a valid number')
-                            continue
-                        if stage_x is None:
-                            continue
-                        pos = stage_x
-                    else:
-                        if y_invalid:
-                            errors.append(f'{label}: Y position is not a valid number')
-                            continue
-                        if stage_y is None:
-                            continue
-                        pos = stage_y
-                    limits = axis_limits[axis]
-                    if pos < limits['min'] or pos > limits['max']:
-                        errors.append(
-                            f'{label}: {axis} position {pos} um is outside travel limits '
-                            f'({limits["min"]}-{limits["max"]} um)'
-                        )
+        judged = [axis for axis in ('X', 'Y', 'Z') if axis in axes]
+        for idx, step in steps.iterrows():
+            for axis in judged:
+                try:
+                    float(step.get(axis))
+                except (ValueError, TypeError):
+                    errors.append(
+                        f'Step {idx + 1} ({step.get("Name", "?")}): '
+                        f'{axis} position is not a valid number'
+                    )
 
         return errors
 
@@ -1555,8 +1522,6 @@ class Protocol:
             return
 
         limits = _axis_limits_or_refuse(axes_config, ('X', 'Y'), what='a tile grid')
-        x_limits = limits['X']
-        y_limits = limits['Y']
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
@@ -1636,15 +1601,11 @@ class Protocol:
                     y + tile_position['y'] / 1000, common_utils.max_decimal_precision('y')
                 )  # in 'plate' coordinates
 
-                sx, sy = coordinate_transformer.plate_to_stage(
-                    labware=labware, stage_offset=stage_offset, px=x_tile, py=y_tile
-                )
-
-                if (
-                    (sx > x_limits['max'])
-                    or (sx < x_limits['min'])
-                    or (sy > y_limits['max'])
-                    or (sy < y_limits['min'])
+                if axes_outside_travel(
+                    {'X': x_tile, 'Y': y_tile},
+                    limits,
+                    labware=labware,
+                    stage_offset=stage_offset,
                 ):
                     name = orig_step_df['Name']
                     outside[name] = outside.get(name, 0) + 1
@@ -1721,7 +1682,7 @@ class Protocol:
         """
         _refuse_unless_zstack_has_extent(zstack_params)
 
-        z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')['Z']
+        z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')
 
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -1761,7 +1722,7 @@ class Protocol:
             for zstack_slice, zstack_position in zstack_positions.items():
                 # A slice past the Z travel would drive the stage to the end of
                 # travel and stop the run there.
-                if zstack_position < z_limits['min'] or zstack_position > z_limits['max']:
+                if axes_outside_travel({'Z': zstack_position}, z_limits):
                     name = orig_step_df['Name']
                     outside[name] = outside.get(name, 0) + 1
                     continue

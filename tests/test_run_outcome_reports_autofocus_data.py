@@ -147,7 +147,6 @@ class _AfRig:
         swap_lanes(self.scope, io=self.io_executor, camera=self.camera_executor)
         self.runner = SequencedCaptureRunner(
             scope=self.scope,
-            stage_offset={'x': 0.0, 'y': 0.0},
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
             autofocus_thread=self.af_thread,

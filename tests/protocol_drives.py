@@ -141,7 +141,6 @@ def bare_capture_runner(**overrides):
 
     kwargs = {
         'scope': MagicMock(),
-        'stage_offset': {},
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),

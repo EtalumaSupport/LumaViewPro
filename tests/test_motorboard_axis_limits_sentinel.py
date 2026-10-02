@@ -151,65 +151,36 @@ class TestNoErrorLogForExpectedNoLimitsCase:
 
 
 # ---------------------------------------------------------------------------
-# Caller in sequenced_capture_runner: None-check pattern
+# Caller in the run gate's travel check: None-check pattern
 # ---------------------------------------------------------------------------
 
 
-class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
+class TestTheTravelCheckHandlesNoneFromGetAxisLimits:
     """Lock the caller's None-handling contract: an axis whose driver
     returns None (no configured limits -- T is the canonical case) is
-    skipped, not treated as an error, and pre-run validation still runs
+    skipped, not treated as an error, and the travel check still runs
     on the remaining axes."""
 
-    def test_caller_skips_axes_without_limits(self, monkeypatch):
+    def test_caller_skips_axes_without_limits(self):
         from unittest.mock import MagicMock
 
-        from modules.activity_claim import ActivityClaim
-        from modules.exceptions import ProtocolRunRefusedError
-        from modules.image_mode import ImageCaptureConfig
-        from modules.notification_center import notifications
-        from modules.sequenced_capture_runner import (
-            SequencedCaptureRunMode,
-            SequencedCaptureRunner,
-        )
-        from tests.protocol_drives import autofocus_snapshot
+        import pandas as pd
 
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: None)
-        runner = SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={},
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            autofocus_thread=MagicMock(in_flight_sweep=None),
-            activity_claim=ActivityClaim(),
-            autofocus_runner=MagicMock(),
-        )
-        scope = runner._scope
-        scope.capabilities.axes = ['X', 'Y', 'Z', 'T']
-        per_axis = {
-            'X': {'min': 0, 'max': 100000},
-            'Y': {'min': 0, 'max': 100000},
-            'Z': {'min': 0, 'max': 14000},
-            'T': None,
-        }
+        from modules.exceptions import ProtocolRunRefusedError
+        from modules.lumascope_api.protocols import ProtocolsAPI
+
+        scope = MagicMock()
+        scope.capabilities.axes = ['Z', 'T']
+        per_axis = {'Z': {'min': 0, 'max': 14000}, 'T': None}
         scope.motion.get_axis_limits.side_effect = lambda axis: per_axis[axis]
-        protocol = MagicMock()
-        protocol.num_steps.return_value = 1
-        # Halt prepare() right after validation (the refusal raises) so
-        # the test exercises only the axis-limits collection.
-        protocol.validate_for_run.return_value = ['halt here']
+        api = ProtocolsAPI(scope)
+        api._refuse = MagicMock(
+            side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
+        )
+        steps = pd.DataFrame([{'Name': 'a', 'X': 0.0, 'Y': 0.0, 'Z': 20000.0, 'Auto_Focus': False}])
         with pytest.raises(ProtocolRunRefusedError):
-            runner.prepare(
-                protocol=protocol,
-                run_trigger_source='test',
-                run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-                sequence_name='seq',
-                image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-                autogain_settings={},
-                autofocus_snapshot=autofocus_snapshot(),
-            )
-        passed = protocol.validate_for_run.call_args.kwargs['axis_limits']
-        assert set(passed) == {'X', 'Y', 'Z'}, (
-            'axes with limits must be collected for validation; the None '
-            f'(no-limits) T axis must be skipped, not crash the run; got {passed}'
+            api.refuse_unreachable_positions(steps, 'unused')
+        assert api._refuse.call_args.kwargs['reason'] == 'positions_outside_travel', (
+            'the None (no-limits) T axis must be skipped, not crash the check, '
+            'and Z must still be judged'
         )

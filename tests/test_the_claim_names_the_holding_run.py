@@ -140,7 +140,6 @@ class TestTheRunnerReadsTheClaim:
         with pytest.raises(TypeError, match='activity_claim'):
             SequencedCaptureRunner(
                 scope=spec_scope(),
-                stage_offset={},
                 protocol_thread=MagicMock(),
                 file_io_executor=MagicMock(),
                 autofocus_thread=MagicMock(in_flight_sweep=None),

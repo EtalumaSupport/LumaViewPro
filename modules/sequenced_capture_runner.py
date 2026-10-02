@@ -151,7 +151,9 @@ class RunPlan:
     autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
     return_to_position: dict | None
-    stage_offset: dict
+    # None only on a scope never initialized, which the run gate admits only
+    # when it has no X/Y stage to convert plate positions for.
+    stage_offset: dict | None
     # The settings-derived run values, resolved once by the caller that
     # owns the settings (config_helpers.get_sequenced_run_settings) and
     # frozen here so a mid-run toggle cannot make some steps of one scan
@@ -194,7 +196,6 @@ class SequencedCaptureRunner:
     def __init__(
         self,
         scope: Lumascope,
-        stage_offset: dict,
         protocol_thread,
         file_io_executor: SequentialIOExecutor,
         autofocus_thread,
@@ -211,12 +212,9 @@ class SequencedCaptureRunner:
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
-        # Hold stage_offset by reference so UI edits between runs are visible
-        # to the next run; prepare() takes a deepcopy into the RunPlan so an
-        # in-flight protocol's coordinate transforms are immune to mid-run
-        # mutations of ctx.settings['stage_offset'].
-        self._stage_offset_source = stage_offset
-        self._stage_offset = stage_offset
+        # The offset a run converts plate positions with; prepare() snapshots
+        # the scope's into the RunPlan, and start() sets it from there.
+        self._stage_offset: dict | None = None
         self.protocol_thread = protocol_thread
         self.file_io_executor = file_io_executor
         # The last run's write batch: created with each run and kept until
@@ -968,29 +966,10 @@ class SequencedCaptureRunner:
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
-        # Snapshot stage_offset BEFORE validation so the pre-run travel
-        # check and the run's coordinate transforms use the same offset.
-        # Validating against a stale prior-run snapshot could pass a step
-        # the fresh offset places beyond the axis limit (or refuse one
-        # that would actually run fine). The deepcopy also makes the run
-        # immune to mid-run mutations of ctx.settings['stage_offset']
-        # partway through a multi-day soak.
-        stage_offset = copy.deepcopy(self._stage_offset_source)
-
-        # Pre-run validation: check positions within axis limits
+        # Pre-run validation: the steps are well-formed enough to run
         try:
-            axis_limits = {}
-            for axis in self._scope.capabilities.axes:
-                # get_axis_limits returns None for axes without
-                # software-enforced bounds (T axis is the canonical
-                # case). Skip those -- validate_for_run only checks
-                # axes present in the dict.
-                limits = self._scope.motion.get_axis_limits(axis)
-                if limits is not None:
-                    axis_limits[axis] = limits
             validation_errors = protocol.validate_for_run(
-                axis_limits=axis_limits,
-                stage_offset=stage_offset,
+                axes=self._scope.capabilities.axes,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
             )
@@ -1071,8 +1050,13 @@ class SequencedCaptureRunner:
             )
 
         # After the connection gate, so a motorized scope whose board fell
-        # off is told it is disconnected rather than that it cannot move.
-        self._scope.protocols.refuse_unreachable_positions(protocol.steps())
+        # off is told it is disconnected rather than that it cannot move;
+        # after the objective gate, so a protocol for glass this scope cannot
+        # put in the light path is told that first. The offset is the scope's,
+        # the one the gate judges X/Y with, snapshotted so the run converts
+        # with the offset it was admitted at.
+        self._scope.protocols.refuse_unreachable_positions(protocol.steps(), protocol.labware())
+        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
         self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
         # Every run mode moves every axis this scope has, and each move on
