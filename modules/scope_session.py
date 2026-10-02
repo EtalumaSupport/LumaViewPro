@@ -207,6 +207,9 @@ class ScopeSession:
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
         self._run_state_listeners: list = []
+        # Outcome listeners this session registered on the notification
+        # centre, so its shutdown takes back exactly what it gave.
+        self._outcome_listeners: list = []
         # The single arbitration point for exclusive activities: a
         # protocol run and a video recording each claim here before
         # committing, so the two can never run concurrently. Enforcement
@@ -534,6 +537,34 @@ class ScopeSession:
             except Exception as ex:
                 notifications.report_outcome(ex, solicited=False, category='Run State')
 
+    def add_outcome_listener(self, listener: Callable[[Any], None]) -> None:
+        """Hear every outcome the scope reports from now on.
+
+        ``listener(notification)`` is called once per delivery, on the thread
+        that reported it, so it must return promptly and must not wait on the
+        scope. Each ``Notification`` carries its ``kind``, words, ``reason``,
+        ``remedy``, ``outcome_id`` and ``shown``: an outcome muted when it
+        happened (an unattended run, the dedup window, shutdown) arrives with
+        ``shown`` False, and arrives again with the same ``outcome_id`` and
+        ``shown`` True if it is later shown.
+
+        Bring-up has happened by the time a session exists; pass the listener
+        to ``create(outcome_listener=...)`` to hear it. The outcomes heard are
+        every session's in this process, as the notification centre is one
+        per process. ``shutdown()`` removes the listener.
+        """
+        from modules.notification_center import Severity, notifications
+
+        notifications.add_listener(listener, min_severity=Severity.DEBUG)
+        self._outcome_listeners.append(listener)
+
+    def remove_outcome_listener(self, listener: Callable[[Any], None]) -> None:
+        """Stop ``listener`` hearing outcomes; a listener never added is a no-op."""
+        from modules.notification_center import notifications
+
+        notifications.remove_listener(listener)
+        self._outcome_listeners = [cb for cb in self._outcome_listeners if cb != listener]
+
     # ------------------------------------------------------------------
     # Factory helpers
     # ------------------------------------------------------------------
@@ -553,6 +584,7 @@ class ScopeSession:
         engineering_mode: bool = False,
         display_ctx_provider: Callable[[], Any] | None = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
+        outcome_listener: Callable[[Any], None] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -605,6 +637,11 @@ class ScopeSession:
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
                 simulated with the simulated camera.
+            outcome_listener: heard from before the scope is built, so it
+                hears what bring-up reports; the session's
+                ``add_outcome_listener`` says what it receives. A factory
+                that raises takes it back; otherwise the session's
+                ``shutdown()`` does.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
@@ -630,70 +667,84 @@ class ScopeSession:
         if warn_pre_release:
             _fire_pre_release_warning()
 
-        built_scope = False
-        if scope is None:
-            import modules.lumascope_api as lumascope_api
+        if outcome_listener is not None:
+            from modules.notification_center import Severity, notifications
 
-            scope = lumascope_api.Lumascope(
-                simulate=simulate,
-                warn_pre_release=warn_pre_release,
-                configured_model=settings.get('microscope'),
-                sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
-                ui_dispatcher=ui_dispatcher,
-                fx2_debug_wire=settings['fx2_debug_wire_enabled'],
-                source_path=get_source_root(source_path),
-                sim_camera_stall=sim_camera_stall,
-            )
-            # The bring-up -- configure from settings, then release the
-            # camera start gate -- happens below, once the session exists,
-            # for a scope THIS factory built. A scope passed in by a caller
-            # is that caller's bring-up responsibility: they call
-            # configure_scope() themselves, which releases the start gate.
-            built_scope = True
-
-        from modules.executor_registry import create_default
-
-        executor_bundle = create_default(
-            scope.io_lane(),
-            scope.camera_lane(),
-            ui_dispatcher=ui_dispatcher,
-            ctx_provider=display_ctx_provider,
-        )
-
-        # Service registration (the camera override key) happens in
-        # __init__ for every session-composed scope -- nothing here.
-
-        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-            scope=scope,
-            ui_update_func=af_ui_update_func,
-        )
-
-        # The ownership fact goes in HERE, before _bring_up can call
-        # shutdown on a refusal: a session torn down mid-factory must
-        # already know whether the scope is its own.
+            notifications.add_listener(outcome_listener, min_severity=Severity.DEBUG)
         try:
-            session = cls(
-                settings=settings,
-                scope=scope,
-                executor_bundle=executor_bundle,
-                autofocus_runner=autofocus_runner,
-                autofocus_thread=autofocus_thread,
-                z_ui_update_func=af_ui_update_func,
-                owns_scope=built_scope,
-                settings_saved_hook=settings_saved_hook,
-                engineering_mode=engineering_mode,
+            built_scope = False
+            if scope is None:
+                import modules.lumascope_api as lumascope_api
+
+                scope = lumascope_api.Lumascope(
+                    simulate=simulate,
+                    warn_pre_release=warn_pre_release,
+                    configured_model=settings.get('microscope'),
+                    sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
+                    ui_dispatcher=ui_dispatcher,
+                    fx2_debug_wire=settings['fx2_debug_wire_enabled'],
+                    source_path=get_source_root(source_path),
+                    sim_camera_stall=sim_camera_stall,
+                )
+                # The bring-up -- configure from settings, then release the
+                # camera start gate -- happens below, once the session exists,
+                # for a scope THIS factory built. A scope passed in by a caller
+                # is that caller's bring-up responsibility: they call
+                # configure_scope() themselves, which releases the start gate.
+                built_scope = True
+
+            from modules.executor_registry import create_default
+
+            executor_bundle = create_default(
+                scope.io_lane(),
+                scope.camera_lane(),
+                ui_dispatcher=ui_dispatcher,
+                ctx_provider=display_ctx_provider,
             )
-        except BaseException:
-            # No session exists to tear down -- a scope another session holds
-            # refuses a second claim -- so stop what this factory started.
-            autofocus_thread.stop(timeout=2.0)
-            executor_bundle.shutdown()
+
+            # Service registration (the camera override key) happens in
+            # __init__ for every session-composed scope -- nothing here.
+
+            autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+                scope=scope,
+                ui_update_func=af_ui_update_func,
+            )
+
+            # The ownership fact goes in HERE, before _bring_up can call
+            # shutdown on a refusal: a session torn down mid-factory must
+            # already know whether the scope is its own.
+            try:
+                session = cls(
+                    settings=settings,
+                    scope=scope,
+                    executor_bundle=executor_bundle,
+                    autofocus_runner=autofocus_runner,
+                    autofocus_thread=autofocus_thread,
+                    z_ui_update_func=af_ui_update_func,
+                    owns_scope=built_scope,
+                    settings_saved_hook=settings_saved_hook,
+                    engineering_mode=engineering_mode,
+                )
+            except BaseException:
+                # No session exists to tear down -- a scope another session holds
+                # refuses a second claim -- so stop what this factory started.
+                autofocus_thread.stop(timeout=2.0)
+                executor_bundle.shutdown()
+                if built_scope:
+                    cls._report_teardown_failure(scope.disconnect)
+                raise
+            if outcome_listener is not None:
+                session._outcome_listeners.append(outcome_listener)
             if built_scope:
-                cls._report_teardown_failure(scope.disconnect)
+                cls._bring_up(session)
+            return session
+        except BaseException:
+            # Give the listener back: a host that composes again after this
+            # raise (the GUI's fallback to the shipped defaults) would
+            # otherwise hear every outcome twice.
+            if outcome_listener is not None:
+                notifications.remove_listener(outcome_listener)
             raise
-        if built_scope:
-            cls._bring_up(session)
-        return session
 
     @staticmethod
     def _simulator_tier(settings: dict) -> str:
@@ -2101,6 +2152,9 @@ class ScopeSession:
             # unregisters the atexit hook; it is repeatable, so a host's own
             # later disconnect is harmless.
             self.scope.disconnect()
+        # Last, so a listener hears what the teardown itself reported.
+        for listener in list(self._outcome_listeners):
+            self.remove_outcome_listener(listener)
         self._shut_down = True
 
     def start_application_session(

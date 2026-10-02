@@ -344,7 +344,7 @@ session.scope.imaging.start_streaming()
 
 `configure_scope()` asks the motor board which model it is before anything else. When the board reports a model the catalogue (`scopes.json` `Models`) knows and it differs from `settings['microscope']`, the reported model is WRITTEN into the settings dict you passed and logged — hardware truth outranks the stored selection, so your dict can come back changed. A reported model outside the catalogue, or none at all (no motor board), leaves the stored model alone. The scope is yours, so the disconnect is yours too: `session.shutdown()` will not touch a scope it did not build.
 
-Register your notification listener (`notifications.add_listener(...)`) BEFORE the factory: `initialize` can fire a partial-hardware warning, and with no listener registered it is a log line that also occupies the notification dedup slot.
+To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
 
 **Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. The stored plate (`settings['protocol']['labware']`) must be one the labware catalogue has, or `configure_scope()` raises `ConfigError` naming it and the plates available; no other plate is substituted, since a different plate's geometry would put every well position in the wrong place. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
@@ -743,6 +743,37 @@ def on_run_state():              # called on EVERY run-state transition: an acti
 session.add_run_state_listener(on_run_state)
 session.notify_run_state()       # force a level-sync of all listeners
 ```
+
+### Outcomes
+
+A call that fails or is refused raises to you; that exception is the call's outcome, and it is yours to report. Outcomes that no caller waits on -- a camera stream that stops, a run that ends short of its captures, a recording the disk floor stopped, a notice that a capture was saved without its position -- reach you through the session's outcome subscription instead:
+
+```python
+def on_outcome(n):               # runs on the thread that reported it: return promptly, never wait on the scope
+    print(n.kind, n.title, n.message, n.reason, n.shown, n.outcome_id)
+
+session = ScopeSession.create(settings=settings, outcome_listener=on_outcome)   # hears bring-up too
+# or, for a client that comes later:
+session.add_outcome_listener(on_outcome)
+session.remove_outcome_listener(on_outcome)    # shutdown() removes it too
+```
+
+Each call carries one `Notification` (`modules.notification_center`):
+
+| Field | Meaning |
+|---|---|
+| `kind` | `OutcomeKind`, a string enum: `'refusal'` (declined; nothing broke), `'fault'` (something failed), `'notice'` (information; nothing failed), or `'unclassified'` (a notification posted without declaring its kind; these are being moved to declared kinds) |
+| `title`, `message` | The heading and the sentence, written for the person |
+| `reason` | A refusal's machine-readable code; empty otherwise |
+| `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
+| `solicited` | True when it answers a request a person or caller just made |
+| `fatal` | True for a fault that ends what was running |
+| `shown` | Whether the scope says this is for display now. False when it was muted: during a run nobody is watching (non-fatal outcomes), within 10 s of the same title being shown, or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
+| `outcome_id` | One per outcome. An outcome delivered muted and later shown (because someone asked for it) arrives twice with the same id, `shown` False then True; keep the first of an id to count each outcome once |
+| `wall_time`, `timestamp` | Wall-clock seconds, and a monotonic time for ordering within the process |
+| `severity`, `category`, `operation_key` | The log level, the subsystem, and the operation a notice-then-outcome pair is about |
+
+The subscription is process-wide: a listener hears every session in the process, and the mute and dedup state is shared. A listener that raises is logged at ERROR with its traceback and the others are still told. A session that already exists has finished bring-up; what bring-up reported is heard only by a listener given to `create`.
 
 ### Holding the scope for a diagnostic
 
@@ -1352,11 +1383,11 @@ The six listener families each pass a different callback signature -- register a
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) |
-| Notifications | `notifications.add_listener` | `on_notification(n)` -- one `Notification`; takes `min_severity=` (see the factory section above) |
+| Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) |
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
-The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and it has no remover. **Notifications** is registered on the notification centre, takes a `min_severity=` floor, has a matching `remove_listener(callback)`, and must be registered BEFORE the session factory or a partial-hardware warning at `initialize` is lost -- the ordering rule stated in the factory section above.
+The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and it has no remover. **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 
 ### Camera info
 

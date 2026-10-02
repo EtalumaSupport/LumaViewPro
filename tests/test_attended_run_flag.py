@@ -83,7 +83,7 @@ def test_start_declares_attendedness_from_the_run_kind(monkeypatch, trigger, exp
 def _listening_centre():
     received = []
     nc = NotificationCenter()
-    nc.add_listener(received.append, min_severity=Severity.NOTICE)
+    nc.add_listener((lambda n: n.shown and received.append(n)), min_severity=Severity.NOTICE)
     return nc, received
 
 

@@ -53,7 +53,7 @@ def shown():
     seen = []
 
     def listener(notification):
-        if notification.title == STALL_TITLE:
+        if notification.shown and notification.title == STALL_TITLE:
             seen.append(notification)
 
     notifications.add_listener(listener, min_severity=Severity.WARNING)

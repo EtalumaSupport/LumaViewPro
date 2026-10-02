@@ -36,7 +36,9 @@ UNATTENDED_TRIGGERS = ('protocol', 'scan', 'api_autofocus')
 def shown():
     """What the real centre delivers to a listener, i.e. what a person sees."""
     delivered: list = []
-    notifications.add_listener(delivered.append, min_severity=Severity.INFO)
+    notifications.add_listener(
+        (lambda n: n.shown and delivered.append(n)), min_severity=Severity.INFO
+    )
     try:
         yield delivered
     finally:

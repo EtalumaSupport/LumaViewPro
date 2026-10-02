@@ -290,8 +290,12 @@ def notification_popup_bridge(n) -> None:
     """Render a notification as a popup, on the Kivy thread.
 
     Notification listeners run on whichever thread produced the notification,
-    so the work hops to the main thread here.
+    so the work hops to the main thread here. Only a notification the API
+    says is shown opens a popup; the others are dropped before they reach the
+    supersession map, so an unshown one never replaces a shown one.
     """
+    if not n.shown:
+        return
     from kivy.clock import Clock
 
     Clock.schedule_once(lambda dt: _show_superseding(n), 0)

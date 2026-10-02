@@ -33,7 +33,7 @@ def centre_and_seen():
     """A centre with a listener low enough to see a warning-level refusal."""
     centre = NotificationCenter(dedup_window_s=10.0)
     seen = []
-    centre.add_listener(seen.append, min_severity=Severity.NOTICE)
+    centre.add_listener((lambda n: n.shown and seen.append(n)), min_severity=Severity.NOTICE)
     return centre, seen
 
 

@@ -49,7 +49,7 @@ def session(tmp_path):
 def centre(monkeypatch):
     c = NotificationCenter(dedup_window_s=10.0)
     c.shown = []
-    c.add_listener(c.shown.append, min_severity=Severity.INFO)
+    c.add_listener((lambda n: n.shown and c.shown.append(n)), min_severity=Severity.INFO)
     monkeypatch.setattr(motion_module, 'notifications', c)
     return c
 

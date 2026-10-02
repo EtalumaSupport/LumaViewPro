@@ -936,22 +936,12 @@ class LumaViewProApp(TooltipMixin, App):
 
         stage = Stage()
 
-        # Wire NotificationCenter to UI popups BEFORE any hardware init.
-        # The session factory below constructs Lumascope -> LED/motor
-        # boards -> connect(), which can fire notifications.error() for
-        # silent-board detection or any other early hardware failure. If
-        # the listener is registered AFTER hardware init, those early
-        # errors go to the log but never reach the user as popups.
-        from modules.notification_center import Severity, notifications
-
+        # The popups are one subscriber to the session's outcomes, given to
+        # the factory below so it hears bring-up: the factory registers it
+        # before it builds the scope, whose boards and camera report what
+        # failed to come up while they connect. The bridge opens what the
+        # API says is shown and decides nothing more.
         from ui.notification_popup import notification_popup_bridge
-
-        notifications.add_listener(
-            notification_popup_bridge,
-            # NOTICE (not WARNING) so user-facing status of long unattended
-            # operations crosses the bridge; INFO stays log-only.
-            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
-        )
 
         try:
             from kivy.core.window import Window
@@ -1014,6 +1004,7 @@ class LumaViewProApp(TooltipMixin, App):
                     engineering_mode=ENGINEERING_MODE,
                     display_ctx_provider=lambda: app_context.ctx,
                     sim_camera_stall=sim_camera_stall,
+                    outcome_listener=notification_popup_bridge,
                 )
 
             # A stored value the settings store cannot configure a scope

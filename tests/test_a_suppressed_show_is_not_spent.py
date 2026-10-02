@@ -19,7 +19,7 @@ from modules.notification_center import NotificationCenter, Severity
 def centre():
     c = NotificationCenter(dedup_window_s=10.0)
     c.shown = []
-    c.add_listener(c.shown.append, min_severity=Severity.INFO)
+    c.add_listener((lambda n: n.shown and c.shown.append(n)), min_severity=Severity.INFO)
     return c
 
 

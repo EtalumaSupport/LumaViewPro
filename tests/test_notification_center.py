@@ -46,7 +46,7 @@ class TestNotificationCenter:
     def test_dedup_suppresses_within_window(self):
         nc = NotificationCenter(dedup_window_s=1.0)
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.ERROR)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.ERROR)
         nc.error('Motor', 'Timeout', 'msg1')
         nc.error('Motor', 'Timeout', 'msg2')  # same category+title
         nc.error('Motor', 'Timeout', 'msg3')
@@ -175,7 +175,7 @@ class TestShutdownSuppression:
     def test_shutting_down_blocks_listeners(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n))
+        nc.add_listener(lambda n: n.shown and received.append(n))
         nc.set_shutting_down(True)
         nc.error('Task', 'IO Task Failed', 'move_turret failed')
         nc.error('Task', 'IO Task Failed', 'get_xy_targets failed')
@@ -192,7 +192,7 @@ class TestShutdownSuppression:
     def test_reenable_restores_listeners(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n))
+        nc.add_listener(lambda n: n.shown and received.append(n))
         nc.set_shutting_down(True)
         nc.error('X', 'Y', 'z')
         assert received == []
@@ -211,7 +211,7 @@ class TestProtocolSuppression:
     def test_nonfatal_suppressed_during_protocol(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.WARNING)
         nc.set_unattended_run(True)
         nc.warning('Autofocus', 'AF failed', 'curve degenerate')
         nc.error('Camera', 'Frame dropped', 'transient')
@@ -245,7 +245,7 @@ class TestProtocolSuppression:
     def test_clearing_flag_restores_popups(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.WARNING)
         nc.set_unattended_run(True)
         nc.warning('X', 'Y', 'z')
         assert received == []

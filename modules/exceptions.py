@@ -91,6 +91,24 @@ class Quiet:
     """
 
 
+class Notice:
+    """An outcome that tells the person something: nothing failed and nothing was declined.
+
+    Mixed into an exception whose message is written for the person -- a
+    capture saved without its position, a long operation starting -- and
+    reported, never raised: nothing waits on a notice, so the reporter is the
+    whole of its flight. It is shown as a notice under ``title`` in its own
+    words, and logged at NOTICE. Its kind belongs to its type, as a
+    refusal's does, so every client that hears it reads the same answer.
+
+    Attributes:
+        title: The heading the person reads above the message.
+    """
+
+    title: str
+    remedy: Remedy | None = None
+
+
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
 

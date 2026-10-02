@@ -58,7 +58,7 @@ def _move_absolute_impl(error):
 def _watched_centre():
     centre = NotificationCenter(dedup_window_s=10.0)
     shown = []
-    centre.add_listener(shown.append, min_severity=Severity.INFO)
+    centre.add_listener((lambda n: n.shown and shown.append(n)), min_severity=Severity.INFO)
     return centre, shown
 
 

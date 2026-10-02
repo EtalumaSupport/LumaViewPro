@@ -20,12 +20,14 @@ Usage::
 
 from __future__ import annotations
 
+import itertools
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 from drivers.exceptions import HardwareError
 from lib import profile_trace
@@ -36,6 +38,7 @@ from modules.exceptions import (
     HomingFailedError,
     MotorStopFailedError,
     MoveNotCompletedError,
+    Notice,
     PluginError,
     ProtocolError,
     Quiet,
@@ -73,6 +76,8 @@ _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for de
 # caller that waited on it -- is logged once and shown at most once.
 _LOGGED_MARK = '_lvp_outcome_logged'
 _SHOWN_MARK = '_lvp_outcome_shown'
+# The outcome id an object's every delivery carries, set on its first report.
+_ID_MARK = '_lvp_outcome_id'
 
 
 def _outcome_words(exception: BaseException) -> str:
@@ -113,9 +118,41 @@ class Severity(IntEnum):
 logging.addLevelName(int(Severity.NOTICE), 'NOTICE')
 
 
+class OutcomeKind(StrEnum):
+    """What an outcome is, read from its type by the reporter.
+
+    A string enum, so the value crosses a wire as itself. ``UNCLASSIFIED``
+    is a post made straight to the centre rather than through the
+    reporter: its kind was never declared, so the record says so rather
+    than guessing from its severity.
+    """
+
+    REFUSAL = 'refusal'
+    FAULT = 'fault'
+    NOTICE = 'notice'
+    UNCLASSIFIED = 'unclassified'
+
+
+# One id per outcome: an outcome reported muted and later shown is one
+# outcome delivered twice, and a subscriber tells the two deliveries apart
+# from two outcomes by this number. next() on a count is atomic under the GIL.
+_outcome_ids = itertools.count(1)
+
+
+def _next_outcome_id() -> int:
+    return next(_outcome_ids)
+
+
 @dataclass(frozen=True)
 class Notification:
-    """Immutable notification payload delivered to listeners."""
+    """Immutable notification payload delivered to listeners.
+
+    Every listener receives every post, shown or not: ``shown`` is the
+    centre's decision whether this one is for display now (shutdown, an
+    unattended run's mute and the dedup window say no), so a listener that
+    displays opens only the shown ones and a listener that records keeps
+    them all.
+    """
 
     severity: Severity
     category: str  # e.g. "Motor", "Camera", "FileIO", "Protocol"
@@ -139,9 +176,19 @@ class Notification:
     # then replace the earlier message instead of stacking a second one on
     # top of it. Empty for the ordinary standalone notification.
     operation_key: str = ''
-    # The action that answers a refusal, when it has one: a UI listener shows
+    # The action that answers an outcome, when it has one: a UI listener shows
     # the notification as an offer to take it rather than as a plain warning.
     remedy: Remedy | None = None
+    kind: OutcomeKind = OutcomeKind.UNCLASSIFIED
+    # The same for both deliveries of one outcome (muted, then shown when a
+    # person asks for it); different for every other outcome.
+    outcome_id: int = field(default_factory=_next_outcome_id)
+    # A refusal's machine-readable code; empty for anything else.
+    reason: str = ''
+    shown: bool = True
+    # Wall-clock seconds, for a client in another process; ``timestamp`` is
+    # monotonic and orders two notifications within this one.
+    wall_time: float = field(default_factory=time.time)
 
 
 class NotificationCenter:
@@ -153,9 +200,10 @@ class NotificationCenter:
     producer's thread -- UI listeners must wrap work in
     ``Clock.schedule_once``.
 
-    Deduplication: notifications with the same ``(category, title)`` are
-    suppressed if they arrive within ``dedup_window_s`` of each other.
-    The full message still goes to the log file.
+    Deduplication: a notification with the same ``(category, title)`` as
+    one shown within ``dedup_window_s`` is not shown. Every listener still
+    receives it, with ``shown`` False, and the full message still goes to
+    the log file.
     """
 
     def __init__(self, dedup_window_s: float = 10.0):
@@ -217,11 +265,14 @@ class NotificationCenter:
         solicited: bool = False,
         reason: str = '',
         remedy: Remedy | None = None,
+        kind: OutcomeKind | None = None,
+        outcome_id: int | None = None,
     ) -> bool:
         """Post a notification.  Thread-safe.  Always logs.
 
-        Returns whether it was delivered to the listeners: False when shutdown,
-        an unattended run's mute or the dedup window suppressed it.
+        Returns whether it was shown: False when shutdown, an unattended run's
+        mute or the dedup window suppressed it. Every listener receives it
+        either way, with ``shown`` saying which.
 
         ``fatal`` notifications reach listeners even while a protocol
         suppresses non-fatal popups (set via ``set_unattended_run``).
@@ -241,8 +292,13 @@ class NotificationCenter:
         support bundle has to tell them apart from the one line a shown
         refusal leaves.
 
-        ``remedy`` is the action a refusal names as its answer, carried to the
+        ``remedy`` is the action an outcome names as its answer, carried to the
         listeners on the notification.
+
+        ``kind`` and ``outcome_id`` are the reporter's: what the outcome is,
+        read from its type, and the id its every delivery shares. A post made
+        here directly declares no kind; it is a notice at NOTICE and below and
+        unclassified above, and gets an id of its own.
         """
         # Always log at the matching level. Collapsed to one physical
         # line: message prose may span paragraphs, and raw continuation
@@ -276,11 +332,13 @@ class NotificationCenter:
         except Exception as e:
             logger.warning(f'notification forensic write failed: {type(e).__name__}: {e}')
 
-        # Dedup check + shutdown suppression
+        # Dedup check + shutdown suppression: they decide whether the post is
+        # shown, never whether a listener hears it.
         key = (category, title)
         now = time.monotonic()
         suppressed_reason = None
         with self._lock:
+            listeners = list(self._listeners)
             if self._shutting_down:
                 suppressed_reason = 'shutdown'  # logged above; suppressed during close
             elif self._unattended_run and not fatal and not solicited:
@@ -295,8 +353,8 @@ class NotificationCenter:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
-                    listeners = list(self._listeners)
-        if suppressed_reason is not None:
+        shown = suppressed_reason is None
+        if not shown:
             # The forensic write above happens BEFORE this decision, so on its
             # own it says "posted", never "seen". Without this line a support
             # bundle cannot answer whether the user was ever shown a failure --
@@ -328,8 +386,9 @@ class NotificationCenter:
                     ],
                     recording_id=profile_trace.NO_RECORDING,
                 )
-            return False
 
+        if kind is None:
+            kind = OutcomeKind.NOTICE if severity <= Severity.NOTICE else OutcomeKind.UNCLASSIFIED
         n = Notification(
             severity=severity,
             category=category,
@@ -341,14 +400,23 @@ class NotificationCenter:
             operation_key=operation_key,
             solicited=solicited,
             remedy=remedy,
+            kind=kind,
+            outcome_id=_next_outcome_id() if outcome_id is None else outcome_id,
+            reason=reason,
+            shown=shown,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:
                 try:
                     cb(n)
-                except Exception as ex:
-                    logger.debug(f'notification listener error: {ex}')
-        return True
+                except Exception:
+                    # Logged, not reported: a report is itself a post, and it
+                    # would go straight back to the listener that just raised.
+                    logger.exception(
+                        f'[{category}] a notification listener raised on '
+                        f'{gui_logger.one_line(title)!r}; the others were still told'
+                    )
+        return shown
 
     def report_outcome(
         self,
@@ -362,22 +430,27 @@ class NotificationCenter:
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
 
-        The one place an exception that ended its flight becomes a log record
-        and a notification. What it is -- a refusal (``Refusal``), a quiet
-        outcome (``Quiet``, or a by-contract cancel) or a fault (anything
-        else) -- and the words, title and level all come from the exception's
-        type; the caller says only whether a person just asked (``solicited``),
-        which ``category`` it belongs to, and, with ``log_only``, that no one
-        is to be shown it.
+        The one place an outcome becomes a log record and a notification: an
+        exception that ended its flight, or a notice, which is reported and
+        never raised. What it is -- a refusal (``Refusal``), a notice
+        (``Notice``), a quiet outcome (``Quiet``, or a by-contract cancel) or
+        a fault (anything else) -- and the words, title and level all come
+        from the exception's type; the caller says only whether a person just
+        asked (``solicited``), which ``category`` it belongs to, and, with
+        ``log_only``, that no one is to be shown it.
 
         A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
-        a refusal that is not shown at WARNING, with no traceback. A shown
-        outcome's display line is ``notify()``'s own, so a shown refusal is one
-        WARNING line, naming its reason code when it has one, and a shown fault is its traceback line and that one. A
-        refusal is shown as a warning under its ``title``; a fault as an error,
-        in its own words when its type writes them for a person and in a
-        generic sentence when it does not, under its ``title`` or
-        ``fault_title``. A quiet outcome is never shown.
+        a refusal that is not shown at WARNING and a notice that is not shown
+        at NOTICE, with no traceback. A shown outcome's display line is
+        ``notify()``'s own, so a shown refusal is one WARNING line, naming its
+        reason code when it has one, a shown notice one NOTICE line, and a
+        shown fault is its traceback line and that one. A refusal is shown as
+        a warning and a notice as a notice, each under its ``title``; a fault
+        as an error, in its own words when its type writes them for a person
+        and in a generic sentence when it does not, under its ``title`` or
+        ``fault_title``. A quiet outcome is never shown. An outcome's
+        ``remedy`` travels with it whatever its kind, and a fault whose type
+        says ``fatal`` is shown even during an unattended run.
 
         ``operation_key`` names the operation this outcome answers when an
         earlier notice announced it, so the outcome replaces that notice
@@ -387,9 +460,11 @@ class NotificationCenter:
         Each half happens once per exception object, whoever reports it and
         from whichever thread. Shown once means delivered once: a post that
         shutdown, an unattended run's mute or the dedup window suppressed
-        leaves the object unshown, for a later report to show.
+        leaves the object unshown, for a later report to show. The listeners
+        hear both deliveries, under the one ``outcome_id`` the object keeps.
         """
         refusal = isinstance(exception, Refusal)
+        notice = isinstance(exception, Notice)
         quiet = isinstance(exception, (Quiet, CancelledError))
         # Check-and-mark only: notify() takes this same lock, so logging and
         # notifying happen after it is released.
@@ -400,21 +475,31 @@ class NotificationCenter:
                 setattr(exception, _LOGGED_MARK, True)
             if do_show:
                 setattr(exception, _SHOWN_MARK, True)
+            outcome_id = getattr(exception, _ID_MARK, None)
+            if outcome_id is None:
+                outcome_id = _next_outcome_id()
+                setattr(exception, _ID_MARK, outcome_id)
 
-        kind = type(exception).__name__
+        type_name = type(exception).__name__
         words = _outcome_words(exception)
+        reason = getattr(exception, 'reason', None) or ''
         if do_log:
             if quiet:
-                _outcome_logger.info(f'[{category}] {kind}: {words}')
+                _outcome_logger.info(f'[{category}] {type_name}: {words}')
             elif refusal:
                 if not do_show:
-                    reason = getattr(exception, 'reason', None)
                     because = f', {reason}' if reason else ''
-                    _outcome_logger.warning(f'[{category}] refused ({kind}{because}): {words}')
+                    _outcome_logger.warning(f'[{category}] refused ({type_name}{because}): {words}')
+            elif notice:
+                if not do_show:
+                    _outcome_logger.log(int(Severity.NOTICE), f'[{category}] {type_name}: {words}')
             else:
-                _outcome_logger.error(f'[{category}] raised {kind}: {words}', exc_info=exception)
+                _outcome_logger.error(
+                    f'[{category}] raised {type_name}: {words}', exc_info=exception
+                )
         if not do_show:
             return
+        remedy = getattr(exception, 'remedy', None)
         if refusal:
             delivered = self.warning(
                 category,
@@ -422,14 +507,35 @@ class NotificationCenter:
                 words,
                 solicited=solicited,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
-                reason=getattr(exception, 'reason', None) or '',
-                remedy=exception.remedy,
+                reason=reason,
+                remedy=remedy,
+                kind=OutcomeKind.REFUSAL,
+                outcome_id=outcome_id,
+            )
+        elif notice:
+            delivered = self.notice(
+                category,
+                exception.title,
+                words,
+                solicited=solicited,
+                operation_key=operation_key,
+                remedy=remedy,
+                kind=OutcomeKind.NOTICE,
+                outcome_id=outcome_id,
             )
         else:
             body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY
             title = getattr(exception, 'title', None) or fault_title
             delivered = self.error(
-                category, title, body, solicited=solicited, operation_key=operation_key
+                category,
+                title,
+                body,
+                solicited=solicited,
+                operation_key=operation_key,
+                fatal=bool(getattr(exception, 'fatal', False)),
+                remedy=remedy,
+                kind=OutcomeKind.FAULT,
+                outcome_id=outcome_id,
             )
         if not delivered:
             # A suppressed post was never seen, so it has not spent the one
@@ -463,15 +569,23 @@ class NotificationCenter:
     # Consumer API
     # ------------------------------------------------------------------
 
-    def add_listener(self, callback, min_severity: Severity = Severity.WARNING) -> None:
-        """Register a listener.  Called on the producer's thread."""
+    def add_listener(
+        self, callback: Callable[[Notification], None], min_severity: Severity = Severity.WARNING
+    ) -> None:
+        """Register a listener.  Called on the producer's thread, for every
+        post at or above ``min_severity``, shown or not."""
         with self._lock:
             self._listeners.append((min_severity, callback))
 
-    def remove_listener(self, callback) -> None:
-        """Unregister a listener."""
+    def remove_listener(self, callback: Callable[[Notification], None]) -> None:
+        """Unregister a listener.
+
+        Matched by equality, not identity: a bound method is a new object on
+        every attribute access, so ``remove_listener(obj.method)`` must find
+        the one ``add_listener(obj.method)`` registered.
+        """
         with self._lock:
-            self._listeners = [(s, cb) for s, cb in self._listeners if cb is not callback]
+            self._listeners = [(s, cb) for s, cb in self._listeners if cb != callback]
 
     # ------------------------------------------------------------------
     # Testing / introspection

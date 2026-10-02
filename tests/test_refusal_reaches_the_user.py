@@ -170,7 +170,7 @@ def test_a_genuine_repeat_of_one_failure_still_dedups():
 
     centre = NotificationCenter(dedup_window_s=10.0)
     seen = []
-    centre.add_listener(seen.append, min_severity=Severity.ERROR)
+    centre.add_listener((lambda n: n.shown and seen.append(n)), min_severity=Severity.ERROR)
 
     for _ in range(5):
         centre.error('Task', '_move_absolute_impl failed', 'same failure again')
@@ -207,7 +207,7 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
 
     centre = NotificationCenter(dedup_window_s=10.0)
     seen = []
-    centre.add_listener(seen.append, min_severity=Severity.ERROR)
+    centre.add_listener((lambda n: n.shown and seen.append(n)), min_severity=Severity.ERROR)
 
     original = sio.notifications
     try:

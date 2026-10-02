@@ -349,3 +349,24 @@ class TestTheConfirmationHandsBackWhatItOpens:
         )
 
         assert opened == [returned]
+
+
+def test_a_notification_the_api_did_not_show_opens_nothing(popup_surface):
+    """Every listener hears a muted post, so the bridge receives it too; it
+    opens only what the API says is shown, and a muted one never replaces a
+    shown one."""
+    import dataclasses
+
+    notification_popup.notification_popup_bridge(
+        _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+    )
+    muted = dataclasses.replace(
+        _notification(
+            'Hyperstack Save Failed', operation_key=KEY, timestamp=2.0, severity=Severity.ERROR
+        ),
+        shown=False,
+    )
+    notification_popup.notification_popup_bridge(muted)
+
+    assert [popup.title for popup in popup_surface] == ['Saving Hyperstacks']
+    assert not popup_surface[0].dismissed
