@@ -84,6 +84,7 @@ def test_config_carries_delivered_frame_not_typed_text(monkeypatch):
         _settings(),
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
+        current_z=0.0,
     )
 
     assert config['frame_dimensions'] == {'width': 1900, 'height': 1900}

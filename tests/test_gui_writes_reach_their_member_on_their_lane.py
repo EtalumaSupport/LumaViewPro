@@ -208,9 +208,13 @@ def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
     import ui.layer_control as layer_control
     import ui.ui_helpers as ui_helpers
 
+    from modules.scope_session import ScopeSession
+
     moved = MagicMock()
     monkeypatch.setattr(ui_helpers, 'move_absolute', moved)
     monkeypatch.setattr(layer_control.gui_logger, 'button', MagicMock())
+    # The saved focus is the Session's answer, read from the settings it holds.
+    ctx.session.saved_focus = lambda layer: ScopeSession.saved_focus(ctx, layer)
 
     layer_control.LayerControl.goto_focus(SimpleNamespace(layer='Green'))
 

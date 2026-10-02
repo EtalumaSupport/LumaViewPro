@@ -27,6 +27,7 @@ _CANONICAL_KEYS = {
     'frame_dimensions',
     'binning_size',
     'stim_config',
+    'current_z',
 }
 
 
@@ -43,6 +44,7 @@ def _values(**overrides):
         'frame_dimensions': {'width': 800, 'height': 600},
         'binning_size': 1,
         'stim_config': {},
+        'current_z': 0.0,
     }
     base.update(overrides)
     return base

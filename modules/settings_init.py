@@ -199,7 +199,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         'acquire': (str, type(None)),
         'autofocus': bool,
         'false_color': (bool, list),
-        'focus': (int, float),
+        'focus': (int, float, type(None)),
     }
     for layer in get_layers():
         if layer not in settings:
@@ -397,6 +397,37 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     return changed
 
 
+# The focus every layer shipped with before the template stopped carrying
+# one. It was merged into each current.json for every layer nobody saved, so
+# a stored focus of exactly this value is a channel whose focus was never set.
+# Every writer stores a measured stage Z, which does not land on it.
+_RETIRED_SHIPPED_FOCUS_UM = 4950.0
+
+
+def forget_shipped_focus(settings_dict: dict) -> list[str]:
+    """Read a layer focus still holding the old shipped value as never saved.
+
+    A layer with no saved focus takes the stage's current Z wherever a step
+    is built for it; the shipped number made every unsaved layer look saved,
+    so its steps went to that height instead.
+
+    Returns:
+        The layers whose focus was set to None, in layer order.
+    """
+    from modules.common_utils import get_layers
+
+    forgotten = []
+    for layer in get_layers():
+        layer_settings = settings_dict.get(layer)
+        if (
+            isinstance(layer_settings, dict)
+            and layer_settings.get('focus') == _RETIRED_SHIPPED_FOCUS_UM
+        ):
+            layer_settings['focus'] = None
+            forgotten.append(layer)
+    return forgotten
+
+
 def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """Every fold that must run on a loaded dict before the default merge.
 
@@ -413,6 +444,12 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
         logger.info('[Settings ] Renamed manual_video settings section to video')
     if normalize_loaded_settings(settings_dict):
         logger.info('[Settings ] Repaired stored values the running version cannot use')
+    forgotten = forget_shipped_focus(settings_dict)
+    if forgotten:
+        logger.info(
+            f'[Settings ] No focus was ever saved for {", ".join(forgotten)}: '
+            'their steps take the current Z'
+        )
 
 
 def _load_and_validate(logger, filepath: str) -> dict:

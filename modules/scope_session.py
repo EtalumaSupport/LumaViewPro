@@ -1009,6 +1009,20 @@ class ScopeSession:
         for entry in layer_entries:
             entry['autofocus'] = False
 
+    def saved_focus(self, layer: str) -> float:
+        """The Z saved as ``layer``'s focus.
+
+        Raises:
+            FocusNotSavedError: no focus was ever saved for ``layer``; a step
+                built for it takes the current Z instead.
+        """
+        from modules.exceptions import FocusNotSavedError
+
+        focus = self.settings[layer]['focus']
+        if focus is None:
+            raise FocusNotSavedError(layer)
+        return focus
+
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
@@ -1046,6 +1060,7 @@ class ScopeSession:
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
             wellplate_loader=self.wellplate_loader,
+            current_z=self.get_current_plate_position()['z'],
             tiling=tiling,
             use_zstacking=use_zstacking,
         )

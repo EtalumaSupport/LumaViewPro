@@ -284,6 +284,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
             'frame_dimensions',
             'binning_size',
             'stim_config',
+            'current_z',
             'positions',
         }
         assert set(self._selector_config()) == expected

@@ -40,6 +40,7 @@ def _build(settings, **kwargs):
         settings,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
+        current_z=0.0,
         **kwargs,
     )
 

@@ -855,6 +855,8 @@ the block's end raises `RuntimeError`.
 
 ```python
 session.get_layer_configs()              # all layer settings
+session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
+                                         # ever saved (a step built for that layer takes the current Z)
 session.scope.runtime_state.resolve_current_objective()  # (id, info) of the active objective; ObjectiveUnknownError when unknown
 session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
@@ -877,6 +879,11 @@ config = session.get_sequenced_capture_config()
 # what you want.
 config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
 ```
+
+A layer whose focus was never saved (`get_layer_configs()[layer]['focus']`
+is `None`) is imaged at the stage's Z when the config was built: the
+config carries it as `current_z`, read from `get_current_plate_position()`.
+A layer with a saved focus keeps it.
 
 The GUI builds the same configuration through the same builder, supplying
 those two from its own controls, so a scripted run and a run started from the

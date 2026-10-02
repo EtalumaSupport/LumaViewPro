@@ -93,6 +93,7 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
             session.settings,
             objective_helper=session.objective_helper,
             wellplate_loader=session.wellplate_loader,
+            current_z=session.get_current_plate_position()['z'],
             tiling='1x1',
             use_zstacking=False,
         )

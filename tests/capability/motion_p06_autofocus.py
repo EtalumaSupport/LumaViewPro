@@ -39,7 +39,7 @@ def body(s):
     focus_after = s.get_settings_snapshot()['BF']['focus']
     void(
         "run_autofocus wrote settings['BF']['focus'] to what it found",
-        abs(focus_after - z_after) < 5.0,
+        focus_after is not None and abs(focus_after - z_after) < 5.0,
         f'settings BF focus={focus_after}, stage Z={z_after}; '
         'a headless caller can only infer the focus from the stage position',
     )

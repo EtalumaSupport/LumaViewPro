@@ -583,6 +583,26 @@ class PartialHardwareError(BringUpError):
         )
 
 
+class FocusNotSavedError(Refusal, ConfigError):
+    """A channel's saved focus was asked for, and none was ever saved.
+
+    A channel with no saved focus is imaged at the stage's current Z when a
+    step is built for it, so there is no height to go to; answering with a
+    stored placeholder is what sent every such channel to one fixed height.
+
+    Attributes:
+        layer: The channel asked about.
+    """
+
+    title = 'No Focus Saved'
+
+    def __init__(self, layer: str):
+        super().__init__(
+            f'No focus is saved for {layer}. Focus {layer} and press Save Focus to set one.'
+        )
+        self.layer = layer
+
+
 class ObjectiveUnknownError(Refusal, ConfigError):
     """No one can say which objective is in the light path.
 

@@ -88,6 +88,7 @@ try:
             'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
             'binning_size': config_helpers.get_binning_from_settings(settings),
             'stim_config': config_helpers.get_stim_configs(settings),
+            'current_z': curr_position['z'],
         }
     )
     gui_seq = session.scope.protocols.create_protocol(input_config=gui_cfg)

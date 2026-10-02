@@ -109,6 +109,7 @@ def test_scan_config_carries_the_persisted_overlap():
         settings,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
+        current_z=0.0,
     )
 
     assert config['tiling_overlap_percent'] == 25.0

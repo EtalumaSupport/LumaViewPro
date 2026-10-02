@@ -1290,6 +1290,7 @@ def build_sequenced_capture_config(values: dict) -> dict:
         'frame_dimensions': values['frame_dimensions'],
         'binning_size': values['binning_size'],
         'stim_config': values['stim_config'],
+        'current_z': values['current_z'],
     }
     if 'positions' in values:
         config['positions'] = values['positions']
@@ -1404,7 +1405,9 @@ def get_composite_capture_config_from_settings(
     through a missing z to each layer's own stored focus, which is what puts
     every channel in ITS focal plane; a numeric z would pin all of them to
     whatever plane the stage happened to be at and silently discard the
-    per-channel focus the user set.
+    per-channel focus the user set. The stage's z rides along as the
+    current Z, which is where a channel whose focus was never saved is
+    imaged.
 
     """
     channels = get_composite_channels(settings)
@@ -1438,6 +1441,7 @@ def get_composite_capture_config_from_settings(
             # hardware at the sample during a composite -- which capturing a
             # multi-channel image has never done and nobody asked it to.
             'stim_config': {},
+            'current_z': position['z'],
             'positions': [composite_position],
         }
     )
@@ -1538,6 +1542,7 @@ def get_standalone_capture_config_from_settings(
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
             'stim_config': stim_config,
+            'current_z': position['z'],
             'positions': [step_position],
         }
     )
@@ -1569,6 +1574,7 @@ def get_sequenced_capture_config_from_settings(
     objective_helper: ObjectiveLoader,
     wellplate_loader: WellPlateLoader,
     *,
+    current_z: float,
     tiling: str = '1x1',
     use_zstacking: bool = False,
 ) -> dict:
@@ -1612,5 +1618,6 @@ def get_sequenced_capture_config_from_settings(
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
             'stim_config': get_stim_configs(settings),
+            'current_z': current_z,
         }
     )

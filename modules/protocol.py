@@ -1820,6 +1820,9 @@ class Protocol:
         frame_dimensions = input_config['frame_dimensions']
         binning_size = input_config['binning_size']
         stim_config = input_config['stim_config']
+        # Where a layer whose focus was never saved is imaged: the stage's Z
+        # when the config was built. Read only for such a layer.
+        current_z = input_config.get('current_z')
 
         # A stack was asked for and cannot be built: refuse here, before any
         # of the work below, rather than in the per-position loop where the
@@ -1929,14 +1932,22 @@ class Protocol:
                         # Resolve Z per (well, channel): a tuned carry-over for
                         # this exact channel wins (so New keeps per-channel
                         # focus, not one channel's z for all); else an explicit
-                        # manual-position z; else this channel's focus default.
+                        # manual-position z; else this channel's saved focus;
+                        # else, never saved, the current Z.
                         tuned_z = previous_well_z.get((pos.get('name'), layer_name))
                         if tuned_z is not None:
                             z = tuned_z
                         elif pos['z'] is not None:
                             z = pos['z']
-                        else:
+                        elif layer_config['focus'] is not None:
                             z = layer_config['focus']
+                        elif current_z is not None:
+                            z = current_z
+                        else:
+                            raise ConfigError(
+                                f'No focus is saved for {layer_name} and the config '
+                                'names no current Z to image it at'
+                            )
 
                         if zstack_slice is not None:
                             z += zstack_position_offset

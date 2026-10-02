@@ -264,6 +264,7 @@ class TestHeadlessTilingOverlap:
             settings,
             objective_helper=_objective_helper_for(settings),
             wellplate_loader=_wellplate_loader(),
+            current_z=0.0,
         )
         assert config['tiling_overlap_percent'] == 25.0
 

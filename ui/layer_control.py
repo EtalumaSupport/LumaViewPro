@@ -846,7 +846,11 @@ class LayerControl(BoxLayout):
 
         gui_logger.button(f'GOTO_FOCUS_{self.layer}')
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
-        move_absolute('Z', _app_ctx.ctx.settings[self.layer]['focus'])
+        run_reported(
+            lambda: move_absolute('Z', _app_ctx.ctx.session.saved_focus(self.layer)),
+            None,
+            f'GOTO_FOCUS_{self.layer}',
+        )
 
     _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
 
