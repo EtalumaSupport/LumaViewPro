@@ -866,8 +866,9 @@ class SimulatedCamera(Camera):
             dtype = np.uint8
             max_val = 255
 
-        # Scale brightness by exposure and gain
-        raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
+        # Scale brightness by exposure and gain; the gain is held in dB, so it
+        # multiplies the signal by 10^(dB/20)
+        raw = (self._exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
         brightness = min(1.0, raw) * self._illumination_scale()
         if self._test_pattern == 'image_cycle':
             img = self._render_cycle_frame(h, w, dtype, max_val, brightness)

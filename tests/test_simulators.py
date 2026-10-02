@@ -785,11 +785,28 @@ class TestSimulatedCamera:
         grab_a_frame_made_after_now(cam)
         low = cam.array.mean()
 
-        cam.gain(10.0)
+        cam.gain(20.0)
         grab_a_frame_made_after_now(cam)
         high = cam.array.mean()
 
         assert high > low
+
+    def test_twenty_db_of_gain_is_ten_times_the_signal(self):
+        # Gain is in dB, so 20 dB is a factor of 10 in amplitude, not 20.
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_pixel_format('Mono12')
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.exposure_t(1.0)
+        cam.gain(0.0)
+        grab_a_frame_made_after_now(cam)
+        unity = cam.array.mean()
+
+        cam.gain(20.0)
+        grab_a_frame_made_after_now(cam)
+        amplified = cam.array.mean()
+
+        assert amplified / unity == pytest.approx(10.0, rel=0.05)
 
     # -- Test patterns --
 
