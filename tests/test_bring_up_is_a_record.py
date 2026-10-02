@@ -286,7 +286,10 @@ class TestSubstitutions:
             assert len(notices) == 1
             assert notices[0].kind == OutcomeKind.NOTICE
             assert '8x8' in notices[0].message and '1x1' in notices[0].message
-            assert s.settings['binning']['size'] == '8x8', 'the saved preference stays saved'
+            # The notice tells the person what became of the saved value,
+            # and what it says is what the store did.
+            assert 'now the saved binning' in notices[0].message
+            assert s.settings['binning']['size'] == '1x1', 'the delivered binning is stored'
         finally:
             s.shutdown()
             s.scope.disconnect()

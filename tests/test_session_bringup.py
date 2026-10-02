@@ -84,6 +84,13 @@ class TestSettingsThatCannotConfigureAScope:
         with pytest.raises(ConfigError, match='frame'):
             ScopeSession.create(complete_settings_without('frame'), simulate=True)
 
+    def test_missing_binning_refuses_by_key(self):
+        # The other half of the frame's geometry: bring-up stores the binning
+        # the camera delivered at into this slot, so a dict without it is
+        # refused by name, not run at a binning nobody stated.
+        with pytest.raises(ConfigError, match='binning'):
+            ScopeSession.create(complete_settings_without('binning'), simulate=True)
+
     def test_missing_objective_refuses_by_key(self):
         with pytest.raises(ConfigError, match='objective_id'):
             ScopeSession.create(complete_settings_without('objective_id'), simulate=True)

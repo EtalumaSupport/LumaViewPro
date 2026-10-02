@@ -285,9 +285,11 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
 
 class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """The saved binning is one this camera does not offer; bring-up kept the camera's.
+    """The saved binning is one this camera does not offer; bring-up ran at the camera's.
 
-    The saved value stays saved, as the person's preference.
+    The camera's binning is stored in the saved value's place: the binning
+    is half of the frame's geometry, and the store holds the pair the
+    camera delivered.
     """
 
     title = 'Saved binning not supported'
@@ -296,8 +298,7 @@ class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     def __init__(self, saved: int, used: int):
         super().__init__(
             f'The saved {saved}x{saved} binning is not supported by this camera; it '
-            f'starts at {used}x{used} instead. Pick a binning in Microscope Settings '
-            'to update the saved value.'
+            f'runs at {used}x{used}, which is now the saved binning.'
         )
 
 

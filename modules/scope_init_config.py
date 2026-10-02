@@ -115,24 +115,24 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame`` is missing, or ``objective_id`` is missing
-                on a scope with no turret. Every other field has a value
-                ``initialize`` can apply harmlessly when absent; these two do
-                not -- a frame the camera never held is silent-wrong
-                geometry, and an objective default that names no shipped
-                objective was prefix-matched to a real one and stamped into
-                every saved image's scale.
+            ConfigError: ``frame`` or ``binning`` is missing, or
+                ``objective_id`` is missing on a scope with no turret. Every
+                other field has a value ``initialize`` can apply harmlessly
+                when absent; these do not -- a frame the camera never held
+                is silent-wrong geometry, the binning is the other half of
+                that geometry and bring-up stores what the camera delivered
+                at into the same slot, and an objective default that names
+                no shipped objective was prefix-matched to a real one and
+                stamped into every saved image's scale.
         """
-        required = ('frame',) if turreted else ('frame', 'objective_id')
+        required = ('frame', 'binning') if turreted else ('frame', 'binning', 'objective_id')
         missing = [key for key in required if key not in settings]
         if missing:
             raise ConfigError(
                 f'settings cannot configure a scope: missing {missing}; '
-                'a factory-built session needs both, a file-sourced one has them'
+                'a factory-built session needs them, a file-sourced one has them'
             )
-        binning_size = binning.binning_size_str_to_int(
-            text=settings.get('binning', {}).get('size', '1x1')
-        )
+        binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')
         if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):

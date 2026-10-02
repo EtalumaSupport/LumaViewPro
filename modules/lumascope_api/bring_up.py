@@ -75,7 +75,9 @@ class Substitution:
     """A saved setting the camera could not take, and what bring-up used instead.
 
     What becomes of the saved value is the setting's own rule, not this
-    record's: the record says what was saved and what ran.
+    record's: the record says what was saved and what ran. The binning the
+    camera delivered at is stored in the saved binning's place, with the
+    frame it belongs to; the saved image mode stays saved.
     """
 
     setting: str

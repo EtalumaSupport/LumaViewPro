@@ -1246,7 +1246,7 @@ class ScopeSession:
             turreted=self.scope_has_turret(),
         )
         self.scope.initialize(config)
-        self._store_delivered_frame()
+        self._store_delivered_geometry()
         # The camera streams from here on, in every host that configures a
         # scope, so the imaging API starts watching the stream here: a stall
         # nobody is reading is reported to every client, not only to a GUI.
@@ -1920,31 +1920,40 @@ class ScopeSession:
             }
         return target
 
-    def _store_delivered_frame(self) -> None:
-        """Store the frame bring-up's camera took, as ``_apply_frame`` does after an apply.
+    def _store_delivered_geometry(self) -> None:
+        """Store the binning and frame bring-up's camera took, as the Session's writers do after an apply.
 
-        Bring-up applies the stored frame to the camera directly, and the
-        camera snaps it to its grid and caps it at its sensor, so what it
-        delivers can differ from what was stored. Storing the delivered size
-        keeps the settings, the frame fields and every reader of them on the
-        geometry the camera actually holds. The native region is left as
-        stored: it is the intent, and a small reading must not shrink it for
-        good. With no camera connected nothing was delivered, so nothing is
-        stored.
+        Bring-up applies the stored binning and frame to the camera directly.
+        A binning the camera does not offer is replaced by the one it
+        reports, and the camera snaps the frame to its grid and caps it at
+        its sensor, so what it delivers can differ from what was stored.
+        Storing the delivered pair keeps the settings, the frame fields and
+        every reader of them on the geometry the camera actually holds. The
+        two are stored together because a frame beside a binning the camera
+        is not at describes a region the sensor does not have, and the next
+        frame or binning change is worked out from that pair. The native
+        region is left as stored: it is the intent, and a small reading must
+        not shrink it for good. With no camera connected nothing was
+        delivered, so nothing is stored.
         """
         if not self.scope.camera_connected:
             return
-        delivered = self.scope.imaging.frame_size_cached
+        imaging = self.scope.imaging
+        delivered = imaging.frame_size_cached
+        label = binning.binning_size_int_to_str(imaging.get_binning_size())
         with self.settings_lock:
+            stored_label = self.settings['binning']['size']
             frame = self.settings['frame']
             stored = {'width': frame['width'], 'height': frame['height']}
-            if stored == delivered:
+            if stored == delivered and stored_label == label:
                 return
+            self.settings['binning']['size'] = label
             frame['width'] = int(delivered['width'])
             frame['height'] = int(delivered['height'])
         logger.info(
-            f'[Session  ] stored frame {stored["width"]}x{stored["height"]}; the camera '
-            f'delivers {delivered["width"]}x{delivered["height"]} -- the delivered size is stored'
+            f'[Session  ] stored {stored_label} {stored["width"]}x{stored["height"]}; the camera '
+            f'delivers {label} {delivered["width"]}x{delivered["height"]} -- the delivered '
+            f'binning and frame are stored'
         )
 
     def _apply_frame(self, native: dict, target: dict) -> 'dict | None':

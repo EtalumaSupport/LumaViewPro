@@ -108,12 +108,13 @@ class TestBringUpStoresTheDeliveredFrame:
     every reader of the store show the geometry the camera actually holds.
     """
 
-    def _create(self, tmp_path, frame):
+    def _create(self, tmp_path, frame, binning='1x1', **overrides):
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
-        settings = complete_settings(live_folder=str(tmp_path), microscope='LS850')
+        settings = complete_settings(live_folder=str(tmp_path), microscope='LS850', **overrides)
         settings['frame']['width'], settings['frame']['height'] = frame
+        settings['binning']['size'] = binning
         return ScopeSession.create(settings, simulate=True)
 
     def test_a_frame_the_camera_snaps_is_stored_as_delivered(self, tmp_path):
@@ -135,3 +136,42 @@ class TestBringUpStoresTheDeliveredFrame:
             assert s.scope.imaging.frame_size_cached == {'width': 960, 'height': 600}
         finally:
             s.shutdown()
+
+    def test_a_saved_binning_the_camera_lacks_is_stored_as_delivered(self, tmp_path):
+        # A saved 3x3 on the simulated camera, which offers 1, 2 and 4: bring-up
+        # runs at the camera's 1x1, and the store says so beside the delivered
+        # frame. The Session's own frame writer then works its native region
+        # out at the binning in force, not at the one the file carried.
+        s = self._create(tmp_path, (1900, 1900), binning='3x3')
+        try:
+            imaging = s.scope.imaging
+            assert imaging.get_binning_size() == 1
+            assert s.settings['binning']['size'] == '1x1'
+            frame = s.settings['frame']
+            assert {'width': frame['width'], 'height': frame['height']} == imaging.frame_size_cached
+            assert s.set_frame_size(960, 600) == {'width': 960, 'height': 600}
+            assert (frame['native_width'], frame['native_height']) == (960, 600)
+            assert s.frame_at_binning(2) == {'width': 480, 'height': 300}
+        finally:
+            s.shutdown()
+
+    def test_a_grid_built_from_the_store_is_spaced_at_the_cameras_field_of_view(self, tmp_path):
+        # Two sessions whose cameras hold the same geometry build the same
+        # 3x3 grid, whatever binning their files saved: the grid is spaced by
+        # the field of view the camera has, which the store now describes.
+        grids = []
+        for saved in ('1x1', '3x3'):
+            s = self._create(tmp_path, (1920, 1200), binning=saved, BF={'acquire': 'image'})
+            try:
+                assert s.scope.imaging.get_binning_size() == 1
+                protocol = s.scope.protocols.create_protocol(
+                    input_config=s.get_sequenced_capture_config(tiling='3x3')
+                )
+                grids.append(sorted({round(x, 4) for x in protocol.steps()['X']}))
+            finally:
+                s.shutdown()
+        # Every well of the plate, three tiles across each: the pitch inside a
+        # well is the camera's field of view, three times wider from a store
+        # that still said 3x3.
+        assert len(grids[0]) > 1, grids
+        assert grids[0] == grids[1], grids

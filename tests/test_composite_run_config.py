@@ -66,7 +66,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
     settings.update(
         {
             'objective_id': '10x Oly',
-            'binning_size': 1,
+            'binning': {'size': '1x1'},
             'frame': {'width': 800, 'height': 600},
             'image_output_format': {'live': OUTPUT_FORMAT_TIFF, 'sequenced': sequenced_format},
             'live_folder': '.',
