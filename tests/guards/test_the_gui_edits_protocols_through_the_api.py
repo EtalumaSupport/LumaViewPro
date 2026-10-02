@@ -92,7 +92,7 @@ _PIN = {
     ('ui/protocol_settings.py', 'modify_capture_root'): 1,
     ('ui/protocol_settings.py', 'modify_labware'): 1,
     ('ui/protocol_settings.py', 'modify_name'): 1,
-    ('ui/protocol_settings.py', 'modify_time_params'): 4,
+    ('ui/protocol_settings.py', 'modify_time_params'): 3,
     ('ui/protocol_settings.py', 'optimize_step_ordering'): 2,
 }
 

@@ -29,7 +29,7 @@ from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
-from modules import exceptions, gui_logger
+from modules import gui_logger
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
@@ -352,16 +352,15 @@ class ProtocolSettings(FloatLayout):
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        try:
-            time_params = get_protocol_time_params()
-        except exceptions.ConfigError as e:
-            # The stored schedule itself is unusable -- a hand-edited settings
-            # file reaches here, because the load compares container shape and
-            # never scalar values. Render what the store refused and leave the
-            # protocol on its current timing rather than crashing the handler.
-            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
-            notifications.warning('Protocol', 'Capture Timing', str(e))
-            return
+        # The stored schedule can be unusable -- a hand-edited settings file
+        # reaches here, because the load compares container shape and never
+        # scalar values -- and the store's refusal is the answer: the reporter
+        # shows it as its type says, and the protocol keeps its current timing.
+        run_reported(self._apply_stored_time_params, None, 'PROTOCOL_PERIOD')
+
+    def _apply_stored_time_params(self) -> None:
+        """Give the protocol the schedule the store holds."""
+        time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -401,16 +400,7 @@ class ProtocolSettings(FloatLayout):
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        try:
-            time_params = get_protocol_time_params()
-        except exceptions.ConfigError as e:
-            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
-            notifications.warning('Protocol', 'Capture Timing', str(e))
-            return
-        self._protocol.modify_time_params(
-            period=time_params['period'],
-            duration=time_params['duration'],
-        )
+        run_reported(self._apply_stored_time_params, None, 'PROTOCOL_DURATION')
 
     def step_name_validation(self, text: str):
         # What the user typed, before the sanitiser and the rename decide what
