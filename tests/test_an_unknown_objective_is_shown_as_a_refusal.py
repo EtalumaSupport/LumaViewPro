@@ -76,7 +76,7 @@ class TestNewProtocol:
 
         error = _unknown()
         session = MagicMock()
-        session.get_sequenced_capture_config.side_effect = error
+        session.new_protocol.side_effect = error
         monkeypatch.setattr(app_ctx_module, 'ctx', SimpleNamespace(session=session), raising=False)
         stand = SimpleNamespace(
             ids={

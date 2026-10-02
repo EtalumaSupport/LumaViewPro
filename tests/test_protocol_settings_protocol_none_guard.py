@@ -60,19 +60,28 @@ def _guard_linenos(method: ast.FunctionDef) -> list[int]:
     return out
 
 
+# The timing handlers hand the protocol's use to this helper, run through the
+# GUI boundary; a reference to it is the handler's first use of the protocol.
+PROTOCOL_USING_HELPERS = {'_apply_stored_time_params'}
+
+
+def _is_self_attr(node: ast.AST, attr: str) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == attr
+        and isinstance(node.value, ast.Name)
+        and node.value.id == 'self'
+    )
+
+
 def _protocol_deref_linenos(method: ast.FunctionDef) -> list[int]:
-    """Line numbers of `self._protocol.<attr>` accesses (the crashing use)."""
-    out = []
-    for node in ast.walk(method):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == '_protocol'
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == 'self'
-        ):
-            out.append(node.lineno)
-    return out
+    """Line numbers of `self._protocol.<attr>` accesses, or of a helper that makes one."""
+    return [
+        node.lineno
+        for node in ast.walk(method)
+        if (isinstance(node, ast.Attribute) and _is_self_attr(node.value, '_protocol'))
+        or any(_is_self_attr(node, helper) for helper in PROTOCOL_USING_HELPERS)
+    ]
 
 
 @pytest.mark.parametrize('handler', GUARDED_HANDLERS)

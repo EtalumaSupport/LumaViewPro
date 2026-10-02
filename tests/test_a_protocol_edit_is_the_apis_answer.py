@@ -171,7 +171,7 @@ class TestModifyStep:
 class TestNewProtocol:
     def test_an_accepted_protocol_is_adopted_and_has_no_file(self, ctx):
         built = _protocol()
-        ctx.scope.protocols.create_protocol.return_value = built
+        ctx.session.new_protocol.return_value = built
         panel = _Panel(_protocol())
 
         panel.new_protocol()
@@ -182,7 +182,7 @@ class TestNewProtocol:
         assert panel.moves == [0]
 
     def test_a_refused_adoption_is_shown_once_and_changes_nothing(self, ctx, shown):
-        ctx.scope.protocols.create_protocol.return_value = _protocol()
+        ctx.session.new_protocol.return_value = _protocol()
         ctx.scope.protocols.refuse_unaddressable_objectives.side_effect = _refusal()
         previous = _protocol()
         panel = _Panel(previous)
@@ -197,7 +197,7 @@ class TestNewProtocol:
         assert panel.moves == []
 
     def test_a_refused_build_is_shown_once_and_adopts_nothing(self, ctx, shown):
-        ctx.scope.protocols.create_protocol.side_effect = _refusal()
+        ctx.session.new_protocol.side_effect = _refusal()
         previous = _protocol()
         panel = _Panel(previous)
 

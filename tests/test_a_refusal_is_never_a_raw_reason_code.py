@@ -200,15 +200,12 @@ class _ProtocolSettingsStarter(ps.ProtocolSettings):
 
 class TestARefusedProtocolCreation:
     def test_it_shows_no_raw_reason_code(self, monkeypatch, popups):
-        scope = SimpleNamespace(
-            protocols=SimpleNamespace(create_protocol=MagicMock(side_effect=ZSTACK_NO_RANGE))
-        )
-        session = SimpleNamespace(get_sequenced_capture_config=lambda **choices: {})
-        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
+        session = SimpleNamespace(new_protocol=MagicMock(side_effect=ZSTACK_NO_RANGE))
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
 
         _ProtocolSettingsStarter().new_protocol()
 
-        assert scope.protocols.create_protocol.called, (
+        assert session.new_protocol.called, (
             'the click never reached the builder -- the test is not exercising the refusal'
         )
         assert popups == [], (

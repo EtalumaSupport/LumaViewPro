@@ -127,10 +127,12 @@ class ProtocolsAPI:
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
-        self._report_invalid_steps(protocol)
+        # Unsolicited, as the loader's duplicate-filename notice is: a load
+        # may be the startup adoption, which nobody asked for.
+        self._report_invalid_steps(protocol, solicited=False)
         return protocol
 
-    def _report_invalid_steps(self, protocol: Protocol) -> None:
+    def _report_invalid_steps(self, protocol: Protocol, *, solicited: bool) -> None:
         """Tell the caller once when the protocol holds a step the run will refuse.
 
         A loaded file may carry a field the run gate rejects, and an edit
@@ -144,7 +146,7 @@ class ProtocolsAPI:
         errors = protocol.validate_steps(self._scope.objective_helper)
         if errors:
             notifications.report_outcome(
-                ProtocolStepsInvalidNotice(errors=errors), solicited=True, category='Protocol'
+                ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
             )
 
     def create_protocol(
@@ -284,7 +286,7 @@ class ProtocolsAPI:
             # name lookup: a loaded file may carry duplicate names.
             inserted_at = before_step if before_step is not None else after_step + 1
             before_step, after_step = None, inserted_at
-        self._report_invalid_steps(protocol)
+        self._report_invalid_steps(protocol, solicited=True)
         return names
 
     def update_step(
@@ -335,7 +337,7 @@ class ProtocolsAPI:
             plate_position=plate_position,
             objective_id=objective_id,
         )
-        self._report_invalid_steps(protocol)
+        self._report_invalid_steps(protocol, solicited=True)
         return protocol.step(idx=step_idx)['Name']
 
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:

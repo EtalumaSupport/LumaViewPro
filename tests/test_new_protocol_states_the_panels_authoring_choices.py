@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """New Protocol hands the Session the two choices only the panel knows.
 
-The protocol panel assembles its capture config through
-`ScopeSession.get_sequenced_capture_config`, the same call a script makes.
-Tiling and z-stacking are that member's arguments, not stored settings:
+The protocol panel builds its protocol through `ScopeSession.new_protocol`,
+the same call a script makes. Tiling and z-stacking are that member's
+arguments, not stored settings:
 neither survives a restart, so nothing but the running widgets can say what
 the user chose. A caller that leaves them to the member's defaults gets 1x1
 and no z-stack, and the protocol it builds is well-formed, validates clean,
@@ -42,23 +42,16 @@ def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dic
     """
     asked: dict = {}
 
-    def get_sequenced_capture_config(**choices):
+    def new_protocol(**choices):
         asked.update(choices)
-        return {'assembled': 'by the session'}
+        raise ProtocolRunRefusedError(reason='zstack_not_configured', title='t', message='m')
 
-    refusal = ProtocolRunRefusedError(reason='zstack_not_configured', title='t', message='m')
-    scope = SimpleNamespace(
-        protocols=SimpleNamespace(create_protocol=MagicMock(side_effect=refusal))
-    )
-    session = SimpleNamespace(get_sequenced_capture_config=get_sequenced_capture_config)
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, session=session))
+    session = SimpleNamespace(new_protocol=new_protocol)
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
 
     _Panel(tiling, use_zstacking).new_protocol()
 
-    assert scope.protocols.create_protocol.called, 'the click never reached the builder'
-    assert scope.protocols.create_protocol.call_args.kwargs['input_config'] == {
-        'assembled': 'by the session'
-    }, 'the builder was handed something other than what the Session assembled'
+    assert asked, 'the click never reached the Session'
     return asked
 
 
@@ -119,22 +112,17 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog)
 def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch):
     """Building a protocol writes nothing the drain holds, and the API does
     not refuse it: the drain is no reason for the GUI to say no."""
-    built = SimpleNamespace(
-        protocols=SimpleNamespace(
-            create_protocol=MagicMock(
-                side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
-            )
-        )
-    )
     session = SimpleNamespace(
-        get_sequenced_capture_config=lambda **choices: {},
+        new_protocol=MagicMock(
+            side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
+        ),
         protocol_files_draining=True,
         protocol_files_stalled=False,
         protocol_files_pending=3,
         protocol_files_stuck_write='',
     )
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=built, session=session))
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
 
     _Panel('1x1', False).new_protocol()
 
-    assert built.protocols.create_protocol.called, 'New Protocol was refused by a drain'
+    assert session.new_protocol.called, 'New Protocol was refused by a drain'

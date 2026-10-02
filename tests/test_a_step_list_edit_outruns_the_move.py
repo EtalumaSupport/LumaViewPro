@@ -226,6 +226,20 @@ def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monk
     assert panel.curr_step == 7
 
 
+def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(env, monkeypatch):
+    """The API notices an invalid step; the panel composes nothing of its own."""
+    import ui.notification_popup as popup
+
+    composed = []
+    monkeypatch.setattr(popup, 'show_notification_popup', lambda **kw: composed.append(kw))
+    panel = env.panel(num_steps=2, curr_step=0)
+    panel._protocol.steps().at[0, 'Exposure'] = 0.0
+
+    panel.insert_step_ex(after_current_step=True)
+
+    assert composed == []
+
+
 def test_delete_removes_the_step_the_last_edit_selected(env):
     panel = env.panel(num_steps=5, curr_step=2)
 
