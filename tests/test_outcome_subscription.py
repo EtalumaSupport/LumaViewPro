@@ -19,7 +19,7 @@ import pytest
 import modules.notification_center as nc
 from modules.exceptions import Notice, ProtocolRunRefusedError
 from modules.notification_center import NotificationCenter, OutcomeKind
-from modules.scope_session import ScopeSession
+from modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
 
 
@@ -217,3 +217,51 @@ class TestABrokenListenerIsLoud:
         assert [r.levelno for r in raised] == [logging.ERROR]
         assert raised[0].exc_info is not None
         assert [n.title for n in heard] == ['Stalled']
+
+    @pytest.mark.parametrize(
+        ('add', 'fire', 'module'),
+        [
+            (
+                lambda s, cb: s.scope.motion.add_position_listener(cb),
+                lambda s: s.scope.motion._fire_position_listeners('Z'),
+                'modules.lumascope_api.motion',
+            ),
+            (
+                lambda s, cb: s.scope.illumination.add_led_listener(cb),
+                lambda s: s.scope.illumination._fire_led_listeners('Red', True, 10.0),
+                None,
+            ),
+            (
+                lambda s, cb: s.scope.imaging.add_camera_listener(cb),
+                lambda s: s.scope.imaging._fire_camera_listeners('gain', 1.0),
+                'modules.lumascope_api.imaging',
+            ),
+        ],
+        ids=['position', 'led', 'camera'],
+    )
+    def test_a_raising_scope_listener_is_reported_once(
+        self, session, centre, monkeypatch, add, fire, module
+    ):
+        import importlib
+
+        if module is not None:
+            # These modules bound the shared centre at import.
+            monkeypatch.setattr(importlib.import_module(module), 'notifications', centre)
+        heard = _listening(session)
+
+        def _broken(*args):
+            raise ValueError('the listener is broken')
+
+        add(session, _broken)
+        heard.clear()
+        fire(session)
+
+        faults = [n for n in heard if n.kind is OutcomeKind.FAULT]
+        assert len(faults) == 1
+
+    def test_a_raising_scheduled_callback_is_reported_once(self, session, centre):
+        heard = _listening(session)
+
+        _scheduler_callback_error(RuntimeError('the health check raised'))
+
+        assert [(n.category, n.kind) for n in heard] == [('Scheduler', OutcomeKind.FAULT)]

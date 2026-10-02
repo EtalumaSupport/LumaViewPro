@@ -1390,4 +1390,8 @@ class IlluminationAPI:
             try:
                 fn(channel, enabled, illumination_ma)
             except Exception as ex:
-                _api_log.debug(f'led listener error: {ex}')
+                # No caller waits on a listener, so its fault stops here; the
+                # other listeners are still told.
+                from modules.notification_center import notifications
+
+                notifications.report_outcome(ex, solicited=False, category='Illumination')

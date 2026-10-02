@@ -1189,7 +1189,9 @@ class MotionAPI:
             try:
                 fn(axis, target, state)
             except Exception as ex:
-                _api_log.debug(f'position listener error: {ex}')
+                # No caller waits on a listener, so its fault stops here; the
+                # other listeners are still told.
+                notifications.report_outcome(ex, solicited=False, category='Motion')
 
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.

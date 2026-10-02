@@ -80,9 +80,12 @@ def _scheduler_callback_error(exc: BaseException) -> None:
 
     The scheduler's default is to swallow the exception, which is the
     wrong default here: the callbacks the session schedules include the
-    recording health check, whose entire purpose is loud failure.
+    recording health check, whose entire purpose is loud failure. No caller
+    waits on a timer, so this is where the fault's flight stops.
     """
-    logger.error('[ScopeSession] scheduled callback raised', exc_info=exc)
+    from modules.notification_center import notifications
+
+    notifications.report_outcome(exc, solicited=False, category='Scheduler')
 
 
 @dataclasses.dataclass(frozen=True)

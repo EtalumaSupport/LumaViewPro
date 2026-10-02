@@ -750,7 +750,9 @@ class ImagingAPI:
             try:
                 fn(param, value)
             except Exception as ex:
-                _api_log.debug(f'camera listener error: {ex}')
+                # No caller waits on a listener, so its fault stops here; the
+                # other listeners are still told.
+                notifications.report_outcome(ex, solicited=False, category='Camera')
 
     def _get_latest_chunks(self) -> dict | None:
         """Per-frame chunk metadata for the most recent successful grab.
