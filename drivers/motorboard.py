@@ -47,6 +47,19 @@ _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
 # home.
 _HOME_ARRIVAL_TIMEOUT_S = 30.0
 
+# How long the host waits for the board's answer to each home. A board that
+# fails a home says so in its own words ("Z home timeout"), but only after
+# its own sequence ends; a host that stops reading first reports a blank
+# error, or none. Measured on the field firmware in the realistic-timing
+# simulator, every switch stuck: ZHOME 15.7 s; THOME 25.7 s (it re-homes Z
+# when Z is not homed, then waits for Z to reach 0 with no bound of its
+# own); HOME 65.9 s (Z, then that THOME, then XY). Each deadline is above
+# its worst case, and HOME's plus the arrival wait stays inside the motion
+# API's 150 s bound on a full home.
+_ZHOME_REPLY_TIMEOUT_S = 30.0
+_THOME_REPLY_TIMEOUT_S = 45.0
+_HOME_REPLY_TIMEOUT_S = 100.0
+
 # The acceleration limit a caller may ask for, as a percentage of the
 # firmware's own maximum. Public because callers that build a value BEFORE a
 # board is connected -- a settings load, a headless session -- have to bound it
@@ -820,7 +833,7 @@ class MotorBoard(SerialBoard):
             HardwareError: No response from the motor board (timeout or
                 disconnect), or firmware reported a homing failure.
         """
-        resp = self.exchange_command('ZHOME', timeout=15)
+        resp = self.exchange_command('ZHOME', timeout=_ZHOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
         if resp is None:
             raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
@@ -878,7 +891,7 @@ class MotorBoard(SerialBoard):
             HardwareError: No response from the motor board (timeout or
                 disconnect), or firmware reported a homing failure.
         """
-        resp = self.exchange_command('HOME', timeout=30)
+        resp = self.exchange_command('HOME', timeout=_HOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if resp is None:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
@@ -996,7 +1009,7 @@ class MotorBoard(SerialBoard):
             HardwareError: No response from the motor board (timeout or
                 disconnect), or firmware reported a homing failure.
         """
-        resp = self.exchange_command('THOME', timeout=15)
+        resp = self.exchange_command('THOME', timeout=_THOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if resp is None:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')

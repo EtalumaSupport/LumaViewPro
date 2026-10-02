@@ -13,8 +13,10 @@ import sys
 
 import pytest
 
+from drivers.exceptions import HardwareError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from drivers.sim_wire.mp import tmc5072
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
@@ -50,3 +52,26 @@ def test_after_a_turret_home_z_is_back_at_its_target(board):
     assert board.thome()
     for axis in 'ZT':
         assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
+
+
+@pytest.fixture
+def faulted():
+    """(the production driver, the simulated board), field firmware, realistic timing."""
+    spec = MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field', timing='realistic')
+    backend = SimWireBackend(spec)
+    b = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
+    try:
+        yield b, backend.motor_board
+    finally:
+        b.disconnect()
+
+
+# A failed home is reported in the board's own words, which the board sends
+# only when its own sequence ends: the host waits that long.
+
+
+def test_a_stuck_z_switch_on_a_z_home_is_the_boards_own_timeout(faulted):
+    board, sim = faulted
+    sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
+    with pytest.raises(HardwareError, match='Z home timeout'):
+        board.zhome()
