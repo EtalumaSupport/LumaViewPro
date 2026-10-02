@@ -623,7 +623,7 @@ _UI_EXCEPT_PIN = {
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,
     ('ui/listener_bridge.py', 'Exception'): 1,
     ('ui/main_display.py', 'Exception'): 1,
-    ('ui/microscope_settings.py', 'Exception'): 6,
+    ('ui/microscope_settings.py', 'Exception'): 3,
     ('ui/microscope_settings.py', 'ValueError'): 1,
     ('ui/motion_settings.py', 'Exception'): 5,
     ('ui/notification_popup.py', 'Exception'): 6,

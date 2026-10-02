@@ -680,14 +680,8 @@ class MicroscopeSettings(BoxLayout):
         # children list in a non-canonical state. Eric 2026-05-03:
         # "maybe it could do a fully reset when you switch" -- this is
         # that approach.
-        try:
-            ctx.motion_settings._resort_accordion()
-        except Exception as e:
-            logger.debug(f'[LVP Main  ] motion_settings._resort_accordion failed: {e}')
-        try:
-            image_settings._resort_accordion()
-        except Exception as e:
-            logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
+        ctx.motion_settings._resort_accordion()
+        image_settings._resort_accordion()
 
     def _typed_frame_dimensions(self) -> dict:
         """The size currently TYPED into the frame fields.
@@ -700,13 +694,10 @@ class MicroscopeSettings(BoxLayout):
         Raises:
             ValueError: the fields do not hold a pair of integers.
         """
-        try:
-            return {
-                'width': int(self.ids['frame_width_id'].text),
-                'height': int(self.ids['frame_height_id'].text),
-            }
-        except Exception as e:
-            raise ValueError('Invalid value for frame width/height') from e
+        return {
+            'width': int(self.ids['frame_width_id'].text),
+            'height': int(self.ids['frame_height_id'].text),
+        }
 
     def _write_frame_text(self, width, height) -> None:
         """Write a frame read-back into the boxes, unless the user is typing.
