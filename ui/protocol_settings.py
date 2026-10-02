@@ -1240,6 +1240,10 @@ class ProtocolSettings(FloatLayout):
     def insert_step_ex(self, after_current_step: bool = True) -> None:
         """Add a step at the current stage position, beside the current step, and go to it.
 
+        Of the steps added, one per acquiring channel, it goes to the one for
+        the channel being viewed, so adding changes nothing on screen; when
+        that channel acquires nothing, to the first added.
+
         The move to the new step is a navigation that belongs only to a step
         the API accepted, so it is the last call, never reached on a refusal.
         """
@@ -1254,10 +1258,14 @@ class ProtocolSettings(FloatLayout):
             self._protocol, before_step=before_step, after_step=after_step
         )
 
-        if after_current_step:
-            self.curr_step += len(names)
-        elif self.curr_step < 0:
-            self.curr_step += 1
+        # The added steps sit together, in the order the names came back.
+        first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
+        added = range(first_added, first_added + len(names))
+        viewed = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+        self.curr_step = next(
+            (idx for idx in added if self._protocol.step(idx)['Color'] == viewed),
+            first_added,
+        )
 
         self.go_to_step(step_idx=self.curr_step)
 

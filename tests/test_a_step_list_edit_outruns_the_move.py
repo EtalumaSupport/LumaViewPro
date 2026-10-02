@@ -106,6 +106,11 @@ def _protocol(num_steps):
     return protocol
 
 
+def _drawers(opened):
+    """The layer drawers' lookup, with only ``opened`` open."""
+    return lambda layer: SimpleNamespace(collapse=layer != opened)
+
+
 class _Panel(ps.ProtocolSettings):
     """The real class, with only the widget tree and the redraw trigger stubbed."""
 
@@ -152,7 +157,10 @@ def env(monkeypatch):
             illumination=MagicMock(),
             objective_helper=ObjectiveLoader(),
         ),
-        image_settings=SimpleNamespace(layer_lookup=lambda layer: MagicMock()),
+        image_settings=SimpleNamespace(
+            layer_lookup=lambda layer: MagicMock(),
+            accordion_item_lookup=_drawers(opened=None),
+        ),
         session=SimpleNamespace(
             is_protocol_running=False,
             run_lockout=False,
@@ -177,7 +185,7 @@ def env(monkeypatch):
             if count is not None:
                 count -= 1
 
-    return SimpleNamespace(panel=panel, land=land, loaded=loaded)
+    return SimpleNamespace(panel=panel, land=land, loaded=loaded, ctx=ctx)
 
 
 def _xs(protocol):
@@ -298,3 +306,45 @@ def test_a_move_the_list_did_not_change_under_still_lands(env):
 
     assert panel.curr_step == 2
     assert env.loaded == [2.0]
+
+
+def _add_bf_and_blue(protocol, *, before_step=None, after_step=None):
+    names = []
+    for layer in ('BF', 'Blue'):
+        names.append(
+            protocol.insert_step(
+                step_name=None,
+                layer=layer,
+                layer_config=LAYER_CONFIG,
+                plate_position={'x': 99.0, 'y': 0.0, 'z': 0.0},
+                objective_id='10x Oly',
+                stim_configs={},
+                before_step=before_step,
+                after_step=after_step,
+            )
+        )
+        inserted_at = before_step if before_step is not None else after_step + 1
+        before_step, after_step = None, inserted_at
+    return names
+
+
+@pytest.mark.parametrize(
+    ('opened', 'selected_color'),
+    [('BF', 'BF'), ('Blue', 'Blue'), ('Red', 'BF'), (None, 'BF')],
+)
+def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, opened, selected_color):
+    """Adding BF and Blue while viewing BF stays on BF; nothing on screen changes.
+
+    Going to the last channel added lit Blue and moved to its focus on the
+    bench (LS850T, 2026-10-02). A viewed channel that acquires nothing gets
+    the first step added.
+    """
+    env.ctx.session.add_step = _add_bf_and_blue
+    env.ctx.image_settings.accordion_item_lookup = _drawers(opened)
+    panel = env.panel(num_steps=2, curr_step=0)
+
+    panel.insert_step_ex(after_current_step=True)
+
+    assert list(panel._protocol.steps()['Color']) == ['BF', 'BF', 'Blue', 'BF']
+    assert panel.curr_step in (1, 2)
+    assert panel._protocol.step(panel.curr_step)['Color'] == selected_color
