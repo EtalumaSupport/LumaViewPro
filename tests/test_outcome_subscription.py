@@ -265,3 +265,36 @@ class TestABrokenListenerIsLoud:
         _scheduler_callback_error(RuntimeError('the health check raised'))
 
         assert [(n.category, n.kind) for n in heard] == [('Scheduler', OutcomeKind.FAULT)]
+
+
+class TestTheGuiIsOneSubscriber:
+    def test_the_app_gives_its_popup_bridge_to_the_factory_and_registers_nothing_else(self):
+        """The bridge registered on the centre as well would show every popup
+        twice; not given to the factory, it would show none, bring-up's
+        included."""
+        import ast
+
+        from tests.ast_seams import find_def, parse_module
+
+        build = find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+        assert build is not None, 'LumaViewProApp.build is gone'
+        creates = [
+            node
+            for node in ast.walk(build)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'create'
+            and ast.unparse(node.func.value) == 'ScopeSession'
+        ]
+        assert len(creates) == 1, 'the App composes its session through one factory call'
+        given = {kw.arg: ast.unparse(kw.value) for kw in creates[0].keywords}
+        assert given.get('outcome_listener') == 'notification_popup_bridge'
+
+        registrations = [
+            node
+            for node in ast.walk(parse_module('lumaviewpro.py'))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ('add_listener', 'add_outcome_listener')
+        ]
+        assert registrations == [], 'the App registers its popups somewhere besides the factory'
