@@ -130,7 +130,7 @@ class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not
 
 
 class ExposureAtMinimumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """Auto-gain settled below the channel's usable exposure floor.
+    """Auto-gain settled at or below the channel's usable exposure floor.
 
     The setting keeps the floor, since it cannot hold the raw value.
     """
@@ -140,7 +140,7 @@ class ExposureAtMinimumNotice(Notice, Exception):  # noqa: N818 -- a notice, not
 
     def __init__(self, exposure_ms: float, floor_ms: float):
         super().__init__(
-            f'Auto-exposure settled at {exposure_ms:g} ms, below the '
+            f'Auto-exposure settled at {exposure_ms:g} ms, at or below the '
             f'{floor_ms:g} ms usable floor for this channel; the setting keeps '
             'the floor. The scene is too bright: reduce the light.'
         )

@@ -189,3 +189,12 @@ class TestTheAutoGainLimitsAreShown:
         )
 
         assert heard == []
+
+
+def test_an_exposure_exactly_at_the_floor_is_not_called_below_it():
+    # The lock calls an exposure at the floor AT_MINIMUM (<=); on the
+    # simulator a fluorescence channel at its 1 ms slider minimum is
+    # exactly the 1 ms floor, and the words must not say "below" it.
+    words = str(exc.ExposureAtMinimumNotice(1.0, 1.0))
+
+    assert 'settled at 1 ms, at or below the 1 ms usable floor' in words
