@@ -345,6 +345,23 @@ def _every_simulated_camera_is_disconnected_by_its_test():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_test_leaves_the_popups_muted():
+    """A test that ends with the notification centre muted for a run fails.
+
+    Starting a run sets the centre's process-wide unattended flag and only
+    that run's cleanup lowers it. A test that leaves a run live leaves it
+    set, and every later test on the worker finds its notices suppressed --
+    a failure far from its cause. It is reported here, on the test that
+    left it, and lowered so the next test starts clean.
+    """
+    yield
+    center = sys.modules.get('modules.notification_center')
+    if center is not None and center.notifications._unattended_run:
+        center.notifications.set_unattended_run(False)
+        pytest.fail('the test left a run live: the notification centre is still muted for it')
+
+
 @pytest.fixture
 def diagnostic_scope():
     """Lumascope.create_diagnostic() with each board connect answered by its

@@ -78,8 +78,10 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
 
     # The researcher presses Run again. This is the whole point: at the
     # defect it raised ValueError out of start() and burned the claim.
-    runner.start(runner.prepare(**scr_run_kwargs()))
+    monkeypatch.undo()
+    next_run = runner.start(runner.prepare(**scr_run_kwargs()))
     assert runner.run_in_progress(), 'the next run did not start after a raising cleanup'
+    runner._cleanup(_ABORTED, next_run)
 
 
 def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypatch):
@@ -101,8 +103,10 @@ def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypat
 
     assert runner._state is ProtocolState.IDLE, 'a run that stopped at RUNNING did not end idle'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
-    runner.start(runner.prepare(**scr_run_kwargs()))
+    writer.wait_for_video_drains.side_effect = None
+    next_run = runner.start(runner.prepare(**scr_run_kwargs()))
     assert runner.run_in_progress(), 'the next run did not start after a raising cleanup'
+    runner._cleanup(_ABORTED, next_run)
 
 
 def test_idle_is_reachable_from_every_state():
@@ -135,11 +139,12 @@ def test_a_live_error_run_reads_as_in_progress():
     wait_for_run_idle return True at shutdown with the teardown still
     running, and reset() / force_reset() silently early-return.
     """
-    runner, _run = _started_runner()
+    runner, run = _started_runner()
 
     runner._set_state(ProtocolState.ERROR)
 
     assert runner.run_in_progress(), 'a run unwinding through ERROR reads as no run at all'
+    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'), run)
 
 
 def test_a_run_that_died_still_ends_idle():
