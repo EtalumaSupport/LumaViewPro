@@ -346,12 +346,8 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.scope_display.use_bullseye = False
 
     def _supported_pixel_formats(self):
-        """The active camera's supported pixel formats, or [] if unavailable."""
-        try:
-            return _app_ctx.ctx.lumaview.scope.imaging.get_supported_pixel_formats() or []
-        except Exception:
-            logger.warning('[LVP Main  ] Could not read camera pixel formats; assuming 8-bit only.')
-            return []
+        """The active camera's supported pixel formats; empty without a camera."""
+        return _app_ctx.ctx.lumaview.scope.imaging.get_supported_pixel_formats()
 
     def load_image_modes(self):
         """Populate the image-mode spinner with the modes this camera supports.
@@ -524,16 +520,10 @@ class MicroscopeSettings(BoxLayout):
                         if 'stim_config' in settings[layer]:
                             settings[layer]['stim_config']['enabled'] = False
 
-    # Save settings to JSON file
     def load_binning_sizes(self):
-        spinner = self.ids['binning_spinner']
         # Use Lumascope API to get available binning sizes
-        try:
-            sizes = _app_ctx.ctx.lumaview.scope.imaging.get_available_binning_sizes()
-        except Exception:
-            logger.warning('[LVP Main  ] Could not read camera binning sizes, using defaults.')
-            sizes = [1, 2, 4]
-        spinner.values = [f'{s}x{s}' for s in sizes]
+        sizes = _app_ctx.ctx.lumaview.scope.imaging.get_available_binning_sizes()
+        self.ids['binning_spinner'].values = [f'{s}x{s}' for s in sizes]
 
     def _ui_binning_size(self) -> int:
         """The binning factor the store holds, which the panel shows."""

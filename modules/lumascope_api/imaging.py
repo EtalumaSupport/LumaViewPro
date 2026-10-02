@@ -2641,10 +2641,7 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return [1]
-        try:
-            return self._driver.profile.binning_sizes
-        except (AttributeError, TypeError):
-            return [1]
+        return self._driver.profile.binning_sizes
 
     def get_native_resolution(self) -> dict:
         """Return the sensor's physical unbinned resolution.
