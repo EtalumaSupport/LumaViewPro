@@ -21,10 +21,13 @@ callers.
 
 from __future__ import annotations
 
+import functools
 import pathlib
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from lvp_logger import logger
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.sequential_io_executor import IOTask
 
@@ -87,7 +90,7 @@ class PostProcessingAPI:
         return self._run(
             stitcher.load_folder,
             'stitch',
-            path=pathlib.Path(folder),
+            pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             stitching_mode=mode,
@@ -117,7 +120,7 @@ class PostProcessingAPI:
         return self._run(
             zprojector.load_folder,
             'zproject',
-            path=pathlib.Path(folder),
+            pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             method=method,
@@ -143,7 +146,7 @@ class PostProcessingAPI:
         return self._run(
             composite_gen.load_folder,
             'composite',
-            path=pathlib.Path(folder),
+            pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             output_format=settings['image_output_format']['sequenced'],
@@ -172,7 +175,7 @@ class PostProcessingAPI:
         return self._run(
             video_builder.build_from_folder,
             'video',
-            path=pathlib.Path(folder),
+            pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             frames_per_sec=rate,
@@ -224,10 +227,38 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    def _run(self, action, member: str, *args, **kwargs):
-        """Run *action* on the post-processing lane and return its answer."""
+    def _run(self, action, member: str, folder, *args, **kwargs):
+        """Run *action* on the post-processing lane and return its answer.
+
+        The build says on the lane when it starts and how it ends, so a
+        folder's derived files can be traced to the build that wrote them
+        and its overlap with a run read back from the log. A build that
+        raises is named by its outcome's type only: the reporter where the
+        outcome's flight stops logs and shows it once.
+        *folder* is the build's first argument, the folder (or, for an
+        enhance, the file) it reads.
+        """
+
+        @functools.wraps(action)
+        def build(*a, **kw):
+            logger.info(f'[PostProc  ] {member} started on {folder}')
+            started = time.monotonic()
+            try:
+                result = action(*a, **kw)
+            except BaseException as outcome:
+                logger.info(
+                    f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '
+                    f'{type(outcome).__name__}'
+                )
+                raise
+            logger.info(
+                f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '
+                f'{result["message"]}'
+            )
+            return result
+
         return self.lane.call(
-            IOTask(action=action, args=args, kwargs=kwargs),
+            IOTask(action=build, args=(folder, *args), kwargs=kwargs),
             f'post_processing.{member}',
             None,
         )

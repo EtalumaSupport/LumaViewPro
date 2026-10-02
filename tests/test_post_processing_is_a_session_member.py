@@ -33,8 +33,8 @@ def _spy_build(monkeypatch, cls, method_name):
     """Replace *cls.method_name* with a recorder; returns what it was called with."""
     seen = {}
 
-    def record(self, **kwargs):
-        seen.update(kwargs)
+    def record(self, path, **kwargs):
+        seen.update(kwargs, path=path)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         seen['has_turret'] = self._has_turret
         return {'status': True, 'message': 'Success.'}
