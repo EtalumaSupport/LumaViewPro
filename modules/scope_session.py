@@ -2219,7 +2219,9 @@ class ScopeSession:
         so it is logged, not signalled.
 
         A scope whose model has no motor board (``scope.motion_expected``
-        False) has nothing to home, so it issues no startup motion either.
+        False) has nothing to home, so it issues no startup motion either;
+        nor does one whose motor board bring-up recorded as missing, which
+        bring-up's own report has already named.
 
         Headless / REST callers can use this exact same call to apply
         the standard startup orchestration without copy-pasting from
@@ -2247,6 +2249,14 @@ class ScopeSession:
         if not self.scope.motion_expected:
             logger.info('startup motion skipped: this scope model has no motor board')
             return
+        from modules.lumascope_api.bring_up import MOTOR
+
+        # Bring-up has already reported the missing board once, in its own
+        # report; homing it would only have the home refused as "not
+        # connected" and show the same absence a second time.
+        if self.scope.bring_up_record().part(MOTOR).missing:
+            logger.info('startup motion skipped: the motor board did not come up at bring-up')
+            return
 
         if home_fn is None:
             home_fn = self.scope.motion.home
@@ -2265,19 +2275,10 @@ class ScopeSession:
                 raise
             from modules.notification_center import notifications
 
-            # A scope with no hardware gets one consolidated popup that
-            # already covers the missing motor, so its home failure is
-            # logged, not shown a second time.
-            notifications.report_outcome(
-                e,
-                solicited=False,
-                category='Motion',
-                log_only=self.scope.no_hardware,
-            )
-            logger.error(
-                'Homing did not succeed -- skipping startup turret '
-                'positioning; the stage reference is unknown'
-            )
+            notifications.report_outcome(e, solicited=False, category='Motion')
+            # The failure itself was logged once, at its own level, by the
+            # report above; this line only records what was skipped.
+            logger.info('startup turret positioning skipped: the stage reference is unknown')
             return
 
         if self.scope.capabilities.has_turret:

@@ -4,15 +4,13 @@
 Bring-up waits on the home. When it raises -- the homing fault, or no
 motor controller -- bring-up is where that outcome's flight ends, so it
 reports it once and skips the turret move, which would be an absolute move
-against the reference the home failed to establish. A scope with no
-hardware at all already gets one consolidated popup, so there the failure
-is logged and not shown again. Any other refusal is not bring-up's to
-answer and reaches its caller.
+against the reference the home failed to establish. Any other refusal is
+not bring-up's to answer and reaches its caller.
 """
 
 from __future__ import annotations
 
-import logging
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -73,17 +71,22 @@ def test_no_motor_controller_is_shown_once_as_not_connected(session, shown):
     assert turret == []
 
 
-def test_with_no_hardware_the_failure_is_logged_not_shown(session, shown, monkeypatch, caplog):
-    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
+def test_the_skipped_turret_move_is_not_a_second_error(session, shown, monkeypatch):
+    # The reporter logs the failure at its own level; the skip it causes is
+    # what bring-up did next, not another failure.
+    import modules.scope_session as scope_session_module
 
-    with caplog.at_level(logging.INFO):
-        session.start_application_session(
-            home_fn=_raises(HomingFailedError('ALL', 'failed', ('Z',))),
-            turret_fn=lambda position: None,
-        )
+    log = MagicMock()
+    monkeypatch.setattr(scope_session_module, 'logger', log)
+    session.start_application_session(
+        home_fn=_raises(HomingFailedError('ALL', 'failed', ('Z',))),
+        turret_fn=lambda position: None,
+    )
 
-    assert shown == []
-    assert [r.levelno for r in caplog.records if r.name == 'LVP.outcomes'] == [logging.ERROR]
+    assert log.error.call_args_list == []
+    assert call('startup turret positioning skipped: the stage reference is unknown') in (
+        log.info.call_args_list
+    )
 
 
 def test_a_busy_refusal_reaches_the_caller(session, shown):
