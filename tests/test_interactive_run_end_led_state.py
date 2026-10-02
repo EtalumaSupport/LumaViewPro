@@ -50,9 +50,9 @@ STARTERS = {
         'return_to_original',
         'a manual z-stack runs at the current position and returns to it',
     ),
-    '_autofocus_scan_start': (
-        'ui/protocol_settings.py',
-        'prepare',
+    'run_autofocus_all_steps': (
+        'modules/protocol_runner.py',
+        '_run',
         'off',
         'autofocus-all-steps traverses every protocol position; holding the '
         'excitation LED across those moves would photobleach the sample',

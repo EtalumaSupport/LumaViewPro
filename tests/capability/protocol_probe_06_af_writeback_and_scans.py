@@ -1,13 +1,10 @@
 """Probe 06 -- two follow-ups from probe 05.
 
 1. Does a headless 'Autofocus All Steps' get the focused Z back? The
-   write-back the GUI does (ui/protocol_settings.py:1702-1703) is
-   `self._protocol.steps()['Z'] = kwargs['protocol'].steps()['Z']`,
-   guarded on status == 'completed'. Nothing in modules/ does it.
+   run writes it into the caller's protocol before run_complete is sent.
 2. Multi-scan: how many scans does a period/duration pair actually run?
 """
 
-import copy
 import datetime
 import pathlib
 import time
@@ -18,7 +15,6 @@ session, live = make_session('afwb', home=True)
 try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
-    from modules.sequenced_capture_runner import SequencedCaptureRunMode
 
     settings = session.settings
     runner = ProtocolRunner(session)
@@ -38,46 +34,21 @@ try:
     seen = {}
 
     def on_complete(**kw):
-        seen['status'] = kw.get('status')
-        p = kw.get('protocol')
-        seen['z'] = None if p is None else p.steps()['Z'].tolist()
+        seen['z_on_mine'] = protocol.steps()['Z'].tolist()
 
-    sequence = copy.deepcopy(protocol)
-    sequence.modify_autofocus_all_steps(enabled=True)
-    z_in = sequence.steps()['Z'].tolist()
-    plan = runner.prepare(
-        protocol=sequence,
-        run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-        run_trigger_source='autofocus_scan',
-        max_scans=1,
-        sequence_name='af_scan',
-        parent_dir=None,
-        image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
-        enable_image_saving=False,
-        autogain_settings=config_helpers.get_auto_gain_settings(settings),
-        callbacks={'run_complete': on_complete},
-        update_z_pos_from_autofocus=True,
-        leds_state_at_end='off',
-        engineering_mode=session.engineering_mode,
-        autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-            settings, session.settings_lock
-        ),
-        **config_helpers.get_sequenced_run_settings(
-            settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-        ),
+    z_in = protocol.steps()['Z'].tolist()
+    af = runner.run_autofocus_all_steps(protocol, callbacks={'run_complete': on_complete}).wait(
+        timeout_s=300
     )
-    runner.start(plan).wait(timeout_s=300)
-    time.sleep(2)
-    print('callback status      :', seen.get('status'))
-    print('Z handed in          :', z_in)
-    print('Z on callback protocol:', seen.get('z'))
-    print('Z on MY protocol obj  :', sequence.steps()['Z'].tolist())
-    changed = seen.get('z') != z_in
+    print('status / focus_written :', af.status, af.focus_written)
+    print('Z handed in            :', z_in)
+    print('Z on MY protocol at run_complete:', seen.get('z_on_mine'))
+    print('Z on MY protocol after :', protocol.steps()['Z'].tolist())
     print(
-        'ASSERT focused Z only reachable via the run_complete callback:',
+        'ASSERT the focused Z is on the caller protocol by run_complete:',
         'PASS'
-        if changed and sequence.steps()['Z'].tolist() == z_in
-        else f'CHECK (cb_changed={changed})',
+        if af.focus_written and seen.get('z_on_mine') == protocol.steps()['Z'].tolist()
+        else 'FAIL',
     )
     runner.wait_for_run_idle(timeout_s=60)
 

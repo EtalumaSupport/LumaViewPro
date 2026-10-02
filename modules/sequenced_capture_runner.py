@@ -143,7 +143,9 @@ class RunPlan:
     separate_folder_per_channel: bool
     disable_saving_artifacts: bool
     save_autofocus_data: bool
-    update_z_pos_from_autofocus: bool
+    # The caller's own protocol, not a copy: the one object a completed
+    # autofocus scan writes its focus into.
+    write_focus_to: Protocol | None
     leds_state_at_end: str
     video_as_frames: bool
     autofocus_snapshot: AutofocusSnapshot
@@ -327,6 +329,7 @@ class SequencedCaptureRunner:
         # under the run lock. A run that never started must leave nothing
         # for a caller to wait on.
         self._run_outcome = None
+        self._write_focus_to = None
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
         # a fatal fault (disk floor) would set a SHARED flag after the next
@@ -802,13 +805,13 @@ class SequencedCaptureRunner:
         return_to_position: dict | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
-        # Reachable ONLY from the autofocus-scan run mode, whose completion
-        # harvests the focused Z column back into the user's protocol. It is
-        # absent from get_sequenced_run_settings, so no Run button and no L2
-        # caller can turn it on: in an ordinary run it is always False and the
-        # write-backs it guards never fire. Anything a normal run must do with
-        # a found focus therefore cannot be gated on this.
-        update_z_pos_from_autofocus: bool = False,
+        # Set ONLY by ProtocolRunner.run_autofocus_all_steps, whose completed
+        # scan writes the focused Z column into this protocol. It is absent
+        # from get_sequenced_run_settings, so no Run button turns it on: in an
+        # ordinary run it is None and the write-backs it guards never fire.
+        # Anything a normal run must do with a found focus therefore cannot
+        # be gated on this.
+        write_focus_to: Protocol | None = None,
         leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
         keep_led_between_steps: bool = False,
@@ -1161,7 +1164,7 @@ class SequencedCaptureRunner:
             separate_folder_per_channel=separate_folder_per_channel,
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
-            update_z_pos_from_autofocus=update_z_pos_from_autofocus,
+            write_focus_to=write_focus_to,
             leds_state_at_end=leds_state_at_end,
             video_as_frames=video_as_frames,
             # The states freeze with the plan; the restorer is a function,
@@ -1333,7 +1336,7 @@ class SequencedCaptureRunner:
             self._return_to_position = plan.return_to_position
             self._disable_saving_artifacts = plan.disable_saving_artifacts
             self._save_autofocus_data = plan.save_autofocus_data
-            self._update_z_pos_from_autofocus = plan.update_z_pos_from_autofocus
+            self._write_focus_to = plan.write_focus_to
             self._leds_state_at_end = plan.leds_state_at_end
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
@@ -1391,6 +1394,10 @@ class SequencedCaptureRunner:
             # a rival can commit in between and the caller waits on the rival's
             # run instead of its own.
             outcome = PendingRunOutcome()
+            # Not written until cleanup writes it, so a run settled without
+            # reaching that write -- a shutdown, a failed start -- says so.
+            if plan.write_focus_to is not None:
+                outcome.record_focus_written(False)
             self._run_outcome = outcome
             # The run's writes, created with its outcome and for the same
             # reasons: after the refusals, so a refused start leaves the live
@@ -1716,6 +1723,28 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
+    def _write_focus(self, ending: RunEnding, run: PendingRunOutcome) -> None:
+        """Write a completed autofocus scan's focus into the caller's protocol.
+
+        Here, on the run's thread before run_complete is sent, because the
+        run still holds the scope: the GUI's protocol edits stay disabled
+        until the claim is released, so no edit lands between the scan and
+        the write. A scan that did not complete focused only some of its
+        steps, so it writes none. A write that fails is reported once and
+        does not raise: cleanup must still give the scope back.
+        """
+        target = self._write_focus_to
+        if target is None or ending.status != 'completed':
+            return
+        try:
+            target.adopt_focus_from(self._protocol)
+        except Exception as failed:
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(failed, solicited=False, category='Protocol')
+            return
+        run.record_focus_written(True)
+
     def _account_for_captures(self, ending: RunEnding) -> RunEnding:
         """Record what the run captured, and say 'incomplete' when it fell short.
 
@@ -1783,7 +1812,14 @@ class SequencedCaptureRunner:
                 # Only a standalone autofocus run has one focus to report;
                 # the sweep clears its result per run, so a sweep that chose
                 # none reads None here rather than an earlier run's focus.
-                if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+                # An autofocus scan of every step runs in the same mode and
+                # is told apart by the protocol it writes its focus into:
+                # its answer is that protocol's Z column, not the last
+                # step's focus.
+                if (
+                    self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+                    and self._write_focus_to is None
+                ):
                     outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
                 ending.status not in ('completed', 'incomplete')
@@ -2211,6 +2247,7 @@ class SequencedCaptureRunner:
             latched = self._ending.get()
             forced_dark = self._fatal_abort_event.is_set()
             ending = self._account_for_captures(latched or ending)
+            self._write_focus(ending, run)
             run_complete = RunCompleteNotice(
                 self._callbacks, protocol=self._protocol, ending=ending, run_dir=self._run_dir
             )

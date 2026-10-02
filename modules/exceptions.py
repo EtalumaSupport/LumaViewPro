@@ -371,6 +371,30 @@ class ProtocolNotSavedError(ProtocolError):
         self.file = file
 
 
+class FocusNotWrittenError(Refusal, ProtocolError):
+    """The focus a scan found was not written, because the protocol's steps changed under it.
+
+    Raised by ``Protocol.adopt_focus_from`` when the protocol no longer has
+    the steps the scan focused: a different number of them, or a step at a
+    different position, channel or objective. Each focused Z belongs to the
+    step it was found at, so writing it into a different step would give that
+    step a focus nobody measured. The protocol is left unchanged; scanning
+    again focuses the steps it has now.
+
+    Attributes:
+        difference: What no longer matches, in the words the person reads.
+    """
+
+    title = 'Focus Not Saved'
+
+    def __init__(self, difference: str):
+        super().__init__(
+            f'The focus found by the scan was not saved: {difference} since the scan '
+            'started. The protocol is unchanged; run the scan again to focus its steps.'
+        )
+        self.difference = difference
+
+
 class ConfigError(Exception):
     """Application configuration or settings error."""
 

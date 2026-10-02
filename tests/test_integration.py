@@ -570,9 +570,7 @@ class TestIntegrationAutofocus:
                 }
             ]
         )
-        completed, _ = _run_and_wait(
-            af_executor, protocol, tmp_path, update_z_pos_from_autofocus=True
-        )
+        completed, _ = _run_and_wait(af_executor, protocol, tmp_path, write_focus_to=protocol)
         assert completed, 'Autofocus protocol did not complete'
 
     def test_camera_state_restored_before_af_signals_done(self, scope, executors):

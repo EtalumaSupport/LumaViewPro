@@ -19,6 +19,7 @@ from lvp_logger import logger
 from modules.exceptions import (
     ConfigError,
     DuplicateCaptureFilenamesNotice,
+    FocusNotWrittenError,
     ProtocolError,
     ProtocolNotLoadedError,
     ProtocolNotSavedError,
@@ -1170,6 +1171,38 @@ class Protocol:
 
     def modify_step_z_height(self, step_idx: int, z: float):
         self._config['steps'].at[step_idx, 'Z'] = z
+
+    # What makes a step the one a focus was found for. Not the step-list
+    # revision: an Update moves a step without changing the list.
+    _FOCUS_IDENTITY = (
+        ('X', 'position'),
+        ('Y', 'position'),
+        ('Color', 'channel'),
+        ('Objective', 'objective'),
+    )
+
+    def adopt_focus_from(self, scanned: 'Protocol') -> None:
+        """Take the Z of every step from *scanned*, the copy a scan focused.
+
+        All or nothing: the steps must be the ones the scan focused -- the
+        same number, each at the same position, channel and objective --
+        or no Z is written.
+
+        Raises:
+            FocusNotWrittenError: The steps differ from the scanned copy's.
+        """
+        mine = self._config['steps']
+        theirs = scanned.steps()
+        if len(mine) != len(theirs):
+            raise FocusNotWrittenError(
+                f'the protocol has {len(mine)} steps, not the {len(theirs)} the scan focused'
+            )
+        for idx in range(len(mine)):
+            for column, words in self._FOCUS_IDENTITY:
+                now, then = mine.iloc[idx][column], theirs.iloc[idx][column]
+                if not (now == then or (pd.isna(now) and pd.isna(then))):
+                    raise FocusNotWrittenError(f"step {idx + 1}'s {words} changed")
+        mine['Z'] = theirs['Z'].to_numpy()
 
     def zstack_group_focus_anchor(self, step_idx: int) -> int | None:
         """The slice holding this step's group focus reference, or None.

@@ -1438,19 +1438,6 @@ class ProtocolSettings(FloatLayout):
         setattr(self, f'{trigger}_pending', False)
         self.draw_protocol_buttons()
 
-    def _autofocus_run_complete_callback(self, **kwargs):
-        # Copy the Z-heights from the autofocus scan into the protocol --
-        # but only from a scan that actually finished. An aborted or
-        # failed scan focused some prefix of its steps and left the rest
-        # at their pre-scan values, so copying that column back
-        # overwrites the user's protocol with the steps that never ran.
-        # The run's own terminal status is the only thing that can tell
-        # the two apart; where the stage ended cannot.
-        focused_protocol = kwargs['protocol']
-        if kwargs.get('status') == 'completed':
-            self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
-        self.reset_autofocus_ui()
-
     def debug_func(self):
         pass
 
@@ -1472,10 +1459,14 @@ class ProtocolSettings(FloatLayout):
         )
 
     def _autofocus_scan_start(self) -> typing.Callable[[], None]:
-        """Read the autofocus scan's inputs from the panel; return the call that starts it."""
+        """Return the call that starts the autofocus scan of this panel's protocol.
+
+        The scan and the focus it writes into the protocol are
+        ProtocolRunner.run_autofocus_all_steps, the one a script or REST
+        calls; this panel passes its protocol and its own callbacks.
+        """
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        engine = ctx.sequenced_capture_runner
+        member = ctx.session.create_protocol_runner()
         trigger_source = 'autofocus_scan'
 
         callbacks = {
@@ -1495,7 +1486,7 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': self.draw_protocol_buttons,
             'update_step_number': _update_step_number_callback,
             'go_to_step': go_to_step,
-            'run_complete': self._autofocus_run_complete_callback,
+            'run_complete': self._scan_run_complete,
             # LED observer handles UI sync -- no manual callbacks needed
             'sync_layer_widgets': sync_layer_widgets_from_settings,
             'set_recording_title': set_recording_title,
@@ -1503,39 +1494,16 @@ class ProtocolSettings(FloatLayout):
             'reset_title': reset_title,
         }
 
-        sequence = self._protocol.copy_for_execution()
-        sequence.modify_autofocus_all_steps(enabled=True)
-        image_capture_config = get_image_capture_config_from_ui()
-        autogain_settings = get_auto_gain_settings()
+        protocol = self._protocol
         engineering_mode = ctx.engineering_mode
-        autofocus_snapshot = config_helpers.autofocus_snapshot_from_settings(
-            settings, ctx.settings_lock
-        )
 
         def _start():
-            plan = engine.prepare(
-                protocol=sequence,
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                run_trigger_source=trigger_source,
-                max_scans=1,
-                sequence_name='af_scan',
-                parent_dir=None,
-                image_capture_config=image_capture_config,
-                enable_image_saving=False,
-                autogain_settings=autogain_settings,
+            self._runs_started_here[trigger_source] = member.run_autofocus_all_steps(
+                protocol,
                 callbacks=callbacks,
-                update_z_pos_from_autofocus=True,
-                leds_state_at_end='off',
+                run_trigger_source=trigger_source,
                 engineering_mode=engineering_mode,
-                autofocus_snapshot=autofocus_snapshot,
-                # The autofocus scan must NOT hold the excitation LED across
-                # focus moves (photobleaching) and saves nothing; the
-                # helper's autofocus-scan branch forces both off.
-                **config_helpers.get_sequenced_run_settings(
-                    settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-                ),
             )
-            self._runs_started_here[trigger_source] = engine.start(plan)
 
         return _start
 

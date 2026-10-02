@@ -171,8 +171,9 @@ class RunOutcome:
     The first four fields are the run's ENDING, copied from the
     RunEnding whatever ended the run recorded; the next three describe
     the merge, the next two the autofocus characterization data, then
-    what the run captured, and last which steps putting the scope back
-    after it did not finish. A non-composite run carries merged=False and an empty
+    what the run captured, which steps putting the scope back after it
+    did not finish, and last whether a scan's focus was written into the
+    caller's protocol. A non-composite run carries merged=False and an empty
     merge_reason under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
@@ -221,6 +222,12 @@ class RunOutcome:
             layer panel') are named only when they could not be scheduled:
             one that fails when it runs, after the outcome is settled,
             reports itself and is not added here.
+        focus_written: Whether the focus a scan found was written into the
+            protocol the caller asked it to write to. None for a run asked
+            to write no focus; False when it was asked and wrote none --
+            the scan did not complete, or the protocol's steps changed
+            during it (reported once, as 'Focus Not Saved') -- and the
+            protocol is unchanged.
     """
 
     status: str
@@ -235,6 +242,7 @@ class RunOutcome:
     af_focus_z_um: float | None
     captures: CaptureTally | None
     cleanup_failures: tuple[str, ...] | None
+    focus_written: bool | None
 
     @classmethod
     def from_ending(
@@ -248,6 +256,7 @@ class RunOutcome:
         cleanup_failures: tuple[str, ...] | None,
         af_data_path: str | None = None,
         af_focus_z_um: float | None = None,
+        focus_written: bool | None = None,
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
@@ -274,6 +283,7 @@ class RunOutcome:
             af_focus_z_um=af_focus_z_um,
             captures=captures,
             cleanup_failures=cleanup_failures,
+            focus_written=focus_written,
         )
 
 
@@ -295,6 +305,7 @@ class PendingRunOutcome:
         self._af_focus_z_um: float | None = None
         self._captures: CaptureTally | None = None
         self._cleanup_failures: tuple[str, ...] | None = None
+        self._focus_written: bool | None = None
         self._settled = threading.Event()
 
     @property
@@ -351,6 +362,16 @@ class PendingRunOutcome:
         with self._lock:
             self._cleanup_failures = steps
 
+    def record_focus_written(self, written: bool) -> None:
+        """Record whether a scan's focus was written into the caller's protocol.
+
+        Held here for the reason the captures are. A run asked to write one
+        records False when it starts and True once cleanup has written it,
+        so every settle path, a shutdown's included, reports which.
+        """
+        with self._lock:
+            self._focus_written = written
+
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
 
@@ -390,6 +411,7 @@ class PendingRunOutcome:
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
+                focus_written=self._focus_written,
             )
             self._settled.set()
             return True
@@ -424,6 +446,7 @@ class PendingRunOutcome:
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
+                focus_written=self._focus_written,
             )
             self._settled.set()
             return True
@@ -458,6 +481,7 @@ class PendingRunOutcome:
                 af_focus_z_um=self._af_focus_z_um,
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
+                focus_written=self._focus_written,
             )
             self._settled.set()
             return True

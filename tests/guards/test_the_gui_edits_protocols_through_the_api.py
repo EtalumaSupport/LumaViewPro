@@ -32,6 +32,7 @@ from tests.ast_seams import iter_package_modules, parse_module
 # Public members of Protocol that change the protocol.
 WRITERS = frozenset(
     {
+        'adopt_focus_from',
         'apply_focus_all_layer_steps',
         'apply_tiling',
         'apply_zstack_group_focus',
@@ -80,21 +81,19 @@ NOT_WRITERS = frozenset(
 
 _STEPS_WRITE = 'steps()[...] ='
 
-# Pinned at the tree that first counted them: fifteen writer calls and one
-# write into the live frame.
+# Pinned at the tree that first counted them (fifteen writer calls and one
+# write into the live frame), lowered as each edit moved behind the API.
 _PIN = {
     ('ui/layer_control.py', 'apply_focus_all_layer_steps'): 1,
     ('ui/layer_control.py', 'modify_step_z_height'): 1,
     ('ui/protocol_settings.py', 'apply_tiling'): 1,
     ('ui/protocol_settings.py', 'apply_zstacking'): 1,
     ('ui/protocol_settings.py', 'delete_step'): 1,
-    ('ui/protocol_settings.py', 'modify_autofocus_all_steps'): 1,
     ('ui/protocol_settings.py', 'modify_capture_root'): 1,
     ('ui/protocol_settings.py', 'modify_labware'): 1,
     ('ui/protocol_settings.py', 'modify_name'): 1,
     ('ui/protocol_settings.py', 'modify_time_params'): 4,
     ('ui/protocol_settings.py', 'optimize_step_ordering'): 2,
-    ('ui/protocol_settings.py', _STEPS_WRITE): 1,
 }
 
 

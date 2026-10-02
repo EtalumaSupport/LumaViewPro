@@ -406,6 +406,68 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    def run_autofocus_all_steps(
+        self,
+        protocol: Protocol,
+        callbacks: dict[str, typing.Callable] | None = None,
+        run_trigger_source: str = 'api_autofocus_scan',
+        engineering_mode: bool | None = None,
+    ) -> PendingRunOutcome:
+        """Autofocus at every step of *protocol*, and write the focus into it.
+
+        One scan that visits each step with autofocus on, whatever each
+        step's own autofocus setting, and captures nothing. When the scan
+        completes, each step's Z becomes the focus found for it, written
+        before run_complete is sent and before the run lets go of the scope.
+        A scan that does not complete writes nothing, because it focused
+        only some of the steps.
+
+        The focus belongs to the steps it was found at, so a protocol whose
+        steps changed during the scan -- a different number of them, or a
+        step at a different position, channel or objective -- is left
+        unchanged, and the person is told once ('Focus Not Saved'). The
+        outcome's focus_written says which happened.
+
+        Args:
+            protocol: The protocol to focus. Its autofocus settings are not
+                changed; only its Z values are written.
+            callbacks: Optional dict of callback functions.
+            run_trigger_source: Who asked for the run. The GUI's button
+                passes its own; a script keeps the default.
+            engineering_mode: Whether the run follows engineering-mode
+                behaviour. None takes the session's; the GUI passes its live
+                flag, which its plugin can change after the session exists.
+
+        Returns:
+            The run's outcome, to wait on or to ignore.
+
+        Raises:
+            ProtocolRunRefusedError: The runner refused the request
+                (already running, files still writing, hardware not
+                connected, a step it cannot run); no state was committed.
+        """
+        import modules.config_helpers as config_helpers
+
+        scan = protocol.copy_for_execution()
+        scan.modify_autofocus_all_steps(enabled=True)
+        settings = self.session.capture_settings_snapshot()
+        return self._run(
+            protocol=scan,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_trigger_source=run_trigger_source,
+            max_scans=1,
+            sequence_name='af_scan',
+            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
+            enable_image_saving=False,
+            callbacks=callbacks,
+            # It traverses every step's position, so it ends dark rather than
+            # leaving the sample lit after it moves away.
+            leds_state_at_end='off',
+            disable_saving_artifacts=True,
+            engineering_mode=engineering_mode,
+            write_focus_to=protocol,
+        )
+
     def run_zstack(
         self,
         layer: str,
@@ -614,6 +676,7 @@ class ProtocolRunner:
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         claim: HeldClaim | None = None,
+        write_focus_to: Protocol | None = None,
     ) -> PendingRunOutcome:
         """Internal: configure and launch the sequenced capture executor.
 
@@ -703,6 +766,7 @@ class ProtocolRunner:
             # inside the engine until a run kind needed to ask for them.
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
+            write_focus_to=write_focus_to,
             borrowed_claim=claim.lend() if claim is not None else None,
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock

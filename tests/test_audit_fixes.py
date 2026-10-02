@@ -11170,7 +11170,7 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
         # Snapshot ON: the fluorescence step must reuse the BF AF result
         # instead of starting its own AF run.
         runner = scan_ready_runner(
-            step, _bf_af_for_fluorescence=True, _update_z_pos_from_autofocus=True
+            step, _bf_af_for_fluorescence=True, _write_focus_to=MagicMock(name='callers protocol')
         )
         runner._autofocus_runner.best_focus_position.return_value = 555.0
         runner._step_executor.scan_iterate()

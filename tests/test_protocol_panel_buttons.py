@@ -91,7 +91,14 @@ def engine():
 
 
 @pytest.fixture
-def session():
+def session(engine):
+    # The Autofocus Scan button runs through ProtocolRunner, whose run is the
+    # engine's prepare() then start(); this member does the same with the
+    # engine stand-in, so one stand-in answers all three buttons.
+    member = MagicMock()
+    member.run_autofocus_all_steps.side_effect = lambda protocol, **kw: engine.start(
+        engine.prepare(protocol=protocol, **kw)
+    )
     return SimpleNamespace(
         protocol_files_draining=False,
         is_protocol_running=False,
@@ -99,6 +106,7 @@ def session():
         protocol_files_pending=0,
         # Nothing holds the scope.
         held_by_other=lambda run: False,
+        create_protocol_runner=lambda: member,
     )
 
 

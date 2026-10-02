@@ -260,7 +260,7 @@ class ProtocolStepRunner:
             and step['Color'] != 'BF'
             and p._autofocus_runner.best_focus_position() is not None
         ):
-            if p._update_z_pos_from_autofocus:
+            if p._write_focus_to is not None:
                 new_z_pos = p._autofocus_runner.best_focus_position()
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
             logger.info(
@@ -409,7 +409,7 @@ class ProtocolStepRunner:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
-            elif zstack_focus_anchor is None and p._update_z_pos_from_autofocus:
+            elif zstack_focus_anchor is None and p._write_focus_to is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
 
         if p._callbacks.autofocus_complete:

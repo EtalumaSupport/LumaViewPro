@@ -189,18 +189,16 @@ class TestTheLayerIsTheCallersToName:
         runner._executor.start.assert_not_called()
 
 
-class TestTheWriteBackCannotBeReachedFromL2:
-    def test_the_boundary_receives_the_focus_write_back_off(self):
+class TestAStandaloneAutofocusWritesNoFocusIntoAProtocol:
+    def test_the_boundary_is_given_no_protocol_to_write_to(self):
         """The found focus is never written into a caller's protocol.
 
-        The boundary's safety for this input rests on being unreachable
-        -- 'absent from get_sequenced_run_settings, so no Run button and
-        no L2 caller can turn it on'. A new L2 member that exposed it
-        would falsify that sentence in a file this work does not touch.
+        Only run_autofocus_all_steps names a protocol to write into; a
+        standalone autofocus focuses the stage and nothing else.
         """
         runner = _runner()
         runner.run_autofocus(layer='BF')
-        assert _prepared(runner).get('update_z_pos_from_autofocus', False) is False
+        assert _prepared(runner).get('write_focus_to') is None
 
     def test_the_method_offers_no_way_to_ask_for_it(self):
         import inspect
@@ -208,7 +206,7 @@ class TestTheWriteBackCannotBeReachedFromL2:
         from modules.protocol_runner import ProtocolRunner
 
         params = inspect.signature(ProtocolRunner.run_autofocus).parameters
-        assert 'update_z_pos_from_autofocus' not in params
+        assert 'write_focus_to' not in params
 
 
 class TestTheExistingFamilyIsUnchanged:
