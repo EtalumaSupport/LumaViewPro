@@ -72,6 +72,38 @@ def _make_led_readline(*result_lines):
     return lambda: next(cycle)
 
 
+# What a board answers once every axis has homed: FULLINFO with each axis
+# present and homed, and every status read at its target (bit 9). home() and
+# thome() confirm a success against FULLINFO and then wait for arrival.
+_HOMED_FULLINFO = (
+    'Model: LS850T Serial: 1'
+    ' X homed: True   X present: True   Y homed: True   Y present: True'
+    ' Z homed: True   Z present: True   T homed: True   T present: True'
+)
+
+
+def _reply_for(home_reply):
+    """The board's answer to each command, given its answer to the home."""
+
+    def reply(command, *args, **kwargs):
+        command = command.strip()
+        if command == 'FULLINFO':
+            return _HOMED_FULLINFO
+        if command.startswith('STATUS_R'):
+            return str(1 << 9)
+        return home_reply
+
+    return reply
+
+
+def _answer_homes(board, home_reply):
+    """Answer at the port: each readline replies to the last command written."""
+    written = []
+    board.driver.write.side_effect = lambda data: written.append(data.decode())
+    reply = _reply_for(home_reply)
+    board.driver.readline.side_effect = lambda: reply(written[-1]).encode() + b'\n'
+
+
 # ---------------------------------------------------------------------------
 # LEDBoard Tests
 # ---------------------------------------------------------------------------
@@ -551,16 +583,16 @@ class TestMotorBoardCommands:
     def test_home_sends_home(self):
         """home() should send 'HOME\\n'."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
-        board.driver.write.assert_called_with(b'HOME\n')
+        board.driver.write.assert_any_call(b'HOME\n')
 
     def test_thome_sends_thome(self):
         """thome() should send 'THOME\\n'."""
         board = self._make_board()
-        board.driver.readline.return_value = b'T home successful\n'
+        _answer_homes(board, 'T home successful')
         board.thome()
-        board.driver.write.assert_called_with(b'THOME\n')
+        board.driver.write.assert_any_call(b'THOME\n')
 
     def test_current_pos_sends_actual_read(self):
         """current_pos('Z') should send 'ACTUAL_RZ\\n'."""
@@ -635,7 +667,7 @@ class TestMotorBoardHoming:
     def test_home_sets_flag_on_success(self):
         """home() should set initial_homing_complete when firmware confirms."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
         assert board.has_homed() is True
 
@@ -644,7 +676,7 @@ class TestMotorBoardHoming:
         firmware homed Z (and T if present) before reporting that X or Y
         is not physically wired on this board (LS820 case, #618 follow-up)."""
         board = self._make_board()
-        board.driver.readline.return_value = b'ERROR: X not present\n'
+        _answer_homes(board, 'ERROR: X not present')
         board.home()
         assert board.has_homed() is True, (
             'Partial home (Z homed before firmware reported missing X/Y) '
@@ -678,7 +710,7 @@ class TestMotorBoardHoming:
     def test_thome_sets_flag_on_success(self):
         """thome() should set initial_t_homing_complete when firmware confirms."""
         board = self._make_board()
-        board.driver.readline.return_value = b'T home successful\n'
+        _answer_homes(board, 'T home successful')
         board.thome()
         assert board.has_thomed() is True
 
@@ -696,7 +728,7 @@ class TestMotorBoardHoming:
     def test_has_thomed_true_after_home(self):
         """has_thomed() should return True if home() completed (it homes T too)."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
         assert board.has_thomed() is True
 
@@ -1958,14 +1990,14 @@ class TestMotorBoardStateLock:
     def test_home_sets_homing_complete_under_lock(self):
         """home() should set initial_homing_complete under _state_lock."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='XYZ home complete')
+        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
         board.home()
         assert board.has_homed() is True
 
     def test_thome_sets_t_homing_complete_under_lock(self):
         """thome() should set initial_t_homing_complete under _state_lock."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='T home successful')
+        board.exchange_command = MagicMock(side_effect=_reply_for('T home successful'))
         board.thome()
         assert board.has_thomed() is True
 
@@ -2003,7 +2035,7 @@ class TestMotorBoardStateLock:
     def test_concurrent_homing_flag_access(self):
         """Concurrent reads/writes of homing flags should not raise."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='XYZ home complete')
+        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
         errors = []
 
         def do_home():

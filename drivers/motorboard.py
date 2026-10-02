@@ -896,6 +896,7 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
+            self._confirm_homed('home()', axes=None)
             self._wait_for_arrival(self.detect_present_axes(), 'home()')
             with self._state_lock:
                 self.initial_homing_complete = True
@@ -905,10 +906,51 @@ class MotorBoard(SerialBoard):
         # The reference position for the present axes is valid.
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             logger.info(f'[XYZ Class ] partial home (X/Y not present on this board): {resp}')
+            # The firmware stops before XY on this answer, so only the Z
+            # and T it homed first are confirmed.
+            self._confirm_homed('home()', axes=('Z', 'T'))
             with self._state_lock:
                 self.initial_homing_complete = True
             return True
         raise HardwareError(f'home(): firmware error: {resp}')
+
+    def _confirm_homed(self, what: str, axes) -> None:
+        """Believe a home's success only if the board's own flags agree.
+
+        The field firmware answers HOME with 'XYZ home complete' (or 'X not
+        present' on a board with no XY) without reading whether its Z and T
+        homes succeeded, and answers THOME with 'T home successful' after a
+        failed Z re-home. Its per-axis homed flags, read fresh from FULLINFO,
+        are set only by a home that succeeded. The field firmware never
+        clears them, so a re-home that fails after an earlier success still
+        reads homed: this catches the first home since the board booted.
+
+        Args:
+            what: The calling home, for the error.
+            axes: The axes this home covers, or None for every present axis.
+                Present and homed both come from this one read.
+
+        Raises:
+            HardwareError: No reply or an unreadable reply to FULLINFO, or
+                an axis the home covers that the board reports not homed.
+        """
+        info = self.exchange_command('FULLINFO')
+        if info is None:
+            raise HardwareError(f'{what}: no reply to FULLINFO; the home cannot be confirmed')
+        if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
+            # Firmware older than FULLINFO cannot be asked; its reply stands.
+            logger.info(f'[XYZ Class ] {what}: FULLINFO not supported; home not confirmed')
+            return
+        record = _parse_fullinfo(info)
+        if record['model'] == 'unknown':
+            raise HardwareError(
+                f'{what}: unreadable FULLINFO {info!r}; the home cannot be confirmed'
+            )
+        present = record['present_axes']
+        covered = present if axes is None else [axis for axis in axes if axis in present]
+        missed = [axis for axis in covered if axis not in record['homed_axes']]
+        if missed:
+            raise HardwareError(f'{what}: {", ".join(missed)} did not home')
 
     def _wait_for_arrival(self, axes, what: str) -> None:
         """Return once every axis has reached its target.
@@ -1014,6 +1056,7 @@ class MotorBoard(SerialBoard):
         if resp is None:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
+            self._confirm_homed('thome()', axes=('Z', 'T'))
             self._wait_for_arrival(
                 [axis for axis in ('Z', 'T') if axis in self.detect_present_axes()], 'thome()'
             )
