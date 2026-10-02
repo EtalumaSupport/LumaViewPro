@@ -327,6 +327,27 @@ class ProtocolError(Exception):
     pass
 
 
+class ProtocolNotLoadedError(ProtocolError):
+    """A protocol file could not be read.
+
+    Raised by ``Protocol.from_file``, chained from the ``OSError`` of the
+    read, so the words name the file and the operating system's own reason
+    -- a missing file, a denied permission, a drive that went away. A file
+    that was read but is not a protocol LumaViewPro can take is
+    ``ProtocolFormatError`` instead.
+
+    Attributes:
+        file: The path that could not be read.
+    """
+
+    title = 'Protocol Not Loaded'
+
+    def __init__(self, file, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(f'The protocol at {file} could not be read ({reason}).')
+        self.file = file
+
+
 class ProtocolNotSavedError(ProtocolError):
     """A protocol could not be written to its file.
 

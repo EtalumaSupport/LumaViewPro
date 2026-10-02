@@ -1051,6 +1051,32 @@ class ScopeSession:
             use_zstacking=use_zstacking,
         )
 
+    def load_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
+        """Load the protocol at ``file_path`` and put the scope on its plate.
+
+        A protocol's positions are stated against the plate it names, so it
+        is handed back only with the scope on that plate: the plate is
+        selected through ``select_labware``, and a refused selection refuses
+        the load. On a scope with no XY stage there is no plate to be on; the
+        protocol and the scope both take "Center Plate".
+
+        Its contract is the plate. The protocol's period, duration and
+        per-layer settings are the protocol's own and are not applied to
+        anything else.
+
+        Raises:
+            ProtocolNotLoadedError, ProtocolFormatError,
+            ProtocolRunRefusedError: As
+                ``ProtocolsAPI.load_protocol`` raises them.
+            ConfigError, HardwareCommandRefusedError: As ``select_labware``
+                raises them; the scope stays on the plate it had.
+        """
+        protocol = self.scope.protocols.load_protocol(file_path=file_path)
+        if not self.scope.capabilities.has_xy_stage:
+            protocol.modify_labware(labware_id='Center Plate')
+        self.select_labware(protocol.labware())
+        return protocol
+
     def create_empty_protocol(self) -> 'Protocol':
         """A protocol with no steps, on this session's labware and timing.
 
@@ -1697,11 +1723,10 @@ class ScopeSession:
         changed = labware_name != protocol_settings.get('labware')
         # Both stores are written even when the settings key already reads
         # the new name, because that key is not evidence about the scope.
-        # Anything that writes it before calling here -- and the protocol
-        # load does exactly that, one line before the spinner event that
-        # reaches this member -- would otherwise make the selection look
-        # finished and leave the runtime state on the previous plate. The
-        # writes are idempotent; only the report of a change is not.
+        # Anything that writes it before calling here would otherwise make
+        # the selection look finished and leave the runtime state on the
+        # previous plate. The writes are idempotent; only the report of a
+        # change is not.
         labware = self.wellplate_loader.get_plate(plate_key=labware_name)
         # A holder is refused only a different plate: the GUI re-selects the
         # current one whenever its panels redraw, under any hold, and that

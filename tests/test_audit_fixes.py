@@ -320,12 +320,12 @@ class TestProtocolFileLimits:
 
     def test_rejects_oversized_file(self, _mock_heavy_deps, tmp_path):
         """A file > 10 MB should be rejected before parsing."""
-        from modules.protocol import Protocol
+        from modules.protocol import Protocol, ProtocolFormatError
 
         big_file = tmp_path / 'huge_protocol.tsv'
         big_file.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
 
-        with pytest.raises(ValueError, match='exceeds maximum size'):
+        with pytest.raises(ProtocolFormatError, match='exhausting memory'):
             Protocol.from_file(
                 file_path=big_file,
                 tiling_configs_file_loc=None,
@@ -333,7 +333,7 @@ class TestProtocolFileLimits:
 
     def test_accepts_file_under_limit(self, _mock_heavy_deps, tmp_path):
         """A small file should pass the size check (may fail later on format,
-        but should NOT raise the size ValueError)."""
+        but should NOT be refused for its size)."""
         from modules.protocol import Protocol
 
         small_file = tmp_path / 'small.tsv'
@@ -344,7 +344,7 @@ class TestProtocolFileLimits:
                 file_path=small_file,
                 tiling_configs_file_loc=None,
             )
-        assert 'exceeds maximum size' not in str(exc_info.value)
+        assert 'exhausting memory' not in str(exc_info.value)
 
 
 # ===========================================================================

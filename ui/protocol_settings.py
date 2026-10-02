@@ -796,8 +796,14 @@ class ProtocolSettings(FloatLayout):
 
         try:
             loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
-        except Exception:
-            logger.exception('[LVP Main  ] Error loading protocol at startup')
+        except Exception as e:
+            # Logged, not shown: nobody asked for this load. A refusal the
+            # API has already reported is not logged again.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(
+                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
+            )
             loaded = False
 
         if loaded:
@@ -843,26 +849,23 @@ class ProtocolSettings(FloatLayout):
                 return False
             raise FileNotFoundError(f'Protocol not found at {filepath}')
 
-        try:
-            protocol = ctx.scope.protocols.load_protocol(file_path=filepath)
-        except OSError:
-            return False
-
-        except exceptions.ProtocolRunRefusedError:
-            # Already logged and shown to the user by the API's funnel, in
-            # its own words. The blanket handler below would render str(e),
-            # which is the joined `reason: message` debugging form.
-            return False
-
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Protocol load failed: {e}')
-            if not suppress_popup:
-                error_title = 'Protocol Loading Error'
-                error_msg = f'Cannot load protocol from file: {e}'
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(title=error_title, message=error_msg)
-            return False
+        # The Session loads the file and puts the scope on its plate, or
+        # refuses and leaves the scope where it was; nothing below runs
+        # unless it answered with a protocol.
+        if suppress_popup:
+            # The startup adoption: its caller logs what this raises and
+            # keeps the remembered path.
+            protocol = ctx.session.load_protocol(file_path=filepath)
+        else:
+            loaded = []
+            run_reported(
+                lambda: loaded.append(ctx.session.load_protocol(file_path=filepath)),
+                None,
+                'LOAD_PROTOCOL',
+            )
+            if not loaded:
+                return False
+            protocol = loaded[0]
 
         self._protocol = protocol
 
@@ -882,11 +885,6 @@ class ProtocolSettings(FloatLayout):
         period = round(self._protocol.period().total_seconds() / 60, 6)
         duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
-
-        # If the scope has no XY stage, then don't allow the protocol to modify
-        # the labware. The drivers answer that, not the selected scope model.
-        if not ctx.lumaview.scope.capabilities.has_xy_stage:
-            labware = 'Center Plate'
 
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)

@@ -99,6 +99,7 @@ class ProtocolsAPI:
             Protocol: The loaded Protocol instance.
 
         Raises:
+            ProtocolNotLoadedError: The file cannot be read.
             ProtocolFormatError: On format issues (same surface as
                 Protocol.from_file), or when the file names a plate this
                 installation's labware catalogue does not have. Refused

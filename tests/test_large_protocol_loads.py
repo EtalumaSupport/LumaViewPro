@@ -64,7 +64,7 @@ def test_the_file_ceiling_still_refuses_and_blames_memory_not_corruption(tmp_pat
     huge = tmp_path / 'huge_protocol.tsv'
     huge.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
 
-    with pytest.raises(ValueError, match='exceeds maximum size') as exc_info:
+    with pytest.raises(ProtocolFormatError, match='exhausting memory') as exc_info:
         Protocol.from_file(file_path=huge, tiling_configs_file_loc=TILING_CONFIGS)
 
     assert 'corrupt' not in str(exc_info.value).lower()

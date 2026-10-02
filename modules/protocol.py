@@ -20,8 +20,10 @@ from modules.exceptions import (
     ConfigError,
     DuplicateCaptureFilenamesNotice,
     ProtocolError,
+    ProtocolNotLoadedError,
     ProtocolNotSavedError,
     ProtocolRunRefusedError,
+    Refusal,
 )
 from modules.notification_center import notifications
 
@@ -142,8 +144,23 @@ def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: st
     return limits
 
 
-class ProtocolFormatError(Exception):
-    pass
+class ProtocolFormatError(Refusal, ProtocolError):
+    """A protocol LumaViewPro cannot take: a file it cannot parse, or steps that do not validate.
+
+    A refusal: the file or the configuration is the person's, nothing broke,
+    and the answer is to fix or choose another. The words say what is wrong
+    and, for a file, name it, so the one report -- a warning in these words,
+    one log line -- needs no log line of its own beside each check.
+
+    Attributes:
+        file: The file refused, or None for a protocol built in memory.
+    """
+
+    title = 'Protocol Refused'
+
+    def __init__(self, problem: str, file=None):
+        super().__init__(problem if file is None else f'{file} was not loaded: {problem}')
+        self.file = file
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2164,9 +2181,10 @@ class Protocol:
     ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
-        Raises ProtocolFormatError on format issues, and, when
-        ``wellplate_loader`` (the installation's catalogue) is given, on a
-        Labware row naming a plate that catalogue does not have
+        Raises ProtocolNotLoadedError when the file cannot be read, and
+        ProtocolFormatError on format issues and, when ``wellplate_loader``
+        (the installation's catalogue) is given, on a Labware row naming a
+        plate that catalogue does not have
         """
 
         # A bound on how much memory one file may ask for, not a judgement
@@ -2180,56 +2198,54 @@ class Protocol:
 
         config = {}
 
-        # Check file size before reading
-        file_size = os.path.getsize(file_path)
-        if file_size > MAX_FILE_SIZE:
-            raise ValueError(
-                f'Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024 * 1024)} MB '
-                f'({file_size:,} bytes) and cannot be loaded without exhausting memory.'
-            )
-
         # Filter out blank lines
         file_content = None
         fp = None
 
         try:
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_FILE_SIZE:
+                raise ProtocolFormatError(
+                    f'it is larger than the {MAX_FILE_SIZE // (1024 * 1024)} MB a protocol '
+                    f'may be ({file_size:,} bytes) and cannot be loaded without exhausting memory.',
+                    file=file_path,
+                )
             with open(file_path) as fp_orig:
                 file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
-        except Exception as e:
-            logger.error(f'Error reading protocol file {file_path}: {e}')
-            raise OSError(f'Error reading protocol file {file_path}') from e
+        except OSError as e:
+            raise ProtocolNotLoadedError(file=file_path, cause=e) from e
+        except UnicodeDecodeError as e:
+            raise ProtocolFormatError('it is not a text file.', file=file_path) from e
 
         csvreader = csv.reader(fp, delimiter='\t')
 
         try:
             verify = next(csvreader)
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is empty or invalid.')
-            raise ProtocolFormatError('Protocol file is empty or invalid.') from None
+            raise ProtocolFormatError(
+                'Protocol file is empty or invalid.', file=file_path
+            ) from None
 
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError('Not a valid LumaViewPro Protocol')
+            raise ProtocolFormatError('Not a valid LumaViewPro Protocol', file=file_path)
 
         try:
             version_row = next(csvreader)
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is missing version information.')
-            raise ProtocolFormatError('Protocol file is missing version information.') from None
+            raise ProtocolFormatError(
+                'Protocol file is missing version information.', file=file_path
+            ) from None
 
         if version_row[0] != 'Version':
-            logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
-            raise ProtocolFormatError("Protocol format is missing 'Version' row.")
+            raise ProtocolFormatError("Protocol format is missing 'Version' row.", file=file_path)
 
         try:
             config['version'] = int(version_row[1])
         except ValueError as ve:
-            logger.error(
-                f"Invalid 'Version' value in protocol file {file_path}. 'Version' must be an integer: {ve}"
-            )
             raise ProtocolFormatError(
-                f"Invalid 'Version' value in protocol file {file_path}"
+                "Invalid 'Version' value in protocol file: must be a whole number", file=file_path
             ) from ve
 
         allowed = False
@@ -2243,17 +2259,17 @@ class Protocol:
             allowed = True
 
         if not allowed:
-            logger.error(
-                f'Unable to load {file_path} which contains protocol version {config["version"]}.\nPlease create a new protocol using this version of LumaViewPro.'
+            raise ProtocolFormatError(
+                f'protocol version {config["version"]} is not supported; create a new protocol '
+                'in this version of LumaViewPro.',
+                file=file_path,
             )
-            raise ProtocolFormatError(f'Protocol version {config["version"]} is not supported.')
 
         # Read Period
         try:
             period_row = next(csvreader)
             if period_row[0] != 'Period':
-                logger.error(f"Missing 'Period' row in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Period' row in protocol file")
+                raise ProtocolFormatError("Missing 'Period' row in protocol file", file=file_path)
 
             minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
@@ -2261,20 +2277,21 @@ class Protocol:
             # downstream consumers in protocol_time_estimator already treat
             # period_s == 0 as one scan rather than dividing by zero.
             if minutes < 0:
-                logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError("Invalid 'Period' value in protocol file: must be >= 0")
+                raise ProtocolFormatError(
+                    "Invalid 'Period' value in protocol file: must be >= 0", file=file_path
+                )
 
             config['period'] = datetime.timedelta(minutes=minutes)
 
         except StopIteration:
-            logger.error(f"Missing 'Period' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Period' row in protocol file") from None
+            raise ProtocolFormatError(
+                "Missing 'Period' row in protocol file", file=file_path
+            ) from None
 
         except ValueError as ve:
-            logger.error(
-                f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}"
-            )
-            raise ProtocolFormatError("Invalid 'Period' value in protocol file") from ve
+            raise ProtocolFormatError(
+                "Invalid 'Period' value in protocol file: must be a number", file=file_path
+            ) from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2283,8 +2300,7 @@ class Protocol:
         try:
             duration = next(csvreader)
             if duration[0] != 'Duration':
-                logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Duration' row in protocol file")
+                raise ProtocolFormatError("Missing 'Duration' row in protocol file", file=file_path)
 
             hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
@@ -2294,20 +2310,21 @@ class Protocol:
             # which kept Apply-Z-Projection broken after the Period side
             # of the encoding bug was fixed (issue #669).
             if hours < 0:
-                logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError("Invalid 'Duration' value in protocol file: must be >= 0")
+                raise ProtocolFormatError(
+                    "Invalid 'Duration' value in protocol file: must be >= 0", file=file_path
+                )
 
             config['duration'] = datetime.timedelta(hours=hours)
 
         except StopIteration:
-            logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Duration' row in protocol file") from None
+            raise ProtocolFormatError(
+                "Missing 'Duration' row in protocol file", file=file_path
+            ) from None
 
         except ValueError as ve:
-            logger.error(
-                f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}"
-            )
-            raise ProtocolFormatError("Invalid 'Duration' value in protocol file") from ve
+            raise ProtocolFormatError(
+                "Invalid 'Duration' value in protocol file: must be a number", file=file_path
+            ) from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2316,8 +2333,7 @@ class Protocol:
         try:
             labware = next(csvreader)
             if labware[0] != 'Labware':
-                logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
-                raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
+                raise ProtocolFormatError("Invalid 'Labware' row in protocol file", file=file_path)
 
             # Stored in the catalogue's spelling whatever the file carried:
             # a plate renamed since the file was saved is translated here,
@@ -2332,12 +2348,12 @@ class Protocol:
                 try:
                     config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
                 except ConfigError as e:
-                    logger.error(f"'Labware' row in protocol file {file_path} refused: {e}")
-                    raise ProtocolFormatError(str(e)) from e
+                    raise ProtocolFormatError(str(e), file=file_path) from e
 
         except StopIteration:
-            logger.error(f"Missing 'Labware' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Labware' row in protocol file") from None
+            raise ProtocolFormatError(
+                "Missing 'Labware' row in protocol file", file=file_path
+            ) from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2355,8 +2371,7 @@ class Protocol:
             else:
                 config['capture_root'] = ''
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is incomplete.')
-            raise ProtocolFormatError('Protocol file is incomplete.') from None
+            raise ProtocolFormatError('Protocol file is incomplete.', file=file_path) from None
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
@@ -2407,8 +2422,9 @@ class Protocol:
                             if layer_name:
                                 config['layer_settings'][layer_name] = row_dict
             except StopIteration:
-                logger.error(f"Missing 'Steps' section in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Steps' section in protocol file") from None
+                raise ProtocolFormatError(
+                    "Missing 'Steps' section in protocol file", file=file_path
+                ) from None
 
         table_lines = []
         for line in fp:
@@ -2445,7 +2461,9 @@ class Protocol:
             required_columns.add('Color')  # will trigger error
         missing = required_columns - actual_cols
         if missing:
-            raise ProtocolFormatError(f'Protocol missing required columns: {missing}')
+            raise ProtocolFormatError(
+                f'Protocol missing required columns: {missing}', file=file_path
+            )
 
         if 'Color' not in protocol_df.columns:
             # The oldest files name the channel column 'Channel'; everything

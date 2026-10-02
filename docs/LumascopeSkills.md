@@ -219,6 +219,8 @@ The plate decides every well position the program computes, so the Session owns 
 
 Its return value reports whether the stored NAME changed, not whether the plate did: selecting a renamed plate under its old name while the new name is stored returns `True` and both names refer to the same plate. Both stores are written on every accepted call, including one that reports no change -- the settings key is not evidence about what the scope holds, so a caller that writes it first cannot make the selection skip itself.
 
+A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol and the scope both take "Center Plate". The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol. LumaViewPro's own Load also copies those into its live controls, which a script that loads and runs a protocol does not use.
+
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
 if question is not None:
@@ -560,8 +562,9 @@ session.scope.imaging.capture_frame_depth(image)
 
 ```python
 runner = session.create_protocol_runner()
-protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
-# ProtocolFormatError names a malformed file, or a plate this installation's labware catalogue does not have
+protocol = session.load_protocol('my_protocol.tsv')    # and the scope takes the plate it names
+# ProtocolFormatError (a refusal) names the file and what is wrong with it -- malformed, too large, or a plate this
+# installation's labware catalogue does not have; ProtocolNotLoadedError names a file that cannot be read and the OS reason
 # or build one in-memory (config= | input_config= | empty_config=):
 protocol = session.scope.protocols.create_protocol(input_config=config)
 # save one: whole or not at all. ProtocolNotSavedError (modules.exceptions) names the
@@ -640,7 +643,7 @@ session.recover_file_writer()          # the same recovery, called by name
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
-**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the scope's data folder and judge the protocol against the scope's catalogues, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the scope's data folder and judge the protocol against the scope's catalogues, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand). From a Session, `session.load_protocol(file_path)` is the same load with the scope put on the protocol's plate.
 
 **Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`: `available_configs()` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), `default_config()` is the one to preselect, and `determine_tiling_label_from_tiles(protocol.steps()['Tile'].tolist())` names the grid a protocol already carries. It reads the file on each call; a missing or corrupt file raises `RuntimeError`.
 
