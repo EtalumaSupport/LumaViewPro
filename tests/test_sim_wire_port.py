@@ -18,6 +18,7 @@ import time
 import pytest
 import serial
 
+from drivers.exceptions import HardwareError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import backend as sim_backend
 from drivers.sim_wire import port as sim_port
@@ -259,7 +260,11 @@ def test_the_board_boots_and_takes_faults_under_dash_with_a_high_fault_fd(monkey
             os.close(fd)
     try:
         backend.motor_board.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
-        assert board.exchange_command('ZHOME') == 'ERROR: Z home timeout'
+        # Through the driver's own home call and its deadline: the faulted
+        # home runs the firmware's whole timeout as real work in instant
+        # time, which a bare exchange's default deadline loses under load.
+        with pytest.raises(HardwareError, match='firmware error: ERROR: Z home timeout'):
+            board.zhome()
     finally:
         board.disconnect()
 

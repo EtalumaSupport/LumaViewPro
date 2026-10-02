@@ -17,6 +17,7 @@ import time
 import pytest
 from serial.serialutil import SerialException
 
+from drivers.exceptions import HardwareError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire import port as sim_port
 from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
@@ -194,18 +195,24 @@ def scope(request):
 class TestTheFirmwareMeetsTheFault:
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_z_switch_that_never_trips_is_the_firmwares_home_timeout(self, scope):
+        # Homed through the driver's own home calls, with the deadlines they
+        # give the board: a faulted home runs the firmware's whole timeout in
+        # instant time, about a second of real work unloaded, and a bare
+        # exchange's default deadline lost that race under a loaded suite.
         board, sim = scope
-        assert board.exchange_command('ZHOME') == 'Z home successful'
+        assert board.zhome() is True
         sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
-        assert board.exchange_command('ZHOME') == 'ERROR: Z home timeout'
+        with pytest.raises(HardwareError, match='firmware error: ERROR: Z home timeout'):
+            board.zhome()
         sim.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
-        assert board.exchange_command('ZHOME') == 'Z home successful'
+        assert board.zhome() is True
 
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_stalled_x_is_the_firmwares_xy_home_timeout(self, scope):
         board, sim = scope
         sim.inject('X', tmc5072.STALL)
-        assert board.exchange_command('HOME') == 'ERROR: XY home timeout'
+        with pytest.raises(HardwareError, match='firmware error: ERROR: XY home timeout'):
+            board.home()
 
     def test_a_fault_set_before_a_command_is_in_effect_from_its_first_transfer(self, scope):
         # DRVSTAT_Z is one register read; a fault picked up any later than
