@@ -62,3 +62,30 @@ def test_a_refused_build_logs_its_end_by_the_outcomes_type_only(session, monkeyp
     assert 'PostProcessingRefusedError' in ended[0]
     assert str(raised.value) not in ended[0]
     assert all(r.levelname == 'INFO' for r in records)
+
+
+def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tmp_path):
+    # The lines are written by a wrapper around the build, and the lane reads
+    # a build's slow-task budget off the callable it is handed: a budget a
+    # build declares must survive the wrapper.
+    from modules.post_processing import PostProcessing
+    from modules.sequential_io_executor import slow_task_budget
+
+    @slow_task_budget(600.0)
+    def count(self, path, settings, on_progress=None):
+        return {'message': 'counted'}
+
+    monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', count)
+    lane = session.post_processing.lane
+    seen = []
+    real_call = lane.call
+
+    def call(task, *args, **kwargs):
+        seen.append(task.declared_slow_task_budget())
+        return real_call(task, *args, **kwargs)
+
+    monkeypatch.setattr(lane, 'call', call)
+
+    session.post_processing.count_cells(tmp_path, method={})
+
+    assert seen == [600.0]
