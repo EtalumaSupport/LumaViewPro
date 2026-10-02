@@ -11,6 +11,7 @@ import pandas as pd
 import os
 import pathlib
 import re
+import contextlib
 import copy
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
@@ -19,6 +20,7 @@ from modules.exceptions import (
     ConfigError,
     DuplicateCaptureFilenamesNotice,
     ProtocolError,
+    ProtocolNotSavedError,
     ProtocolRunRefusedError,
 )
 from modules.notification_center import notifications
@@ -485,8 +487,13 @@ class Protocol:
         new._num_steps_cache = None
         return new
 
-    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None) -> str | None:
-        """Write the protocol to a TSV file.
+    def to_file(self, file_path: pathlib.Path | str, layer_settings: dict | None = None) -> None:
+        """Write the protocol to a TSV file, whole or not at all.
+
+        The file is written beside the target and replaces it only once it is
+        complete, so a write that fails part-way leaves a file already there
+        as it was: opening the target itself empties it first, and a failure
+        then left a stub that no longer loaded.
 
         Args:
             file_path: Destination path.
@@ -499,7 +506,13 @@ class Protocol:
                 the file is written without a 'Layer Settings'
                 block (channel-enable state will be inferred from
                 steps on reload, matching the v5 fallback path).
+
+        Raises:
+            ProtocolNotSavedError: the write failed (chained from its
+                ``OSError``); nothing at ``file_path`` changed.
         """
+        file_path = pathlib.Path(file_path)
+        tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if layer_settings is None:
             layer_settings = self._config.get('layer_settings')
         # Manual Z-Stack + single-shot capture pass period=None /
@@ -520,7 +533,7 @@ class Protocol:
         )
 
         try:
-            with open(file_path, 'w') as fp:
+            with open(tmp_loc, 'w') as fp:
                 csvwriter = csv.writer(
                     fp, delimiter='\t', lineterminator='\n'
                 )  # access the file using the CSV library
@@ -583,13 +596,13 @@ class Protocol:
 
                 protocol_table_str = steps_df.to_csv(sep='\t', lineterminator='\n', index=False)
                 fp.write(protocol_table_str)
+            os.replace(tmp_loc, file_path)
         except Exception as e:
-            logger.error(
-                f'[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}'
-            )
-            return f'Error saving protocol to file {file_path}.\n File may be open in another window.\n'
-
-        return None
+            with contextlib.suppress(OSError):
+                tmp_loc.unlink(missing_ok=True)
+            if isinstance(e, OSError):
+                raise ProtocolNotSavedError(file=file_path, cause=e) from e
+            raise
 
     def optimize_step_ordering(self):
         steps = self.steps()

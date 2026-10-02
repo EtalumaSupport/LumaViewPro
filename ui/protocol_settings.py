@@ -1098,11 +1098,12 @@ class ProtocolSettings(FloatLayout):
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
-        try:
-            gui_logger.protocol_action('SAVE', filepath)
-            settings = _app_ctx.ctx.settings
+        gui_logger.protocol_action('SAVE', filepath)
+        logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
-            logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
+        def _save():
+            nonlocal filepath
+            settings = _app_ctx.ctx.settings
 
             time_params = get_protocol_time_params()
             self._protocol.modify_time_params(
@@ -1118,12 +1119,6 @@ class ProtocolSettings(FloatLayout):
                     FileSaveBTN_instance.choose('saveas_protocol')
                     return
                 filepath = settings['protocol']['filepath']
-            else:
-                if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
-                    filepath = filepath + '.tsv'
-
-                if update_protocol_filepath:
-                    settings['protocol']['filepath'] = filepath
 
             if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
                 filepath = filepath + '.tsv'
@@ -1134,22 +1129,18 @@ class ProtocolSettings(FloatLayout):
             # downstream callers (REST save, headless tests) keep their
             # signature -- to_file() with no kwarg still works and falls
             # back to inference on reload.
-            result = self._protocol.to_file(
+            self._protocol.to_file(
                 file_path=filepath,
                 layer_settings=self._gather_layer_settings_for_save(),
             )
 
-            if result:  # Had an error saving
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(title='Protocol Saving Error', message=result)
-
+            # Reached only once the file is written: a failed save leaves the
+            # panel naming the file it had, which is still the one on disk.
+            if update_protocol_filepath:
+                settings['protocol']['filepath'] = filepath
             self.ids['protocol_filename'].text = os.path.basename(filepath)
-        except Exception as e:
-            logger.error(f'[UI] save_protocol failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+        run_reported(_save, None, 'SAVE_PROTOCOL')
 
     #
     # Multiple Exposures

@@ -729,7 +729,6 @@ class FileSaveBTN(HoverBehavior, Button):
                 ctx.motion_settings.ids['protocol_settings_id'].save_protocol(
                     filepath=self.selection[0]
                 )
-                logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
         elif self.context == 'save_graph':
             if self.selection:

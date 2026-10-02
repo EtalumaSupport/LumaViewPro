@@ -562,6 +562,11 @@ protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
 # ProtocolFormatError names a malformed file, or a plate this installation's labware catalogue does not have
 # or build one in-memory (config= | input_config= | empty_config=):
 protocol = session.scope.protocols.create_protocol(input_config=config)
+# save one: whole or not at all. ProtocolNotSavedError (modules.exceptions) names the
+# file and the OS reason, and a file already there is unchanged. A run saves its own
+# copy in its run folder; when that copy cannot be written the run ends failed_at_start
+# (reason run_dir_init_failed) before anything moves.
+protocol.to_file('my_protocol.tsv')
 
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.

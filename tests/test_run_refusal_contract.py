@@ -244,7 +244,7 @@ def executor(scope, executors):
     return exc
 
 
-def _prepare(executor, protocol, tmp_path, callbacks=None):
+def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusal_contract'):
     cbs = {
         'go_to_step': lambda **kw: None,
         'move_position': lambda axis: None,
@@ -255,7 +255,7 @@ def _prepare(executor, protocol, tmp_path, callbacks=None):
         protocol=protocol,
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-        sequence_name='refusal_contract',
+        sequence_name=sequence_name,
         image_capture_config=_make_image_capture_config(),
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
@@ -508,6 +508,28 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         )
         monkeypatch.undo()
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
+
+    def test_a_run_whose_protocol_copy_cannot_be_written_fails_at_start(
+        self, executor, tmp_path, monkeypatch
+    ):
+        """The run's folder holds the protocol it ran; without it the images
+        cannot be traced to the steps that took them, so the run does not
+        begin. The copy's name puts it in a folder that does not exist."""
+        captured = _capture_notifications(monkeypatch)
+        completions = []
+        plan = _prepare(
+            executor,
+            _make_single_step_protocol(),
+            tmp_path,
+            callbacks={'run_complete': lambda **kw: completions.append(kw)},
+            sequence_name='no_such_folder/refusal_contract',
+        )
+        outcome = executor.start(plan).wait(COMPLETION_TIMEOUT)
+
+        assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
+        assert [c.get('status') for c in completions] == ['failed_at_start']
+        assert len(captured) == 1, f'a failed-at-start run must notify exactly once; got {captured}'
+        assert _wait_for_executors_out_of_protocol_mode(executor)
 
     def test_refused_prepare_preserves_previous_run_state(self, executor, tmp_path, monkeypatch):
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)

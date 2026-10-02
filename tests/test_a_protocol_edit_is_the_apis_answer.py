@@ -48,7 +48,7 @@ for _name, _attr in (
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolNotSavedError, ProtocolRunRefusedError
 from tests.scope_fakes import spec_scope
 
 
@@ -199,3 +199,47 @@ class TestNewProtocol:
         assert [n.title for n in shown] == ['Objective Not Available']
         assert panel._protocol is previous
         assert not ctx.scope.protocols.refuse_unaddressable_objectives.called
+
+
+class TestSave:
+    @pytest.fixture(autouse=True)
+    def own_popups(self, monkeypatch):
+        monkeypatch.setattr(
+            ps, 'get_protocol_time_params', lambda: {'period': None, 'duration': None}
+        )
+        monkeypatch.setattr(_Panel, '_gather_layer_settings_for_save', lambda self: {})
+        popups = []
+        monkeypatch.setattr(
+            'ui.notification_popup.show_notification_popup',
+            lambda **kw: popups.append(kw['title']),
+        )
+        return popups
+
+    def _panel(self):
+        protocol = _protocol()
+        protocol.to_file.return_value = None
+        return _Panel(protocol)
+
+    def test_a_saved_protocol_is_remembered_under_its_new_name(self, ctx, own_popups):
+        panel = self._panel()
+
+        panel.save_protocol(filepath='/data/other')
+
+        panel._protocol.to_file.assert_called_once()
+        assert panel._protocol.to_file.call_args.kwargs['file_path'] == '/data/other.tsv'
+        assert ctx.settings['protocol']['filepath'] == '/data/other.tsv'
+        assert panel.ids['protocol_filename'].text == 'other.tsv'
+        assert own_popups == []
+
+    def test_a_failed_save_is_shown_once_and_the_previous_name_stays(self, ctx, shown, own_popups):
+        panel = self._panel()
+        panel._protocol.to_file.side_effect = ProtocolNotSavedError(
+            file='/data/other.tsv', cause=PermissionError(13, 'Permission denied')
+        )
+
+        panel.save_protocol(filepath='/data/other')
+
+        assert own_popups == [], 'the outcome is shown by the one reporter'
+        assert [n.title for n in shown] == ['Protocol Not Saved']
+        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
+        assert panel.ids['protocol_filename'].text == 'plate.tsv'

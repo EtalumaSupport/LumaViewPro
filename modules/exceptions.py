@@ -327,6 +327,29 @@ class ProtocolError(Exception):
     pass
 
 
+class ProtocolNotSavedError(ProtocolError):
+    """A protocol could not be written to its file.
+
+    Raised by ``Protocol.to_file``, chained from the ``OSError`` of the write,
+    so the words name the file and the operating system's own reason -- a
+    missing or read-only folder, a full disk, a file another program holds --
+    rather than guessing one. The write goes to a file beside the target
+    first, so a file already there is unchanged.
+
+    Attributes:
+        file: The path the protocol was to be written to.
+    """
+
+    title = 'Protocol Not Saved'
+
+    def __init__(self, file, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(
+            f'The protocol was not saved to {file} ({reason}). A file already there is unchanged.'
+        )
+        self.file = file
+
+
 class ConfigError(Exception):
     """Application configuration or settings error."""
 
