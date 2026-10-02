@@ -40,7 +40,29 @@ def _arguments():
         help="the plate to plan over (default: the scope's own selection on hardware)",
     )
     parser.add_argument('--tiling', default='1x1')
+    parser.add_argument(
+        '--still',
+        default='',
+        help='layers to capture as still images for these runs, comma-separated (e.g. BF)',
+    )
     return parser.parse_args()
+
+
+def _capture_still(session, layers):
+    """Capture *layers* as still images, for this session only.
+
+    A layer's acquire mode has no Session member yet (NEXT_PRIMARY row), so
+    this makes the write the GUI's acquire toggle makes, on the session's
+    settings in memory. Nothing saves them: the installation's current.json
+    is left as it was, which `hardware_session()` checks. Replace with the
+    Session member when it exists.
+    """
+    if not layers:
+        return
+    with session.settings_lock:
+        for layer in layers:
+            session.settings[layer]['acquire'] = 'image'
+    print(f'STILL: {", ".join(layers)} captured as still images for these runs', flush=True)
 
 
 def _refuse_video_layers(session):
@@ -54,8 +76,8 @@ def _refuse_video_layers(session):
     ]
     if video:
         print(
-            f'REFUSED: {", ".join(video)} set to video. Set them to still images (or off) '
-            'in LumaViewPro, close it, and run again.',
+            f'REFUSED: {", ".join(video)} set to video. Pass --still {",".join(video)} to '
+            'capture them as still images for these runs.',
             flush=True,
         )
         sys.exit(2)
@@ -160,6 +182,7 @@ def main():
     with session_cm as (session, runner):
         if args.labware is not None:
             session.select_labware(args.labware)
+        _capture_still(session, [layer for layer in args.still.split(',') if layer])
         _refuse_video_layers(session)
         protocol = session.new_protocol(tiling=args.tiling)
         figure('protocol.steps', protocol.num_steps())
