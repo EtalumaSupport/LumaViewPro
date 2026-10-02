@@ -24,6 +24,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.af_drives import park_z
+from tests.scope_fakes import home_sim_scope
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
@@ -1188,6 +1190,8 @@ class TestIssue602_AFExecutorLED:
         from tests.protocol_drives import held_run_claim
 
         scope = build_scope(simulate=True)
+        home_sim_scope(scope)
+        park_z(scope, 5000.0)
         from modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
@@ -1236,6 +1240,8 @@ class TestAFPrecisionModeRestoresOn:
         from modules.autofocus_runner import AutofocusRunner
 
         scope = build_scope(simulate=True)
+        home_sim_scope(scope)
+        park_z(scope, 5000.0)
         return AutofocusRunner(scope=scope), scope
 
     def test_reset_restores_precision_on(self, _mock_heavy_deps):

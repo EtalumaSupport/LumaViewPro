@@ -1440,13 +1440,19 @@ class AutofocusFailedError(CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
-        reason: ``'flat_focus_curve'`` (every score zero or invalid) or
+        reason: ``'flat_focus_curve'`` (every score zero or invalid),
+            ``'out_of_travel'`` (a window the sweep would search reaches
+            past Z's travel; refused before the stage moves there) or
             ``'unexpected_error'`` (the sweep raised; its cause is chained).
     """
 
     title = 'Autofocus Failed'
     _WORDS: ClassVar[dict[str, str]] = {
         'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
+        'out_of_travel': (
+            'Autofocus would search past the end of Z travel -- start it further from the '
+            "travel limit, or narrow the objective's autofocus range."
+        ),
         'unexpected_error': 'Autofocus stopped on an unexpected error; the log has the details.',
     }
 

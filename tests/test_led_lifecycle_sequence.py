@@ -59,6 +59,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
@@ -629,6 +630,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 def _af_runner(scope):
     from modules.autofocus_runner import AutofocusRunner
 
+    park_z(scope, 5000.0)
     r = AutofocusRunner(
         scope=scope,
     )

@@ -44,6 +44,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -586,6 +587,7 @@ class TestIntegrationAutofocus:
         # Set up focus simulation
         scope._camera_driver.set_test_pattern(True, 'focus_target')
         scope._camera_driver.set_focal_z(5000.0)
+        park_z(scope, 5000.0)
 
         af = AutofocusRunner(
             scope=scope,
@@ -636,6 +638,74 @@ class TestIntegrationAutofocus:
             f'Camera exposure should remain at the committed AF target '
             f'2.0ms when the AF Future resolves, but got {actual_exp}'
         )
+
+    @staticmethod
+    def _autofocus_from(scope, z, monkeypatch, peak):
+        """Run one autofocus from ``z`` whose score peaks at ``peak``.
+
+        The score falls with distance from ``peak``, whatever the frame
+        shows, so where the sweep goes is decided by the curve alone.
+        """
+        from modules.autofocus_thread import AutofocusThread
+
+        monkeypatch.setattr(
+            'modules.autofocus_functions.focus_function',
+            lambda image: 1e6 - abs(scope.motion.get_current_position('Z') - peak),
+        )
+        scope.motion.move_absolute('Z', z)
+        while scope.motion.is_moving():
+            time.sleep(0.01)
+        thread = AutofocusThread(afe=AutofocusRunner(scope=scope))
+        thread.start()
+        try:
+            return thread.run_autofocus(
+                run_trigger_source='autofocus',
+                objective_id='10x Oly',
+                led_color='BF',
+                led_illumination=50.0,
+                camera_gain=1.0,
+                camera_exposure=50.0,
+                led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
+            ).result(timeout=15.0)
+        finally:
+            thread.stop(timeout=2.0)
+
+    @pytest.mark.parametrize('edge', ['min', 'max'])
+    def test_a_first_window_past_travel_is_refused_before_the_stage_moves(
+        self, scope, monkeypatch, edge
+    ):
+        # Started at a travel limit, the first window reaches past it. The
+        # bottom used to be clamped to 0 and the top ran on until a sweep
+        # move was refused as an unexpected error.
+        from modules.exceptions import AutofocusFailedError
+
+        limit = scope.motion.get_axis_limits('Z')[edge]
+        with pytest.raises(AutofocusFailedError) as refused:
+            self._autofocus_from(scope, limit, monkeypatch, peak=limit)
+
+        assert refused.value.reason == 'out_of_travel'
+        assert scope.motion.get_current_position('Z') == pytest.approx(limit)
+
+    @pytest.mark.parametrize('edge', ['min', 'max'])
+    def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(self, scope, monkeypatch, edge):
+        # The first window fits, but the curve peaks at the travel limit: at
+        # the bottom the refined window opens below it, at the top the
+        # extension runs past it. Either is refused before the stage moves
+        # there, and Z returns to where the autofocus started.
+        from modules.exceptions import AutofocusFailedError
+
+        limit = scope.motion.get_axis_limits('Z')[edge]
+        af_range = scope.objective_helper.get_objective_info(objective_id='10x Oly')['AF_range']
+        start = limit + (af_range + 5.0) * (1 if edge == 'min' else -1)
+        with pytest.raises(AutofocusFailedError) as refused:
+            self._autofocus_from(scope, start, monkeypatch, peak=limit)
+
+        assert refused.value.reason == 'out_of_travel'
+        # The restore is a move; read Z once it has arrived, within a motor
+        # step, since the stage lands on its own step grid.
+        while scope.motion.is_moving():
+            time.sleep(0.01)
+        assert scope.motion.get_current_position('Z') == pytest.approx(start, abs=0.01)
 
 
 # ===========================================================================
@@ -1086,13 +1156,15 @@ class TestRestAPIPrep:
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
         # A target that blurs with defocus, in focus inside the sweep (Z 0 to
-        # 3000 um from home), so the sweep finds one peak whichever frame it
+        # 6000 um from a start at 3000, the objective's range above the
+        # travel floor), so the sweep finds one peak whichever frame it
         # reads. The default specimen field does not blur with Z, so its
         # scores follow which cycle image is current and the peak lands
         # anywhere, the travel floor included.
         camera = session.scope._camera_driver
         camera.set_test_pattern(enabled=True, pattern='focus_target')
         camera.set_focal_z(2000.0)
+        park_z(session.scope, 3000.0)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1133,6 +1205,7 @@ class TestRestAPIPrep:
         session.scope.imaging.start_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
+        park_z(session.scope, 7000.0)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1186,6 +1259,7 @@ class TestAbortedAutofocusRestoresLeds:
     def test_aborted_af_turns_led_off_despite_keep_led_on(self, scope, executors):
         from modules.exceptions import AutofocusAborted
 
+        park_z(scope, 5000.0)
         af = AutofocusRunner(
             scope=scope,
         )

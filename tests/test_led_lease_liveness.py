@@ -20,8 +20,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, home_sim_scope
 
 
 @pytest.fixture
@@ -39,6 +40,8 @@ def _af_runner(scope):
     which must abort before any focus iteration runs."""
     from modules.autofocus_runner import AutofocusRunner
 
+    home_sim_scope(scope)
+    park_z(scope, 5000.0)
     r = AutofocusRunner(
         scope=scope,
     )

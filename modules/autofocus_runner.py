@@ -110,8 +110,9 @@ class AutofocusRunner:
         if range <= 0:
             raise ValueError(f'AF_range must be positive, got {range}')
 
-        z_min = max(0, center - range)
+        z_min = center - range
         z_max = center + range
+        self._refuse_outside_travel(z_min, z_max, 'the first window')
         resolution = self._objective['AF_max']
         exposure = self._scope.imaging.get_exposure_ms()
 
@@ -123,6 +124,27 @@ class AutofocusRunner:
             'resolution': resolution,
             'exposure': exposure,
         }
+
+    def _refuse_outside_travel(self, low: float, high: float, what: str) -> None:
+        """Refuse a sweep window that reaches past Z's travel, before any move into it.
+
+        A move past the travel is refused mid-sweep, which ended the
+        autofocus as an unexpected error. A window is never narrowed to fit:
+        a focus beyond the travel would come back as the travel's edge, a
+        plausible wrong result. An axis with no configured limits has no
+        bound, as the move itself has none.
+
+        Raises:
+            AutofocusFailedError: ``'out_of_travel'``.
+        """
+        limits = self._scope.motion.get_axis_limits('Z')
+        if limits is None or (limits['min'] <= low and high <= limits['max']):
+            return
+        _af_log.warning(
+            f'--- AF REFUSED: {what} [{low:.1f}, {high:.1f}] reaches past '
+            f'Z travel [{limits["min"]:.1f}, {limits["max"]:.1f}] ---'
+        )
+        raise AutofocusFailedError('out_of_travel')
 
     def run(
         self,
@@ -377,13 +399,20 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            params_repr = repr(getattr(self, '_params', None))[:500]
-            _af_log.exception(f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}')
+            if isinstance(ex, AutofocusFailedError):
+                # A refusal the sweep decided, already logged with its
+                # numbers, is reported as itself.
+                failed = ex
+            else:
+                params_repr = repr(getattr(self, '_params', None))[:500]
+                _af_log.exception(
+                    f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}'
+                )
+                # Chained, so the one report logs the traceback.
+                failed = AutofocusFailedError('unexpected_error')
+                failed.__cause__ = ex
             # An unattended run's mute keeps this off the screen; the run
-            # captures at its fallback Z and the report is the record. Chained,
-            # so the one report logs the traceback.
-            failed = AutofocusFailedError('unexpected_error')
-            failed.__cause__ = ex
+            # captures at its fallback Z and the report is the record.
             notifications.report_outcome(failed, solicited=False, category='Autofocus')
             raise
 
@@ -745,6 +774,11 @@ class AutofocusRunner:
                 if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                     recent = pass_scores[-2:]
                     if not all(s < pass_max * 0.5 for s in recent):
+                        self._refuse_outside_travel(
+                            self._params['z_min'],
+                            self._params['z_max'] + resolution,
+                            'the extended window',
+                        )
                         self._params['z_max'] += resolution
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
@@ -804,9 +838,9 @@ class AutofocusRunner:
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
-            self._move_absolute_position(
-                position=(best_focus_position - self._params['resolution'])
-            )
+            approach = best_focus_position - self._params['resolution']
+            self._refuse_outside_travel(approach, best_focus_position, 'the final approach')
+            self._move_absolute_position(position=approach)
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
             _af_log.info(
@@ -846,6 +880,11 @@ class AutofocusRunner:
             self._best_focus_position = float(best_focus_position)
             return
 
+        self._refuse_outside_travel(
+            best_focus_position - prev_resolution,
+            best_focus_position + prev_resolution,
+            'the refined window',
+        )
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 

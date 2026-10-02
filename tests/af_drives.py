@@ -13,11 +13,25 @@ modules.autofocus_functions.focus_function to control the curve shape
 from __future__ import annotations
 
 import threading
+import time
 from unittest.mock import MagicMock
 
 import numpy as np
 
 AF_CENTER_Z = 500.0
+
+
+def park_z(scope, z: float) -> None:
+    """Move a simulated scope's Z to ``z`` and wait for it to arrive.
+
+    A built or homed simulated scope stands at the bottom of Z travel,
+    where every autofocus window reaches past it and is refused. A test
+    that wants a sweep (or a later exit path) starts it where its window
+    fits.
+    """
+    scope.motion.move_absolute('Z', z)
+    while scope.motion.is_moving():
+        time.sleep(0.01)
 
 
 def af_runner_and_scope():
@@ -31,6 +45,7 @@ def af_runner_and_scope():
     scope.motion.is_moving.return_value = False
     scope.motion.get_current_position.return_value = AF_CENTER_Z
     scope.motion.get_target_position.return_value = 600.0
+    scope.motion.get_axis_limits.return_value = {'min': 0.0, 'max': 14000.0}
     scope.imaging.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
     # AF grabs through the public capture_and_wait, under the run's taking.
     scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
