@@ -150,13 +150,11 @@ class MicroscopeSettings(BoxLayout):
         # Handle / object-type leak diagnostic. Same opt-in pattern as
         # the memory profiler above; settings-driven so customers and
         # bench operators can enable without rebuilding.
-        if settings.get('profiling', {}).get('handle_trace_enabled', False):
+        if settings['profiling']['handle_trace_enabled']:
             from lib import handle_trace as _handle_trace
 
             _handle_trace.enable(
-                obj_sample_every=int(
-                    settings['profiling'].get('handle_trace_obj_sample_every', 1000)
-                )
+                obj_sample_every=int(settings['profiling']['handle_trace_obj_sample_every'])
             )
 
         # update GUI values from JSON data:
@@ -183,7 +181,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
         # JPG quality slider reflects the saved preference; enable
         # state is set by select_live_image_output_format (JPG only).
-        jpg_quality = int(settings.get('jpg_quality', 90))
+        jpg_quality = int(settings['jpg_quality'])
         self.ids['jpg_quality_slider'].value = jpg_quality
         self.ids['jpg_quality_value_label'].text = str(jpg_quality)
         self.select_live_image_output_format()
@@ -209,10 +207,7 @@ class MicroscopeSettings(BoxLayout):
 
         self.select_video_recording_format()
 
-        if 'live_view_fps' in settings:
-            ctx.live_view_fps = settings['live_view_fps']
-        else:
-            ctx.live_view_fps = 30
+        ctx.live_view_fps = settings['live_view_fps']
 
         fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
         logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
@@ -291,13 +286,12 @@ class MicroscopeSettings(BoxLayout):
 
         zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
-        if 'show_tooltips' in settings:
-            if settings['show_tooltips']:
-                self.ids['show_tooltips_btn'].state = 'down'
-                ctx.show_tooltips = True
-            else:
-                self.ids['show_tooltips_btn'].state = 'normal'
-                ctx.show_tooltips = False
+        if settings['show_tooltips']:
+            self.ids['show_tooltips_btn'].state = 'down'
+            ctx.show_tooltips = True
+        else:
+            self.ids['show_tooltips_btn'].state = 'normal'
+            ctx.show_tooltips = False
 
         # Stimulation is firmware-gated. The enable toggle lives in
         # Advanced Settings now; startup just establishes the setting and

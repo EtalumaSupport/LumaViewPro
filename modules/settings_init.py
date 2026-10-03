@@ -1,4 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+import copy
 import os
 import json
 import logging
@@ -7,6 +8,7 @@ import time
 
 from modules import labware_loader
 from modules.exceptions import ProtocolScheduleReplacedNotice, SettingsFileNotReplacedError
+from modules.path_utils import read_installation_file
 
 
 settings = None
@@ -495,6 +497,19 @@ def _load_and_validate(logger, filepath: str) -> dict:
     return loaded
 
 
+def _load_template(logger, template_path: str) -> dict:
+    """The shipped template, checked for the keys the app needs.
+
+    Read as a file the installation ships, not as the user's: a template
+    that is missing or will not parse is the installation's fault and
+    raises ``InstallationFileError``, never a reason to skip the step that
+    needed it.
+    """
+    template = read_installation_file(template_path)
+    _validate_settings(template, template_path, logger)
+    return template
+
+
 def _normalize_turret_slot_keys(settings: dict) -> None:
     """Turret slot keys become ints, because a turret position is a number.
 
@@ -569,9 +584,12 @@ def prepare_settings(
     rejected = None
 
     if os.path.exists(current_path):
+        # Read once, before the user's file: the shape check, the fallback
+        # and the merge all need it, and its refusal is the installation's.
+        template = read_installation_file(template_path)
         try:
             prepared = _load_and_validate(logger, current_path)
-            _reject_if_misshapen(logger, prepared, template_path, current_path)
+            _reject_if_misshapen(prepared, template, template_path, current_path)
         except (json.JSONDecodeError, ValueError) as e:
             if not fall_back_to_template:
                 raise
@@ -585,11 +603,8 @@ def prepare_settings(
                 'starting from the shipped defaults. The file has NOT been '
                 'modified and no settings will be saved until this is resolved.'
             )
-            if not os.path.exists(template_path):
-                raise FileNotFoundError(
-                    f'current.json corrupt and no settings.json fallback in {data_dir}'
-                ) from e
-            prepared = _load_and_validate(logger, template_path)
+            _validate_settings(template, template_path, logger)
+            prepared = copy.deepcopy(template)
             rejected = (current_path, str(e))
 
         _apply_load_migrations(logger, prepared)
@@ -597,19 +612,10 @@ def prepare_settings(
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.
         # This ensures new keys are available without losing user values.
-        if os.path.exists(template_path):
-            try:
-                defaults = read_settings_json(template_path, logger)
-                added = _deep_merge_defaults(prepared, defaults, logger=logger)
-                if added:
-                    logger.info(
-                        f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}'
-                    )
-            except Exception:
-                logger.warning('[Settings ] Could not load settings.json for default merge')
-            else:
-                # Outside the try: a failure here is not the template's.
-                _replace_unrunnable_schedule(prepared, defaults)
+        added = _deep_merge_defaults(prepared, template, logger=logger)
+        if added:
+            logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
+        _replace_unrunnable_schedule(prepared, template)
 
         _normalize_turret_slot_keys(prepared)
         _bring_up_live_folder(logger, prepared, directory)
@@ -617,7 +623,7 @@ def prepare_settings(
         return prepared, rejected
 
     if os.path.exists(template_path):
-        prepared = _load_and_validate(logger, template_path)
+        prepared = _load_template(logger, template_path)
         _apply_load_migrations(logger, prepared)
         _normalize_turret_slot_keys(prepared)
         _bring_up_live_folder(logger, prepared, directory)
@@ -628,7 +634,7 @@ def prepare_settings(
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-def _reject_if_misshapen(logger, loaded, template_path, current_path):
+def _reject_if_misshapen(loaded, template, template_path, current_path):
     """Refuse a config whose shape the app cannot survive.
 
     Runs before the migrations and the default merge, which is the only
@@ -638,19 +644,11 @@ def _reject_if_misshapen(logger, loaded, template_path, current_path):
     sides are already dicts.
 
     A template that will not parse is NOT allowed to condemn a healthy
-    config. Without that, a settings.json truncated by a bad upgrade would
-    raise here, be reported as "current.json could not be used", and send
-    the user to delete the one file that was still good.
+    config: the caller reads it first, outside its except, so its
+    ``InstallationFileError`` is never reported as "current.json could not
+    be used", which would send the user to delete the one file that was
+    still good.
     """
-    try:
-        template = read_settings_json(template_path, logger)
-    except (FileNotFoundError, SettingsFileError) as e:
-        logger.warning(
-            f'[Settings ] {template_path} unreadable ({e}); skipping the shape '
-            f'check on {current_path}'
-        )
-        return
-
     problems = _check_container_shape(loaded, template)
     if problems:
         raise SettingsFileError(
@@ -705,18 +703,13 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
 
     current_path = os.path.join(lvp_appdata, 'data', 'current.json')
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(
-            f'settings unusable ({reason}) and no settings.json fallback in '
-            f'{os.path.join(lvp_appdata, "data")}'
-        )
+    prepared = _load_template(logger, template_path)
 
     logger.error(
         f'[Settings ] {current_path} could not be used ({reason}); '
         'starting from the shipped defaults. The file has NOT been '
         'modified and no settings will be saved until this is resolved.'
     )
-    prepared = _load_and_validate(logger, template_path)
     _apply_load_migrations(logger, prepared)
     _normalize_turret_slot_keys(prepared)
     _bring_up_live_folder(logger, prepared, lvp_appdata)

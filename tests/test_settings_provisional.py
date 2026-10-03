@@ -27,6 +27,7 @@ import os
 import pytest
 
 from modules import settings_init
+from modules.exceptions import InstallationFileError
 
 
 @pytest.fixture
@@ -248,14 +249,52 @@ class TestShapeValidation:
     def test_an_unreadable_template_does_not_condemn_a_good_config(self, appdata):
         # A settings.json truncated by a bad upgrade must not be reported as
         # "current.json could not be used", sending the user to delete the
-        # one file that was still readable.
+        # one file that was still readable. It is the installation's fault,
+        # and the refusal names the template.
+        current = appdata / 'data' / 'current.json'
+        before = current.read_bytes()
         with open(appdata / 'data' / 'settings.json', 'w') as f:
             f.write('{"truncated": ')
 
-        self._load(appdata)
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
 
+        assert refused.value.file_path.name == 'settings.json'
+        assert current.read_bytes() == before
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/the-users-own-folder'
+
+    def test_a_missing_template_is_refused_not_skipped(self, appdata):
+        # Without the template the merge has nothing to add, and the user's
+        # file would run without every key added since it was written.
+        os.remove(appdata / 'data' / 'settings.json')
+
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
+
+        assert refused.value.file_path.name == 'settings.json'
+
+    def test_a_fresh_install_with_an_unreadable_template_is_refused(self, appdata):
+        os.remove(appdata / 'data' / 'current.json')
+        with open(appdata / 'data' / 'settings.json', 'w') as f:
+            f.write('{"truncated": ')
+
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
+
+        assert refused.value.file_path.name == 'settings.json'
+
+    def test_an_unreadable_template_is_refused_even_when_current_is_also_bad(self, appdata):
+        # Both files broken: the fallback has nothing to come up on, and the
+        # installation's file is the one named.
+        with open(appdata / 'data' / 'current.json', 'w') as f:
+            f.write('not json')
+        with open(appdata / 'data' / 'settings.json', 'w') as f:
+            f.write('{"truncated": ')
+
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
+
+        assert refused.value.file_path.name == 'settings.json'
 
     def test_the_healthy_shipped_template_validates_against_itself(self, appdata):
         # If the rule rejects the app's own shipped config, the rule is wrong.
@@ -323,5 +362,5 @@ class TestALateRejectionGetsTheSamePolicy:
         settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
         os.remove(appdata / 'data' / 'settings.json')
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InstallationFileError):
             settings_init.fall_back_to_template(logging.getLogger('t'), str(appdata), 'unusable')

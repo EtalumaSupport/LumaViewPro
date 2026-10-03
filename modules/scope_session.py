@@ -864,11 +864,11 @@ class ScopeSession:
         from whatever is on disk.
 
         Raises:
-            ConfigError: ``source_path`` holds no shipped template, or the
+            ConfigError: ``source_path`` holds neither settings file, or the
                 user's ``current.json`` is unusable.
             InstallationFileError: the installation's own ``scopes.json``,
-                whose layer vocabulary the settings are checked against, is
-                unusable.
+                whose layer vocabulary the settings are checked against, or
+                its ``settings.json`` template, is missing or unusable.
         """
         from modules.settings_init import settings as default_settings
 
