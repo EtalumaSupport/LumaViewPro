@@ -90,3 +90,47 @@ def test_every_guard_detector_has_a_history_column():
         f'pinned in the guard file but not replayed: {sorted(in_guards - in_history)}; '
         f'replayed but not a guard detector: {sorted(in_history - in_guards)}'
     )
+
+
+def _commit(repo, message, date, *parents_to_merge):
+    import os
+    import subprocess
+
+    env = {
+        **os.environ,
+        'GIT_AUTHOR_DATE': f'{date}T12:00:00',
+        'GIT_COMMITTER_DATE': f'{date}T12:00:00',
+    }
+    git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+    if parents_to_merge:
+        cmd = [*git, 'merge', '--no-ff', '-q', '-m', message, *parents_to_merge]
+    else:
+        cmd = [*git, 'commit', '-q', '--allow-empty', '-m', message]
+    subprocess.run(cmd, cwd=repo, env=env, check=True)
+    return subprocess.run(
+        ['git', 'rev-parse', 'HEAD'], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_each_point_is_on_the_trunks_own_line(monkeypatch, tmp_path):
+    """A side branch's later-dated commit is never sampled as the trunk's tree.
+
+    The trunk is A (09-01), B (09-02), then a merge (09-04) of a side commit
+    S dated 09-03. On 09-03 the trunk's tree was B; the newest commit dated
+    on or before 09-03 anywhere in the history is S, which the trunk never
+    held until the merge.
+    """
+    import subprocess
+
+    subprocess.run(['git', 'init', '-q', '-b', 'trunk'], cwd=tmp_path, check=True)
+    a = _commit(tmp_path, 'A', '2026-09-01')
+    subprocess.run(['git', 'checkout', '-q', '-b', 'side', a], cwd=tmp_path, check=True)
+    _commit(tmp_path, 'S', '2026-09-03')
+    subprocess.run(['git', 'checkout', '-q', 'trunk'], cwd=tmp_path, check=True)
+    b = _commit(tmp_path, 'B', '2026-09-02')
+    m = _commit(tmp_path, 'merge side', '2026-09-04', 'side')
+    monkeypatch.setattr(rh, 'REPO', tmp_path)
+
+    points = dict(rh.sample_points('2026-09-01', '2026-09-04', 1, 'trunk'))
+
+    assert points == {'2026-09-01': a[:8], '2026-09-02': b[:8], '2026-09-04': m[:8]}

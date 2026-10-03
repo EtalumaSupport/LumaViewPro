@@ -73,6 +73,10 @@ def _git(*args, cwd=REPO):
 def sample_points(since, until, every_days, branch):
     """One commit per interval: the last commit on or before each boundary.
 
+    The walk follows the branch's first-parent line, so a point is a tree the
+    branch itself held: on rebased or merged history the newest commit by
+    date can sit on a side line the branch reached only later.
+
     Returns [(iso date, sha)]. A boundary with no commit at or before it is
     skipped; a boundary whose commit repeats the previous one is dropped, so
     a quiet fortnight yields one point rather than two identical ones.
@@ -83,7 +87,7 @@ def sample_points(since, until, every_days, branch):
     day = start
     while day <= end:
         sha = subprocess.run(
-            ['git', 'rev-list', '-1', f'--before={day} 23:59:59', branch],
+            ['git', 'rev-list', '-1', '--first-parent', f'--before={day} 23:59:59', branch],
             cwd=str(REPO),
             capture_output=True,
             text=True,
