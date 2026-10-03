@@ -412,8 +412,11 @@ class DiagnosticsAPI:
 
         # Snapshot current settings so we can restore even when vary_settings
         # is on -- the benchmark must not leave the camera in an arbitrary state.
-        original_gain = getattr(self._scope._camera_driver, 'gain', None)
-        original_exposure = getattr(self._scope._camera_driver, 'exposure_time', None)
+        saved_camera_state = (
+            self._scope.imaging.save_camera_state('grab_lifecycle_benchmark')
+            if vary_settings
+            else None
+        )
 
         t_overall_start = time.monotonic()
         for i in range(int(num_cycles)):
@@ -475,10 +478,8 @@ class DiagnosticsAPI:
 
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
-            if vary_settings and original_gain is not None:
-                self._scope.imaging.set_gain_db(float(original_gain))
-            if vary_settings and original_exposure is not None:
-                self._scope.imaging.set_exposure_ms(float(original_exposure))
+            if saved_camera_state is not None:
+                self._scope.imaging.restore_camera_state(saved_camera_state)
         except Exception as e:
             results['errors'].append(f'Restore settings failed: {type(e).__name__}: {e}')
 

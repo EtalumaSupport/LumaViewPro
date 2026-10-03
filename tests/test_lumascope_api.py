@@ -886,12 +886,32 @@ class TestRunGrabLifecycleBenchmark:
         scope.diagnostics.run_grab_lifecycle_benchmark(
             num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True
         )
-        # 4 in-loop calls + restore at end (if vary_settings AND original_gain)
-        # The benchmark restores original gain after the loop, so total may be 5.
+        # 4 in-loop calls; the restore after the loop goes through
+        # restore_camera_state, not this setter.
         in_loop = gain_calls[:4]
         assert in_loop == [1.0, 4.0, 1.0, 4.0], (
             f'vary_settings should alternate 1.0/4.0; got {in_loop}'
         )
+
+    def test_vary_settings_leaves_the_camera_as_it_found_it(self):
+        """The benchmark's last cycle sets 4.0 dB / 50 ms; the caller's
+        gain and exposure are what the camera holds afterwards, and the
+        restore reports no error."""
+        import os
+
+        scope = self._scope_with_camera()
+        scope.imaging.set_gain_db(2.5)
+        scope.imaging.set_exposure_ms(20.0)
+
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(
+            num_cycles=2, inter_cycle_delay_ms=0, vary_settings=True
+        )
+        if r['written_to']:
+            os.remove(r['written_to'])
+
+        assert r['errors'] == []
+        assert scope.imaging.get_gain_db() == pytest.approx(2.5)
+        assert scope.imaging.get_exposure_ms() == pytest.approx(20.0)
 
     def test_writes_json_artifact(self, tmp_path, monkeypatch):
         """Persists results to data/camera_timing/. Filename includes camera
