@@ -3286,9 +3286,11 @@ class ImagingAPI:
                         tmp = self._driver.get_array()  # thread-safe copy
 
                 if not grab_status:
-                    # Check if camera disconnected -- don't retry for 5 seconds
-                    # if the camera is gone (H20).
-                    if not self._driver.active:
+                    # A camera that is gone will not deliver; don't retry for
+                    # the whole timeout. The removal latch is set the moment a
+                    # removal is seen; ``active`` is released later, off-thread,
+                    # so it alone would miss a failure in between.
+                    if self.camera_removed or not self._driver.active:
                         logger.error('[SCOPE API ] get_image: camera disconnected')
                         from modules.notification_center import notifications
 

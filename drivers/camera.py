@@ -435,13 +435,15 @@ class Camera(ABC):
         # refresh (it used to be assigned once here and never recomputed).
 
     @property
-    def active(self):
+    def active(self) -> Any:
         """Thread-safe access to camera active state.
 
         Three-state semantics:
           False  -- not connected (initial state)
           <obj>  -- connected camera instance (truthy; e.g. pylon.InstantCamera)
-          None   -- disconnected / device removed (set by _mark_disconnected)
+          None   -- disconnected or a connect failed (after a removal this
+                    lags ``is_device_removed()``, which _mark_disconnected sets;
+                    the handle is released later, by disconnect())
 
         Returns:
             False, the connected camera instance, or None.
