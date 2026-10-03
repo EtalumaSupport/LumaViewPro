@@ -761,25 +761,6 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
 }
 
-# Every module that raises a run refusal. The census below reads all of
-# them, so a reason introduced outside the runner is covered too -- the
-# vocabulary is the contract, not the file it happens to live in.
-REFUSING_MODULES = (
-    'modules/sequenced_capture_runner.py',
-    'modules/config_helpers.py',
-    # The protocol BUILDER refuses too, before any run exists: a stack
-    # asked for with no range. Worth noting that this tuple is hand-kept
-    # while the comment above promises the vocabulary is the contract
-    # rather than the file -- so a refusal added in a module nobody
-    # listed escapes the census in silence, which is how this entry came
-    # to be missing for a commit.
-    'modules/protocol.py',
-    # The protocol-construction API refuses too: a protocol naming glass
-    # this scope cannot put in the light path, asked by the run, the load,
-    # a new protocol and a step navigation alike.
-    'modules/lumascope_api/protocols.py',
-)
-
 
 class TestRefusalNotifyOnceFunnel:
     def _scenarios(self, executor, scope):
@@ -1096,8 +1077,13 @@ def test_every_runner_refusal_reason_is_covered():
     """Census guard: the coverage map above matches production source.
 
     Collects every reason literal fed to a _refuse funnel (or a direct
-    ProtocolRunRefusedError construction) across REFUSING_MODULES and
-    diffs the set against RUNNER_REFUSAL_COVERAGE, in both directions.
+    ProtocolRunRefusedError construction) in every module under modules/
+    and diffs the set against RUNNER_REFUSAL_COVERAGE, in both directions.
+    The modules are discovered, not listed: a hand-kept list once missed
+    modules/protocol.py for a commit, and a refusal added in a module
+    nobody listed escaped the census in silence. A reason the census
+    cannot read as a literal fails it, unless it is a funnel handing on
+    its own parameter, whose callers' literals are collected instead.
     This is what makes the notify-once suite's enumeration unmissable
     instead of remembered: exclusive_activity_running shipped with zero
     coverage because nothing coupled the scenario list to the refusal
@@ -1106,8 +1092,22 @@ def test_every_runner_refusal_reason_is_covered():
     from tests import ast_seams
 
     raised = set()
+    unread = []
 
     class ReasonCollector(ast.NodeVisitor):
+        def __init__(self, rel_path):
+            self.rel_path = rel_path
+            self.params = [set()]
+
+        def _visit_def(self, node):
+            args = node.args
+            names = {a.arg for a in args.posonlyargs + args.args + args.kwonlyargs}
+            self.params.append(names)
+            self.generic_visit(node)
+            self.params.pop()
+
+        visit_FunctionDef = visit_AsyncFunctionDef = _visit_def
+
         def visit_Call(self, node):
             callee = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
             # Any _refuse* funnel, not one exact spelling: a second refusal
@@ -1116,13 +1116,23 @@ def test_every_runner_refusal_reason_is_covered():
             is_funnel = callee is not None and callee.startswith('_refuse')
             if is_funnel or callee in ('ProtocolRunRefusedError', 'RunCheckFailedError'):
                 for kw in node.keywords:
-                    if kw.arg == 'reason' and isinstance(kw.value, ast.Constant):
+                    if kw.arg != 'reason':
+                        continue
+                    if isinstance(kw.value, ast.Constant):
                         raised.add(kw.value.value)
+                    elif not (isinstance(kw.value, ast.Name) and kw.value.id in self.params[-1]):
+                        unread.append(
+                            f'{self.rel_path}:{node.lineno} reason={ast.unparse(kw.value)}'
+                        )
             self.generic_visit(node)
 
-    for rel_path in REFUSING_MODULES:
-        ReasonCollector().visit(ast_seams.parse_module(rel_path))
+    for rel_path, tree in ast_seams.iter_package_modules(('modules',)):
+        ReasonCollector(rel_path).visit(tree)
     assert raised, 'found no refusal reasons in production source; the scan is broken'
+    assert not unread, (
+        f'refusal reasons this census cannot read: {unread}. Pass the reason as a '
+        'literal at the raise, or through a funnel parameter whose callers pass literals.'
+    )
 
     uncovered = raised - set(RUNNER_REFUSAL_COVERAGE)
     assert not uncovered, (
