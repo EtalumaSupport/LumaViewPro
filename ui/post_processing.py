@@ -30,7 +30,7 @@ import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
-from ui.ui_helpers import submit_reported
+from ui.ui_helpers import run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.post_processing')
 
@@ -657,36 +657,12 @@ class CellCountControls(BoxLayout):
         self._preview_source_significant_bits = 16
         self._preview_image = None
         self._post = post_processing.PostProcessing()
-        self._settings = self._get_init_settings()
+        self._settings = post_processing.default_cell_count_method()
         self._set_ui_to_settings(self._settings)
-
-    def _get_init_settings(self):
-        return {
-            'context': {
-                'pixels_per_um': 1.0,  # default; updated per objective/camera at runtime
-                'fluorescent_mode': True,
-            },
-            'segmentation': {
-                'algorithm': 'initial',
-                'parameters': {
-                    'threshold': 20,
-                },
-            },
-            'filters': {
-                'area': {'min': 0, 'max': 100},
-                'perimeter': {'min': 0, 'max': 100},
-                'sphericity': {'min': 0.0, 'max': 1.0},
-                'intensity': {
-                    'min': {'min': 0, 'max': 100},
-                    'mean': {'min': 0, 'max': 100},
-                    'max': {'min': 0, 'max': 100},
-                },
-            },
-        }
 
     def apply_method_to_preview_image(self) -> None:
         gui_logger.button('APPLY_METHOD_TO_PREVIEW')
-        self._regenerate_image_preview()
+        run_reported(self._regenerate_image_preview, None, 'APPLY_METHOD_TO_PREVIEW')
 
     # Decorate function to show popup and run the code below in a thread
     @show_popup

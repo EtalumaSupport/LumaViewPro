@@ -734,6 +734,29 @@ pp.stitch(folder, on_progress=on_progress)
 
 Each member blocks until its build finishes and returns a dict whose `message` says what was made, in words written for a person. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). It raises `PostProcessingFailedError` when the build did not produce everything asked of it; its `produced_paths` lists what was written. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
 
+A cell-count method is a dict; start from `modules.post_processing.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from) and change what you need:
+
+```python
+from modules.post_processing import default_cell_count_method
+
+method = default_cell_count_method()
+method['context']['pixels_per_um'] = 2.6               # camera pixels per micron of sample
+method['filters']['area'] = {'min': 20, 'max': None}   # square microns; None is an open bound
+pp.count_cells(folder, method=method)
+```
+
+| Field | Meaning |
+|---|---|
+| `context.pixels_per_um` | camera pixels per micron of sample; a positive number |
+| `context.fluorescent_mode` | `True` for bright objects on a dark background; `False` inverts the image first |
+| `segmentation.algorithm` | `'initial'` |
+| `segmentation.parameters.threshold` | brightness threshold, percent of full scale |
+| `filters.area`, `filters.perimeter` | `{'min', 'max'}` in square microns and microns |
+| `filters.sphericity` | `{'min', 'max'}`, 0 to 1 |
+| `filters.intensity.min` / `.mean` / `.max` | `{'min', 'max'}` for each region's minimum, mean and maximum intensity, percent of full scale |
+
+`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). `modules.post_processing.check_cell_count_method(method)` asks the same question without counting. A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it.
+
 The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
 
 ### Run state and locks

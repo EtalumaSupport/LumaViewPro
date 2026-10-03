@@ -949,13 +949,14 @@ class HyperstackRefusedError(CaptureError):
 
 
 class PostProcessingRefusedError(Refusal, CaptureError):
-    """A folder cannot yield the post-processed output asked of it.
+    """What a post-processing operation was given cannot yield the output asked of it.
 
     Nothing broke: the folder holds no images, no groups this operation can
     combine, only derived outputs, only groups whose outputs would share a
     name, source images in a format the operation cannot re-read, or
-    protocol data that could not be loaded. The message says which, in words
-    written for the person, and what to do.
+    protocol data that could not be loaded; or the cell-count method it was
+    given cannot be used. The message says which, in words written for the
+    person, and what to do.
 
     Attributes:
         operation: The operation's name as a person reads it ("Stitch").

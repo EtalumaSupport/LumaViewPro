@@ -16,6 +16,7 @@ import pytest
 
 import modules.post_processing_api as post_processing_api
 from modules.exceptions import PostProcessingRefusedError
+from modules.post_processing import default_cell_count_method
 from tests.log_capture import capture_module_log, messages
 
 
@@ -39,7 +40,7 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
     )
     records = capture_module_log(monkeypatch, post_processing_api)
 
-    session.post_processing.count_cells(tmp_path, method={})
+    session.post_processing.count_cells(tmp_path, method=default_cell_count_method())
 
     lines = messages(records)
     assert any('count_cells' in m and 'started' in m and str(tmp_path) in m for m in lines), lines
@@ -86,6 +87,6 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
 
     monkeypatch.setattr(lane, 'call', call)
 
-    session.post_processing.count_cells(tmp_path, method={})
+    session.post_processing.count_cells(tmp_path, method=default_cell_count_method())
 
     assert seen == [600.0]

@@ -3,9 +3,14 @@
 
 import contextlib
 import csv
+import math
+import numbers
 import os
 import time
 import uuid
+from collections.abc import Mapping
+
+import numpy as np
 
 import modules.image_utils as image_utils
 
@@ -16,6 +21,111 @@ from modules.protocol_post_processor import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
 CELL_COUNT_OPERATION = 'Cell Count'
+
+# Each filter's bounds, by their path under 'filters'. A bound of None is open.
+_CELL_COUNT_FILTERS = (
+    ('area',),
+    ('perimeter',),
+    ('sphericity',),
+    ('intensity', 'min'),
+    ('intensity', 'mean'),
+    ('intensity', 'max'),
+)
+
+
+def default_cell_count_method() -> dict:
+    """The cell-count method a person starts from, before any is loaded or adjusted.
+
+    A new dict on every call: the caller owns and edits its copy. Areas are in
+    square microns, perimeters in microns, intensities and the threshold in
+    percent of full scale.
+    """
+    return {
+        'context': {
+            'pixels_per_um': 1.0,
+            'fluorescent_mode': True,
+        },
+        'segmentation': {
+            'algorithm': 'initial',
+            'parameters': {
+                'threshold': 20,
+            },
+        },
+        'filters': {
+            'area': {'min': 0, 'max': 100},
+            'perimeter': {'min': 0, 'max': 100},
+            'sphericity': {'min': 0.0, 'max': 1.0},
+            'intensity': {
+                'min': {'min': 0, 'max': 100},
+                'mean': {'min': 0, 'max': 100},
+                'max': {'min': 0, 'max': 100},
+            },
+        },
+    }
+
+
+def _refuse_method(problem: str) -> None:
+    raise PostProcessingRefusedError(
+        operation=CELL_COUNT_OPERATION,
+        reason='method_invalid',
+        message=f'The cell-count method cannot be used: {problem}.',
+    )
+
+
+def _method_field(method: Mapping, path: tuple[str, ...]):
+    value = method
+    for key in path:
+        if not isinstance(value, Mapping) or key not in value:
+            _refuse_method(f'it has no {".".join(path)}')
+        value = value[key]
+    return value
+
+
+def _is_number(value) -> bool:
+    # bool is an int to Python; true/false in a method file is not a number.
+    return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def check_cell_count_method(method: object) -> None:
+    """Refuse a cell-count method the count cannot use, naming the field.
+
+    The count reads every field checked here. A pixels-per-micron that is
+    not a positive number does not fail the count: it scales every region
+    out of the area and perimeter filters and counts nothing, or writes NaN
+    areas, so it is refused before any image is read. The file's
+    ``metadata`` is not part of the method and is not required.
+
+    Raises:
+        PostProcessingRefusedError: reason ``method_invalid``.
+    """
+    if not isinstance(method, Mapping):
+        _refuse_method(f'it is a {type(method).__name__}, not a set of named settings')
+
+    scale = _method_field(method, ('context', 'pixels_per_um'))
+    if not _is_number(scale) or scale <= 0:
+        _refuse_method(
+            f'context.pixels_per_um must be a positive number of camera pixels '
+            f'per micron, not {scale!r}'
+        )
+
+    fluorescent = _method_field(method, ('context', 'fluorescent_mode'))
+    if not isinstance(fluorescent, bool):
+        _refuse_method(f'context.fluorescent_mode must be true or false, not {fluorescent!r}')
+
+    _method_field(method, ('segmentation', 'algorithm'))
+    threshold = _method_field(method, ('segmentation', 'parameters', 'threshold'))
+    if not _is_number(threshold):
+        _refuse_method(f'segmentation.parameters.threshold must be a number, not {threshold!r}')
+
+    for path in _CELL_COUNT_FILTERS:
+        name = '.'.join(('filters', *path))
+        low = _method_field(method, ('filters', *path, 'min'))
+        high = _method_field(method, ('filters', *path, 'max'))
+        for bound, value in (('min', low), ('max', high)):
+            if value is not None and not _is_number(value):
+                _refuse_method(f'{name}.{bound} must be a number or null, not {value!r}')
+        if low is not None and high is not None and low > high:
+            _refuse_method(f'{name}.min ({low}) is above its max ({high})')
 
 
 class PostProcessing:
@@ -34,7 +144,16 @@ class PostProcessing:
     def stitch(self, filepath):
         pass
 
-    def preview_cell_count(self, image, settings, significant_bits: int):
+    def preview_cell_count(
+        self, image: np.ndarray, settings: Mapping, significant_bits: int
+    ) -> tuple[np.ndarray, dict]:
+        """Count the cells in one image by the cell-count method *settings*.
+
+        Raises:
+            PostProcessingRefusedError: the method cannot be used
+                (``check_cell_count_method``).
+        """
+        check_cell_count_method(settings)
         preview_images, cell_stats = self._cell_count.process_image(
             image=image, settings=settings, significant_bits=significant_bits
         )

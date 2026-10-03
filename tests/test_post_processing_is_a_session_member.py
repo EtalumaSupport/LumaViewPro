@@ -149,7 +149,7 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
 
 
 def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch, tmp_path):
-    from modules.post_processing import PostProcessing
+    from modules.post_processing import PostProcessing, default_cell_count_method
 
     seen = {}
 
@@ -159,7 +159,7 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
         return {'message': 'counted'}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
-    method = {'context': {'pixels_per_um': 1.0}}
+    method = default_cell_count_method()
 
     def progress(percent, text):
         pass

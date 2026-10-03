@@ -18,23 +18,13 @@ import sys
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
-# The method dict PostProcessing expects. Transcribed from
-# ui/post_processing.py:915 CellCountControls._get_init_settings, which is
-# the only place it exists -- see probe 6c below.
-METHOD = {
-    'context': {'pixels_per_um': 1.0, 'fluorescent_mode': True},
-    'segmentation': {'algorithm': 'initial', 'parameters': {'threshold': 20}},
-    'filters': {
-        'area': {'min': 0, 'max': 100000},
-        'perimeter': {'min': 0, 'max': 100000},
-        'sphericity': {'min': 0.0, 'max': 1.0},
-        'intensity': {
-            'min': {'min': 0, 'max': 100},
-            'mean': {'min': 0, 'max': 100},
-            'max': {'min': 0, 'max': 100},
-        },
-    },
-}
+from modules.post_processing import default_cell_count_method
+
+# The panel's default method (6c), with the area and perimeter filters opened
+# wide enough that a simulated frame's regions are not filtered out.
+METHOD = default_cell_count_method()
+METHOD['filters']['area'] = {'min': 0, 'max': 100000}
+METHOD['filters']['perimeter'] = {'min': 0, 'max': 100000}
 
 
 def main() -> int:
@@ -96,7 +86,7 @@ def main() -> int:
 
     found = []
     for mod_name, attr in (
-        ('modules.post_processing', 'default_cell_count_settings'),
+        ('modules.post_processing', 'default_cell_count_method'),
         ('modules.cell_count', 'DEFAULT_SETTINGS'),
         ('modules.cell_count', 'default_settings'),
     ):

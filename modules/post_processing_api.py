@@ -216,9 +216,15 @@ class PostProcessingAPI:
 
         Returns:
             ``results_path``, ``counted`` and ``message``.
-        """
-        from modules.post_processing import PostProcessing
 
+        Raises:
+            PostProcessingRefusedError: the method cannot be used (reason
+                ``method_invalid``), before the count is queued; or the
+                folder has nothing to count.
+        """
+        from modules.post_processing import PostProcessing, check_cell_count_method
+
+        check_cell_count_method(method)
         return self._run(
             PostProcessing().apply_cell_count_to_folder,
             'count_cells',
