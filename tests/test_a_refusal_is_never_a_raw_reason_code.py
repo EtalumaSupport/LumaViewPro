@@ -188,7 +188,8 @@ class _ProtocolSettingsStarter(ps.ProtocolSettings):
     """The real class, with nothing but construction bypassed.
 
     ``new_protocol`` returns at the builder, so the only widgets it reaches
-    are the two authoring choices it hands the Session.
+    are the two authoring choices it hands the Session, beside the schedule
+    of the protocol on screen.
     """
 
     def __init__(self):
@@ -196,6 +197,8 @@ class _ProtocolSettingsStarter(ps.ProtocolSettings):
             'tiling_size_spinner': SimpleNamespace(text='1x1'),
             'acquire_zstack_id': SimpleNamespace(active=False),
         }
+        # The protocol on screen, whose schedule New starts from.
+        self._protocol = SimpleNamespace(period=lambda: None, duration=lambda: None)
 
 
 class TestARefusedProtocolCreation:

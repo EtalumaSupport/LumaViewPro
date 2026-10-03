@@ -10,6 +10,13 @@ decides nothing. The only branch a starter takes before the engine answers
 is its own Stop: whether the run this button started is still live is the
 engine's answer (``is_live_run``), and a press on it stops that run.
 
+The other is a press whose own touch carried a refused edit
+(``refused_in_this_input``): Kivy commits a focused field before the
+button's handler runs, the API has already refused that edit and the
+boundary has shown its refusal, and starting would run the value the
+person just tried to change. It refuses nothing of its own; it is the
+input's half, which REST has no counterpart to.
+
 Any other early return in a starter is a refusal the GUI made for itself:
 a gate that repeats one the API already raises (the file-drain gate this
 guard replaced was one), or one only the GUI enforces, which REST would
@@ -87,8 +94,16 @@ def _is_own_stop(node: ast.If) -> bool:
     return 'is_live_run' in _called_names(node.test)
 
 
+def _is_a_refused_edits_touch(node: ast.If) -> bool:
+    return 'refused_in_this_input' in _called_names(node.test)
+
+
 def _refusals(method: ast.FunctionDef) -> list[int]:
-    return [node.lineno for node, _branch in _returning_branches(method) if not _is_own_stop(node)]
+    return [
+        node.lineno
+        for node, _branch in _returning_branches(method)
+        if not (_is_own_stop(node) or _is_a_refused_edits_touch(node))
+    ]
 
 
 def test_no_run_starter_refuses_a_click():
@@ -143,3 +158,18 @@ def test_the_guard_leaves_the_own_run_stop_alone():
     )
     method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
     assert _refusals(method) == [], 'the own Stop or the pool-side closure was read as a refusal'
+
+
+def test_the_guard_leaves_a_refused_edits_touch_alone_and_nothing_else_like_it():
+    module = ast.parse(
+        'class X:\n'
+        '    def starter(self):\n'
+        '        if refused_in_this_input():\n'
+        '            self.draw_protocol_buttons()\n'
+        '            return\n'
+        '        if refused_by_the_gui():\n'
+        '            return\n'
+        '        start()\n'
+    )
+    method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
+    assert _refusals(method) == [6]

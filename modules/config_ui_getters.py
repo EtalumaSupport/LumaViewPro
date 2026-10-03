@@ -311,27 +311,3 @@ def get_ag_ae_max_exposure_ms(layer: str) -> float:
 
 def get_ag_ae_min_exposure_ms(layer: str) -> float:
     return config_helpers.get_ag_ae_min_exposure_ms(layer)
-
-
-def get_protocol_time_params() -> dict:
-    """The protocol period and duration for the running GUI.
-
-    Reads the settings store, not the two text fields. Each field commits its
-    parsed value to the store when the user leaves it or presses enter, so the
-    store already holds the schedule; parsing the widget text a second time
-    here only created a way for the two lanes to answer differently.
-
-    It also gave the failure two different shapes. This lane used to swallow
-    an unparseable value, substitute one minute or one hour, and say so in a
-    popup that no headless caller can see, while the settings lane let a raw
-    conversion error escape. Both now surface the one refusal the store lane
-    raises, so a REST caller gets the same failure the screen shows.
-
-    The 1-second floor still applies and is still silent, because save and
-    run-start both call this and a clamp warning here would repeat; that
-    warning fires once, at the field edit.
-
-    Raises:
-        ConfigError: a stored period or duration will not parse as a number.
-    """
-    return config_helpers.get_protocol_time_params_from_settings(_app_ctx.ctx.settings)

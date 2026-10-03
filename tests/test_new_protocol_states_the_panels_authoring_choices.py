@@ -3,7 +3,8 @@
 
 The protocol panel builds its protocol through `ScopeSession.new_protocol`,
 the same call a script makes. Tiling and z-stacking are that member's
-arguments, not stored settings:
+arguments, not stored settings, and so is the schedule on screen, which
+the panel's protocol holds:
 neither survives a restart, so nothing but the running widgets can say what
 the user chose. A caller that leaves them to the member's defaults gets 1x1
 and no z-stack, and the protocol it builds is well-formed, validates clean,
@@ -11,12 +12,16 @@ and silently lacks the user's choice. That is the trap this pins: the panel
 states both, from its own spinner and toggle, every time.
 """
 
+import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.exceptions import ProtocolRunRefusedError
+
+PERIOD = datetime.timedelta(minutes=7)
+DURATION = datetime.timedelta(hours=3)
 
 
 class _Panel(ps.ProtocolSettings):
@@ -27,6 +32,8 @@ class _Panel(ps.ProtocolSettings):
             'tiling_size_spinner': SimpleNamespace(text=tiling),
             'acquire_zstack_id': SimpleNamespace(active=use_zstacking),
         }
+        # The protocol on screen, whose schedule New starts from.
+        self._protocol = SimpleNamespace(period=lambda: PERIOD, duration=lambda: DURATION)
 
     def update_step_ui(self):
         # The redraw runs whatever the outcome; the stand has no stage to draw.
@@ -57,14 +64,24 @@ def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dic
 
 def test_the_panels_tiling_and_zstack_choices_reach_the_session(monkeypatch):
     asked = _drive_new_protocol(monkeypatch, tiling='2x2', use_zstacking=True)
-    assert asked == {'tiling': '2x2', 'use_zstacking': True}
+    assert asked == {
+        'tiling': '2x2',
+        'use_zstacking': True,
+        'period': PERIOD,
+        'duration': DURATION,
+    }
 
 
 def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
     """1x1 and no z-stack are stated, not inherited: the member's defaults
     exist for callers with no widgets, and the panel is not one of them."""
     asked = _drive_new_protocol(monkeypatch, tiling='1x1', use_zstacking=False)
-    assert asked == {'tiling': '1x1', 'use_zstacking': False}
+    assert asked == {
+        'tiling': '1x1',
+        'use_zstacking': False,
+        'period': PERIOD,
+        'duration': DURATION,
+    }
 
 
 def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog):

@@ -135,7 +135,6 @@ _FRAGILE_PIN = {
     'tests/test_image_mode.py': 2,
     'tests/test_init_z_sync.py': 1,
     'tests/test_installer_log_capture.py': 1,
-    'tests/test_issue_568_protocol_time_floor.py': 1,
     'tests/test_issue_629_zproj_picker.py': 1,
     'tests/test_issue_655_ag_ae_exposure_cap.py': 1,
     'tests/test_issue_684_jpg_quality_row.py': 1,

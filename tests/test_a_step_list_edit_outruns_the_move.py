@@ -99,7 +99,7 @@ def _protocol(num_steps):
     """A real protocol whose step i stands at X = i, so a step is known by its X."""
     protocol = Protocol(
         tiling_configs_file_loc=REPO / 'data' / 'tiling.json',
-        config={'steps': pd.DataFrame(), 'custom_step_count': 0},
+        config={'steps': pd.DataFrame(), 'custom_step_count': 0, 'period': None, 'duration': None},
     )
     for i in range(num_steps):
         _insert(protocol, x=float(i), after_step=protocol.num_steps() - 1)
@@ -119,6 +119,8 @@ class _Panel(ps.ProtocolSettings):
             'step_number_input': SimpleNamespace(text=''),
             'step_total_input': SimpleNamespace(text=''),
             'step_name_input': SimpleNamespace(text='', hint_text=''),
+            'capture_period': SimpleNamespace(text=''),
+            'capture_dur': SimpleNamespace(text=''),
         }
         self._protocol = protocol
         self.curr_step = curr_step

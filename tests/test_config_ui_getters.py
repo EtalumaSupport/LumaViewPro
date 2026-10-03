@@ -196,38 +196,27 @@ class TestTimingAndBinningParseNotifies:
         )
         return warnings
 
-    def test_unparseable_stored_period_refuses_on_both_lanes(self, monkeypatch):
-        # The whole point of the settings lane: a headless caller must get the
-        # failure the GUI gets. A notification cannot cross that boundary, so
-        # both lanes raise the one error type, and neither substitutes a
-        # default schedule the user never chose.
-        from modules.exceptions import ConfigError
-
-        warnings = self._patch(monkeypatch, period='not-a-number')
+    def test_an_unparseable_stored_period_is_refused_naming_it(self):
+        # The stored schedule is read in one place, the settings lane, and a
+        # value it cannot use is refused there -- never replaced by a default
+        # schedule the user did not choose.
         from modules.config_helpers import get_protocol_time_params_from_settings
-        from modules.config_ui_getters import get_protocol_time_params
+        from modules.protocol import ProtocolScheduleRefusedError
 
-        with pytest.raises(ConfigError) as ui_err:
-            get_protocol_time_params()
-        with pytest.raises(ConfigError) as settings_err:
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
             get_protocol_time_params_from_settings(
                 {'protocol': {'period': 'not-a-number', 'duration': '1'}}
             )
+        assert 'period' in str(err.value)
 
-        # Same failure, and it names the field so the caller can fix it.
-        assert 'period' in str(ui_err.value)
-        assert str(ui_err.value) == str(settings_err.value)
-        # The GUI-only surface is no longer how this is reported.
-        assert warnings == []
+    def test_an_unparseable_stored_duration_is_refused_naming_it(self):
+        from modules.config_helpers import get_protocol_time_params_from_settings
+        from modules.protocol import ProtocolScheduleRefusedError
 
-    def test_unparseable_stored_duration_refuses(self, monkeypatch):
-        from modules.exceptions import ConfigError
-
-        self._patch(monkeypatch, duration='not-a-number')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        with pytest.raises(ConfigError) as err:
-            get_protocol_time_params()
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': '1', 'duration': 'not-a-number'}}
+            )
         assert 'duration' in str(err.value)
 
     def test_absent_schedule_still_defaults(self, monkeypatch):
@@ -263,29 +252,9 @@ class TestTimingAndBinningParseNotifies:
 
     def test_valid_values_do_not_notify(self, monkeypatch):
         warnings = self._patch(monkeypatch, period='5', duration='2', binning='2x2')
-        from modules.config_ui_getters import get_binning_from_ui, get_protocol_time_params
+        from modules.config_ui_getters import get_binning_from_ui
 
-        get_protocol_time_params()
         assert get_binning_from_ui() == 2
-        assert warnings == []
-
-    def test_subsecond_clamp_is_silent_in_getter(self, monkeypatch):
-        # The clamp warning moved OUT of this getter (which save + run-start
-        # also call, causing repeated warnings) into update_period /
-        # update_duration, which fire once at the field edit. So the getter
-        # itself must stay silent on a sub-second value.
-        warnings = self._patch(monkeypatch, period='0.001', duration='2')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        get_protocol_time_params()
-        assert warnings == []
-
-    def test_zero_single_scan_does_not_notify(self, monkeypatch):
-        # 0 is the single-scan marker, preserved by the floor -- not a clamp.
-        warnings = self._patch(monkeypatch, period='0', duration='0')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        get_protocol_time_params()
         assert warnings == []
 
 
@@ -417,21 +386,6 @@ class TestImageCaptureConfigSharedBuilder:
 
         assert ui_cfg.capture_depth == settings_cfg.capture_depth == 999
         assert ui_cfg.save_encoding == settings_cfg.save_encoding == 'SENTINEL'
-
-
-def test_protocol_time_clamped_detects_subsecond_per_unit():
-    # The edit handlers use this to decide whether to warn, with the correct
-    # unit: period is minutes, duration is hours.
-    from modules import config_helpers
-
-    assert config_helpers.protocol_time_clamped(0.001, 'minutes') is True
-    assert config_helpers.protocol_time_clamped(0.0001, 'hours') is True
-    # Normal values are not clamped.
-    assert config_helpers.protocol_time_clamped(5, 'minutes') is False
-    assert config_helpers.protocol_time_clamped(1, 'hours') is False
-    # 0 is the single-scan marker, not a clamp.
-    assert config_helpers.protocol_time_clamped(0, 'minutes') is False
-    assert config_helpers.protocol_time_clamped(0, 'hours') is False
 
 
 class TestGettersThatTakeTheirInputs:

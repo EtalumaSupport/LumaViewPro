@@ -700,9 +700,9 @@ class TestFullProtocol:
 
     def test_two_scans_complete(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        # Override period to be very short so scans happen fast
+        # The shortest period a protocol runs, so scans happen fast
         protocol.modify_time_params(
-            period=datetime.timedelta(seconds=0.1),
+            period=datetime.timedelta(seconds=1),
             duration=datetime.timedelta(seconds=1),
         )
 
@@ -1193,7 +1193,7 @@ class TestFullProtocolWithTiling:
         steps = _make_tile_grid_steps(rows=2, cols=2)
         protocol = _make_multi_step_protocol(steps)
         protocol.modify_time_params(
-            period=datetime.timedelta(seconds=0.1),
+            period=datetime.timedelta(seconds=1),
             duration=datetime.timedelta(seconds=1),
         )
 
@@ -1218,7 +1218,7 @@ class TestFullProtocolMultiScanMultiChannel:
             ]
         )
         protocol.modify_time_params(
-            period=datetime.timedelta(seconds=0.1),
+            period=datetime.timedelta(seconds=1),
             duration=datetime.timedelta(seconds=1),
         )
 
@@ -1370,7 +1370,7 @@ class TestCancellationMidRun:
         """Start a long protocol and cancel it -- should not hang."""
         protocol = _make_single_step_protocol(color='BF')
         protocol.modify_time_params(
-            period=datetime.timedelta(seconds=0.1),
+            period=datetime.timedelta(seconds=1),
             duration=datetime.timedelta(seconds=60),
         )
 

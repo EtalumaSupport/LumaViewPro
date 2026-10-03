@@ -208,6 +208,80 @@ class ProtocolFormatError(Refusal, ProtocolError):
         self.file = file
 
 
+class ProtocolScheduleRefusedError(ProtocolFormatError):
+    """A period or duration the scope cannot run, refused rather than changed.
+
+    Attributes:
+        key: ``'period'`` or ``'duration'``.
+        value: What was given, as given.
+    """
+
+    _RULES: ClassVar[dict] = {
+        'period': 'a period is 0 (one scan) or at least 1 second',
+        'duration': 'a duration is 0 (one scan) or more',
+    }
+
+    def __init__(self, key: str, value: object, file=None):
+        shown = (
+            f'{value.total_seconds():g} s' if isinstance(value, datetime.timedelta) else repr(value)
+        )
+        super().__init__(f'the {key} {shown} cannot be run: {self._RULES[key]}', file=file)
+        self.key = key
+        self.value = value
+
+
+# Below a second, a period is a schedule the run loop cannot keep: it would
+# start each scan before the last one's captures are taken.
+_MIN_PERIOD = datetime.timedelta(seconds=1)
+_UNITS = {'period': 'minutes', 'duration': 'hours'}
+
+
+def _refuse_unless_runnable(
+    key: str, value: object, file: pathlib.Path | str | None = None
+) -> None:
+    """The one range rule for a protocol's period and duration.
+
+    None and 0 are one scan; a composite or standalone capture is built with
+    None.
+    """
+    if value is None:
+        return
+    if not isinstance(value, datetime.timedelta):
+        raise ProtocolScheduleRefusedError(key, value, file=file)
+    floor = _MIN_PERIOD if key == 'period' else datetime.timedelta(0)
+    if value != datetime.timedelta(0) and value < floor:
+        raise ProtocolScheduleRefusedError(key, value, file=file)
+
+
+def schedule_from_units(
+    key: str,
+    value: object,
+    *,
+    file: pathlib.Path | str | None = None,
+    judged: bool = True,
+) -> datetime.timedelta | None:
+    """A period in minutes or a duration in hours, as the protocol takes it.
+
+    The units the protocol file, the settings store and the GUI's fields
+    all hold. Anything that is not a finite number, or (when ``judged``) is
+    a number the protocol cannot run, is refused here in the range rule's
+    words.
+
+    Raises:
+        ProtocolScheduleRefusedError: ``value`` is not a runnable ``key``.
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+        schedule = datetime.timedelta(**{_UNITS[key]: number})
+    except (TypeError, ValueError, OverflowError):
+        raise ProtocolScheduleRefusedError(key, value, file=file) from None
+    if judged:
+        _refuse_unless_runnable(key, schedule, file)
+    return schedule
+
+
 @dataclasses.dataclass(frozen=True)
 class ProtocolSizeAdvisory:
     """A protocol big enough that the user should be told before running it.
@@ -404,13 +478,30 @@ class Protocol:
         self,
         tiling_configs_file_loc: pathlib.Path,
         config: dict | None = None,
+        *,
+        judge_schedule: bool = True,
     ):
+        """A protocol over ``config``.
+
+        Args:
+            judge_schedule: False only for a reader that never runs the
+                protocol (``from_file``'s, which says when): its period and
+                duration are kept as given and not held to the range.
+
+        Raises:
+            ProtocolScheduleRefusedError: the config's period or duration
+                cannot be run, and ``judge_schedule`` is True.
+        """
         self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if config is None:
             self._config = {}
         else:
             self._config = config
+
+        for key in ('period', 'duration'):
+            if judge_schedule and key in self._config:
+                _refuse_unless_runnable(key, self._config[key])
 
         # Cache for num_steps() -- invalidated by _step_list_changed().
         # num_steps was called 35x per step during real-HW protocol runs, so
@@ -1140,9 +1231,17 @@ class Protocol:
 
     def modify_time_params(
         self,
-        period: datetime.timedelta,
-        duration: datetime.timedelta,
-    ):
+        period: datetime.timedelta | None,
+        duration: datetime.timedelta | None,
+    ) -> None:
+        """Give the protocol a new period and duration, both or neither.
+
+        Raises:
+            ProtocolScheduleRefusedError: either cannot be run; the protocol keeps
+                the timing it had.
+        """
+        _refuse_unless_runnable('period', period)
+        _refuse_unless_runnable('duration', duration)
         self._config['period'] = period
         self._config['duration'] = duration
 
@@ -2193,6 +2292,7 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path | None,
         *,
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
+        judge_schedule: bool = True,
     ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
@@ -2200,6 +2300,13 @@ class Protocol:
         ProtocolFormatError on format issues and, when ``wellplate_loader``
         (the installation's catalogue) is given, on a Labware row naming a
         plate that catalogue does not have
+
+        ``judge_schedule`` is False for a reader that never runs the
+        protocol -- post-processing a finished run reads its record and never
+        its period -- so a file saved before the period had a floor stays
+        readable there. Every other reader leaves it True: a period or
+        duration no protocol can run raises ProtocolScheduleRefusedError,
+        naming the file.
         """
 
         # A bound on how much memory one file may ask for, not a judgement
@@ -2286,27 +2393,18 @@ class Protocol:
             if period_row[0] != 'Period':
                 raise ProtocolFormatError("Missing 'Period' row in protocol file", file=file_path)
 
-            minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
             # (Z-stack, single-shot capture, autofocus characterization);
             # downstream consumers in protocol_time_estimator already treat
             # period_s == 0 as one scan rather than dividing by zero.
-            if minutes < 0:
-                raise ProtocolFormatError(
-                    "Invalid 'Period' value in protocol file: must be >= 0", file=file_path
-                )
-
-            config['period'] = datetime.timedelta(minutes=minutes)
+            config['period'] = schedule_from_units(
+                'period', period_row[1], file=file_path, judged=judge_schedule
+            )
 
         except StopIteration:
             raise ProtocolFormatError(
                 "Missing 'Period' row in protocol file", file=file_path
             ) from None
-
-        except ValueError as ve:
-            raise ProtocolFormatError(
-                "Invalid 'Period' value in protocol file: must be a number", file=file_path
-            ) from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2317,29 +2415,18 @@ class Protocol:
             if duration[0] != 'Duration':
                 raise ProtocolFormatError("Missing 'Duration' row in protocol file", file=file_path)
 
-            hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
             # marker for Manual Z-Stack / single-shot capture (where the
-            # config carries duration=None). Hard-reject only negative
-            # values (corrupted TSV). Pre-fix the loader rejected 0 too,
-            # which kept Apply-Z-Projection broken after the Period side
-            # of the encoding bug was fixed (issue #669).
-            if hours < 0:
-                raise ProtocolFormatError(
-                    "Invalid 'Duration' value in protocol file: must be >= 0", file=file_path
-                )
-
-            config['duration'] = datetime.timedelta(hours=hours)
+            # config carries duration=None). Refusing 0 here once kept
+            # Apply-Z-Projection broken: the writer saves None as 0.
+            config['duration'] = schedule_from_units(
+                'duration', duration[1], file=file_path, judged=judge_schedule
+            )
 
         except StopIteration:
             raise ProtocolFormatError(
                 "Missing 'Duration' row in protocol file", file=file_path
             ) from None
-
-        except ValueError as ve:
-            raise ProtocolFormatError(
-                "Invalid 'Duration' value in protocol file: must be a number", file=file_path
-            ) from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2727,6 +2814,7 @@ class Protocol:
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config,
+            judge_schedule=judge_schedule,
         )
 
 

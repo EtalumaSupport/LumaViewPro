@@ -257,8 +257,6 @@ class MicroscopeSettings(BoxLayout):
             self.ids['enable_scale_bar_btn'].state = 'normal'
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
-        protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
         # Restoring the stored labware dispatches the spinner's event, and
         # the explicit call below emits again -- neither is a user pick.
         # Declared twice because only one declaration is pending per name:

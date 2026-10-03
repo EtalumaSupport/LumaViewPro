@@ -6,10 +6,15 @@ import pathlib
 import time
 
 from modules import labware_loader
-from modules.exceptions import SettingsFileNotReplacedError
+from modules.exceptions import ProtocolScheduleReplacedNotice, SettingsFileNotReplacedError
 
 
 settings = None
+
+# The stored default periods and durations the last preparation replaced, as
+# notices not yet reported. The preparation runs before any host has a
+# listener to show them to, so the Session reports them once it has one.
+_schedule_replacements: list[ProtocolScheduleReplacedNotice] = []
 
 debug_setting = None
 
@@ -428,6 +433,37 @@ def forget_shipped_focus(settings_dict: dict) -> list[str]:
     return forgotten
 
 
+def _replace_unrunnable_schedule(settings_dict: dict, template: dict) -> None:
+    """Replace a stored default period or duration no protocol can run.
+
+    That key alone takes the template's value, and the replacement is kept
+    for the Session to report (``take_schedule_replacements``). Refused
+    rather than repaired at its two writers; this is the one value repaired,
+    because a file written before the range was enforced can hold one.
+    """
+    from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
+
+    stored = settings_dict.get('protocol')
+    if not isinstance(stored, dict):
+        return
+    for key in ('period', 'duration'):
+        if key not in stored:
+            continue
+        try:
+            schedule_from_units(key, stored[key])
+        except ProtocolScheduleRefusedError:
+            used = template['protocol'][key]
+            _schedule_replacements.append(ProtocolScheduleReplacedNotice(key, stored[key], used))
+            stored[key] = used
+
+
+def take_schedule_replacements() -> list[ProtocolScheduleReplacedNotice]:
+    """The replacements not yet reported, handed over once."""
+    taken = list(_schedule_replacements)
+    _schedule_replacements.clear()
+    return taken
+
+
 def _apply_load_migrations(logger, settings_dict: dict) -> None:
     """Every fold that must run on a loaded dict before the default merge.
 
@@ -571,6 +607,9 @@ def prepare_settings(
                     )
             except Exception:
                 logger.warning('[Settings ] Could not load settings.json for default merge')
+            else:
+                # Outside the try: a failure here is not the template's.
+                _replace_unrunnable_schedule(prepared, defaults)
 
         _normalize_turret_slot_keys(prepared)
         _bring_up_live_folder(logger, prepared, directory)

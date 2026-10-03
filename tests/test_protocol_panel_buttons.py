@@ -137,10 +137,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
         ('get_auto_gain_settings', lambda: {}),
         ('is_image_saving_enabled', lambda: True),
         ('live_display_callbacks', lambda: {}),
-        (
-            'get_protocol_time_params',
-            lambda: {'period': timedelta(minutes=5), 'duration': timedelta(hours=1)},
-        ),
     ):
         monkeypatch.setattr(ps, name, value)
     monkeypatch.setattr(ps.config_helpers, 'autofocus_snapshot_from_settings', lambda *a: {})
@@ -368,22 +364,6 @@ def test_a_stalled_drain_opens_no_offer_of_its_own(app_ctx, session, monkeypatch
     panel._drain_tick(0)
 
     assert offers == []
-
-
-def test_the_runs_timing_goes_on_its_copy_not_the_panels_protocol(app_ctx, engine):
-    from datetime import timedelta
-
-    panel = _Panel()
-    copy = panel._protocol.copy_for_execution.return_value
-
-    panel.run_protocol_from_ui()
-
-    copy.modify_time_params.assert_called_once_with(
-        period=timedelta(minutes=5), duration=timedelta(hours=1)
-    )
-    assert not panel._protocol.modify_time_params.called, (
-        "the panel's protocol is the person's, not the run's to change"
-    )
 
 
 def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, engine):

@@ -1100,79 +1100,25 @@ def get_frame_dimensions_from_settings(settings: dict) -> dict:
     }
 
 
-# Protocol period/duration floor. 0 is the single-scan marker and is
-# preserved; any positive value below 1 second is bumped to 1 second so a
-# short time-lapse interval/duration stays representable and doesn't round
-# to 0 on display (#568). Negative values are loader-rejected upstream.
-MIN_PROTOCOL_TIME_SECONDS = 1.0
+def get_protocol_time_params_from_settings(settings: dict) -> dict:
+    """The stored default period and duration, as a new protocol takes them.
 
-
-def floor_protocol_time(td: datetime.timedelta) -> datetime.timedelta:
-    """Clamp a protocol period/duration to a 1-second minimum, preserving
-    the 0 single-scan marker. See MIN_PROTOCOL_TIME_SECONDS."""
-    seconds = td.total_seconds()
-    if 0 < seconds < MIN_PROTOCOL_TIME_SECONDS:
-        return datetime.timedelta(seconds=MIN_PROTOCOL_TIME_SECONDS)
-    return td
-
-
-def protocol_time_clamped(raw_value: float, unit: str) -> bool:
-    """True if a raw period/duration would be raised to the 1-second minimum.
-
-    The 0 single-scan marker is preserved by the floor and is not a clamp, so
-    it returns False. unit is 'minutes' (period) or 'hours' (duration).
-    """
-    td = (
-        datetime.timedelta(minutes=raw_value)
-        if unit == 'minutes'
-        else datetime.timedelta(hours=raw_value)
-    )
-    if td.total_seconds() == 0:
-        return False
-    return floor_protocol_time(td) != td
-
-
-def _protocol_time_value(protocol: dict, key: str, unit: str) -> float:
-    """One stored period/duration as a number, or a refusal naming it.
-
-    A value that will not parse is refused rather than replaced with a
-    default: the stored number is a schedule the user chose, and quietly
-    substituting one runs the protocol on a timing nobody asked for. The
-    settings load compares container shape only and never inspects scalars,
-    so a hand-edited or hand-built config arrives here with a string where a
-    number belongs, and this is the first place that can say so. Naming the
-    key and the unit is why this does not just call float(): the caller sees
-    which field to fix.
+    Returns dict with 'period' and 'duration' as timedelta objects, converted
+    from the store's minutes and hours and otherwise unchanged.
 
     An ABSENT key still defaults -- the shipped template carries both and the
     default merge fills them, so absent means a caller built a config without
     a schedule, not a schedule that got corrupted.
-    """
-    raw = protocol.get(key, 1)
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        raise ConfigError(
-            f'protocol {key} is {raw!r}, which is not a number of {unit}; '
-            f'correct {key} in the settings file'
-        ) from None
-
-
-def get_protocol_time_params_from_settings(settings: dict) -> dict:
-    """Read protocol time params from settings dict (no UI needed).
-
-    Returns dict with 'period' and 'duration' as timedelta objects.
 
     Raises:
-        ConfigError: a stored period or duration will not parse as a number.
+        ProtocolScheduleRefusedError: a stored period or duration is not one the
+            protocol can run. The store's two writers refuse one, so this
+            means a caller built the dict by hand.
     """
+    from modules.protocol import schedule_from_units
+
     protocol = settings.get('protocol', {})
-    period_minutes = _protocol_time_value(protocol, 'period', 'minutes')
-    duration_hours = _protocol_time_value(protocol, 'duration', 'hours')
-    return {
-        'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
-        'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
-    }
+    return {key: schedule_from_units(key, protocol.get(key, 1)) for key in ('period', 'duration')}
 
 
 def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCaptureConfig:

@@ -1022,7 +1022,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(5, '.3g')
-					on_text: root.commit_period()
 					on_focus: if not self.focus: root.update_period()
 				Label:
 					text: 'minutes'
@@ -1052,7 +1051,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(48, '.3g')
-					on_text: root.commit_duration()
 					on_focus: if not self.focus: root.update_duration()
 				Label:
 					text: 'hours'

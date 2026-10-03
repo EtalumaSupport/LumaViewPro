@@ -18,12 +18,11 @@ from modules.config_ui_getters import (
     get_auto_gain_settings,
     get_binning_from_ui,
     get_image_capture_config_from_ui,
-    get_protocol_time_params,
     get_selected_labware,
     get_zstack_params,
     is_image_saving_enabled,
 )
-from modules.protocol import Protocol
+from modules.protocol import Protocol, schedule_from_units
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from ui.step_navigation import go_to_step
@@ -33,6 +32,7 @@ from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     _update_step_number_callback,
     live_display_callbacks,
+    refused_in_this_input,
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
@@ -257,6 +257,7 @@ class ProtocolSettings(FloatLayout):
         # The panel still needs A protocol so nothing downstream reads
         # None.
         self._protocol = ctx.session.create_empty_protocol()
+        self._show_schedule()
 
         # The panel applying the plate it already shows, so the scope is on it
         # even when no protocol loaded; not a user pick.
@@ -271,133 +272,49 @@ class ProtocolSettings(FloatLayout):
         self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
     # Update Protocol Period
-    def commit_period(self) -> float | None:
-        """Store the typed capture period as soon as it is a number.
-
-        Bound to the field's ``on_text``, so the store tracks the field on
-        every keystroke rather than waiting for enter or focus loss. Kivy
-        runs a button's handler BEFORE the focus-loss commit, so without
-        this a user who types a period and clicks Run, Save or New Protocol
-        is read from a store still holding the previous value -- while the
-        screen shows the new one.
-
-        Silent and tolerant by design: a half-typed value is not an error,
-        it is just not a value yet, and the enter / focus-loss path still
-        reports one that never parses. Reporting here instead would consume
-        the notification bus's dedup slot for this category and swallow the
-        legitimate sub-second clamp warning that follows it.
-
-        The store write is deliberately OUTSIDE the parse guard: an absent
-        ``protocol`` container is a broken configuration, not a typing
-        error, and the template ships the key.
-        """
-        try:
-            raw_period = float(self.ids['capture_period'].text)
-        except ValueError:
-            return None
-        _app_ctx.ctx.settings['protocol']['period'] = raw_period
-        return raw_period
-
-    def commit_duration(self) -> float | None:
-        """Store the typed capture duration as soon as it is a number.
-
-        The period twin above carries the reasoning; this is the same
-        contract for the duration field.
-        """
-        try:
-            raw_duration = float(self.ids['capture_dur'].text)
-        except ValueError:
-            return None
-        _app_ctx.ctx.settings['protocol']['duration'] = raw_duration
-        return raw_duration
-
     def update_period(self):
-        # One import for the three messages below, deferred to call time the
-        # way every notification site in this file is.
-        from modules.notification_center import notifications
-
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
-        try:
-            raw_period = self.commit_period()
-            if raw_period is None:
-                raise ValueError(self.ids['capture_period'].text)
-            # Warn once, at the edit, when a sub-1s period is raised to the 1s
-            # minimum -- so the user is told why the field shows 0.016667 min
-            # instead of their typed value. The getter stays silent so save /
-            # run-start do not re-warn.
-            if config_helpers.protocol_time_clamped(raw_period, 'minutes'):
-                notifications.warning(
-                    'Protocol',
-                    'Capture Timing',
-                    'The capture period was below the 1-second minimum and was '
-                    'raised to 1 second (shown as 0.016667 min). Enter a period '
-                    'of at least 1 second.',
-                )
-        except Exception:
-            logger.exception('[LVP Main  ] Update Period is not an acceptable value')
-            # Say so where the value was typed. The store keeps its previous
-            # period, so without this the edit would look like it was taken
-            # while the protocol still ran on the old schedule.
-            notifications.warning(
-                'Protocol',
-                'Capture Timing',
-                'The capture period was not a number, so it was not changed. '
-                'Enter a period in minutes.',
-            )
-
-        gui_logger.text_input('PROTOCOL_PERIOD', self.ids['capture_period'].text)
-
-        if not (hasattr(self, '_protocol') and self._protocol is not None):
-            return
-        # The stored schedule can be unusable -- a hand-edited settings file
-        # reaches here, because the load compares container shape and never
-        # scalar values -- and the store's refusal is the answer: the reporter
-        # shows it as its type says, and the protocol keeps its current timing.
-        run_reported(self._apply_stored_time_params, None, 'PROTOCOL_PERIOD')
-
-    def _apply_stored_time_params(self) -> None:
-        """Give the protocol the schedule the store holds."""
-        time_params = get_protocol_time_params()
-        self._protocol.modify_time_params(
-            period=time_params['period'],
-            duration=time_params['duration'],
-        )
+        text = self.ids['capture_period'].text
+        gui_logger.text_input('PROTOCOL_PERIOD', text)
+        self._edit_schedule('period', text, 'PROTOCOL_PERIOD')
 
     # Update Protocol Duration
     def update_duration(self):
-        from modules.notification_center import notifications
-
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
-        try:
-            raw_duration = self.commit_duration()
-            if raw_duration is None:
-                raise ValueError(self.ids['capture_dur'].text)
-            # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
-            # 0.016667 min). Warn once, at the edit, with the hour value.
-            if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
-                notifications.warning(
-                    'Protocol',
-                    'Capture Timing',
-                    'The capture duration was below the 1-second minimum and was '
-                    'raised to 1 second (shown as 0.000278 hr). Enter a duration '
-                    'of at least 1 second.',
-                )
-        except Exception:
-            logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
-            # Same reason as the period field: the store keeps its previous
-            # duration, so a silent return would look like the edit was taken.
-            notifications.warning(
-                'Protocol',
-                'Capture Timing',
-                'The capture duration was not a number, so it was not changed. '
-                'Enter a duration in hours.',
-            )
+        text = self.ids['capture_dur'].text
+        gui_logger.text_input('PROTOCOL_DURATION', text)
+        self._edit_schedule('duration', text, 'PROTOCOL_DURATION')
 
-        gui_logger.text_input('PROTOCOL_DURATION', self.ids['capture_dur'].text)
+    def _edit_schedule(self, key: str, text: str, label: str) -> None:
+        """Hand a typed period or duration to the protocol; show what it holds.
 
+        Committed when the field loses focus, which Kivy does before the
+        touch that took the focus reaches its button. The protocol takes the
+        value or refuses it; either way the fields then show its schedule.
+        """
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        run_reported(self._apply_stored_time_params, None, 'PROTOCOL_DURATION')
+
+        def _edit():
+            schedule = {'period': self._protocol.period(), 'duration': self._protocol.duration()}
+            schedule[key] = schedule_from_units(key, text)
+            self._protocol.modify_time_params(**schedule)
+
+        run_reported(_edit, self._show_schedule, label)
+
+    def _show_schedule(self) -> None:
+        """Show the protocol's period in minutes and duration in hours.
+
+        Six decimals, matching the file, so a short schedule does not show
+        as 0.0: one second is 0.000278 hours. Decimal units stay awkward for
+        short values; H:M:S entry is the tracked follow-up.
+        """
+        for field, value, unit in (
+            ('capture_period', self._protocol.period(), 60),
+            ('capture_dur', self._protocol.duration(), 3600),
+        ):
+            seconds = 0 if value is None else value.total_seconds()
+            self.ids[field].text = str(round(seconds / unit, 6))
 
     def step_name_validation(self, text: str):
         # What the user typed, before the sanitiser and the rename decide what
@@ -651,7 +568,14 @@ class ProtocolSettings(FloatLayout):
             # The Session refuses a build with no channel set to acquire, and
             # raises while the active objective is unknown (a turret move in
             # flight, an unassigned slot); the boundary shows its reason.
-            built.append(ctx.session.new_protocol(tiling=tiling, use_zstacking=use_zstacking))
+            built.append(
+                ctx.session.new_protocol(
+                    tiling=tiling,
+                    use_zstacking=use_zstacking,
+                    period=self._protocol.period(),
+                    duration=self._protocol.duration(),
+                )
+            )
 
         # Inline, so the lines below see what the build produced; a refused
         # or failed build has been shown by the boundary and built nothing.
@@ -699,6 +623,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         ctx.scope.protocols.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self._protocol = protocol
+        self._show_schedule()
         ctx.settings['protocol']['filepath'] = ''
         self.curr_step = 0
         self.go_to_step(step_idx=0)
@@ -788,6 +713,7 @@ class ProtocolSettings(FloatLayout):
             )
 
         self._protocol = ctx.session.create_empty_protocol()
+        self._show_schedule()
         self.update_step_ui()
 
     # Load Protocol from File
@@ -831,6 +757,7 @@ class ProtocolSettings(FloatLayout):
             protocol = loaded[0]
 
         self._protocol = protocol
+        self._show_schedule()
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -841,19 +768,8 @@ class ProtocolSettings(FloatLayout):
         else:
             self.curr_step = 0
 
-        # 6 decimals (matching the TSV write side) so a short period/duration
-        # doesn't collapse to 0.0 on reload -- a 1s duration is ~0.000278 h
-        # and rounding to 2 decimals showed 0.0 (#568). Decimal units stay
-        # awkward for short values; H:M:S entry is the tracked follow-up.
-        period = round(self._protocol.period().total_seconds() / 60, 6)
-        duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
 
-        self.ids['capture_period'].text = str(period)
-        self.ids['capture_dur'].text = str(duration)
-
-        settings['protocol']['period'] = period
-        settings['protocol']['duration'] = duration
         # The plate takes the route start-up uses: the spinner shows it, and
         # the explicit call below hands it to the Session, the one writer of
         # the labware key for every host. The spinner's own event cannot be
@@ -1030,14 +946,14 @@ class ProtocolSettings(FloatLayout):
         gui_logger.protocol_action('SAVE', filepath)
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
+        # The click that left a refused edit: saving would write the schedule
+        # the person just tried to change.
+        if refused_in_this_input():
+            return
+
         def _save():
             nonlocal filepath
             settings = _app_ctx.ctx.settings
-
-            time_params = get_protocol_time_params()
-            self._protocol.modify_time_params(
-                period=time_params['period'], duration=time_params['duration']
-            )
 
             if (isinstance(filepath, str)) and len(filepath) == 0:
                 # If there is no current file path, "save" button will act as "save as"
@@ -1372,6 +1288,11 @@ class ProtocolSettings(FloatLayout):
                 log_stop()
             self._submit_panel_request(trigger, lambda: runner.reset(run), stop=True)
             return
+        # The click that left a refused edit: starting would run the value
+        # the person just tried to change. The toggle Kivy flipped is put back.
+        if refused_in_this_input():
+            self.draw_protocol_buttons()
+            return
 
         self._submit_panel_request(trigger, build_start())
 
@@ -1563,15 +1484,9 @@ class ProtocolSettings(FloatLayout):
                 Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
             ),
         }
-        # The run takes the panel's timing as it reads now, on its own
-        # copy: the panel's protocol is the person's, and is not the run's
-        # to change.
+        # The run's own copy: the panel's protocol is the person's, and is
+        # not the run's to change.
         protocol = self._protocol.copy_for_execution()
-        time_params = get_protocol_time_params()
-        protocol.modify_time_params(
-            period=time_params['period'],
-            duration=time_params['duration'],
-        )
         return self._sequenced_capture_start(
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             run_trigger_source='protocol',

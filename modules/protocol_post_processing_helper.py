@@ -253,8 +253,12 @@ class ProtocolPostProcessingHelper:
         """)
 
         try:
+            # The run's record, read for its steps: its schedule is never
+            # used here, so a period saved before the floor does not refuse it.
             protocol = Protocol.from_file(
-                file_path=protocol_tsvs['protocol'], tiling_configs_file_loc=tiling_configs_file_loc
+                file_path=protocol_tsvs['protocol'],
+                tiling_configs_file_loc=tiling_configs_file_loc,
+                judge_schedule=False,
             )
         except Exception as e:
             msg = f'Unable to load protocol file: {e}'

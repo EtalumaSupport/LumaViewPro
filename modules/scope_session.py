@@ -67,6 +67,8 @@ _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
+    import datetime
+
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api.bring_up import BringUpRecord
@@ -691,10 +693,14 @@ class ScopeSession:
         if warn_pre_release:
             _fire_pre_release_warning()
 
-        if outcome_listener is not None:
-            from modules.notification_center import Severity, notifications
+        from modules.notification_center import Severity, notifications
 
+        if outcome_listener is not None:
             notifications.add_listener(outcome_listener, min_severity=Severity.DEBUG)
+        # What the settings preparation replaced, told now that someone can
+        # hear it: the preparation runs before any host has a listener.
+        for replaced in settings_init.take_schedule_replacements():
+            notifications.report_outcome(replaced, solicited=False, category='Settings')
         try:
             built_scope = False
             if scope is None:
@@ -1091,11 +1097,20 @@ class ScopeSession:
         self.select_labware(protocol.labware())
         return protocol
 
-    def new_protocol(self, *, tiling: str = '1x1', use_zstacking: bool = False) -> 'Protocol':
+    def new_protocol(
+        self,
+        *,
+        tiling: str = '1x1',
+        use_zstacking: bool = False,
+        period: 'datetime.timedelta | None' = None,
+        duration: 'datetime.timedelta | None' = None,
+    ) -> 'Protocol':
         """Build a protocol from this session's settings, as the GUI's New does.
 
         One step per acquiring layer at every well of the session's labware,
-        at the current objective, tiled and z-stacked as asked. The
+        at the current objective, tiled and z-stacked as asked. Its period and
+        duration are the ones given; one left out (None) is the stored
+        default's. One scan is ``timedelta(0)``. The
         protocols API refuses the build when no layer acquires, where an
         empty protocol would otherwise come back for a click that meant
         steps; a labware with no wells still gives an empty protocol, which
@@ -1106,8 +1121,14 @@ class ScopeSession:
                 and notified once.
             ConfigError: the config cannot be assembled (the objective in
                 the light path is unknown; a z-stack with no extent).
+            ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
+                protocol can run.
         """
         config = self.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
+        if period is not None:
+            config['period'] = period
+        if duration is not None:
+            config['duration'] = duration
         self.scope.protocols.refuse_no_acquiring_layer(config['layer_configs'])
         return self.scope.protocols.create_protocol(input_config=config)
 
@@ -1235,16 +1256,25 @@ class ScopeSession:
         ``select_labware`` holds: the catalogue must have it, and it is
         stored under the catalogue's spelling.
 
+        Its period (minutes) and duration (hours) are the default a new
+        protocol starts from, held to the protocol's own range.
+
         Raises:
             ConfigError: A ``'protocol'`` value that is not a mapping, or
                 that names a plate the catalogue does not have. Nothing is
                 written.
+            ProtocolScheduleRefusedError: Its period or duration is one no
+                protocol can run. Nothing is written.
         """
         if key == 'protocol':
             if not isinstance(value, dict):
                 raise ConfigError(
                     f'the protocol settings must be a mapping, got {type(value).__name__}'
                 )
+            from modules.protocol import schedule_from_units
+
+            for time_key in ('period', 'duration'):
+                schedule_from_units(time_key, value.get(time_key))
             value = {
                 **value,
                 'labware': self.wellplate_loader.resolve_plate_key(value.get('labware')),

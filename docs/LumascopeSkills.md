@@ -219,7 +219,7 @@ The plate decides every well position the program computes, so the Session owns 
 
 Its return value reports whether the stored NAME changed, not whether the plate did: selecting a renamed plate under its old name while the new name is stored returns `True` and both names refer to the same plate. Both stores are written on every accepted call, including one that reports no change -- the settings key is not evidence about what the scope holds, so a caller that writes it first cannot make the selection skip itself.
 
-A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol and the scope both take "Center Plate". The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol. LumaViewPro's own Load also copies those into its live controls, which a script that loads and runs a protocol does not use.
+A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol and the scope both take "Center Plate". The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. LumaViewPro's own Load also copies the per-layer settings into its live controls, which a script that loads and runs a protocol does not use.
 
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
@@ -418,7 +418,13 @@ at entry and read from that rather than the live dict.
 `select_labware` holds: a block that is not a mapping, or that names a
 plate the labware catalogue does not have, raises `ConfigError` and
 nothing is written; a retired plate name is stored under its catalogue
-key.
+key. Its `period` (minutes) and `duration` (hours) are the schedule a
+new protocol starts from, held to the protocol's own range (below): one a
+protocol cannot run raises `ProtocolScheduleRefusedError` and nothing is
+written. A `current.json` written before the range was enforced can hold
+one; at start-up that key alone takes the shipped value, and the session reports
+the notice `protocol_schedule_replaced` once, as it is created, naming the
+key, the saved value and the one now in its place.
 
 `save_settings()` writes the dict to `data/current.json`. **A refused
 write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),
@@ -666,7 +672,15 @@ grids.available_configs()   # ['1x1', '2x2', '3x3', ...]
 grids.default_config()      # '1x1'
 ```
 
-**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, logged and notified once, and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, logged and notified once, and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+
+**A protocol's schedule.** `protocol.period()` and `protocol.duration()` are the protocol's own, and the run runs them. `protocol.modify_time_params(period=..., duration=...)` sets both: a period is None or `timedelta(0)` (one scan) or at least one second, and a duration is None, `timedelta(0)` or more. Anything else -- a sub-second or negative period, a negative duration, a value that is not a `timedelta` -- raises `ProtocolScheduleRefusedError` (from `modules.protocol`; a `ProtocolFormatError`, a refusal) naming the value and the rule, and the protocol keeps the schedule it had; nothing is raised to one second. A protocol built with one, or a file carrying one, is refused the same way, the file by name. Post-processing a finished run reads its saved protocol without judging the schedule, which it never uses, so a run saved by a release that allowed a shorter period can still be stitched or projected. `schedule_from_units('period', minutes)` and `schedule_from_units('duration', hours)` convert the units the file and the settings hold, refusing what is not a runnable number.
+
+```python
+from datetime import timedelta
+protocol.modify_time_params(period=timedelta(minutes=10), duration=timedelta(hours=24))
+protocol.modify_time_params(period=timedelta(milliseconds=500), duration=timedelta(hours=1))  # ProtocolScheduleRefusedError
+```
 
 **Adding a step.** `session.add_step(protocol, before_step=... | after_step=...)` does what the GUI's Add Step does: one step per layer whose `acquire` is set, at the current plate position, with the current objective, in the settings' `step_channel_order`. With no `before_step` or `after_step` the steps follow the last step; giving both raises `ProtocolError`. It returns the inserted step names in protocol order. When any axis (X, Y, Z, or the turret) does not know its position -- never homed, homing, or lost after a failed home -- it raises `ProtocolRunRefusedError` with reason `step_position_unknown`, naming the axes: the position read keeps answering the last number an axis reported, so a step saved then would record a place the scope no longer vouches for. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`; on a turret scope whose slot is unknown or has no objective assigned, reason `turret_objective_unset`; when the objective is otherwise unknown (a slot assigned an objective that is not in the catalogue, or `objective_id=None` passed below), reason `objective_unknown`. Each is logged and notified once; nothing is added. The underlying call, for a caller supplying its own inputs, is `scope.protocols.add_step(protocol, layer_configs=..., stim_configs=..., plate_position=..., objective_id=... (None when unknown, which is refused), channel_order=..., before_step=... | after_step=...)`.
 

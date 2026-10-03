@@ -42,6 +42,10 @@ def run_reported(
     the call applied sees it. A member that waits on a lane raises here, by
     name, instead of freezing the window; it goes through submit_reported.
 
+    A call that raises is also recorded against the frame it ran in, for
+    refused_in_this_input: a button whose own touch committed a refused
+    edit does not act on the value the person just tried to change.
+
     Args:
         call: The API call, closed over any value a widget holds. Its return
             is ignored: nothing in the GUI branches on it.
@@ -51,9 +55,33 @@ def run_reported(
     """
     from modules.sequential_io_executor import inline_outcome
 
+    global _unanswered_frame
     with inline_outcome():
-        _reported(call, label)
+        if not _reported(call, label):
+            _unanswered_frame = _input_frame()
     _reported(redraw, label)
+
+
+# The frame in which run_reported last reported a call that raised.
+_unanswered_frame: int | None = None
+
+
+def _input_frame() -> int:
+    from kivy.clock import Clock
+
+    return Clock.frames
+
+
+def refused_in_this_input() -> bool:
+    """Whether a request made in the input now being handled was not taken.
+
+    Kivy commits a focused field on the touch that leaves it, before that
+    touch's button handler runs, and both happen in one frame. A button
+    pressed straight off an edit the API refused would otherwise act on the
+    value the person just tried to change, so a handler that acts on such a
+    value asks this first and does nothing when it is true.
+    """
+    return _unanswered_frame is not None and _unanswered_frame == _input_frame()
 
 
 def submit_reported(
@@ -136,26 +164,31 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> None:
     _contained(call, label, solicited=False)
 
 
-def _reported(fn: typing.Callable[[], object] | None, label: str) -> None:
+def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:
     """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
 
     The reporting core both boundary forms share. A redraw goes through it
     too, so a widget that fails to draw is reported as a fault rather than
-    exiting the app from a clock callback.
+    exiting the app from a clock callback. True when *fn* returned.
     """
-    _contained(fn, label, solicited=True)
+    return _contained(fn, label, solicited=True)
 
 
-def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> None:
-    """The only place in the GUI that catches: run *fn*, report what it raises."""
+def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> bool:
+    """The only place in the GUI that catches: run *fn*, report what it raises.
+
+    True when *fn* returned (or there was none), False when it raised.
+    """
     if fn is None:
-        return
+        return True
     from modules.notification_center import notifications
 
     try:
         fn()
     except Exception as e:
         notifications.report_outcome(e, solicited=solicited, category=f'UI:{label}')
+        return False
+    return True
 
 
 # ============================================================================

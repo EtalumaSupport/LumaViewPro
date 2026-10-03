@@ -802,12 +802,12 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
 
 
 def _build_two_scan_protocol(specs):
-    """A protocol whose period is near zero, so the next scan starts as soon
-    as the run loop's pacing check passes -- multi-scan runs finish in test
-    time instead of waiting the builder's default 20-minute period."""
+    """A protocol on the shortest period a protocol runs, one second, so
+    multi-scan runs finish in test time instead of waiting the builder's
+    default 20-minute period."""
     protocol = _build_protocol(specs)
     protocol.modify_time_params(
-        period=datetime.timedelta(milliseconds=10),
+        period=datetime.timedelta(seconds=1),
         duration=datetime.timedelta(hours=48.0),
     )
     return protocol

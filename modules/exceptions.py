@@ -339,6 +339,34 @@ class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
         self.used = used
 
 
+class ProtocolScheduleReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A saved default period or duration no protocol can run, replaced by the shipped one.
+
+    The saved value is replaced for that key alone, in the settings the app
+    runs on and so in the file at its next save.
+
+    Attributes:
+        key: ``'period'`` or ``'duration'``.
+        saved: The value the settings file held.
+        used: The shipped value now in its place.
+    """
+
+    title = 'Saved protocol timing replaced'
+    reason = 'protocol_schedule_replaced'
+
+    _UNITS: ClassVar[dict] = {'period': 'minutes', 'duration': 'hours'}
+
+    def __init__(self, key: str, saved: object, used: object):
+        units = self._UNITS[key]
+        super().__init__(
+            f'The saved default protocol {key} of {saved!r} {units} cannot be run, so a new '
+            f'protocol starts from the shipped {used} {units}, which is now the saved {key}.'
+        )
+        self.key = key
+        self.saved = saved
+        self.used = used
+
+
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
 

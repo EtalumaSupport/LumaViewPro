@@ -1266,7 +1266,7 @@ class TestExecuteMultiScan:
 
     def test_two_scan_timelapse(self, executor, scope, tmp_path):
         steps = [_make_step(color='BF')]
-        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=2)
         assert completed, '2-scan time-lapse did not complete'
 
@@ -1275,7 +1275,7 @@ class TestExecuteMultiScan:
             _make_step(name='A1_BF', color='BF'),
             _make_step(name='A1_Green', color='Green'),
         ]
-        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=3)
         assert completed, '3-scan multi-channel did not complete'
 

@@ -305,6 +305,36 @@ def _fresh_notification_dedup():
 
 
 @pytest.fixture(autouse=True)
+def _no_refused_edit_outlives_its_test():
+    """Each test starts with no refused edit on record for the input being handled.
+
+    The boundary remembers the frame of the last refused request, and a
+    button pressed in that frame does not act. Kivy's frame count does not
+    advance under the suite, so one test's refused edit would be "this
+    input" for every later test on the worker. Not imported here when no
+    test has.
+    """
+    helpers = sys.modules.get('ui.ui_helpers')
+    if helpers is not None:
+        helpers._unanswered_frame = None
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_settings_replacement_outlives_its_test():
+    """Each test starts with no stored-schedule replacement waiting to be reported.
+
+    A preparation that replaced one leaves it for the next session to report;
+    a test that prepared settings and built no session would hand it to the
+    next test's session.
+    """
+    init = sys.modules.get('modules.settings_init')
+    if init is not None:
+        init.take_schedule_replacements()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _disconnect_the_scopes_a_test_built():
     """Each scope a test built through `build_scope` is disconnected when the test ends.
 

@@ -13,7 +13,7 @@ hasattr/None-guard pattern, showing the gap was an omission.
 
 Fix
 ---
-Guard update_period, update_duration, prev_step, and next_step with the same
+Guard the period and duration edit (_edit_schedule), prev_step, and next_step with the same
 `hasattr(self, '_protocol') and self._protocol is not None` check before the
 first self._protocol.<...> call, returning early otherwise.
 
@@ -36,7 +36,7 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
-GUARDED_HANDLERS = ['update_period', 'update_duration', 'prev_step', 'next_step']
+GUARDED_HANDLERS = ['_edit_schedule', 'prev_step', 'next_step']
 
 
 def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
@@ -60,11 +60,6 @@ def _guard_linenos(method: ast.FunctionDef) -> list[int]:
     return out
 
 
-# The timing handlers hand the protocol's use to this helper, run through the
-# GUI boundary; a reference to it is the handler's first use of the protocol.
-PROTOCOL_USING_HELPERS = {'_apply_stored_time_params'}
-
-
 def _is_self_attr(node: ast.AST, attr: str) -> bool:
     return (
         isinstance(node, ast.Attribute)
@@ -75,12 +70,11 @@ def _is_self_attr(node: ast.AST, attr: str) -> bool:
 
 
 def _protocol_deref_linenos(method: ast.FunctionDef) -> list[int]:
-    """Line numbers of `self._protocol.<attr>` accesses, or of a helper that makes one."""
+    """Line numbers of `self._protocol.<attr>` accesses."""
     return [
         node.lineno
         for node in ast.walk(method)
-        if (isinstance(node, ast.Attribute) and _is_self_attr(node.value, '_protocol'))
-        or any(_is_self_attr(node, helper) for helper in PROTOCOL_USING_HELPERS)
+        if isinstance(node, ast.Attribute) and _is_self_attr(node.value, '_protocol')
     ]
 
 

@@ -77,6 +77,8 @@ class _Panel(ps.ProtocolSettings):
             'step_name_input': SimpleNamespace(text=''),
             'tiling_size_spinner': SimpleNamespace(text='1x1'),
             'acquire_zstack_id': SimpleNamespace(active=False),
+            'capture_period': SimpleNamespace(text=''),
+            'capture_dur': SimpleNamespace(text=''),
         }
         self._protocol = protocol
         self.curr_step = 0
@@ -211,9 +213,6 @@ class TestNewProtocol:
 class TestSave:
     @pytest.fixture(autouse=True)
     def own_popups(self, monkeypatch):
-        monkeypatch.setattr(
-            ps, 'get_protocol_time_params', lambda: {'period': None, 'duration': None}
-        )
         monkeypatch.setattr(_Panel, '_gather_layer_settings_for_save', lambda self: {})
         popups = []
         monkeypatch.setattr(
