@@ -325,16 +325,16 @@ class TestGeometrySetterSequences:
         assert imaging_capable._binning_size == 2
 
     def test_set_binning_size_refreshes_geometry_caches(self, imaging_capable):
-        imaging_capable.set_frame_size(1920, 1200)
+        imaging_capable.set_frame_size(3840, 2160)
         events = _record_validity_events(imaging_capable)
         result = imaging_capable.set_binning_size(2)
         assert result is True
         assert events == [('invalidate', 'binning')]
-        # Binning 2x halves the sim's post-binning ceiling (1920x1200 native)
+        # Binning 2x halves the sim's post-binning ceiling (3840x2160 native)
         # and the driver clamps the current frame down to it; both
         # binning-dependent geometry caches must reflect the driver's
         # post-binning reality, not the 1x values.
-        assert imaging_capable.frame_size_cached == {'width': 960, 'height': 600}
+        assert imaging_capable.frame_size_cached == {'width': 1920, 'height': 1080}
         assert imaging_capable.min_frame_size_cached == (
             imaging_capable._driver.get_min_frame_size()
         )

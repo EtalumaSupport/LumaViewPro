@@ -580,7 +580,7 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         assert cam.active is True
         assert cam.is_connected()
-        assert cam.model_name == 'SimulatedCamera-1920x1200'
+        assert cam.model_name == 'SimulatedCamera-3840x2160'
 
     def test_disconnect_reconnect(self):
         cam = SimulatedCamera()
@@ -592,8 +592,8 @@ class TestSimulatedCamera:
     def test_default_frame_size(self):
         cam = SimulatedCamera()
         size = cam.get_frame_size()
-        assert size['width'] == 1920
-        assert size['height'] == 1200
+        assert size['width'] == 3840
+        assert size['height'] == 2160
 
     def test_set_frame_size(self):
         cam = SimulatedCamera()
@@ -710,7 +710,7 @@ class TestSimulatedCamera:
         assert result is True
         assert ts is not None
         assert isinstance(cam.array, np.ndarray)
-        assert cam.array.shape == (1200, 1920)
+        assert cam.array.shape == (2160, 3840)
         assert cam.array.dtype == np.uint8
 
     def test_grab_new_capture(self):
@@ -729,7 +729,7 @@ class TestSimulatedCamera:
         cam.open_and_start()
         cam.set_binning_size(2)
         grab_a_frame_made_after_now(cam)
-        assert cam.array.shape == (600, 960)
+        assert cam.array.shape == (1080, 1920)
 
     def test_a_format_change_stores_no_frame_made_under_the_old_format(self):
         """A pixel-format change stops the stream, applies and restarts it, as
@@ -1123,7 +1123,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_profile_loaded_on_connect(self):
         cam = SimulatedCamera()
         assert cam.profile is not None
-        assert cam.profile.model_name == 'SimulatedCamera-1920x1200'
+        assert cam.profile.model_name == 'SimulatedCamera-3840x2160'
 
     def test_profile_sensor_info(self):
         cam = SimulatedCamera()
@@ -1154,7 +1154,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_profile_native_resolution(self):
         cam = SimulatedCamera()
-        assert cam.profile.native_resolution == {'width': 1920, 'height': 1200}
+        assert cam.profile.native_resolution == {'width': 3840, 'height': 2160}
 
     def test_profile_capabilities(self):
         cam = SimulatedCamera()
@@ -1354,7 +1354,7 @@ class TestCameraProfiles:
     def test_lookup_simulated(self):
         from drivers.camera_profiles import lookup_profile
 
-        p = lookup_profile('SimulatedCamera-1920x1200')
+        p = lookup_profile('SimulatedCamera-3840x2160')
         assert p.driver == 'simulated'
         assert p.gain.total_min_db == 0.0
 

@@ -246,13 +246,16 @@ _U3_34L0XCP_M = CameraProfile(
     '31.6x (analog only).',
 )
 
-# Simulated camera
+# Simulated camera. Its sensor is the size of the daA3840-45um's IMX334, the
+# camera LumaViewPro's main fleet ships, so a frame the shipped settings ask
+# for is one the simulated scope delivers. The simulated camera reads its size
+# and name from here.
 _simulated = CameraProfile(
-    model_name='SimulatedCamera-1920x1200',
+    model_name='SimulatedCamera-3840x2160',
     sensor='Simulated',
     pixel_size_um=2.0,
     shutter='global',
-    native_resolution={'width': 1920, 'height': 1200},
+    native_resolution={'width': 3840, 'height': 2160},
     pixel_formats=['Mono8', 'Mono10', 'Mono12'],
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
@@ -338,6 +341,13 @@ _DEFAULT = CameraProfile(
     driver='unknown',
     notes='Fallback profile -- camera model not recognized',
 )
+
+
+def simulated_profile() -> CameraProfile:
+    """The simulated camera's profile, a copy, as ``lookup_profile`` returns one."""
+    import copy
+
+    return copy.deepcopy(_simulated)
 
 
 def ids_default_profile(model_name: str) -> CameraProfile:

@@ -100,21 +100,21 @@ class TestBinningRoundTrip:
     def test_simulated_camera_profile_round_trips(self):
         """Exercise the shipped SimulatedCamera profile end-to-end.
 
-        Profile (drivers/camera_profiles.py): native 1920x1200, alignment
+        Profile (drivers/camera_profiles.py): native 3840x2160, alignment
         48x4 (width must be a multiple of 48). The cycle must still return
         to the start with the non-trivial width alignment.
         """
-        native = {'width': 1920, 'height': 1200}
+        native = {'width': 3840, 'height': 2160}
         align = {'width': 48, 'height': 4}
         start = binning.native_to_displayed(native, 1, align)
-        assert start == {'width': 1920, 'height': 1200}
+        assert start == {'width': 3840, 'height': 2160}
         for b in (2, 4, 2, 1):
             disp = binning.native_to_displayed(native, b, align)
             assert disp['width'] % 48 == 0
             assert disp['height'] % 4 == 0
         assert binning.native_to_displayed(native, 1, align) == start
-        assert binning.native_to_displayed(native, 2, align) == {'width': 960, 'height': 600}
-        assert binning.native_to_displayed(native, 4, align) == {'width': 480, 'height': 300}
+        assert binning.native_to_displayed(native, 2, align) == {'width': 1920, 'height': 1080}
+        assert binning.native_to_displayed(native, 4, align) == {'width': 960, 'height': 540}
 
 
 # The deliverable frame-size granularity the UI floors to before handing the
@@ -206,28 +206,28 @@ class TestSimPostBinningContract:
     set_frame_size takes the post-binning (displayed) ROI; the grabbed image is
     exactly that size; get_max_frame_size is the native sensor size divided by
     the current binning; and increasing binning re-clamps the frame to the new
-    max -- the behavior observed on a Basler camera (a 1920x1200 ROI becomes
-    960x600 at 2x2).
+    max -- the behavior observed on a Basler camera (a 3840x2160 ROI becomes
+    1920x1080 at 2x2).
     """
 
     def _grab_shape(self, cam):
         return cam._generate_image().shape  # (height, width)
 
     def test_set_frame_size_is_post_binning(self):
-        cam = SimulatedCamera()  # native 1920x1200
+        cam = SimulatedCamera()  # native 3840x2160
         cam.set_binning_size(2)
         # Max at 2x2 is native / 2.
-        assert cam.get_max_frame_size() == {'width': 960, 'height': 600}
+        assert cam.get_max_frame_size() == {'width': 1920, 'height': 1080}
         cam.set_frame_size(960, 600)
         assert cam.get_frame_size() == {'width': 960, 'height': 600}
         assert self._grab_shape(cam) == (600, 960)
 
     def test_binning_change_reclamps_full_frame(self):
         cam = SimulatedCamera()
-        cam.set_frame_size(1920, 1200)  # full at 1x1
-        cam.set_binning_size(2)  # observed: 1920x1200 -> 960x600
-        assert cam.get_frame_size() == {'width': 960, 'height': 600}
-        assert self._grab_shape(cam) == (600, 960)
+        cam.set_frame_size(3840, 2160)  # full at 1x1
+        cam.set_binning_size(2)  # observed: 3840x2160 -> 1920x1080
+        assert cam.get_frame_size() == {'width': 1920, 'height': 1080}
+        assert self._grab_shape(cam) == (1080, 1920)
 
     def test_init_path_passes_post_binning_frame(self):
         """At binning 2, init must hand set_frame_size the displayed size

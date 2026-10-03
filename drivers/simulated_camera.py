@@ -20,6 +20,7 @@ from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase
+from drivers.camera_profiles import simulated_profile
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import specimen_frames
 
@@ -93,7 +94,8 @@ class _SimImageHandler(ImageHandlerBase):
 
 @camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
-    MODEL_NAME = 'SimulatedCamera-1920x1200'
+    _SENSOR = simulated_profile().native_resolution
+    MODEL_NAME = simulated_profile().model_name
     SERIAL_NUMBER = 'SIM-CAM-001'
 
     # Supported pixel formats
@@ -110,8 +112,8 @@ class SimulatedCamera(Camera):
 
     def __init__(
         self,
-        width: int = 1920,
-        height: int = 1200,
+        width: int = _SENSOR['width'],
+        height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
         z_position_func: Callable[[], float] | None = None,
         illumination_func: Callable[[], float] | None = None,

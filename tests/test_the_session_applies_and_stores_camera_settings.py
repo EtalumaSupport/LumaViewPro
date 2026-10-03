@@ -8,7 +8,7 @@ on failure; a REST or SDK caller had no writer at all. Each member applies
 through the imaging API, stores on success, and raises on failure with the
 store untouched, so no caller can record a value the camera never took.
 
-Run against the simulated camera: 1920x1200 native, binning 1/2/4, a 48x4
+Run against the simulated camera: 3840x2160 native, binning 1/2/4, a 48x4
 grid.
 """
 

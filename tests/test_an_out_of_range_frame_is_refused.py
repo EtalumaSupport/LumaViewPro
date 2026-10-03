@@ -118,11 +118,11 @@ class TestBringUpStoresTheDeliveredFrame:
         return ScopeSession.create(settings, simulate=True)
 
     def test_a_frame_the_camera_snaps_is_stored_as_delivered(self, tmp_path):
-        # The shipped template's 1900x1900 on the simulated 1920x1200 sensor.
-        s = self._create(tmp_path, (1900, 1900))
+        # A frame wider than the simulated 3840x2160 sensor.
+        s = self._create(tmp_path, (4000, 1900))
         try:
             delivered = s.scope.imaging.frame_size_cached
-            assert (delivered['width'], delivered['height']) != (1900, 1900)
+            assert (delivered['width'], delivered['height']) != (4000, 1900)
             frame = s.settings['frame']
             assert {'width': frame['width'], 'height': frame['height']} == delivered
         finally:
@@ -161,7 +161,7 @@ class TestBringUpStoresTheDeliveredFrame:
         # the field of view the camera has, which the store now describes.
         grids = []
         for saved in ('1x1', '3x3'):
-            s = self._create(tmp_path, (1920, 1200), binning=saved, BF={'acquire': 'image'})
+            s = self._create(tmp_path, (3840, 2160), binning=saved, BF={'acquire': 'image'})
             try:
                 assert s.scope.imaging.get_binning_size() == 1
                 protocol = s.scope.protocols.create_protocol(

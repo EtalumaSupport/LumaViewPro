@@ -383,14 +383,14 @@ def test_initialize_refits_persisted_frame_at_reconciled_binning(monkeypatch):
     # The persisted frame is a DISPLAYED size at the persisted factor: 484x304
     # persisted at 8x describes a 3872x2432 native intent. Reconciled to the
     # camera-reported 1x, the frame must be refit from that native intent
-    # (capped at the sim's 1920x1200 native, aligned to its 48x4 grid ->
-    # 1920x1200), NOT applied as a tiny 484x304 ROI at 1x.
+    # (capped at the sim's 3840x2160 native -> 3840x2160), NOT applied as a
+    # tiny 484x304 ROI at 1x.
     applied, frames, _errors, _ = _drive_initialize(
         _init_config(8, frame_width=484, frame_height=304), monkeypatch
     )
     assert applied == [1]
     assert frames != [(484, 304)], 'the persisted displayed size must be refit, not reused'
-    assert frames == [(1920, 1200)], frames
+    assert frames == [(3840, 2160)], frames
 
 
 def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch):
