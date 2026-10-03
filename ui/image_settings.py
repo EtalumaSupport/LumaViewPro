@@ -15,6 +15,7 @@ from modules.config_ui_getters import (
     get_layer_exposure_slider_max,
     get_layer_illumination_slider_max,
 )
+from ui.ui_helpers import resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -336,27 +337,16 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].remove_widget(item)
 
     def _resort_accordion(self):
-        """Rebuild the accordion children list in canonical layer order.
+        """Put the layer accordion back in catalogue order after a model switch.
 
-        Live scope-model transitions (LS620 -> LS850, etc.) re-add
-        previously hidden layer-control widgets via add_widget(...,0),
-        which appends to the children list and ends up at the BOTTOM of
-        the visible accordion regardless of canonical order. After every
-        ``_show_*`` call we re-sort so the order matches the release
-        layer catalogue -- display order IS the catalogue order (a
-        layer's id is its position there), so no second order is
-        authored here.
-
-        Kivy renders the children list bottom-to-top and ``add_widget``
-        with no index prepends, so walking the canonical order FORWARD
-        re-adds each currently-visible widget in the right visual order.
-        AccordionItem state (``collapse``, internal anim) lives on the
-        widget instance, so remove + re-add preserves it.
+        Live scope-model transitions (LS620 -> LS850, etc.) re-add hidden
+        layer controls out of order; after every ``_show_*`` call the order
+        is restored. Display order IS the catalogue order (a layer's id is
+        its position there), so no second order is authored here.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
             return
-
         widget_for_layer = {
             'BF': self.ids.get('BF_accordion'),
             'PC': self._resolve_pc_accordion(),
@@ -373,43 +363,13 @@ class ImageSettings(BoxLayout):
             'Lumi': self._accordion_item_lumi_control_visible,
             **self._fluorescence_control_visible,
         }
-
-        # Walk the live children list directly and remove any widget we
-        # track. ``widget.parent is accordion`` was unreliable here --
-        # Kivy's parent attribute can lag the children list during
-        # add_widget calls inside the same event tick. Membership in
-        # ``accordion.children`` is the ground truth.
-        #
-        # Compare via ``widget.uid`` rather than Python ``id()`` because
-        # ``self.ids.get(...)`` returns a Kivy WeakProxy whose Python id
-        # differs from the underlying widget's id. Today all the
-        # right-side widgets are python instance refs (no kv ids in
-        # ``widget_for_layer``) so id() happens to work, but the left-
-        # side resort hit this exact trap 2026-05-03 -- using uid is the
-        # defensive choice.
-        tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
-        present = [w for w in list(accordion.children) if w.uid in tracked_uids]
-        for widget in present:
-            accordion.remove_widget(widget)
-
-        # Walk forward through canonical order. ``add_widget`` with no
-        # index prepends to the children list; the accordion renders
-        # children in reverse order (children[0] is drawn last -> bottom),
-        # so the FIRST canonical layer added ends up at the bottom of
-        # the children list and at the TOP of the visual accordion. The
-        # final iteration (Lumi) lands at children[0] -> bottom of display.
-        for layer in common_utils.get_layers():
-            if not visible_for_layer.get(layer, False):
-                continue
-            widget = widget_for_layer.get(layer)
-            if widget is None:
-                continue
-            # Defensive: if a widget still has a parent (e.g. transient
-            # state during animation), detach it before adding so kivy
-            # doesn't raise "already has a parent".
-            if widget.parent is not None:
-                widget.parent.remove_widget(widget)
-            accordion.add_widget(widget)
+        resort_accordion(
+            accordion,
+            [
+                (widget_for_layer.get(layer), visible_for_layer.get(layer, False))
+                for layer in common_utils.get_layers()
+            ],
+        )
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx

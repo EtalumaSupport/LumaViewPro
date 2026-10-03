@@ -642,6 +642,42 @@ def reset_stim_ui():
 # ============================================================================
 
 
+def resort_accordion(accordion, items: typing.Sequence[tuple[object | None, bool]]) -> None:
+    """Put an accordion's items back in canonical order, the one way both panels do it.
+
+    A live scope-model switch re-adds an item that was hidden, and add_widget
+    lands it wherever it lands; after a few switches the order is wrong. This
+    takes every child out and adds back, in *items* order, each widget whose
+    flag says it is shown, then any child *items* does not name (a plugin's
+    tab, registered after the kv build) below them, in the order they had.
+
+    Kivy renders children[0] last, at the bottom, and add_widget with no
+    index prepends, so walking *items* forward puts the first at the top.
+    Items are matched by ``uid``: ``ids.get`` returns a WeakProxy whose
+    Python id is not the widget's. An item's open or closed state lives on
+    the widget, so taking it out and adding it back keeps it.
+
+    Args:
+        accordion: The Accordion whose children are reordered.
+        items: (widget, shown) pairs in canonical order, top first. A widget
+            that is None, or not shown, is left out.
+    """
+    tracked = {widget.uid for widget, _shown in items if widget is not None}
+    untracked = [w for w in reversed(accordion.children) if w.uid not in tracked]
+    for widget in list(accordion.children):
+        accordion.remove_widget(widget)
+    for widget, shown in items:
+        if widget is None or not shown:
+            continue
+        # A shown item still attached elsewhere is detached first: add_widget
+        # refuses a widget that has a parent.
+        if widget.parent is not None:
+            widget.parent.remove_widget(widget)
+        accordion.add_widget(widget)
+    for widget in untracked:
+        accordion.add_widget(widget, 0)
+
+
 def cleanup_scrollview_viewport(scrollview):
     """
     Clean up ScrollView viewport textures to prevent memory accumulation.
