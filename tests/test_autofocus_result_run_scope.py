@@ -301,6 +301,42 @@ class TestGuiStoresWhatTheAutofocusFound:
             'the camera widget re-sync must run even with no autofocus result'
         )
 
+    def test_a_failed_widget_resync_is_reported_once_by_the_run_cleanup(self, monkeypatch):
+        """The completion is a run_complete callback, and the run's cleanup
+        wraps every one of those. A resync that raises is that wrapper's
+        to report, once, as a cleanup failure -- not a WARNING line the
+        person never sees."""
+        import ui.vertical_control as vc
+        from modules import protocol_cleanup
+        from modules.exceptions import RunCleanupFailedError
+        from modules.notification_center import notifications
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import RunCompleteNotice
+
+        af_runner, _scope = af_runner_and_scope()
+        af_runner._best_focus_position = 777.5
+        stub, ctx, settings, layer_obj, app_context = _vertical_control_stub(af_runner)
+        layer_obj.sync_widgets_from_settings.side_effect = RuntimeError('widget gone')
+        monkeypatch.setattr(app_context, 'ctx', ctx)
+        monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda image_settings: 'Green')
+        monkeypatch.setattr(protocol_cleanup, '_schedule_ui', lambda fn, *a, **k: fn(0))
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
+        )
+        callbacks = ProtocolCallbacks(
+            run_complete=lambda **kw: vc.VerticalControl._autofocus_run_complete(stub, **kw)
+        )
+
+        RunCompleteNotice(callbacks, protocol=None, ending=MagicMock(), run_dir=None).send()
+
+        assert len(reported) == 1, reported
+        failed, kw = reported[0]
+        assert isinstance(failed, RunCleanupFailedError)
+        assert 'widget gone' in str(failed)
+        assert kw['solicited'] is False
+        assert settings['Green']['focus'] == 777.5, 'the focus is stored before the resync'
+
     def test_the_defensive_af_thread_abort_runs_before_the_store_write(self, monkeypatch):
         """The store write no longer sits in a broad handler, so it can
         raise. The AF-thread unwind must already have happened.

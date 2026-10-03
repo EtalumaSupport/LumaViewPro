@@ -436,11 +436,8 @@ class VerticalControl(BoxLayout):
         # at the completion path, this is a no-op; if not, it unwinds.
         # Ahead of the store write below, which is allowed to raise: the
         # unwind must not be skippable by a failure in the focus update.
-        try:
-            if ctx.autofocus_thread is not None:
-                ctx.autofocus_thread.abort()
-        except Exception:
-            logger.debug('[AF] defensive AF-thread abort at completion failed', exc_info=True)
+        if ctx.autofocus_thread is not None:
+            ctx.autofocus_thread.abort()
 
         # Ask the autofocus what it found. Sampling the stage instead
         # reads an in-transit coordinate: the pre-AF restore is issued
@@ -462,13 +459,11 @@ class VerticalControl(BoxLayout):
         # hardware no longer has. Re-point the widgets at the truth. Not
         # conditional on a result: the camera restore happens on every
         # terminal path, and these widgets show illumination, gain and
-        # exposure rather than focus.
+        # exposure rather than focus. The run's cleanup wraps this callback
+        # and reports a failure here once.
         if layer is not None:
-            try:
-                layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                layer_obj.sync_widgets_from_settings()
-            except Exception as e:
-                logger.warning(f'[AF] Widget sync after AF failed: {e}')
+            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+            layer_obj.sync_widgets_from_settings()
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.
