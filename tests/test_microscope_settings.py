@@ -128,7 +128,9 @@ class TestCoalescingApplier:
         start = text.index('class _CoalescingApplier:')
         end = text.index('class MicroscopeSettings')
         snippet = (
-            'import logging, threading\nlogger = logging.getLogger(__name__)\n' + text[start:end]
+            'import logging, threading\n'
+            'from modules.notification_center import notifications\n'
+            'logger = logging.getLogger(__name__)\n' + text[start:end]
         )
         ns = {}
         exec(compile(snippet, str(src), 'exec'), ns)
@@ -179,6 +181,27 @@ class TestCoalescingApplier:
             applier.apply_pending(_fn)
         # Next submit should succeed as a fresh enqueue.
         assert applier.submit((1900, 2100)) is True
+
+    def test_later_failures_are_logged_not_dropped(self, monkeypatch):
+        # The first failure is raised and shown; each later one in the same
+        # drain is reported log-only, so none of them vanishes unrecorded.
+        from modules.notification_center import notifications
+
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda e, **kw: reported.append((e, kw))
+        )
+        applier = self._make()
+        applier.submit(('first',))
+
+        def _fn(val):
+            if val == ('first',):
+                applier.submit(('second',))
+            raise RuntimeError(f'refused {val[0]}')
+
+        with pytest.raises(RuntimeError, match='refused first'):
+            applier.apply_pending(_fn)
+        assert [(str(e), kw['log_only']) for e, kw in reported] == [('refused second', True)]
 
     def test_empty_pending_is_noop(self):
         applier = self._make()

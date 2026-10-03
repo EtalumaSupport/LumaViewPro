@@ -22,6 +22,7 @@ from modules.config_ui_getters import (
     get_binning_from_ui,
 )
 from modules.memory_profiler import MemoryLeakProfiler
+from modules.notification_center import notifications
 import modules.image_mode as image_mode
 from modules.zstack_config import ZStackConfig
 from ui.ui_helpers import submit_reported
@@ -85,7 +86,8 @@ class _CoalescingApplier:
         A failure does not stop the drain: an edit that arrived while a
         refused one was applying is still the person's latest request. The
         first exception is raised once the slot is empty, so the caller
-        reports it; the gate is open again by then.
+        reports it; the gate is open again by then. Each later failure is
+        logged through the reporter and not shown: one popup per drain.
         """
         failure = None
         while True:
@@ -100,6 +102,10 @@ class _CoalescingApplier:
             except Exception as e:
                 if failure is None:
                     failure = e
+                else:
+                    notifications.report_outcome(
+                        e, solicited=True, category=f'UI:{self._name}', log_only=True
+                    )
         if failure is not None:
             raise failure
 
@@ -116,7 +122,7 @@ class MicroscopeSettings(BoxLayout):
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
         # Coalesce rapid set_frame_size requests. See
         # _CoalescingApplier + issue #624.
-        self._frame_size_applier = _CoalescingApplier(name='frame_size')
+        self._frame_size_applier = _CoalescingApplier(name='FRAME_SIZE')
 
         # try:
         #     os.chdir(source_path)
