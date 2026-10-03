@@ -65,6 +65,8 @@ def test_values_the_curve_cannot_take_are_refused_naming_them(kind, x, y, words)
 def test_a_missing_value_is_refused_for_every_kind(kind):
     with pytest.raises(PostProcessingRefusedError, match='1 of the 4 area values are missing'):
         fit_trendline(kind, X, _series('area', [2, np.nan, 6, 8]))
+    with pytest.raises(PostProcessingRefusedError, match='1 of the 4 num_cells values are missing'):
+        fit_trendline(kind, _series('num_cells', [1, 2, np.nan, 4]), Y)
 
 
 def test_a_time_x_takes_only_the_kinds_that_use_x_as_it_is():
@@ -231,3 +233,14 @@ def test_the_redraw_showing_the_stored_choice_is_not_a_choice(monkeypatch, bound
     panel_module.GraphingControls.set_y_axis(graph)
     panel_module.GraphingControls.update_trendline(graph)
     assert (records, graph.fits, graph.redraws) == ([], 0, 0)
+
+
+def test_a_kind_picked_before_both_axes_waits_for_them(monkeypatch, boundary, records):
+    graph = _graph(monkeypatch)
+    graph.selected_y_axis = None
+    graph.ids.graphing_y_axis_spinner._text = 'Y-Axis'
+    graph.ids.trendline_spinner.text = 'Linear'
+    assert (boundary, graph._trendline, graph._trendline_kind) == ([], None, 'Linear')
+    graph.ids.graphing_y_axis_spinner.text = 'perimeter'
+    assert boundary == []
+    assert graph._trendline.kind == 'Linear'
