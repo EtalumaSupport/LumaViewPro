@@ -161,12 +161,26 @@ class TestTheContinuationRunsOnEveryOutcome:
         ]
         assert '_resolve_objective' in names
 
-    def test_the_continuation_cannot_take_the_app_down(self):
-        """It runs on a Clock callback, where a raise exits the app."""
-        fn = find_def('ui/vertical_control.py', '_resolve_objective')
-        assert fn is not None, 'the continuation runner is gone'
-        handlers = [node for node in ast.walk(fn) if isinstance(node, ast.ExceptHandler)]
-        assert handlers, 'the continuation runs unguarded on a Clock callback'
+    def test_a_continuation_that_raises_is_reported_once_and_does_not_escape(self, monkeypatch):
+        """It runs on a Clock callback, where a raise exits the app; nothing
+        waits on it, so its fault is shown, through the one reporter."""
+        from types import SimpleNamespace
+
+        import ui.vertical_control as vc
+        from modules.notification_center import notifications
+
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
+        )
+        boom = RuntimeError('the saved protocol would not load')
+
+        def _continuation():
+            raise boom
+
+        vc.VerticalControl._resolve_objective(SimpleNamespace(), _continuation)
+
+        assert reported == [(boom, {'solicited': False, 'category': 'UI:OBJECTIVE_CONTINUATION'})]
 
 
 class TestARefusedStartupLoadKeepsThePath:

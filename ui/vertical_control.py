@@ -17,6 +17,7 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     run_reported,
+    run_unasked,
     submit_reported,
 )
 
@@ -533,17 +534,15 @@ class VerticalControl(BoxLayout):
             self._resolve_objective(on_resolved)
 
     def _resolve_objective(self, on_resolved) -> None:
-        """Run the continuation, and never let it take the caller down.
+        """Run the continuation through the boundary; a raise is reported, not raised.
 
         This runs on a Clock callback and inside except branches, where a
         raise exits the app or replaces one reported failure with another.
+        Nothing waits on the step it runs, so its failure is shown as one.
         """
         if on_resolved is None:
             return
-        try:
-            on_resolved()
-        except Exception as e:
-            logger.error(f'[UI] post-objective startup step failed: {e}', exc_info=True)
+        run_unasked(on_resolved, 'OBJECTIVE_CONTINUATION')
 
     def _render_objective_question(self, question, on_resolved=None):
         """The one popup for the objective question; the answer applies below."""
