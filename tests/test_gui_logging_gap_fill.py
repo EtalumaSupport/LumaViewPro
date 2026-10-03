@@ -320,10 +320,11 @@ def test_an_unparseable_entry_is_no_longer_invisible():
 def test_the_zstack_log_binding_runs_before_the_handler_that_coerces():
     """Ordering is load-bearing: set_steps rewrites the box it is reading.
 
-    ``set_steps`` coerces a bad extent to 0 and writes that back into the
-    widget. ``log_step_field`` reads the widget to record what was typed, so it
-    must be bound FIRST -- kv appends handlers in declaration order. Reversed,
-    the "typed" record would carry the coerced 0 and the raw entry would be lost.
+    ``set_steps`` puts an entry that is not a number back to the stored value,
+    writing it into the widget. ``log_step_field`` reads the widget to record
+    what was typed, so it must be bound FIRST -- kv appends handlers in
+    declaration order. Reversed, the "typed" record would carry the put-back
+    value and the raw entry would be lost.
     """
     for control_id in ('zstack_stepsize_id', 'zstack_range_id'):
         block = _block_for(control_id)

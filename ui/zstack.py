@@ -20,6 +20,7 @@ from ui.ui_helpers import (
     set_writing_title,
     submit_reported,
     sync_layer_widgets_from_settings,
+    typed_number,
 )
 from modules.zstack_config import ZStackConfig
 
@@ -42,35 +43,26 @@ class ZStack(FloatLayout):
         logger.info('[LVP Main  ] ZStack.set_steps()')
         settings = _app_ctx.ctx.settings
 
-        # This handler rewrites the widget only when it coerces a bad entry, so
-        # comparing the text before and after IS the coercion signal. The typed
-        # value itself is recorded by log_step_field, which the kv binds ahead
-        # of this handler on the same events so it reads the box first.
+        # This handler rewrites the widget only when it puts back an entry
+        # that is not a number, so comparing the text before and after IS the
+        # put-back signal. The typed value itself is recorded by
+        # log_step_field, which the kv binds ahead of this handler on the same
+        # events so it reads the box first.
         typed = {wid: self.ids[wid].text for wid in ('zstack_stepsize_id', 'zstack_range_id')}
 
-        try:
-            step_size = float(self.ids['zstack_stepsize_id'].text)
-            if step_size < 0:
-                step_size = 0
-                self.ids['zstack_stepsize_id'].text = str(step_size)
-        except Exception:
-            step_size = 0
-            self.ids['zstack_stepsize_id'].text = str(step_size)
-        finally:
-            with _app_ctx.ctx.settings_lock:
-                settings['zstack']['step_size'] = step_size
+        # A number is stored as typed, whatever its sign: a stack whose step
+        # or range is not above zero is refused when it is built, naming the
+        # values the person entered, and the Steps field reads 0 meanwhile.
+        for wid, key in (('zstack_stepsize_id', 'step_size'), ('zstack_range_id', 'range')):
+            box = self.ids[wid]
 
-        try:
-            step_range = float(self.ids['zstack_range_id'].text)
-            if step_range < 0:
-                step_range = 0
-                self.ids['zstack_range_id'].text = str(step_range)
-        except Exception:
-            step_range = 0
-            self.ids['zstack_range_id'].text = str(step_range)
-        finally:
-            with _app_ctx.ctx.settings_lock:
-                settings['zstack']['range'] = step_range
+            def put_back(box=box, key=key):
+                box.text = str(settings['zstack'][key])
+
+            value = typed_number(box.text, float, put_back)
+            if value is not None:
+                with _app_ctx.ctx.settings_lock:
+                    settings['zstack'][key] = value
 
         for wid, name in (
             ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
@@ -100,9 +92,9 @@ class ZStack(FloatLayout):
         both whenever either committed. Logging from the binding keeps each
         field's record its own.
 
-        The value recorded is what the user typed. ``set_steps`` coerces a bad
-        entry to 0; that coercion is the system reacting, which belongs in the
-        main log, while this file records what the user did.
+        The value recorded is what the user typed. ``set_steps`` puts back an
+        entry that is not a number and records that under ``<NAME>_APPLIED``;
+        this records what the user did.
         """
         gui_logger.text_input(name, self.ids[widget_id].text)
 

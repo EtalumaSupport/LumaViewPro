@@ -640,7 +640,7 @@ _UI_EXCEPT_PIN = {
     ('ui/ui_helpers.py', 'Exception'): 2,
     ('ui/ui_helpers.py', 'ValueError'): 1,
     ('ui/vertical_control.py', 'Exception'): 0,
-    ('ui/zstack.py', 'Exception'): 2,
+    ('ui/zstack.py', 'Exception'): 0,
 }
 
 
