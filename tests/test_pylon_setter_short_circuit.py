@@ -32,7 +32,16 @@ def _mock_camera():
     # loop. Short-circuit paths must NOT enter it; replace with a mock
     # that records calls so tests can assert it stayed dormant.
     cam.update_camera_config = MagicMock()
+    cam._frame_window = None
+    cam.cam_image_handler = None
     return cam
+
+
+def _sensor(cam, maximum=3536, step=4):
+    for node in (cam.active.Width, cam.active.Height):
+        node.GetMax.return_value = maximum
+        node.GetInc.return_value = step
+        node.GetMin.return_value = step
 
 
 class TestPixelFormatShortCircuit(unittest.TestCase):
@@ -123,8 +132,7 @@ class TestExposureShortCircuit(unittest.TestCase):
 class TestFrameSizeShortCircuit(unittest.TestCase):
     def test_short_circuits_when_geometry_matches(self):
         cam = _mock_camera()
-        cam.active.Width.Max = 3536
-        cam.active.Height.Max = 3536
+        _sensor(cam)
         cam.active.Width.GetValue.return_value = 1900
         cam.active.Height.GetValue.return_value = 1900
 
@@ -138,8 +146,7 @@ class TestFrameSizeShortCircuit(unittest.TestCase):
 
     def test_writes_when_geometry_changes(self):
         cam = _mock_camera()
-        cam.active.Width.Max = 3536
-        cam.active.Height.Max = 3536
+        _sensor(cam)
         cam.active.Width.GetValue.return_value = 1900
         cam.active.Height.GetValue.return_value = 1900
 
@@ -149,15 +156,14 @@ class TestFrameSizeShortCircuit(unittest.TestCase):
         cam.active.Height.SetValue.assert_called_once_with(1900)
         cam.update_camera_config.assert_called_once()
 
-    def test_short_circuits_against_clamped_dims(self):
-        """1901 rounds down to 1900 via the /4*4 clamp; matches current."""
+    def test_short_circuits_against_the_acquired_window(self):
+        """1897 acquires the 1900 window on the grid of 4; matches current."""
         cam = _mock_camera()
-        cam.active.Width.Max = 3536
-        cam.active.Height.Max = 3536
+        _sensor(cam)
         cam.active.Width.GetValue.return_value = 1900
         cam.active.Height.GetValue.return_value = 1900
 
-        cam.set_frame_size(1901, 1901)
+        cam.set_frame_size(1897, 1897)
 
         cam.active.Width.SetValue.assert_not_called()
         cam.update_camera_config.assert_not_called()

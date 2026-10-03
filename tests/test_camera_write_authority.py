@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,6 +82,8 @@ def _build_imaging(cam):
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
+    # No model maximum: the frame range is the camera's.
+    scope.capabilities = SimpleNamespace(camera_max_frame_size=(0, 0))
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging
@@ -236,14 +239,15 @@ class TestGeometrySetterSequences:
         events = _record_validity_events(imaging_capable)
         imaging_capable.set_frame_size(640, 482)
         assert events == [('invalidate', 'frame_size')]
-        # The cache holds the DELIVERED size, not the request: the sim snaps
-        # 640 -> 624 (48 grid) and 482 -> 480 (4 grid).
-        assert imaging_capable.frame_size_cached == {'width': 624, 'height': 480}
+        # The sim delivers the size off its 48 x 4 grid exactly.
+        assert imaging_capable.frame_size_cached == {'width': 640, 'height': 482}
 
     def test_set_frame_size_caches_delivered_geometry(self, imaging_capable):
-        # The sim snaps width to a 48 grid and height to a 4 grid, so the
-        # cache must hold the snapped size the driver delivered (via the
-        # write's own return value), not the request.
+        # The cache must hold the size the driver delivered (via the write's
+        # own return value), not the request: a driver answering a smaller
+        # size (a request within one grid step of its maximum) is believed.
+        cam = imaging_capable._driver
+        cam.set_frame_size = lambda w, h: {'width': 624, 'height': 480}
         imaging_capable.set_frame_size(640, 482)
         assert imaging_capable.frame_size_cached == {'width': 624, 'height': 480}
 

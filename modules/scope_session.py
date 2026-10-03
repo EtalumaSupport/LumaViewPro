@@ -29,8 +29,8 @@ from typing import TYPE_CHECKING, Any
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
-from modules import binning, common_utils, image_mode
 from lvp_logger import logger
+from modules import binning, common_utils, image_mode
 from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
@@ -1987,13 +1987,12 @@ class ScopeSession:
         not written again.
 
         Returns:
-            The frame the camera delivers, which may differ from the request
-            by the camera's grid. None when no camera is connected; nothing
-            is stored.
+            The frame the camera delivers: the request floored to even
+            sides. None when no camera is connected; nothing is stored.
 
         Raises:
-            CameraSettingOutOfRangeError: The size, floored to the camera's
-                grid, is below the camera's minimum frame or above its sensor
+            CameraSettingOutOfRangeError: The size, floored to even sides, is
+                below the camera's minimum frame or above the scope's maximum
                 at the stored binning. Nothing is stored.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 stored.
@@ -2047,8 +2046,8 @@ class ScopeSession:
     def _target_frame(self, native: dict, factor: int) -> dict:
         """The displayed frame a stored ``native`` region gives at a new ``factor``.
 
-        The region divided by the binning and floored to the camera's grid,
-        so it follows from the region alone. It is raised to the camera's
+        The region divided by the binning and floored to even sides, so it
+        follows from the region alone. It is raised to the camera's
         minimum: a Pylon camera floors only to its maximum and refuses a
         smaller request outright, and no one asked for this frame -- a
         binning change derives it, so there is no request to refuse. A frame
@@ -2069,8 +2068,8 @@ class ScopeSession:
 
         Bring-up applies the stored binning and frame to the camera directly.
         A binning the camera does not offer is replaced by the one it
-        reports, and the camera snaps the frame to its grid and caps it at
-        its sensor, so what it delivers can differ from what was stored.
+        reports, and a stored frame above the scope's maximum is refitted to
+        it, so what the camera delivers can differ from what was stored.
         Storing the delivered pair keeps the settings, the frame fields and
         every reader of them on the geometry the camera actually holds. The
         two are stored together because a frame beside a binning the camera

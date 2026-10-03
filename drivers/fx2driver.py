@@ -97,7 +97,7 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, ImageHandlerBase, no_hardware_auto_mode
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase, no_hardware_auto_mode
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -2336,24 +2336,33 @@ class FX2Camera(Camera):
 
     # -- Frame size --------------------------------------------------------
 
-    def set_frame_size(self, w: int, h: int) -> dict | bool:
-        """Set the sensor readout window.
+    def _frame_grid(self) -> FrameGrid:
+        """Windows from 100 to 1900 in steps of FRAME_SIZE_STEP (4).
+
+        Both sides a multiple of 4 is what makes a frame's length odd, which
+        the stream needs to find its end (``frame_layout``). There is no
+        active-flag guard: connect() configures the initial window BEFORE the
+        active flag is set, and with no SDK to consult, a failing USB register
+        write IS the disconnected signal.
+        """
+        return FrameGrid(
+            step=(self.FRAME_SIZE_STEP, self.FRAME_SIZE_STEP),
+            max_size=(IMG_WIDTH, IMG_HEIGHT),
+            size_min=(self.FRAME_SIZE_MIN, self.FRAME_SIZE_MIN),
+        )
+
+    def _set_hardware_window(self, plan) -> bool:
+        """Set the sensor readout window to the planned acquisition.
 
         The sizes written are one larger than the window; the sensor outputs
         two more columns and rows than the window, of which the wire keeps
-        the window (``frame_layout``). Dimensions are rounded down to
-        multiples of FRAME_SIZE_STEP (4) and clamped to [100, 1900].
+        the window (``frame_layout``). The sensor centres the window itself
+        (``_column_start``, ``_row_start``).
 
-        Returns the delivered size ``{'width': int, 'height': int}`` after
-        rounding and clamping, so the caller knows what was actually applied
-        without a read-back; ``False`` when a sensor-register write fails --
-        the same failure contract the Camera base class documents and the
-        pylon / IDS drivers implement, so the camera-write authority
-        upstream sees one rejection signal from every driver. There is no
-        up-front active-flag guard: connect() configures the initial window
-        through this method BEFORE the active flag is set, and with no SDK
-        to consult, a failing USB register write IS the disconnected signal
-        (routed to False by the handler below).
+        Returns False when a sensor-register write fails -- the same failure
+        contract the Camera base class documents and the pylon / IDS drivers
+        implement, so the camera-write authority upstream sees one rejection
+        signal from every driver.
 
         The row time follows the window's width, so the same shutter width
         integrates a different time at each window. The shutter width is
@@ -2362,11 +2371,7 @@ class FX2Camera(Camera):
         It takes effect two frames after the window (the data sheet's shutter
         latency), inside the frames a window change already discards.
         """
-        step = self.FRAME_SIZE_STEP
-        w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
-        h = max(self.FRAME_SIZE_MIN, min(IMG_HEIGHT, int(h)))
-        w = (w // step) * step
-        h = (h // step) * step
+        w, h = plan.acq_width, plan.acq_height
 
         # The sensor outputs one column and one row more than the sizes
         # written (DS Table 8), and the parser keeps w of those columns and
@@ -2416,7 +2421,7 @@ class FX2Camera(Camera):
         self._fx2.stream.flush()
 
         logger.info(
-            '[FX2 Cam   ] frame size %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',
+            '[FX2 Cam   ] window %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',
             w,
             h,
             sensor_w,
@@ -2424,9 +2429,9 @@ class FX2Camera(Camera):
             row_start,
             col_start,
         )
-        return {'width': w, 'height': h}
+        return True
 
-    def get_frame_size(self):
+    def _hardware_frame_size(self):
         return {'width': self._width, 'height': self._height}
 
     def get_min_frame_size(self):
@@ -2588,7 +2593,7 @@ class FX2Camera(Camera):
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
         pass  # Frame rate is determined by PLL / exposure, not a software cap
 
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         return size == 1  # only 1x1 supported in this port
 
     def get_binning_size(self) -> int:

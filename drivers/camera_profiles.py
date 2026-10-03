@@ -36,9 +36,10 @@ Adding a new camera model
    - Auto gain / auto exposure        (has_auto_gain, has_auto_exposure)
      * Whether the camera hardware supports these features
    - Temperature sensors              (has_temperature)
-   - AOI alignment constraints        (alignment)
-     * Width step (e.g. 4 or 48 pixels)
-     * Height step (e.g. 4 pixels)
+   - Deliverable frame-size step      (alignment)
+     * Even sides for every camera (the default): the camera base acquires
+       the next window up on the driver's own grid and crops back, so the
+       hardware grid is the driver's (_frame_grid), not the profile's
 
 2. CREATE THE PROFILE
    Add a CameraProfile instance in the "Known camera profiles" section
@@ -109,7 +110,10 @@ class CameraProfile:
     pixel_formats: list[str] = field(default_factory=list)
     binning_sizes: list[int] = field(default_factory=lambda: [1])
     binning_modes: list[str] = field(default_factory=lambda: ['Sum'])
-    alignment: dict = field(default_factory=lambda: {'width': 4, 'height': 4})
+    # Deliverable frame-size granularity, NOT the hardware AOI grid: every
+    # camera delivers any size by oversize-then-crop, so the size the UI/API
+    # can request is bounded only by even-dimension video safety (H.264).
+    alignment: dict = field(default_factory=lambda: {'width': 2, 'height': 2})
     gain: GainInfo = field(default_factory=GainInfo)
     has_auto_gain: bool = False
     has_auto_exposure: bool = False
@@ -142,7 +146,6 @@ _daA3840_45um = CameraProfile(
     exposure_max_us=1_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=24.0,
         has_digital=True,
@@ -177,7 +180,6 @@ _dmA3536_9gm = CameraProfile(
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=30.0,  # IMX676 sensor max -- shared with a2A3536
         has_digital=True,
@@ -200,7 +202,6 @@ _a2A3536_31umBAS = CameraProfile(
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=30.0,  # Confirmed from Basler docs
         has_digital=True,
@@ -228,12 +229,6 @@ _U3_34L0XCP_M = CameraProfile(
     exposure_max_us=2_000_000,
     binning_sizes=[1, 2],  # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
-    # Deliverable frame-size granularity, NOT the hardware AOI grid. The IDS
-    # driver delivers any even size via oversize-then-crop (it reads the real
-    # 48x4 AOI grid live from the SDK nodemap, set_frame_size), so the size the
-    # UI/API can request is bounded only by even-dimension video safety. A
-    # floor-only driver (Pylon/FX2/sim) instead reports its true grid here.
-    alignment={'width': 2, 'height': 2},
     gain=GainInfo(
         analog_max_db=None,  # 31.6x max -- query dB from SDK
         has_digital=False,
@@ -262,7 +257,6 @@ _simulated = CameraProfile(
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum'],
-    alignment={'width': 48, 'height': 4},
     gain=GainInfo(
         analog_max_db=20.0,
         has_digital=False,
@@ -295,7 +289,6 @@ _MT9P031_LS620 = CameraProfile(
     exposure_max_us=7_366_000,  # replaced by the driver's cap at connect (see above)
     binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
-    alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
     gain=GainInfo(
         analog_max_db=18.06,  # 8x analog = 20*log10(8) = 18.06 dB
         has_digital=True,  # digital stage adds up to 16x more
@@ -369,9 +362,6 @@ def ids_default_profile(model_name: str) -> CameraProfile:
         pixel_formats=[],  # filled from the live PixelFormat node at connect
         binning_sizes=[1],  # widened from the live binning ceiling at connect
         binning_modes=['Sum'],
-        # IDS delivers any even size via oversize-then-crop, reading the real
-        # AOI grid live -- match the known IDS bodies' deliverable granularity.
-        alignment={'width': 2, 'height': 2},
         gain=GainInfo(gain_selector='AnalogAll'),  # resolved live against the enum
         driver='ids',
         notes='Generic IDS fallback -- capabilities read live from the nodemap',

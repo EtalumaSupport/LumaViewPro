@@ -315,10 +315,39 @@ class TestSubstitutions:
     def test_a_camera_that_takes_the_saved_values_substitutes_nothing(
         self, monkeypatch, tmp_path, heard
     ):
-        s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', binning={'size': '2x2'})
+        # A frame the simulated 1920 x 1200 sensor delivers at 2x2.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            microscope='LS850T',
+            binning={'size': '2x2'},
+            frame={'width': 900, 'height': 600},
+        )
         try:
             assert s.bring_up_record().substitutions == ()
             assert _outcomes(heard, OutcomeKind.NOTICE) == []
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_saved_frame_larger_than_the_scope_delivers_is_refitted_and_recorded(
+        self, monkeypatch, tmp_path, heard
+    ):
+        # The LS560's lens images 1700 of the sensor (data/scopes.json
+        # MaxFrame); the simulated sensor is 1920 x 1200.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            microscope='LS560',
+            binning={'size': '1x1'},
+            frame={'width': 1900, 'height': 1100},
+        )
+        try:
+            sub = s.bring_up_record().substitution('frame')
+            assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
+            assert s.scope.imaging.frame_size_cached == {'width': 1700, 'height': 1100}
+            assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
+            assert _outcomes(heard, OutcomeKind.NOTICE) == [], 'logged, not shown'
         finally:
             s.shutdown()
             s.scope.disconnect()

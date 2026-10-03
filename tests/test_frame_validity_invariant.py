@@ -18,6 +18,7 @@ fail before the fix and pass after.
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -42,6 +43,8 @@ def sim_imaging():
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
+    # No model maximum: the frame range is the camera's.
+    scope.capabilities = SimpleNamespace(camera_max_frame_size=(0, 0))
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam

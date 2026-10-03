@@ -7,9 +7,9 @@ the sensor's width with nothing said, and one asking for 10 px got the
 minimum. The frame is now checked where the other camera setting bounds are
 -- the public ``ImagingAPI.set_frame_size`` -- and a width or height outside
 [the camera's minimum, the sensor at the current binning] is refused with
-the range, before anything reaches the camera or the settings. Snapping to
-the camera's grid stays: it is alignment, not a range, and it floors to a
-whole grid step, never below one.
+the range, before anything reaches the camera or the settings. A size inside
+the range is delivered exactly: the camera acquires the next window up on its
+grid and crops back.
 """
 
 import copy
@@ -83,10 +83,10 @@ class TestTheSession:
             session.set_frame_size(sensor['width'], 400)
         assert refused.value.maximum == sensor['width'] // 2
 
-    def test_an_in_range_size_is_applied_on_the_grid(self, session):
+    def test_an_in_range_size_is_delivered_exactly(self, session):
         delivered = session.set_frame_size(1000, 802)
         assert delivered == session.scope.imaging.frame_size_cached
-        assert delivered['width'] % 48 == 0 and delivered['height'] % 4 == 0
+        assert delivered == {'width': 1000, 'height': 802}
 
     def test_an_undeclared_sensor_leaves_the_ceiling_unchecked(self, session, monkeypatch):
         imaging = session.scope.imaging

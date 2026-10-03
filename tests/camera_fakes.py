@@ -42,6 +42,8 @@ def bare_pylon_camera():
     # re-applies the registry onto a rebuilt handler).
     cam._frame_callback_lock = threading.Lock()
     cam._registered_frame_callbacks = []
+    cam._frame_window = None
+    cam.cam_image_handler = None
     cam.active = MagicMock()
     cam.active.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
@@ -363,10 +365,12 @@ def bare_ids_camera():
     cam._gain_selector = None
     cam._max_binning = 2
     cam._profile_is_generic = False
-    # Oversize-then-crop framing state, seeded as __init__ would so
-    # set_frame_size / get_frame_size and the unpack crop run against real state.
-    cam._crop_spec = None
+    # Framing state, seeded as __init__ would so set_frame_size /
+    # get_frame_size run against real state.
+    cam._frame_window = None
+    cam.cam_image_handler = None
     cam._sensor_max = None
+    cam._offset_min = (0, 0)
     return cam
 
 
@@ -386,6 +390,8 @@ def bare_fx2_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    cam._frame_window = None
+    cam.cam_image_handler = None
     cam.active = MagicMock()
     cam._mark_disconnected = MagicMock()
     cam._device_removed = False

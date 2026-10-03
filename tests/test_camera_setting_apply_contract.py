@@ -370,9 +370,12 @@ def test_initialize_reconciles_unsupported_persisted_binning(monkeypatch):
 
 
 def test_initialize_passes_supported_persisted_binning_through(monkeypatch):
-    applied, frames, errors, _ = _drive_initialize(_init_config(2), monkeypatch)
+    # A frame the simulated 1920 x 1200 sensor delivers at 2x.
+    applied, frames, errors, _ = _drive_initialize(
+        _init_config(2, frame_width=900, frame_height=600), monkeypatch
+    )
     assert applied == [2]
-    assert frames == [(1900, 1900)]  # supported factor: frame passes through as-is
+    assert frames == [(900, 600)]  # supported factor: frame passes through as-is
     assert not any('persisted binning' in e for e in errors), errors
 
 
@@ -447,9 +450,9 @@ def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
         scope._camera_driver.set_frame_size = lambda w, h: False
 
     _applied, frames, _errors, reached_end = _drive_initialize(
-        _init_config(2), monkeypatch, prepare=_reject_frame
+        _init_config(2, frame_width=900, frame_height=600), monkeypatch, prepare=_reject_frame
     )
-    assert frames == [(1900, 1900)]  # the apply was attempted...
+    assert frames == [(900, 600)]  # the apply was attempted...
     rejections = [exc for exc, _kw in reported if isinstance(exc, CameraSettingRejected)]
     assert [exc.setting for exc in rejections] == ['frame_size'], reported
     assert reached_end, (

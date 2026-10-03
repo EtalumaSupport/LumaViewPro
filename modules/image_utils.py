@@ -252,33 +252,6 @@ def click_offset_to_um(
     return (frame_pos - frame_extent / 2.0) * pixel_size_um
 
 
-def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
-    """Return the ``[y0:y0+height, x0:x0+width]`` sub-rectangle of ``image``.
-
-    The oversize-then-crop framing path acquires a slightly larger AOI than the
-    caller requested and removes the surplus here so the delivered frame is
-    exactly the requested size. Unlike ``fit_frame_to_shape`` (which keeps the
-    top-left corner), this keeps a caller-chosen window, so the kept region can
-    stay centered on the sensor's optical axis. The leading two axes are sliced,
-    so any channel axis passes through untouched.
-
-    Raises ValueError if the window does not fully fit the image -- a window that
-    ran off the array would otherwise be silently truncated by numpy, delivering
-    a wrong-sized frame instead of failing loudly.
-
-    Returns a VIEW into the larger acquisition buffer, so the surplus rows/cols
-    stay resident as long as the result is held. A caller that retains the frame
-    beyond the current grab (a cache, history ring, async queue) MUST copy it
-    (e.g. np.ascontiguousarray) so the oversized source can be freed.
-    """
-    if x0 < 0 or y0 < 0 or x0 + width > image.shape[1] or y0 + height > image.shape[0]:
-        raise ValueError(
-            f'crop window x0={x0} y0={y0} {width}x{height} does not fit '
-            f'image {image.shape[1]}x{image.shape[0]}'
-        )
-    return image[y0 : y0 + height, x0 : x0 + width]
-
-
 # The one false-color table: which layer labels place the mono signal
 # into an RGB channel. A label absent from this table -- the transmitted
 # layers (BF, PC, DF) and any unknown name -- renders grayscale: there

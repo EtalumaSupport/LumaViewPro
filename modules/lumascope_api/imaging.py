@@ -15,15 +15,15 @@ import enum
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING, Any
 from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from lib import profile_trace
-from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from lib import profile_trace
+from lvp_logger import logger
 from modules.exceptions import (
     AutoGainNotSettledError,
     CameraSettingOutOfRangeError,
@@ -179,9 +179,9 @@ def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
 
 
 if TYPE_CHECKING:
+    from drivers.camera import Camera
     from modules.lumascope_api._lumascope import Lumascope
     from modules.scheduler import Scheduler
-    from drivers.camera import Camera
 
 _api_log = _logging.getLogger('LVP.api')
 
@@ -1660,21 +1660,22 @@ class ImagingAPI:
 
         Raises:
             CameraSettingOutOfRangeError: A width or height below the
-                camera's minimum frame, or above its sensor at the current
-                binning. Nothing reaches the camera; an undeclared end is not
-                checked.
+                camera's minimum frame, or above the scope's maximum at the
+                current binning: the sensor, or the model's smaller maximum
+                (``capabilities.camera_max_frame_size``). Nothing reaches the
+                camera; an undeclared end is not checked.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
         """
         minimum = self.min_frame_size_cached
-        sensor = self.get_native_resolution()
+        maximum = self._max_frame_unbinned()
         factor = self._binning_size
         for axis, value in (('width', w), ('height', h)):
             self._refuse_out_of_range(
                 f'frame_{axis}',
                 value,
                 minimum[axis] if minimum else None,
-                sensor[axis] // factor if sensor else None,
+                maximum[axis] // factor if maximum else None,
                 noun=f'frame {axis}',
                 unit='px',
             )
@@ -1685,6 +1686,20 @@ class ImagingAPI:
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
         )
+
+    def _max_frame_unbinned(self) -> dict:
+        """The largest frame the scope delivers, unbinned: the sensor, or the model's smaller maximum.
+
+        Empty when the sensor size is unknown.
+        """
+        sensor = self.get_native_resolution()
+        if not sensor:
+            return {}
+        declared = self._scope.capabilities.camera_max_frame_size
+        return {
+            axis: min(sensor[axis], declared[i]) if declared[i] else sensor[axis]
+            for i, axis in enumerate(('width', 'height'))
+        }
 
     def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
@@ -2665,18 +2680,14 @@ class ImagingAPI:
     def get_pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 
-        The frame width/height a caller can request, floored to these values, is
-        what the camera will actually deliver. For a floor-only driver (Pylon,
-        FX2, simulator) this is the hardware AOI grid -- a request off the grid
-        is floored down (e.g. multiple-of-4 on most Pylon models). The IDS
-        driver instead delivers any even size exactly via oversize-then-crop, so
-        it reports ``{2, 2}`` -- the only constraint is even dimensions (H.264).
-        Defaults to 4x4 when unknown.
+        Every camera delivers the size asked for exactly, by acquiring the next
+        window up on its grid and cropping back, so the only constraint is even
+        dimensions (H.264): ``{2, 2}``, the camera profile's step.
 
         Returns:
             dict: ``{'width': int, 'height': int}``.
         """
-        default = {'width': 4, 'height': 4}
+        default = {'width': 2, 'height': 2}
         if not self._driver or not self._driver.active:
             return default
         try:

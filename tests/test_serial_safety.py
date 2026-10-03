@@ -2101,8 +2101,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2110,7 +2113,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2137,7 +2140,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):
@@ -2209,8 +2212,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2218,7 +2224,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2245,7 +2251,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):
@@ -2314,8 +2320,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2323,7 +2332,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2350,7 +2359,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):

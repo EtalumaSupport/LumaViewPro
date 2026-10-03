@@ -30,9 +30,9 @@ properties, not frozen snapshot fields.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
@@ -80,6 +80,25 @@ def _declared_optics(scope_models: Mapping, model: str) -> dict[str, float]:
     except (ValueError, TypeError, AttributeError) as e:
         logger.warning(f'[CAPABILITIES] catalogue Optics unusable for {model!r}: {e}')
         return {}
+
+
+def _declared_max_frame(scope_models: Mapping, model: str) -> tuple[int, int] | None:
+    """Return the frame maximum the model catalogue declares for `model`, or None.
+
+    A model whose lens images less than its sensor declares the largest frame
+    it delivers (``MaxFrame``, unbinned pixels); the LS560's lens is why its
+    frame ends at 1700. Most models declare none, and the camera's own maximum
+    is the scope's. A malformed entry is logged and treated as absent.
+    """
+    entry = scope_models.get(model) if model else None
+    raw = entry.get('MaxFrame') if entry is not None else None
+    if raw is None:
+        return None
+    try:
+        return (int(raw['width']), int(raw['height']))
+    except (KeyError, ValueError, TypeError) as e:
+        logger.warning(f'[CAPABILITIES] catalogue MaxFrame unusable for {model!r}: {e}')
+        return None
 
 
 def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
@@ -192,9 +211,10 @@ class ScopeCapabilities:
     camera_binning_sizes: tuple[int, ...]
 
     camera_max_frame_size: tuple[int, int]
-    """Maximum camera frame size as ``(width, height)`` in pixels.
-    Per-camera-immutable: sourced from the camera driver's
-    get_max_frame_size() at boot. (0, 0) means UNKNOWN -- no camera
+    """Maximum frame size the scope delivers as ``(width, height)`` in pixels.
+    Per-camera-immutable: the camera driver's get_max_frame_size() at boot,
+    or the model's catalogue ``MaxFrame`` where that is smaller (a lens that
+    images less than the sensor: the LS560's 1700). (0, 0) means UNKNOWN -- no camera
     driver connected, or the boot probe hit a hardware fault (logged at
     warning); distinguish via ``scope.camera_connected``. Use
     ``scope.imaging.set_frame_size`` to request a smaller-than-max
@@ -315,6 +335,12 @@ class ScopeCapabilities:
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             if size:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
+                declared = _declared_max_frame(scope_models, model)
+                if declared is not None:
+                    camera_max_frame_size = (
+                        min(camera_max_frame_size[0], declared[0]),
+                        min(camera_max_frame_size[1], declared[1]),
+                    )
             is_color_native = bool(getattr(camera, 'is_color_native', False))
             native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
             camera_supports_conversion_gain_mode = _probe(

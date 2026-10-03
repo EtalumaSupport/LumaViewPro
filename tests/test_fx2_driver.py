@@ -561,10 +561,11 @@ class TestFX2CameraProfile:
 
     def test_set_frame_size_returns_delivered_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        # 1000 is already a multiple of 4; 999 rounds down to 996.
+        # 999 is off the grid of 4: the sensor acquires 1000 and the frame is
+        # cropped back.
         delivered = cam.set_frame_size(1000, 999)
-        assert delivered == {'width': 1000, 'height': 996}
-        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+        assert delivered == {'width': 1000, 'height': 999}
+        assert cam.get_frame_size() == {'width': 1000, 'height': 999}
 
     def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()

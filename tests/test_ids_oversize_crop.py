@@ -3,11 +3,11 @@
 
 The pure geometry (plan_aoi / center_crop / reorient_image_center) is covered by
 tests/test_aoi_geometry.py. These tests pin the IDS DRIVER wiring around it: that
-set_frame_size acquires the next legal AOI up, centers it, records the crop, and
+set_frame_size acquires the next legal AOI up, centers it, records the window, and
 that the public frame size is the delivered (cropped) target while the hardware
-AOI is reported separately; that the unpack worker actually crops; and that the
-optical-center bias stays neutral until the bench collimator calibration pins the
-sensor orientation.
+AOI is reported separately; that a frame the worker unpacks is cropped where it is
+stored; and that the optical-center bias stays neutral until the bench collimator
+calibration pins the sensor orientation.
 
 Built on tests/camera_fakes.py (real IDSCamera via __new__ + a fake SDK), plus a
 small stateful nodemap that reproduces the one GenICam interdependency that
@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from drivers.camera import FrameWindow, ImageHandlerBase
 from drivers.camera_profiles import CameraProfile
 from tests.camera_fakes import bare_ids_camera
 
@@ -132,7 +133,7 @@ def test_set_frame_size_oversizes_centers_and_records_crop():
     assert cam.get_acquired_aoi() == {'width': 1920, 'height': 1900}
     # The crop window centers the 1900 request in the 1920 AOI (10 px each side
     # in X); height has no surplus. (0,0) bias -> geometric center.
-    assert cam._crop_spec == (10, 0, 1900, 1900)
+    assert cam._frame_window == FrameWindow(1920, 1900, (10, 0, 1900, 1900))
     # The delivered (public) frame size is the cropped target, not the AOI.
     assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
 
@@ -169,8 +170,8 @@ def test_2x_binning_request_below_min_width_delivers_square():
     assert cam.get_acquired_aoi() == {'width': 1056, 'height': 950}
     # The delivered (public) size is the exact square request, not the floored AOI.
     assert cam.get_frame_size() == {'width': 950, 'height': 950}
-    assert cam._crop_spec is not None
-    assert cam._crop_spec[2:] == (950, 950)
+    assert cam._frame_window.crop is not None
+    assert cam._frame_window.crop[2:] == (950, 950)
 
 
 def test_request_near_sensor_max_delivers_clamped_size_truthfully():
@@ -213,22 +214,22 @@ def test_set_frame_size_zeroes_offsets_before_reading_max():
 
 def test_exact_size_request_records_no_crop():
     """A request already on the grid (1920 wide) has no surplus, so plan.needs_crop
-    is False and no crop window is recorded -- the unpack worker skips the slice
-    and get_frame_size falls back to the acquired AOI, which equals the request."""
+    is False and the window records no crop -- a stored frame is not sliced, and
+    get_frame_size is the acquired AOI, which equals the request."""
     cam = _ids_camera_with_aoi()
 
     cam.set_frame_size(1920, 1900)
 
     assert cam.get_acquired_aoi() == {'width': 1920, 'height': 1900}
-    assert cam._crop_spec is None
+    assert cam._frame_window.crop is None
     assert cam.get_frame_size() == {'width': 1920, 'height': 1900}
 
 
 def test_get_frame_size_falls_back_to_aoi_before_first_set():
-    """Before any set_frame_size, no crop is recorded, so the public size falls
+    """Before any set_frame_size, no window is recorded, so the public size falls
     back to the live hardware AOI rather than returning None."""
     cam = _ids_camera_with_aoi()
-    assert cam._crop_spec is None
+    assert cam._frame_window is None
     assert cam.get_frame_size() == {'width': SENSOR_W, 'height': SENSOR_H}
 
 
@@ -243,26 +244,26 @@ def test_max_frame_size_is_offset_independent():
     assert cam.get_max_frame_size() == {'width': SENSOR_W, 'height': SENSOR_H}
 
 
-def test_set_binning_size_invalidates_crop_spec():
-    """Binning changes the AOI/buffer pixel dimensions, so the recorded crop
-    window no longer fits. set_binning_size must clear it, or the unpack worker
-    crops every rebinned frame against the stale window and drops them all."""
+def test_set_binning_size_clears_the_window():
+    """Binning changes the AOI/buffer pixel dimensions, so the recorded window
+    no longer fits. set_binning_size must clear it, or every rebinned frame is
+    refused as made under another window."""
     cam = bare_ids_camera()
-    cam._crop_spec = (10, 0, 1900, 1900)
+    cam._frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
 
     assert cam.set_binning_size(2) is True
-    assert cam._crop_spec is None
+    assert cam._frame_window is None
 
 
-def test_set_frame_size_failure_clears_stale_crop_spec():
+def test_set_frame_size_failure_clears_the_stale_window():
     """A mid-call SDK failure (here Height.SetValue, after Width was applied)
-    must not leave the previous crop window in place against the new buffer --
-    set_frame_size clears the framing state on the error path."""
+    must not leave the previous window in place against the new buffer --
+    set_frame_size clears it on the error path."""
     cam = _ids_camera_with_aoi(fail_on=('Height',))
-    cam._crop_spec = (5, 5, 100, 100)  # stale window from a prior call
+    cam._frame_window = FrameWindow(110, 110, (5, 5, 100, 100))  # from a prior call
 
     assert cam.set_frame_size(1900, 1900) is False
-    assert cam._crop_spec is None
+    assert cam._frame_window is None
 
 
 def test_set_frame_size_on_phased_height_grid_2x_binning():
@@ -291,14 +292,14 @@ def test_optical_center_bias_is_neutral():
     assert cam.set_frame_size(1900, 1900) == {'width': 1900, 'height': 1900}
 
 
-def test_unpack_crops_converted_frame_to_target(monkeypatch):
-    """The unpack worker crops the oversized converted frame to the recorded
-    window, so the array that leaves the driver is exactly the requested size."""
+def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypatch):
+    """The unpack worker hands on the whole converted frame, a contiguous copy;
+    storing it crops it to the recorded window, so the frame that leaves the
+    driver is exactly the requested size."""
     from drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
     parent = bare_ids_camera()
-    parent._crop_spec = (10, 0, 1900, 1900)
     parent.get_pixel_format = lambda: 'Mono12g24IDS'
     handler._parent = parent
 
@@ -311,13 +312,19 @@ def test_unpack_crops_converted_frame_to_target(monkeypatch):
 
     array, significant_bits = handler._unpack(object())
 
-    assert array.shape == (1900, 1900)
+    assert array.shape == (1900, 1920)
     assert significant_bits == 12
-    # Exactly the centered 1900-wide window of the 1920 frame.
-    assert np.array_equal(array, full[0:1900, 10:1910])
-    # A contiguous copy, not a view holding the oversized source alive.
+    # A contiguous copy, not a view of the SDK image.
     assert array.flags['C_CONTIGUOUS']
     assert array.base is None
+
+    store = ImageHandlerBase()
+    store.frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
+    store._store_frame(array, 'TS', significant_bits=significant_bits)
+    ok, stored, *_ = store.get_last_image()
+    assert ok
+    # Exactly the centered 1900-wide window of the 1920 frame.
+    assert np.array_equal(stored, full[0:1900, 10:1910])
 
 
 def test_grab_new_capture_returns_worker_stored_frame():
@@ -362,13 +369,12 @@ def test_grab_new_capture_times_out_without_touching_stream():
     cam.data_stream.QueueBuffer.assert_not_called()
 
 
-def test_unpack_without_crop_spec_passes_frame_through(monkeypatch):
-    """No crop recorded -> the unpack worker returns the full converted frame."""
+def test_unpack_passes_the_whole_frame_through(monkeypatch):
+    """The unpack worker returns the full converted frame; it never crops."""
     from drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
     parent = bare_ids_camera()
-    parent._crop_spec = None
     parent.get_pixel_format = lambda: 'Mono12g24IDS'
     handler._parent = parent
 

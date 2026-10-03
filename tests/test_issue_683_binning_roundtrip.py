@@ -118,20 +118,17 @@ class TestBinningRoundTrip:
 
 
 # The deliverable frame-size granularity the UI floors to before handing the
-# size to the camera. For the IDS driver (oversize-then-crop) it is even (2x2);
-# a floor-only driver reports its real camera grid. The UI must source it from
-# imaging.get_pixel_alignment() (per-driver), NOT a hardcoded grid -- a hardcoded
-# even-only floor would make Pylon/FX2/sim display/persist a size larger than the
-# hardware actually delivers.
+# size to the camera: even (2x2) on every camera, each of which acquires the
+# next window up on its own grid and crops back. The UI sources it from
+# imaging.get_pixel_alignment(), NOT a hardcoded grid.
 IDS_DELIVERABLE_ALIGN = {'width': 2, 'height': 2}
 
 
 class TestDeliverableAlignmentFloor:
     """The UI floors the requested frame size to the active driver's DELIVERABLE
-    granularity. The IDS driver crops back to the exact request, so its
+    granularity. Every camera crops back to the exact request, so its
     granularity is even (2x2) and a 1900 frame stays 1900 (not the old 1872, nor
-    the off-grid 948 at 2x). A floor-only driver keeps its real grid so the saved
-    size still matches what it delivers.
+    the off-grid 948 at 2x).
     """
 
     def test_ids_profile_reports_even_deliverable_granularity(self):
@@ -139,10 +136,11 @@ class TestDeliverableAlignmentFloor:
         # profile.alignment) reports even -- the only constraint is even dims.
         assert lookup_profile('U3-34Lx').alignment == IDS_DELIVERABLE_ALIGN
 
-    def test_floor_only_driver_keeps_real_camera_grid(self):
-        # A non-cropping driver must still report its true grid here, or the UI
-        # would persist a size it cannot deliver (the regression this guards).
-        assert lookup_profile('SimulatedCamera').alignment != IDS_DELIVERABLE_ALIGN
+    def test_every_camera_reports_even_deliverable_granularity(self):
+        # The simulator, the FX2 and Pylon crop back to the request as IDS does,
+        # so none reports its hardware grid here.
+        for model in ('SimulatedCamera', 'MT9P031-LS620', 'a2A3536-31umBAS'):
+            assert lookup_profile(model).alignment == IDS_DELIVERABLE_ALIGN, model
 
     def test_even_floor_preserves_offgrid_width(self):
         # 1900 is off the 48-px camera grid but even; flooring to the IDS

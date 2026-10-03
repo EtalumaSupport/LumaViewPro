@@ -12,16 +12,15 @@ separately on hardware.
 import numpy as np
 import pytest
 
-from modules.aoi_geometry import (
+from drivers.aoi_geometry import (
     AoiPlan,
     SensorOrientation,
     ceil_to,
+    center_crop,
     floor_to,
     plan_aoi,
     reorient_image_center,
 )
-from modules.image_utils import center_crop
-
 
 # --- grid rounding ---------------------------------------------------------
 

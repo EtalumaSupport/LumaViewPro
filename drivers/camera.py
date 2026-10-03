@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 import contextlib
+from dataclasses import dataclass
 import re
 import threading
 import time
@@ -19,9 +20,59 @@ except ImportError:
     # are unguarded, so a None fallback turns every one into an AttributeError the
     # moment the dedicated camera logger is unavailable.
     _cam_log = logger
+from drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000  # in ms
+
+
+@dataclass(frozen=True)
+class FrameGrid:
+    """The hardware windows a camera can acquire at its current binning, in displayed pixels.
+
+    ``plan_aoi`` reads it: the legal sizes are ``size_min + k * step`` up to
+    ``max_size``, and the legal offsets ``offset_min + k * offset_step``. A
+    camera that centres its own window (``offset_step`` 1) is handed offsets
+    it does not write; the crop centres on the window either way.
+    """
+
+    step: tuple[int, int]
+    max_size: tuple[int, int]
+    size_min: tuple[int, int] = (0, 0)
+    offset_step: tuple[int, int] = (1, 1)
+    offset_min: tuple[int, int] = (0, 0)
+    bias: tuple[int, int] = (0, 0)
+
+
+@dataclass(frozen=True)
+class FrameWindow:
+    """The window a camera acquires and the part of it the camera delivers.
+
+    The acquired size travels with the crop, so a frame of any other size, made
+    under a window no longer set, is recognised and not stored rather than
+    cropped wrong. ``crop`` is ``(x0, y0, width, height)``, or None when the
+    acquired window is the delivered one.
+    """
+
+    acquired_width: int
+    acquired_height: int
+    crop: tuple[int, int, int, int] | None
+
+    @property
+    def size(self) -> dict:
+        """The delivered size, ``{'width', 'height'}``."""
+        if self.crop is None:
+            return {'width': self.acquired_width, 'height': self.acquired_height}
+        return {'width': self.crop[2], 'height': self.crop[3]}
+
+    @classmethod
+    def from_plan(cls, plan: AoiPlan) -> 'FrameWindow':
+        crop = (
+            (plan.crop_x0, plan.crop_y0, plan.crop_width, plan.crop_height)
+            if plan.needs_crop
+            else None
+        )
+        return cls(plan.acq_width, plan.acq_height, crop)
 
 
 class ImageHandlerBase:
@@ -59,6 +110,12 @@ class ImageHandlerBase:
         self._frames_delivered = 0
         self.last_img_seq = None
         self._failed_grabs = 0
+        # The camera's window, pushed here by the camera (set_frame_size, a
+        # binning change, a rebuilt handler). None stores every frame as it
+        # arrives.
+        self.frame_window: FrameWindow | None = None
+        self._frames_of_another_window = 0
+        self._reported_window: FrameWindow | None = None
         # Per-frame consumers (manual record today; per-frame plugins later).
         # Snapshotted-then-released under _frame_lock at _store_frame time so
         # a slow callback never holds the SDK thread.
@@ -215,7 +272,18 @@ class ImageHandlerBase:
                 that deliver true container-depth frames), so the depth and the
                 pixels stay together and a later format switch cannot make the
                 buffered frame's depth read wrong.
+
+        The frame is cropped to the camera's window here, the one place every
+        driver's frames are stored; a frame of another size than the window
+        acquires was made under a window no longer set and is not stored.
         """
+        window = self.frame_window
+        if window is not None:
+            if image.shape[:2] != (window.acquired_height, window.acquired_width):
+                self._skip_frame_of_another_window(image, window)
+                return
+            if window.crop is not None:
+                image = center_crop(image, *window.crop)
         _tracing = profile_trace.ENABLE_PROFILE_TRACE
         if _tracing:
             _arrive_t = time.perf_counter()
@@ -254,6 +322,17 @@ class ImageHandlerBase:
                     significant_bits,
                     getattr(image, 'nbytes', 0),
                 ]
+            )
+
+    def _skip_frame_of_another_window(self, image, window: FrameWindow) -> None:
+        """Count a frame made under another window, said once per window."""
+        self._frames_of_another_window += 1
+        if self._reported_window is not window:
+            self._reported_window = window
+            _cam_log.info(
+                f'[CAM Class ] a {image.shape[1]}x{image.shape[0]} frame arrived for the '
+                f'{window.acquired_width}x{window.acquired_height} window: made before the '
+                f'window changed, not stored ({self._frames_of_another_window} so far)'
             )
 
     def _record_failure(self):
@@ -335,6 +414,10 @@ class Camera(ABC):
         # before connect() below, which re-applies it on the first handler.
         self._frame_callback_lock = threading.Lock()
         self._registered_frame_callbacks: list = []
+        # The window set_frame_size planned, owned here for the same reason:
+        # a driver sets its window before it builds a handler, and rebuilds
+        # the handler on a reconnect.
+        self._frame_window: FrameWindow | None = None
 
         # Start gate: the camera-lifecycle split. connect() returns the
         # camera CONFIGURED but NOT grabbing; streaming begins exactly once
@@ -640,24 +723,77 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def set_frame_size(self, w: int, h: int) -> dict | bool:
-        """Set the output frame size.
+        """Deliver frames of exactly ``w`` x ``h``: acquire the next window up and crop back.
 
-        Drivers clamp or snap the request to their legal geometry grid, so
-        the delivered size can differ from the request. Returning it from the
-        write itself lets callers cache the real geometry without a follow-up
-        getter round-trip.
+        A camera sets its window on a grid, so a size off it cannot be
+        acquired. The window planned is the next legal one up, centred, and
+        every stored frame is cropped back to the request (``_store_frame``).
+        The window is recorded before the hardware is written, so a frame
+        made under the old window after the write is not stored at the old
+        size. Only a request within one grid step of the camera's maximum
+        comes back smaller: no legal window holds it.
 
         Args:
             w: Frame width in pixels.
             h: Frame height in pixels.
 
         Returns:
-            The delivered size ``{'width': int, 'height': int}`` on success;
-            ``False`` when the camera is inactive or the apply fails.
+            The delivered size ``{'width': int, 'height': int}`` on success, so
+            a caller records it without a read-back; ``False`` when the camera
+            is inactive or the hardware refuses the window, in which case
+            frames are stored as they arrive until a window is set.
         """
-        pass
+        grid = self._frame_grid()
+        if grid is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
+            return False
+        target = (int(w), int(h))
+        plan = plan_aoi(
+            target=target,
+            step=grid.step,
+            max_size=grid.max_size,
+            offset_step=grid.offset_step,
+            size_min=grid.size_min,
+            offset_min=grid.offset_min,
+            bias=grid.bias,
+        )
+        window = FrameWindow.from_plan(plan)
+        self._set_frame_window(window)
+        if not self._set_hardware_window(plan):
+            self._set_frame_window(None)
+            return False
+        if (plan.crop_width, plan.crop_height) != target:
+            _cam_log.warning(
+                f'[CAM Class ] set_frame_size delivers {plan.crop_width}x{plan.crop_height}, '
+                f'smaller than the {target[0]}x{target[1]} asked for: no window on the '
+                f'camera grid holds it'
+            )
+        _cam_log.info(
+            f'[CAM Class ] set_frame_size {target[0]}x{target[1]}: acquires '
+            f'{plan.acq_width}x{plan.acq_height}, crop {window.crop}'
+        )
+        return window.size
+
+    def _set_frame_window(self, window: FrameWindow | None) -> None:
+        """Record the window and hand it to the handler that stores frames."""
+        self._frame_window = window
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.frame_window = window
+
+    @abstractmethod
+    def _frame_grid(self) -> FrameGrid | None:
+        """The windows this camera can acquire now; None when it is inactive."""
+
+    @abstractmethod
+    def _set_hardware_window(self, plan: AoiPlan) -> bool:
+        """Acquire ``plan.acq_width`` x ``plan.acq_height``, centred.
+
+        Returns:
+            True once the camera acquires the window; False when it refused
+            or the write failed.
+        """
 
     @abstractmethod
     def get_min_frame_size(self) -> dict:
@@ -677,14 +813,23 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_frame_size(self) -> dict:
-        """Return the current frame size.
+    def get_frame_size(self) -> dict | None:
+        """Return the size of the frames the camera delivers.
 
         Returns:
-            dict: ``{'width': int, 'height': int}``.
+            dict: ``{'width': int, 'height': int}``: the window's delivered
+                size, or the camera's own window while none is set. What the
+                driver's own read returns when the camera cannot answer.
         """
-        pass
+        acquired = self._hardware_frame_size()
+        window = self._frame_window
+        if not acquired or window is None:
+            return acquired
+        return window.size
+
+    @abstractmethod
+    def _hardware_frame_size(self) -> dict | None:
+        """The window the camera acquires, ``{'width', 'height'}``."""
 
     @abstractmethod
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -1005,9 +1150,12 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def set_binning_size(self, size: int) -> bool:
         """Set hardware binning factor.
+
+        A change of binning resizes the frames the camera makes, so the
+        window set before it no longer fits them: frames are stored as they
+        arrive until a frame size is set at the new binning.
 
         Args:
             size: Binning factor (1, 2, 4, ...).
@@ -1015,7 +1163,15 @@ class Camera(ABC):
         Returns:
             bool: True on success.
         """
-        pass
+        before = self.get_binning_size()
+        applied = self._set_hardware_binning(size)
+        if applied and size != before:
+            self._set_frame_window(None)
+        return applied
+
+    @abstractmethod
+    def _set_hardware_binning(self, size: int) -> bool:
+        """Write the binning factor to the camera; True on success."""
 
     @abstractmethod
     def get_binning_size(self) -> int:
@@ -1152,16 +1308,18 @@ class Camera(ABC):
             self.cam_image_handler.unregister_frame_callback(cb)
 
     def _reapply_frame_callbacks(self) -> None:
-        """Re-register the durable callback set onto the current handler.
+        """Re-register the durable callback set and the window onto the current handler.
 
         A driver calls this immediately after building a new cam_image_handler
         (connect / recovery). The handler owns the dispatch list and starts
         empty, so without this every listener registered before the rebuild
-        stops receiving frames. No-op when the driver has no handler yet.
+        stops receiving frames, and frames go uncropped. No-op when the driver
+        has no handler yet.
         """
         handler = self.cam_image_handler
         if handler is None:
             return
+        handler.frame_window = self._frame_window
         # Hold the registry lock ACROSS the re-push, not just the snapshot: an
         # unregister interleaving here (e.g. a per-frame plugin auto-dropped on
         # the SDK callback thread mid-reconnect) must not lose to a stale

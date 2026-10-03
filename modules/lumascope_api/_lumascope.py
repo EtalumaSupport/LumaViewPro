@@ -874,6 +874,27 @@ class Lumascope:
                 )
                 binning_size = camera_binning
                 frame_width, frame_height = refit['width'], refit['height']
+            # A saved frame can be larger than this scope delivers at the
+            # binning applied (a frame saved on another model; the LS560's lens
+            # images 1700 of the sensor's 1900): it is refitted to the maximum,
+            # as the API would refuse it, and the replacement is logged and on
+            # the record. The session stores the frame that ran.
+            maximum = self.imaging._max_frame_unbinned()
+            if maximum:
+                fitted = (
+                    min(frame_width, maximum['width'] // binning_size),
+                    min(frame_height, maximum['height'] // binning_size),
+                )
+                if fitted != (frame_width, frame_height):
+                    logger.warning(
+                        f'[SCOPE API ] initialize: the saved frame {frame_width}x{frame_height} '
+                        f'is larger than this scope delivers at binning {binning_size}; it is '
+                        f'refitted to {fitted[0]}x{fitted[1]}'
+                    )
+                    self._bring_up_substitutions.append(
+                        Substitution('frame', saved=(frame_width, frame_height), used=fitted)
+                    )
+                    frame_width, frame_height = fitted
         # A rejection surviving reconciliation is a live hardware fault
         # mid-apply. Each apply is contained individually so one faulted
         # setting cannot skip the rest of bring-up: the caller of

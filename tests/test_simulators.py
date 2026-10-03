@@ -602,19 +602,17 @@ class TestSimulatedCamera:
         assert size['width'] == 960
         assert size['height'] == 600
 
-    def test_frame_size_snaps_to_valid(self):
+    def test_a_frame_size_off_the_grid_is_delivered(self):
         cam = SimulatedCamera()
         cam.set_frame_size(100, 7)  # Not multiples of 48/4
-        size = cam.get_frame_size()
-        assert size['width'] % 48 == 0
-        assert size['height'] % 4 == 0
+        assert cam.get_frame_size() == {'width': 100, 'height': 7}
 
     def test_set_frame_size_returns_delivered_geometry(self):
         cam = SimulatedCamera()
         delivered = cam.set_frame_size(640, 482)
-        # Snapped to the 48/4 grid; the return must equal what get_frame_size
-        # then reports, so callers can cache it without a read-back.
-        assert delivered == {'width': 624, 'height': 480}
+        # Off the 48/4 grid, delivered exactly; the return must equal what
+        # get_frame_size then reports, so callers can cache it without a read-back.
+        assert delivered == {'width': 640, 'height': 482}
         assert delivered == cam.get_frame_size()
 
     def test_min_max_frame_size(self):
@@ -1412,7 +1410,7 @@ class TestCameraProfiles:
         assert p.model_name == ''
         assert p.pixel_formats == []
         assert p.binning_sizes == [1]
-        assert p.alignment == {'width': 4, 'height': 4}
+        assert p.alignment == {'width': 2, 'height': 2}
 
 
 class TestTimingModes:

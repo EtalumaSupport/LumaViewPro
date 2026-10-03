@@ -22,10 +22,10 @@ try:
 
     # --- frame size, in range -------------------------------------------
     delivered = im.set_frame_size(800, 600)
-    _common.void(
+    _common.check(
         'frame 800x600 applied', delivered == {'width': 800, 'height': 600}, str(delivered)
     )
-    _common.void(
+    _common.check(
         'frame read-back',
         (im.get_width(), im.get_height()) == (800, 600),
         f'{im.get_width()}x{im.get_height()}',

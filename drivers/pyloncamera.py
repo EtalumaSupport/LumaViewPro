@@ -11,7 +11,7 @@ from typing import Any
 
 from pypylon import genicam, pylon
 
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from lib.log_helpers import log_to
@@ -2188,7 +2188,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
             return ()
 
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -2815,36 +2815,46 @@ class PylonCamera(Camera):
                     recording_id=profile_trace.NO_RECORDING,
                 )
 
-    def set_frame_size(self, w: int, h: int) -> dict | bool:
-        """Set camera frame size to ``w`` x ``h`` and recenter the ROI.
+    def _frame_grid(self) -> FrameGrid | None:
+        """The Width / Height nodes' grid at the current binning.
 
-        Width and height are clamped to the camera's reported maxima
-        and rounded down to the nearest multiple of 4 (Pylon
-        constraint on most current models). The
-        ``BslCenterX`` / ``BslCenterY`` execute calls keep the ROI
+        None when the camera is inactive or the nodes cannot be read.
+        """
+        camera = self.active
+        if camera is None:
+            return None
+        try:
+            return FrameGrid(
+                step=(camera.Width.GetInc(), camera.Height.GetInc()),
+                max_size=(camera.Width.GetMax(), camera.Height.GetMax()),
+                size_min=(camera.Width.GetMin(), camera.Height.GetMin()),
+            )
+        except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown, as for the other node
+            # reads: removal is owned by the SDK removal callback and the grab
+            # loop's definitive paths.
+            _cam_log.error(f'[CAM Class ] Failed to read the frame size grid: {e}')
+            return None
+
+    def _set_hardware_window(self, plan) -> bool:
+        """Set Width and Height to the planned acquisition and recenter the ROI.
+
+        The ``BslCenterX`` / ``BslCenterY`` execute calls keep the ROI
         centered on the sensor after the size change. Wrapped in
         ``update_camera_config()`` because Width/Height require a
         buffer realloc.
 
-        Args:
-            w: Requested frame width in pixels.
-            h: Requested frame height in pixels.
-
         Returns:
-            The delivered size ``{'width': int, 'height': int}`` (the
-            clamped/rounded geometry just applied, or already in place) on
-            success, so the caller knows what was actually applied without
-            a read-back; ``False`` when the camera is inactive or the
-            apply fails.
+            True once the window is set (or already in place); False when
+            the camera is inactive or the apply fails.
         """
         camera = self.active
         if camera is None:
-            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
             return False
+        w, h = plan.acq_width, plan.acq_height
 
         try:
-            width = int(min(int(w), camera.Width.Max) / 4) * 4
-            height = int(min(int(h), camera.Height.Max) / 4) * 4
+            width, height = w, h
 
             # Short-circuit when geometry already matches: Width/Height SetValue
             # requires update_camera_config() buffer realloc + grab-loop bounce.
@@ -2859,7 +2869,7 @@ class PylonCamera(Camera):
                             'short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Frame size already at {width}x{height}')
-                    return {'width': width, 'height': height}
+                    return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Frame-size short-circuit read failed; '
@@ -2878,7 +2888,7 @@ class PylonCamera(Camera):
                 camera.BslCenterY.Execute()
 
             _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
-            return {'width': width, 'height': height}
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
@@ -2917,8 +2927,8 @@ class PylonCamera(Camera):
     def get_max_frame_size(self) -> dict:
         """Return sensor-driven max frame dims; {} on inactive / read failure.
 
-        Lens-driven ceiling (typically tighter) lives at the API layer in
-        `data/scopes.json` ``max_usable_roi``.
+        A model whose lens images less than the sensor declares its own
+        ceiling in `data/scopes.json` ``MaxFrame``; the API takes the smaller.
         """
         camera = self.active
         if camera is None:
@@ -2938,7 +2948,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
             return {}
 
-    def get_frame_size(self) -> dict | None:
+    def _hardware_frame_size(self) -> dict | None:
         """Return active dims as {'width': int, 'height': int}; None on inactive / read failure."""
         camera = self.active
         if camera is None:

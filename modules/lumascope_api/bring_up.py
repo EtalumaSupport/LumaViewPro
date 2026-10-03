@@ -77,7 +77,8 @@ class Substitution:
     What becomes of the saved value is the setting's own rule, not this
     record's: the record says what was saved and what ran. The binning the
     camera delivered at is stored in the saved binning's place, with the
-    frame it belongs to; the saved image mode stays saved.
+    frame it belongs to, and so is a frame refitted to the scope's maximum;
+    the saved image mode stays saved.
     """
 
     setting: str

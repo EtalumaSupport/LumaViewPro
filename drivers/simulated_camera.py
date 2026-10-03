@@ -19,7 +19,7 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import specimen_frames
 
@@ -466,35 +466,28 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
-    def set_frame_size(self, w: int, h: int) -> dict:
-        """Set the simulated camera frame size, clamped to valid ranges.
+    def _frame_grid(self) -> FrameGrid:
+        """Windows of 48 x 4 steps, up to the sensor at the current binning.
 
-        ``w`` and ``h`` are post-binning (displayed) pixels, so the ceiling is
-        the native sensor size divided by the current binning factor -- the
-        same constraint Pylon enforces via ``Width.Max`` at the active binning.
-
-        Args:
-            w: Target width in pixels (snapped to a multiple of 48,
-                clamped to [48, native_width / binning]).
-            h: Target height in pixels (snapped to a multiple of 4,
-                clamped to [4, native_height / binning]).
-
-        Returns:
-            dict: The delivered size ``{'width': int, 'height': int}`` after
-                snapping and clamping, so the caller knows what was actually
-                applied without a read-back.
+        Sizes are post-binning (displayed) pixels, so the ceiling is the native
+        sensor size divided by the binning factor -- the same constraint Pylon
+        enforces via ``Width.Max`` at the active binning.
         """
+        return FrameGrid(
+            step=(48, 4),
+            max_size=(self._native_width // self._binning, self._native_height // self._binning),
+        )
+
+    def _set_hardware_window(self, plan) -> bool:
         # A geometry change stops the stream, applies, and restarts it, as it
         # does on a real body (pixel format and binning below do the same), so
         # no frame made under the old setting is stored after the change.
         with self.update_camera_config(), self._lock:
-            max_w = self._native_width // self._binning
-            max_h = self._native_height // self._binning
-            self._width = max(48, min(max_w, int(w / 48) * 48))
-            self._height = max(4, min(max_h, int(h / 4) * 4))
+            self._width = plan.acq_width
+            self._height = plan.acq_height
             if _cam_log is not None:
                 _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
-            return {'width': self._width, 'height': self._height}
+        return True
 
     def get_min_frame_size(self) -> dict:
         """Return the simulator's minimum supported frame size.
@@ -518,12 +511,7 @@ class SimulatedCamera(Camera):
             'height': self._native_height // self._binning,
         }
 
-    def get_frame_size(self) -> dict:
-        """Return the simulated camera's current frame size.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}``.
-        """
+    def _hardware_frame_size(self) -> dict:
         return {'width': self._width, 'height': self._height}
 
     # ------------------------------------------------------------------
@@ -654,7 +642,7 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Binning
     # ------------------------------------------------------------------
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         """Set hardware binning factor for the simulator.
 
         Args:

@@ -242,6 +242,10 @@
                 "LensFocalLength": 47.8,
                 "PixelSize": 2.2
             },
+            "MaxFrame": {
+                "width": 1700,
+                "height": 1700
+            },
             "Layers": [
                 {
                     "key_name": "BF",
