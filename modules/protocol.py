@@ -655,56 +655,57 @@ class Protocol:
         """Return per-layer settings keyed by layer name, each cell typed.
 
         A protocol loaded from a file with a 'Layer Settings' block returns
-        that block, empty or not. One without (a v5 file, or a protocol
-        built in memory) has it inferred from its steps: each Color yields
-        one entry seeded from its first step, its Acquire 'video' when any
-        of its steps records video. Stim_Enabled is not inferred: a v5 step
-        carries its stimulation per step.
+        that block. One without (a v5 file, or a protocol built in memory)
+        has it inferred from its steps: each Color yields one entry seeded
+        from its first step, its Acquire 'video' when any of its steps
+        records video, else 'image'. Stim_Enabled is not inferred: a v5
+        step carries its stimulation per step.
 
-        Each row is typed by one reader: Acquire 'image' or 'video';
+        Every cell is read as its column's type: Acquire 'image' or 'video';
         Illumination, Gain and Exposure floats; Sum an int; Auto_Gain,
         False_Color and Stim_Enabled bools; any blank cell but Acquire None.
+        An inferred cell its step cannot supply is None (see
+        _layer_settings_inferred_from_steps).
 
         Raises:
-            ProtocolFormatError: A cell is not of its column's type. A file
-                is refused at load for it, so a loaded protocol does not.
+            ProtocolFormatError: A block cell is not of its column's type. A
+                file is refused at load for it, so a loaded protocol does not.
         """
         rows = self._config.get('layer_settings')
         if rows is None:
-            rows = self._layer_settings_inferred_from_steps()
+            return self._layer_settings_inferred_from_steps()
         return {name: _typed_layer_settings_row(row) for name, row in rows.items()}
 
     def _layer_settings_inferred_from_steps(self) -> dict:
+        """Each Color's row, typed, from its steps.
+
+        A layer with steps acquires: 'video' when any of its steps records
+        video, else 'image'. Every other cell is read from the layer's first
+        step by its column's reader. A step cell that reader cannot take is
+        the step's own fault, reported by step validation (a notice at load,
+        a refusal at the run gate) as it is in a file with a block; the row
+        has no value to infer for it, so the cell is None and the layer
+        control keeps what it holds.
+        """
         steps = self._config.get('steps')
         if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
             return {}
+        readers = dict(_LAYER_SETTINGS_CELLS)
         out = {}
         for color, group in steps.groupby('Color'):
             if not color:
                 continue
             first = group.iloc[0]
-            acquire = 'image'
-            if 'Acquire' in group.columns:
-                if (group['Acquire'] == 'video').any():
-                    acquire = 'video'
-                else:
-                    acquire = first.get('Acquire') or 'image'
-            out[str(color)] = {
-                'Layer': str(color),
-                'Acquire': acquire,
-                **{
-                    column: first.get(column)
-                    for column in (
-                        'Illumination',
-                        'Gain',
-                        'Auto_Gain',
-                        'Exposure',
-                        'False_Color',
-                        'Sum',
-                    )
-                },
-                'Stim_Enabled': None,
-            }
+            video = 'Acquire' in group.columns and (group['Acquire'] == 'video').any()
+            row = {'Layer': str(color), 'Acquire': 'video' if video else 'image'}
+            for column in ('Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'False_Color', 'Sum'):
+                cell = first.get(column)
+                try:
+                    row[column] = readers[column](cell.strip() if isinstance(cell, str) else cell)
+                except ValueError:
+                    row[column] = None
+            row['Stim_Enabled'] = None
+            out[str(color)] = row
         return out
 
     def copy_for_execution(self) -> 'Protocol':
