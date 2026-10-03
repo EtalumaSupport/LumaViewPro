@@ -494,9 +494,10 @@ class VerticalControl(BoxLayout):
         The decision is the Session's (first run, or an unassigned slot at
         the current position; withheld with no hardware and while settings
         are provisional). This widget only shows the question and hands
-        the choice back. A raise anywhere on the path becomes a
-        notification: this runs on Clock callbacks, where a raise exits
-        the app.
+        the choice back. The question runs through the boundary: this runs
+        on Clock callbacks, where a raise exits the app, and the Session's
+        refusal -- the turret in no known slot, an unreadable catalogue --
+        is shown once by the one reporter, in its own words.
 
         Args:
             on_resolved: Run once the objective is settled, however it
@@ -507,38 +508,31 @@ class VerticalControl(BoxLayout):
                 run while settings are provisional: the question is owed
                 but unanswerable, and the host re-asks when they resolve.
                 Hanging it only on the answer would strand the load behind
-                the two failure paths here, which report to the user and
-                return.
+                a question that raised, which is reported and answers
+                nothing.
         """
-        try:
+
+        def _ask():
             question = _app_ctx.ctx.session.objective_question()
             if question is None:
                 if not _app_ctx.ctx.session.settings_are_provisional():
                     self._resolve_objective(on_resolved)
                 return
             self._render_objective_question(question, on_resolved=on_resolved)
-        except Exception as e:
-            logger.error(f'[UI] objective question failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
 
-            # An objective that cannot be confirmed is unknown, and captures
-            # refuse while it is: no file is written with a guessed scale.
-            show_notification_popup(
-                title='Objective not confirmed',
-                message=(
-                    f'The installed objective could not be confirmed: {e}\n'
-                    'Captures are refused until the objective, and so the image scale, '
-                    'is known.'
-                ),
-            )
+        # Runs only when the question raised. A continuation that ran inside
+        # and raised was contained by _resolve_objective, so it is never run
+        # twice.
+        if not run_unasked(_ask, 'OBJECTIVE_QUESTION'):
             self._resolve_objective(on_resolved)
 
     def _resolve_objective(self, on_resolved) -> None:
         """Run the continuation through the boundary; a raise is reported, not raised.
 
-        This runs on a Clock callback and inside except branches, where a
-        raise exits the app or replaces one reported failure with another.
-        Nothing waits on the step it runs, so its failure is shown as one.
+        This runs on a Clock callback, where a raise exits the app, and
+        after a question that raised, where it would replace one reported
+        failure with another. Nothing waits on the step it runs, so its
+        failure is shown as one.
         """
         if on_resolved is None:
             return

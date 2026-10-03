@@ -19,6 +19,30 @@ def test_the_status_bar_tick_draws_through_the_gui_boundary():
     assert "run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')" in source
 
 
+def test_a_fault_does_not_stop_the_next_tick():
+    """The trigger repeats, and Kivy cancels an interval callback that
+    returns False -- which run_unasked answers for a fault. The tick hands
+    the clock nothing, so one bad title does not freeze the readout for the
+    rest of the session."""
+    import ast
+    import textwrap
+
+    init = ast.parse(textwrap.dedent(inspect.getsource(ui.shader.ShaderViewer.__init__)))
+    tick = next(
+        node
+        for node in ast.walk(init)
+        if isinstance(node, ast.FunctionDef) and node.name == '_status_bar_tick'
+    )
+    assert not [node for node in ast.walk(tick) if isinstance(node, ast.Return)]
+    assert not [
+        node
+        for node in ast.walk(init)
+        if isinstance(node, ast.Lambda)
+        and isinstance(node.body, ast.Call)
+        and getattr(node.body.func, 'id', None) == 'run_unasked'
+    ]
+
+
 def test_the_title_composition_catches_nothing():
     source = inspect.getsource(ui.shader.ShaderViewer._update_status_bar)
     assert 'except' not in source

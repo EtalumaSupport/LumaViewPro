@@ -161,13 +161,91 @@ class TestTheQuestionIsRendered:
         assert 'turret position' not in h.popups[0]['message']
 
     def test_a_failed_query_is_one_notification_and_no_question(self, monkeypatch):
+        from modules.notification_center import Severity
+        from tests.shown_outcomes import capture_shown
+
         h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
+        shown = capture_shown(monkeypatch)
         h.prompt()
         assert h.popups == []
-        assert len(h.error_popups) == 1
-        shown = h.error_popups[0]
-        assert 'not confirmed' in shown['title']
-        assert 'catalogue is empty' in shown['message'] and 'scale' in shown['message']
+        assert [(n.severity, n.message) for n in shown] == [
+            (Severity.ERROR, 'the objective catalogue is empty')
+        ]
+        assert h.error_popups == []
+
+
+class TestTheContinuationFollowsTheQuestion:
+    """The startup step hung on the question runs once the objective is
+    settled -- answered, not owed, or the question raised -- and never
+    while the question is still on screen or settings are provisional."""
+
+    def _prompt(self, h):
+        runs = []
+        h.stand.prompt_if_objective_unknown(on_resolved=lambda: runs.append(1))
+        return runs
+
+    def test_a_refusal_is_shown_in_its_own_words_and_the_continuation_runs_once(self, monkeypatch):
+        from modules.exceptions import ObjectiveUnknownError
+        from tests.shown_outcomes import capture_shown
+
+        h = _Harness(monkeypatch, _ScriptedSession(ObjectiveUnknownError('slot_unknown')))
+        shown = capture_shown(monkeypatch)
+        runs = self._prompt(h)
+        assert [n.title for n in shown] == ['Objective Unknown']
+        assert 'home the turret' in shown[0].message
+        assert h.popups == [] and h.error_popups == []
+        assert runs == [1]
+
+    def test_a_fault_is_shown_once_and_the_continuation_runs_once(self, monkeypatch):
+        from tests.shown_outcomes import capture_shown
+
+        h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
+        shown = capture_shown(monkeypatch)
+        runs = self._prompt(h)
+        assert len(shown) == 1
+        assert runs == [1]
+
+    def test_a_rendered_question_runs_nothing_until_it_is_answered(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        runs = self._prompt(h)
+        assert runs == []
+        h.answer('20x Oly')
+        assert runs == [1]
+
+    def test_a_rendered_question_runs_it_once_when_folded(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        runs = self._prompt(h)
+        assert runs == []
+        h.popups[0]['on_folded']()
+        assert runs == [1]
+
+    def test_no_question_owed_runs_it_once(self, monkeypatch):
+        h = _Harness(monkeypatch, _ScriptedSession(None))
+        assert self._prompt(h) == [1]
+
+    def test_provisional_settings_run_nothing(self, monkeypatch):
+        h = _Harness(monkeypatch, _ScriptedSession(None, provisional=True))
+        assert self._prompt(h) == []
+
+    def test_a_continuation_that_raises_with_no_question_owed_runs_once(self, monkeypatch):
+        """The question's boundary would run the continuation again if the
+        continuation's own raise reached it; it must not, and the raise must
+        not leave the Clock callback."""
+        from tests.shown_outcomes import capture_shown
+
+        h = _Harness(monkeypatch, _ScriptedSession(None))
+        shown = capture_shown(monkeypatch)
+        runs = []
+
+        def _continuation():
+            runs.append(1)
+            raise RuntimeError('the saved protocol would not load')
+
+        h.stand.prompt_if_objective_unknown(on_resolved=_continuation)
+        assert runs == [1]
+        assert len(shown) == 1
 
 
 class TestTheAnswerReachesTheSession:
@@ -368,13 +446,15 @@ def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
 
 class TestAnUnknownSlotSaysWhatHappensNext:
     """With the turret in no known slot there is no slot to ask about. The
-    popup names why and says captures are refused -- which they are: an
-    unknown objective is never stamped as a guessed scale."""
+    Session's refusal is shown in its own words, naming why and the remedy;
+    a capture asked for meanwhile is refused at the capture -- an unknown
+    objective is never stamped as a guessed scale."""
 
     def test_the_popup_names_the_reason_and_the_refusal_is_real(self, monkeypatch, tmp_path):
         from modules.exceptions import ObjectiveUnknownError
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
+        from tests.shown_outcomes import capture_shown
 
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
@@ -384,13 +464,13 @@ class TestAnUnknownSlotSaysWhatHappensNext:
             monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
             monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
             h = _Harness(monkeypatch, session)
+            shown = capture_shown(monkeypatch)
             h.prompt()
 
-            assert h.popups == []
-            assert len(h.error_popups) == 1
-            message = h.error_popups[0]['message']
+            assert h.popups == [] and h.error_popups == []
+            assert [n.title for n in shown] == ['Objective Unknown']
+            message = shown[0].message
             assert 'home the turret' in message
-            assert 'Captures are refused' in message
             assert 'may be wrong' not in message
 
             with pytest.raises(ObjectiveUnknownError):

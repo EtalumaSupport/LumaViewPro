@@ -46,8 +46,8 @@ class TestRunUnasked:
             if len(drawn) == 1:
                 raise RuntimeError('the first edge failed to draw')
 
-        run_unasked(_draw, 'RUN_STATE')
-        run_unasked(_draw, 'RUN_STATE')
+        assert run_unasked(_draw, 'RUN_STATE') is False
+        assert run_unasked(_draw, 'RUN_STATE') is True
 
         assert len(drawn) == 2
         assert len(reports) == 1

@@ -13,11 +13,10 @@ dialog resolving, and the turret arriving at an unassigned slot. Each is a
 good reason to ask again; none is a reason to re-load the saved protocol
 over whatever the user has done since. Hence the latch.
 
-And the continuation cannot hang on the answer alone. Two paths in the
-renderer report a failure to the user and return without one, and a third
+And the continuation cannot hang on the answer alone. A question that
+raises is reported to the user and answers nothing, and the renderer
 returns when no question is owed -- a load hung only on an answer would
-never run on any of them, leaving the app with no protocol and no reason
-given.
+never run on either, leaving the app with no protocol and no reason given.
 """
 
 from __future__ import annotations
@@ -129,21 +128,9 @@ class TestTheContinuationRunsOnEveryOutcome:
             'the question is owed but its answer could not be kept'
         )
 
-    def test_it_runs_when_the_question_itself_fails(self):
-        """Both renderer failure paths report and return; neither may strand it."""
-        fn = find_def('ui/vertical_control.py', 'prompt_if_objective_unknown')
-        handlers = [node for node in ast.walk(fn) if isinstance(node, ast.ExceptHandler)]
-        assert handlers, 'the question no longer guards itself'
-        for handler in handlers:
-            names = [
-                node.func.attr
-                for node in ast.walk(handler)
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            ]
-            assert '_resolve_objective' in names, (
-                'a failed objective question returns without resolving the '
-                'continuation, so the saved protocol never loads'
-            )
+    # A question that raises -- refused or faulted -- is reported and still
+    # runs the continuation once: run against the real renderer in
+    # test_objective_selection_prompt.py, TestTheContinuationFollowsTheQuestion.
 
     def test_it_runs_after_the_answer_even_if_rendering_it_fails(self):
         fn = find_def('ui/vertical_control.py', '_apply_objective_answer')

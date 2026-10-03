@@ -638,7 +638,7 @@ _UI_EXCEPT_PIN = {
     ('ui/stage.py', 'Exception'): 4,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,
-    ('ui/vertical_control.py', 'Exception'): 2,
+    ('ui/vertical_control.py', 'Exception'): 1,
     ('ui/zstack.py', 'Exception'): 2,
 }
 

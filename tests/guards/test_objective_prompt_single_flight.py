@@ -237,20 +237,19 @@ class TestSingleFlight:
 
     def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups, session):
         """An empty catalogue is refused by the Session BEFORE the popup
-        exists -- one notification, no modal -- and must not leave the
+        exists -- one reported outcome, no modal -- and must not leave the
         flag set with no popup to clear it."""
+        from tests.shown_outcomes import capture_shown
+
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        errors = []
-        monkeypatch.setattr(
-            notification_popup, 'show_notification_popup', lambda **kw: errors.append(kw['title'])
-        )
+        shown = capture_shown(monkeypatch)
         catalogue = session.objective_helper.get_objectives_list
         monkeypatch.setattr(session.objective_helper, 'get_objectives_list', lambda: [])
 
         stand.prompt_if_objective_unknown()
         assert popups == []
-        assert len(errors) == 1
+        assert len(shown) == 1
 
         monkeypatch.setattr(session.objective_helper, 'get_objectives_list', catalogue)
         stand.prompt_if_objective_unknown()

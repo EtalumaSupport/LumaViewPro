@@ -151,7 +151,7 @@ def submit_reported(
         _redraw()
 
 
-def run_unasked(call: typing.Callable[[], object], label: str) -> None:
+def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     """Run for an edge no person asked for; a raise is reported, not raised.
 
     A run-state edge redraws on the clock, a step-list change redraws the
@@ -160,8 +160,12 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> None:
     application, and nothing waits on these calls, so a fault stops here --
     reported as unasked, which an unattended run's mute and the repeat
     window apply to -- and the next edge runs again.
+
+    True when *call* returned, False when it raised and was reported: a
+    step that must follow whether or not the call got through runs on
+    False, without deciding what the outcome meant.
     """
-    _contained(call, label, solicited=False)
+    return _contained(call, label, solicited=False)
 
 
 def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:

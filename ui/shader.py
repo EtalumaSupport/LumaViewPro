@@ -119,11 +119,12 @@ void main (void) {
         # Drawn through the GUI's boundary: nothing waits on the title, and a
         # raise out of a clock callback closes the application, so a fault is
         # reported where it stops and the next tick draws again.
-        self._status_bar_trigger = Clock.create_trigger(
-            lambda dt: run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR'),
-            0.1,
-            interval=True,
-        )
+        def _status_bar_tick(dt):
+            # Returns nothing: an interval callback that returns False is
+            # cancelled, and run_unasked answers False for a fault.
+            run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')
+
+        self._status_bar_trigger = Clock.create_trigger(_status_bar_tick, 0.1, interval=True)
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
