@@ -118,19 +118,6 @@ def test_a_togglebutton_site_compares_state_rather_than_passing_it():
         )
 
 
-def test_the_trendline_record_is_not_emitted_for_a_programmatic_refresh():
-    """set_x_axis/set_y_axis call this with axis=True; the kv spinner does not."""
-    fn = find_def('ui/post_processing.py', 'update_trendline', class_name='GraphingControls')
-    guarded = [node for node in ast.walk(fn) if isinstance(node, ast.If) and _emitter_calls(node)]
-    assert guarded, 'the trendline record is unguarded and fires on axis refreshes'
-    assert any(
-        isinstance(g.test, ast.UnaryOp)
-        and isinstance(g.test.op, ast.Not)
-        and ast.unparse(g.test) == 'not axis'
-        for g in guarded
-    ), 'the guard must be `not axis` -- that is what separates a user selection from a refresh'
-
-
 def test_step_number_reports_the_value_it_was_clamped_to():
     """Both coercing paths rewrite the box, so both owe an _APPLIED line."""
     fn = find_def(

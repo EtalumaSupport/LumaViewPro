@@ -2,10 +2,11 @@
 save the graph to a file.
 
 GUI equivalent: Post-Processing > Object Plotting popup --
-ui/post_processing.py:869 GraphingControls.set_graphing_source (load CSV),
-:584 set_x_axis / :618 set_y_axis (choose axes),
-:696 update_trendline (fit one of six trendline types),
-:866 save_graph (write the image).
+GraphingControls.set_graphing_source (load CSV), set_x_axis / set_y_axis
+(choose axes), update_trendline (fit a trendline), save_graph (write the
+image). The CSV read is modules.post_processing.read_cell_count_results and
+the fit is modules.graph_analysis.fit_trendline; the figure and its save are
+still the widget's.
 
 The probe asks whether ANY callable below ui/ builds a graph, fits a
 trendline, or saves one. A census, not a guess.
@@ -44,11 +45,11 @@ def main() -> int:
     hits = census()
     print('graph-shaped callables below ui/ ->', hits or 'NONE')
 
-    # The trendline maths and the figure both live in the widget body.
-    # pin-justified: the probe's whole claim is that the graphing maths exist
-    # ONLY as widget source; reading it is the evidence, not a seam pin.
+    # The figure lives in the widget body.
+    # pin-justified: the probe's whole claim is that the figure and its save
+    # exist ONLY as widget source; reading it is the evidence, not a seam pin.
     src = (REPO / 'ui' / 'post_processing.py').read_text()
-    for marker in ('np.polyfit', 'plt.subplots', 'plt.savefig', 'pd.read_csv'):
+    for marker in ('plt.subplots', 'plt.savefig'):
         print(f'{marker!r} in ui/post_processing.py:', marker in src)
 
     # What a script CAN do today: nothing of the capability. Confirm by
@@ -65,9 +66,9 @@ def main() -> int:
     harness.void(
         'a script can graph a results CSV',
         reachable,
-        'modules.graphing does not exist: the CSV parse, the figure, six trendline '
-        'branches and the save are all inline in GraphingControls. This is the one '
-        'output destination with no implementation below the GUI at all',
+        'modules.graphing does not exist: the CSV read and the trendline fit are below '
+        'the GUI (read_cell_count_results, graph_analysis.fit_trendline), but the '
+        'figure and its save are inline in GraphingControls',
     )
     return harness.report()
 

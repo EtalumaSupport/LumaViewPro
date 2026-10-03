@@ -12,6 +12,7 @@ matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conf
 import matplotlib.pyplot as plt
 from matplotlib.dates import ConciseDateFormatter
 import numpy as np
+import pandas as pd
 
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
@@ -23,6 +24,7 @@ from ui.progress_popup import show_popup
 from modules import gui_logger
 from modules.stitcher import Stitcher
 import modules.zprojector as zprojector
+import modules.graph_analysis as graph_analysis
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
@@ -304,11 +306,15 @@ class VideoCreationControls(BoxLayout):
 # ============================================================================
 
 
+# The axis spinners' text when no axis is chosen, as the kv rule sets it.
+_NO_X_AXIS = 'X-Axis'
+_NO_Y_AXIS = 'Y-Axis'
+
+
 class GraphingControls(BoxLayout):
     x_axis_label = 'X-Axis'
     y_axis_label = 'Y-Axis'
     graph_title = ''
-    available_axes: ClassVar[list] = ['No Data Loaded']
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -317,85 +323,84 @@ class GraphingControls(BoxLayout):
         self._post = post_processing.PostProcessing()
         self.graphing_area = self.ids.graphing_area
         self.graph_widget = None
-        self.x_axis_data = []
-        self.y_axis_data = []
-        self.selected_x_axis = None
-        self.selected_y_axis = None
-        self.trendline_enabled = False
         self.graph_df = None
         self._x_axes = []
         self._y_axes = []
-        self.initialize_graph()
+        self.selected_x_axis = None
+        self.selected_y_axis = None
+        self._trendline_kind = graph_analysis.NO_TRENDLINE
+        self._trendline = None
+        self._redraw_graph()
+
+    # Each spinner handler returns when the spinner shows what is already
+    # chosen: that is the redraw writing the stored choice back, not a person
+    # choosing, so it is neither logged nor fitted again.
 
     def set_x_axis(self):
         axis = self.ids['graphing_x_axis_spinner'].text
+        if axis == (self.selected_x_axis or _NO_X_AXIS):
+            return
         gui_logger.select('GRAPHING_X_AXIS', axis)
-        if axis in self._x_axes:
-            self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
-            self.ids.x_axis_label_input.text = self.selected_x_axis
+        self.selected_x_axis = axis
+        self.ids.x_axis_label_input.text = axis
+        run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_X_AXIS')
 
-            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
-            self.x_axis_data = sorted_graph_df[self.selected_x_axis]
-            self.update_x_axis_label()
-            if self.selected_y_axis is None:
-                return
+    def set_y_axis(self):
+        axis = self.ids['graphing_y_axis_spinner'].text
+        if axis == (self.selected_y_axis or _NO_Y_AXIS):
+            return
+        gui_logger.select('GRAPHING_Y_AXIS', axis)
+        self.selected_y_axis = axis
+        self.ids.y_axis_label_input.text = axis
+        run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_Y_AXIS')
 
-            self.initialize_graph()
-            self.update_x_axis_label()
-            if 'TIME' in self.selected_x_axis.upper():
+    def update_trendline(self):
+        kind = self.ids.trendline_spinner.text
+        if kind == self._trendline_kind:
+            return
+        gui_logger.select('TRENDLINE', kind)
+        self._trendline_kind = kind
+        run_reported(self._fit_trendline, self._redraw_graph, 'TRENDLINE')
+
+    def _fit_trendline(self) -> None:
+        """Fit the chosen trendline to the chosen axes.
+
+        A refused fit leaves no trendline chosen, so the spinner reads None
+        and a later axis change does not ask for the refused fit again.
+        """
+        self._trendline = None
+        if self._trendline_kind == graph_analysis.NO_TRENDLINE:
+            return
+        if self.selected_x_axis is None or self.selected_y_axis is None:
+            return
+        kind, self._trendline_kind = self._trendline_kind, graph_analysis.NO_TRENDLINE
+        self._trendline = graph_analysis.fit_trendline(
+            kind, self.graph_df[self.selected_x_axis], self.graph_df[self.selected_y_axis]
+        )
+        self._trendline_kind = kind
+
+    def _redraw_graph(self) -> None:
+        """Draw what is chosen: the data, its two axes and the fitted trendline."""
+        self.ids.graphing_x_axis_spinner.values = self._x_axes
+        self.ids.graphing_y_axis_spinner.values = self._y_axes
+        self.ids.graphing_x_axis_spinner.text = self.selected_x_axis or _NO_X_AXIS
+        self.ids.graphing_y_axis_spinner.text = self.selected_y_axis or _NO_Y_AXIS
+        self.initialize_graph()
+        kinds = graph_analysis.TRENDLINE_KINDS
+        if self.selected_x_axis is not None and self.selected_y_axis is not None:
+            x = self.graph_df[self.selected_x_axis]
+            y = self.graph_df[self.selected_y_axis]
+            kinds = graph_analysis.trendline_kinds(x, y)
+            self.ax.scatter(x, y)
+            if pd.api.types.is_datetime64_any_dtype(x):
                 self.ax.xaxis.set_major_formatter(
                     ConciseDateFormatter(self.ax.xaxis.get_major_locator())
                 )
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
-            elif 'TIME' not in self.selected_y_axis.upper():
-                self.ids.trendline_spinner.values = (
-                    'None',
-                    'Linear',
-                    'Quadratic',
-                    'Exponential',
-                    'Power',
-                    'Logarithmic',
-                )
-            self.ax.scatter(self.x_axis_data, self.y_axis_data)
-            if self.trendline_enabled:
-                self.update_trendline(axis=True)
-            self.update_graph()
-
-    def set_y_axis(self):
-        gui_logger.select('GRAPHING_Y_AXIS', self.ids['graphing_y_axis_spinner'].text)
-        if self.ids['graphing_y_axis_spinner'].text in self._y_axes:
-            self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
-            self.ids.y_axis_label_input.text = self.selected_y_axis
-
-            if self.selected_x_axis is None:
-                self.y_axis_data = self.graph_df[self.selected_y_axis]
-                self.update_y_axis_label()
-                return
-
-            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
-            self.y_axis_data = sorted_graph_df[self.selected_y_axis]
-            self.update_y_axis_label()
-
-            self.initialize_graph()
-            self.update_y_axis_label()
-            if 'TIME' in self.selected_y_axis.upper():
-                self.ax.yaxis.set_major_formatter(
-                    ConciseDateFormatter(self.ax.yaxis.get_major_locator())
-                )
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
-            elif 'TIME' not in self.selected_x_axis.upper():
-                self.ids.trendline_spinner.values = (
-                    'None',
-                    'Linear',
-                    'Quadratic',
-                    'Exponential',
-                    'Power',
-                    'Logarithmic',
-                )
-            self.ax.scatter(self.x_axis_data, self.y_axis_data)
-            if self.trendline_enabled:
-                self.update_trendline(axis=True)
-            self.update_graph()
+            if self._trendline is not None:
+                self.ax.plot(self._trendline.x, self._trendline.y, 'r--')
+        self.ids.trendline_spinner.values = (graph_analysis.NO_TRENDLINE, *kinds)
+        self.ids.trendline_spinner.text = self._trendline_kind
+        self.update_graph()
 
     def update_x_axis_label(self):
         self.ax.set_xlabel(self.ids.x_axis_label_input.text)
@@ -428,151 +433,6 @@ class GraphingControls(BoxLayout):
         self.graph_title = self.ids.graph_title_input.text
         self.update_graph()
 
-    def update_trendline(self, axis: bool = False):
-        # Logged at entry, before the early return: choosing a trendline before
-        # the axes are set is still a user action and would otherwise vanish.
-        # `axis` is the discriminator -- the kv spinner calls this with no
-        # argument, while set_x_axis/set_y_axis pass True, so a record is only
-        # emitted for a real selection and not for an axis-driven refresh.
-        if not axis:
-            gui_logger.select('TRENDLINE', self.ids.trendline_spinner.text)
-
-        if self.selected_x_axis is None or self.selected_y_axis is None:
-            return
-
-        trendline_type = self.ids.trendline_spinner.text
-        if trendline_type == 'None':
-            self.trendline_enabled = False
-
-        if not axis:
-            self.initialize_graph()
-            self.set_x_axis()
-            self.set_y_axis()
-
-        self.trendline_enabled = True
-
-        x_data = self.x_axis_data
-        y_data = self.y_axis_data
-
-        time_x = False
-        time_y = False
-
-        # If we are dealing with time, convert to an ordinal fomat for trendline creation
-        if 'time' in self.selected_x_axis:
-            x_time_data_original = x_data
-            x_ref_time = x_data.min()
-
-            # Normalize x-data for scaling purposes
-            x_data = (x_data - x_ref_time).dt.total_seconds()
-            x_data = x_data.to_numpy()
-            time_x = True
-        else:
-            x_data = x_data.to_numpy()
-
-        if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data  # noqa: F841 -- deferred
-            y_ref_time = y_data.min()
-
-            # Normalize y-data for scaling purposes
-            y_data = (y_data - y_ref_time).dt.total_seconds()
-            y_data = y_data.to_numpy()
-            time_y = True  # noqa: F841 -- deferred
-        else:
-            y_data = y_data.to_numpy()
-
-        if len(x_data) > 1 and len(y_data) > 1:
-            if trendline_type == 'Linear':
-                try:
-                    z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
-                    p = np.poly1d(z)
-
-                    if time_x:
-                        self.ax.plot(x_time_data_original, p(x_data), 'r--')
-                    else:
-                        self.ax.plot(x_data, p(x_data), 'r--')
-                except Exception as e:
-                    logger.exception(f'[Graphing  ] Could not fit linear trendline: {e}')
-                    self.ids.trendline_spinner.text = 'None'
-
-            elif trendline_type == 'Quadratic':
-                try:
-                    z = np.polyfit(x_data, y_data, 2)
-                    p = np.poly1d(z)
-
-                    if time_x:
-                        self.ax.plot(x_time_data_original, p(x_data), 'r--')
-                    else:
-                        self.ax.plot(x_data, p(x_data), 'r--')
-                except Exception as e:
-                    logger.exception(f'[Graphing  ] Could not fit quadratic trendline: {e}')
-                    self.ids.trendline_spinner.text = 'None'
-
-            elif trendline_type == 'Exponential':
-                try:
-                    log_y_data = np.log(y_data)
-
-                    # Calculate the exponential trendline
-                    z = np.polyfit(x_data, log_y_data, 1)
-                    p = np.poly1d(z)
-
-                    # Convert back to original scale
-                    exp_y_data = np.exp(p(x_data))
-
-                    if time_x:
-                        self.ax.plot(x_time_data_original, exp_y_data, 'r--')
-                    else:
-                        self.ax.plot(x_data, exp_y_data, 'r--')
-                except Exception as e:
-                    logger.exception(f'[Graphing  ] Could not fit exponential trendline: {e}')
-                    self.ids.trendline_spinner.text = 'None'
-
-            elif trendline_type == 'Power':
-                try:
-                    # Transform data for power fit
-                    log_x_data = np.log(x_data)
-                    log_y_data = np.log(y_data)
-
-                    # Calculate the power trendline
-                    z = np.polyfit(log_x_data, log_y_data, 1)
-                    p = np.poly1d(z)
-
-                    # Convert back to original scale
-                    power_y_data = np.exp(p(np.log(x_data)))
-
-                    try:
-                        self.ax.plot(x_data, power_y_data, 'r--')
-                    except Exception as e:
-                        logger.exception(f'Graphing ] Power trendline error: {e}')
-                except Exception as e:
-                    logger.exception(f'[Graphing  ] Could not fit power trendline: {e}')
-                    self.ids.trendline_spinner.text = 'None'
-
-            elif trendline_type == 'Logarithmic':
-                try:
-                    # Transform x_data for logarithmic fit
-                    log_x_data = np.log(x_data)
-
-                    # Calculate the logarithmic trendline
-                    z = np.polyfit(log_x_data, y_data, 1)
-                    p = np.poly1d(z)
-
-                    try:
-                        self.ax.plot(x_data, p(np.log(x_data)), 'r--')
-                    except Exception as e:
-                        logger.exception(f'Graphing ] Logarithmic trendline error: {e}')
-                except Exception as e:
-                    logger.exception(f'[Graphing  ] Could not fit logarithmic trendline: {e}')
-                    self.ids.trendline_spinner.text = 'None'
-
-            self.update_graph()
-
-    def regenerate_graph(self):
-        self.initialize_graph()
-        self.set_x_axis()
-        self.set_y_axis()
-        if self.trendline_enabled:
-            self.update_trendline()
-
     def initialize_graph(self):
         # plt.clf() only clears the figure contents; the figure object
         # itself (along with its GDI handle on Windows) leaks. Close the
@@ -602,7 +462,7 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        run_reported(lambda: self._load_source(file), self._show_source, 'LOAD_GRAPHING_DATA')
+        run_reported(lambda: self._load_source(file), self._redraw_graph, 'LOAD_GRAPHING_DATA')
 
     def _load_source(self, file) -> None:
         """Take *file* as the graph's data; the axis choices and trendline start over.
@@ -614,18 +474,8 @@ class GraphingControls(BoxLayout):
         self._x_axes, self._y_axes = post_processing.results_axes(self.graph_df)
         self.selected_x_axis = None
         self.selected_y_axis = None
-        self.x_axis_data = []
-        self.y_axis_data = []
-        self.trendline_enabled = False
-
-    def _show_source(self) -> None:
-        self.ids.graphing_x_axis_spinner.values = self._x_axes
-        self.ids.graphing_y_axis_spinner.values = self._y_axes
-        self.ids.graphing_x_axis_spinner.text = 'X-Axis'
-        self.ids.graphing_y_axis_spinner.text = 'Y-Axis'
-        self.ids.trendline_spinner.text = 'None'
-        self.initialize_graph()
-        self.update_graph()
+        self._trendline_kind = graph_analysis.NO_TRENDLINE
+        self._trendline = None
 
     def set_post_processing_module(self, postprocessingmodule):
         self._post = postprocessingmodule

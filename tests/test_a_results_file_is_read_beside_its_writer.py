@@ -119,7 +119,8 @@ def _graph() -> SimpleNamespace:
         _y_axes=[],
         selected_x_axis='num_cells',
         selected_y_axis='total_object_area (um2)',
-        trendline_enabled=True,
+        _trendline_kind='Linear',
+        _trendline=object(),
         shown=0,
     )
     graph._load_source = lambda file: panel_module.GraphingControls._load_source(graph, file)
@@ -127,7 +128,7 @@ def _graph() -> SimpleNamespace:
     def show():
         graph.shown += 1
 
-    graph._show_source = show
+    graph._redraw_graph = show
     return graph
 
 
@@ -138,7 +139,7 @@ def test_loading_a_file_starts_the_axis_choices_and_trendline_over(tmp_path, bou
     panel_module.GraphingControls.set_graphing_source(graph, str(path))
     assert boundary == []
     assert (graph.selected_x_axis, graph.selected_y_axis) == (None, None)
-    assert graph.trendline_enabled is False
+    assert (graph._trendline_kind, graph._trendline) == ('None', None)
     assert graph._x_axes == ['well', 'count']
     assert graph.shown == 1
 
