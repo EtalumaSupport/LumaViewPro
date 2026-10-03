@@ -1185,6 +1185,31 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
+    def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
+        """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
+
+        The layers set to acquire are the ones ``new_protocol`` and
+        ``add_step`` build steps for and a composite merges. A layer set to
+        acquire stops stimulating: one layer does not capture and
+        stimulate at once.
+
+        Raises:
+            ConfigError: ``layer`` is not one of this release's layers, or
+                ``mode`` is not ``'image'``, ``'video'`` or None; nothing
+                is changed.
+        """
+        if layer not in common_utils.get_layers():
+            raise ConfigError(
+                f'{layer!r} is not a layer; the layers are {common_utils.get_layers()}'
+            )
+        if mode not in ('image', 'video', None):
+            raise ConfigError(f"acquire mode {mode!r} is not 'image', 'video' or None")
+        with self.settings_lock:
+            self.settings[layer]['acquire'] = mode
+            stim = self.settings[layer].get('stim_config')
+            if mode is not None and stim is not None:
+                stim['enabled'] = False
+
     def new_protocol(
         self,
         *,

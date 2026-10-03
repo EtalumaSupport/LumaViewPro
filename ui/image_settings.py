@@ -223,9 +223,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_lumi_layer_control(self):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings['Lumi']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('Lumi', None)
         if self._accordion_item_lumi_control_visible:
             self._accordion_item_lumi_control.collapse = True
             self._accordion_item_lumi_control_visible = False
@@ -244,9 +242,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_df_layer_control(self):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings['DF']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('DF', None)
         if self._accordion_item_df_control_visible:
             self._accordion_item_df_control.collapse = True
             self._accordion_item_df_control_visible = False
@@ -286,9 +282,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_pc_layer_control(self):
-        settings = _app_ctx.ctx.settings if _app_ctx.ctx else None
-        if settings and 'PC' in settings:
-            settings['PC']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('PC', None)
         widget = self._resolve_pc_accordion()
         if widget is not None and self._accordion_item_pc_control_visible:
             widget.collapse = True
@@ -334,9 +328,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_fluorescence_layer_control(self, layer: str):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings[layer]['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire(layer, None)
         if self._fluorescence_control_visible[layer]:
             item = self.accordion_item_lookup(layer=layer)
             item.collapse = True

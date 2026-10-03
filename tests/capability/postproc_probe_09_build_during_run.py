@@ -51,17 +51,14 @@ def _arguments():
 def _capture_still(session, layers):
     """Capture *layers* as still images, for this session only.
 
-    A layer's acquire mode has no Session member yet (NEXT_PRIMARY row), so
-    this makes the write the GUI's acquire toggle makes, on the session's
-    settings in memory. Nothing saves them: the installation's current.json
-    is left as it was, which `hardware_session()` checks. Replace with the
-    Session member when it exists.
+    Through the Session member the GUI's acquire toggle uses, on the
+    session's settings in memory. Nothing saves them: the installation's
+    current.json is left as it was, which `hardware_session()` checks.
     """
     if not layers:
         return
-    with session.settings_lock:
-        for layer in layers:
-            session.settings[layer]['acquire'] = 'image'
+    for layer in layers:
+        session.set_layer_acquire(layer, 'image')
     print(f'STILL: {", ".join(layers)} captured as still images for these runs', flush=True)
 
 

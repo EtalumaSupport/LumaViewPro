@@ -660,22 +660,12 @@ class LayerControl(BoxLayout):
             mode = 'none'
         gui_logger.select(f'ACQUIRE_{self.layer}', mode)
 
-        if mode == 'image':
-            settings[self.layer]['acquire'] = 'image'
-            if 'stim_config' in settings[self.layer]:
-                settings[self.layer]['stim_config']['enabled'] = False
+        # The Session stops the layer stimulating when it acquires; the
+        # stimulation switch is drawn off to match.
+        _app_ctx.ctx.session.set_layer_acquire(self.layer, None if mode == 'none' else mode)
+        if mode != 'none':
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
-
-        elif mode == 'video':
-            settings[self.layer]['acquire'] = 'video'
-            if 'stim_config' in settings[self.layer]:
-                settings[self.layer]['stim_config']['enabled'] = False
-                self.ids['stim_disable_btn'].active = True
-            self.ids['stim_disable_btn'].active = True
-            self.show_stim_controls = False
-        else:
-            settings[self.layer]['acquire'] = None
 
         if 'stim_config' in settings[self.layer]:
             self.update_stim_controls_visibility()
