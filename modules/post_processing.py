@@ -30,9 +30,8 @@ CELL_COUNT_OPERATION = 'Cell Count'
 # The operation's name for reading a results file back to graph it.
 GRAPHING_OPERATION = 'Graphing'
 
-# How a results file writes each image's time, and how it is read back.
-# time.ctime's layout, written in the process's C locale; '%d' also reads
-# ctime's space-padded day, so a file written before this constant reads too.
+# The layout time.ctime writes each image's time in, which a results file is
+# read back by. '%d' also reads ctime's space-padded day.
 RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 
 # What marks a JSON file as a saved cell-count method.
@@ -249,9 +248,9 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
 def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     """Read a cell-count results file into a table to graph.
 
-    A ``time`` column is parsed by the format the count writes it in, so it
-    reads back as a datetime column; every other column keeps the type pandas
-    reads it as. Which columns can be plotted is ``results_axes``'s answer.
+    A ``time`` column of text is parsed by the format the count writes it
+    in, so it reads back as a datetime column; a ``time`` column of numbers,
+    and every other column, keeps the type pandas reads it as. Which columns can be plotted is ``results_axes``'s answer.
 
     Raises:
         PostProcessingRefusedError: reason ``results_unreadable``; the file
@@ -272,7 +271,7 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
         raise refuse(f'it could not be read ({e.strerror})') from e
     except ValueError as e:
         raise refuse(f'it is not a CSV file ({e})') from e
-    if 'time' in table:
+    if 'time' in table and not pd.api.types.is_numeric_dtype(table['time']):
         try:
             table['time'] = pd.to_datetime(table['time'], format=RESULTS_TIME_FORMAT)
         except (TypeError, ValueError) as e:
@@ -368,7 +367,7 @@ class PostProcessing:
             )
 
             time_created_raw = os.path.getctime(file_path)
-            time_created = time.strftime(RESULTS_TIME_FORMAT, time.localtime(time_created_raw))
+            time_created = time.ctime(time_created_raw)
 
             results.append(
                 {

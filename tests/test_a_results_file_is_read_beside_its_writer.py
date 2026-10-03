@@ -67,6 +67,14 @@ def test_a_number_column_named_for_time_is_a_number(tmp_path):
     assert 'elapsed_time' in results_axes(table)[1]
 
 
+def test_a_time_column_of_numbers_is_plotted_as_numbers(tmp_path):
+    path = tmp_path / 'results.csv'
+    path.write_text('time,num_cells\n0,3\n60,4\n')
+    table = read_cell_count_results(path)
+    assert table['time'].tolist() == [0, 60]
+    assert 'time' in results_axes(table)[1]
+
+
 def test_text_columns_are_no_axis(tmp_path):
     path = tmp_path / 'results.csv'
     path.write_text('file,num_cells\na.tif,3\nb.tif,4\n')
