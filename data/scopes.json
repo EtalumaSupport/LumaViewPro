@@ -239,7 +239,7 @@
             "XYStage": false,
             "Turret": false,
             "Optics": {
-                "LensFocalLength": 47.8,
+                "LensFocalLength": 32.3,
                 "PixelSize": 2.2
             },
             "MaxFrame": {

@@ -39,10 +39,17 @@ def _um_per_pixel_at_20x(model: str) -> float | None:
         session.shutdown()
 
 
-@pytest.mark.parametrize('model', ['LS620', 'LS560'])
-def test_a_scope_with_no_motor_board_takes_its_catalogue_scale(model):
-    # 2.2 um pixels behind a 47.8 mm tube lens at 20x.
-    assert _um_per_pixel_at_20x(model) == pytest.approx(0.41423, abs=1e-4)
+@pytest.mark.parametrize(
+    'model, um_per_pixel',
+    [
+        # 2.2 um pixels behind a 47.8 mm tube lens at 20x.
+        ('LS620', 0.41423),
+        # 2.2 um pixels behind the LS560's 32.3 mm lens at 20x.
+        ('LS560', 0.61300),
+    ],
+)
+def test_a_scope_with_no_motor_board_takes_its_catalogue_scale(model, um_per_pixel):
+    assert _um_per_pixel_at_20x(model) == pytest.approx(um_per_pixel, abs=1e-4)
 
 
 def test_a_scope_with_a_motor_board_keeps_its_own_scale():
