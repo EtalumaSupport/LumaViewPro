@@ -330,11 +330,11 @@ class TestSubstitutions:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_saved_frame_larger_than_the_scope_delivers_is_refitted_and_recorded(
+    def test_a_saved_frame_larger_than_the_scope_delivers_is_refitted_and_reported_once(
         self, monkeypatch, tmp_path, heard
     ):
         # The LS560's lens images 1700 of the sensor (data/scopes.json
-        # MaxFrame); the simulated sensor is 1920 x 1200.
+        # MaxFrame); the simulated sensor is 3840 x 2160.
         s = _bring_up(
             monkeypatch,
             tmp_path,
@@ -347,10 +347,41 @@ class TestSubstitutions:
             assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
             assert s.scope.imaging.frame_size_cached == {'width': 1700, 'height': 1100}
             assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
-            assert _outcomes(heard, OutcomeKind.NOTICE) == [], 'logged, not shown'
+            notices = [n for n in heard if n.reason == 'frame_refitted']
+            assert len(notices) == 1
+            assert notices[0].kind == OutcomeKind.NOTICE
+            assert notices[0].title == 'Saved frame too large'
+            assert '1900x1100' in notices[0].message and '1700x1100' in notices[0].message
+            # What the notice says became of the saved frame is what the
+            # store did.
+            assert 'now the saved frame' in notices[0].message
         finally:
             s.shutdown()
             s.scope.disconnect()
+
+    def test_the_refitted_frame_is_not_reported_again_at_the_next_bring_up(
+        self, monkeypatch, tmp_path, heard
+    ):
+        first = _bring_up(
+            monkeypatch,
+            tmp_path,
+            microscope='LS560',
+            binning={'size': '1x1'},
+            frame={'width': 1900, 'height': 1100},
+        )
+        try:
+            stored = {k: dict(first.settings[k]) for k in ('binning', 'frame')}
+        finally:
+            first.shutdown()
+            first.scope.disconnect()
+        heard.clear()
+        again = _bring_up(monkeypatch, tmp_path, microscope='LS560', **stored)
+        try:
+            assert again.bring_up_record().substitutions == ()
+            assert [n for n in heard if n.reason == 'frame_refitted'] == []
+        finally:
+            again.shutdown()
+            again.scope.disconnect()
 
 
 class TestTheSettingsFileSetAside:

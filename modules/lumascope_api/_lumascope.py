@@ -46,6 +46,7 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import (
     BinningSubstitutedNotice,
+    FrameRefittedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
     ImageModeSubstitutedNotice,
@@ -877,8 +878,8 @@ class Lumascope:
             # A saved frame can be larger than this scope delivers at the
             # binning applied (a frame saved on another model; the LS560's lens
             # images 1700 of the sensor's 1900): it is refitted to the maximum,
-            # as the API would refuse it, and the replacement is logged and on
-            # the record. The session stores the frame that ran.
+            # as the API would refuse it, and the replacement is on the record
+            # and reported once. The session stores the frame that ran.
             maximum = self.imaging._max_frame_unbinned()
             if maximum:
                 fitted = (
@@ -886,13 +887,13 @@ class Lumascope:
                     min(frame_height, maximum['height'] // binning_size),
                 )
                 if fitted != (frame_width, frame_height):
-                    logger.warning(
-                        f'[SCOPE API ] initialize: the saved frame {frame_width}x{frame_height} '
-                        f'is larger than this scope delivers at binning {binning_size}; it is '
-                        f'refitted to {fitted[0]}x{fitted[1]}'
-                    )
                     self._bring_up_substitutions.append(
                         Substitution('frame', saved=(frame_width, frame_height), used=fitted)
+                    )
+                    notifications.report_outcome(
+                        FrameRefittedNotice((frame_width, frame_height), fitted, binning_size),
+                        solicited=False,
+                        category='Camera',
                     )
                     frame_width, frame_height = fitted
         # A rejection surviving reconciliation is a live hardware fault

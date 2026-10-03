@@ -320,6 +320,24 @@ class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         )
 
 
+class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The saved frame is larger than this scope delivers; bring-up ran at the largest it does.
+
+    The refitted frame is stored in the saved frame's place, as the
+    substituted binning is, so the next bring-up has nothing to refit.
+    """
+
+    title = 'Saved frame too large'
+    reason = 'frame_refitted'
+
+    def __init__(self, saved: tuple[int, int], used: tuple[int, int], binning_size: int):
+        super().__init__(
+            f'The saved {saved[0]}x{saved[1]} frame is larger than this scope delivers at '
+            f'{binning_size}x{binning_size} binning; it runs at {used[0]}x{used[1]}, which is '
+            'now the saved frame.'
+        )
+
+
 class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The saved image mode needs a pixel depth this camera lacks; bring-up used one it has.
 
