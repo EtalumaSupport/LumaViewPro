@@ -635,7 +635,7 @@ _UI_EXCEPT_PIN = {
     ('ui/protocol_settings.py', 'ValueError'): 1,
     ('ui/scope_display.py', 'Exception'): 2,
     ('ui/shader.py', 'Exception'): 0,
-    ('ui/stage.py', 'Exception'): 4,
+    ('ui/stage.py', 'Exception'): 0,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
     ('ui/ui_helpers.py', 'Exception'): 2,
     ('ui/ui_helpers.py', 'ValueError'): 1,

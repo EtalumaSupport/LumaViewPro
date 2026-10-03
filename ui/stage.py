@@ -12,7 +12,7 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, submit_gesture
+from ui.ui_helpers import find_nearest_step, run_unasked, submit_gesture
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -471,26 +471,22 @@ class Stage(Widget):
         coordinate_transformer = ctx.coordinate_transformer
         scope = ctx.scope
 
-        # Try to get current and target positions - may fail if not homed yet
+        # Until the stage is homed there is no position to show: the labware
+        # is drawn without the crosshair and the selected well.
         position_available = False
         x_target = None
         y_target = None
         x_current = None
         y_current = None
 
-        try:
-            if scope.motion.has_homed():
-                # Position cache auto-refreshes on first read if stale (>80ms)
-                x_target = scope.motion.get_target_position('X')
-                y_target = scope.motion.get_target_position('Y')
-                x_max, y_max = self._stage_limits_um()
-                x_current = np.clip(scope.motion.get_current_position('X'), 0, x_max)
-                y_current = np.clip(scope.motion.get_current_position('Y'), 0, y_max)
-                position_available = True
-        except Exception:
-            # If we can't get positions (not homed yet), we'll still draw the labware
-            logger.debug('[Stage     ] Position not available yet, drawing labware only')
-            position_available = False
+        if scope.motion.has_homed():
+            # Position cache auto-refreshes on first read if stale (>80ms)
+            x_target = scope.motion.get_target_position('X')
+            y_target = scope.motion.get_target_position('Y')
+            x_max, y_max = self._stage_limits_um()
+            x_current = np.clip(scope.motion.get_current_position('X'), 0, x_max)
+            y_current = np.clip(scope.motion.get_current_position('Y'), 0, y_max)
+            position_available = True
 
         if not position_available:
             # This draw hides the crosshair, so what was last drawn is no
@@ -668,87 +664,29 @@ class Stage(Widget):
                 lambda dt: setattr(self._crosshair_v_line, 'points', [0, 0, 0, 0]), 0
             )
 
-    def schedule_to_draw(self, draw_function, *args, **kwargs):
-        """
-        Schedule a drawing operation to be executed on the main UI thread.
-
-        Args:
-            draw_function: A callable that performs the drawing operation
-            *args, **kwargs: Arguments to pass to the draw_function
-
-        Example usage:
-            # From a background thread:
-            self.schedule_to_draw(self.draw_line, points=[0, 0, 100, 100], color=(1, 0, 0, 1))
-            self.schedule_to_draw(self.draw_circle, pos=(50, 50), radius=20)
-        """
-
-        def execute_draw(_):
-            try:
-                draw_function(*args, **kwargs)
-            except Exception as e:
-                print(f'Error in scheduled draw operation: {e}')
-
-        Clock.schedule_once(execute_draw, 0)
-
-    def draw_line(
-        self,
-        points=None,
-        color=(1, 1, 1, 1),
-        width=1,
-        group=None,
-        circle=None,
-        ellipse=None,
-        rectangle=None,
-    ):
-        """Draw a line on the canvas - safe to call from schedule_to_draw_on_canvas"""
-        with self.canvas:
-            Color(*color)
-
-            if points:
-                Line(points=points, width=width, group=group)
-            elif circle:
-                # circle = (center_x, center_y, radius)
-                Line(circle=circle, group=group)
-            elif ellipse:
-                # ellipse = (bottom_left_x, bottom_left_y, width, height)
-                Line(ellipse=ellipse, group=group)
-            elif rectangle:
-                # rectangle = (bottom_left_x, bottom_left_y, width, height)
-                Line(rectangle=rectangle, group=group)
-
-    def draw_rectangle(self, pos, size, color=(1, 1, 1, 1), group=None):
-        """Draw a rectangle on the canvas - safe to call from schedule_to_draw_on_canvas"""
-        with self.canvas:
-            Color(*color)
-            Rectangle(pos=pos, size=size, group=group)
-
-    def draw_ellipse(self, pos, radius, color=(1, 1, 1, 1), group=None):
-        """Draw an ellipse on the canvas - safe to call from schedule_to_draw_on_canvas"""
-        with self.canvas:
-            Color(*color)
-            Ellipse(pos=pos, size=radius, group=group)
-
     def _draw_labware_fbo_scheduled(self, x, y, w, h, *args):
         """Scheduled callback for drawing labware FBO."""
-        try:
+
+        def draw():
             labware_fbo = self.create_labware_fbo()
             if labware_fbo and labware_fbo.texture:
                 self.draw_fbo_texture(
                     texture=labware_fbo.texture, pos=(x, y), size=(w, h), group='labware_fbo'
                 )
-        except Exception as e:
-            logger.exception(f'[Stage     ] Error drawing labware FBO: {e}')
+
+        run_unasked(draw, 'STAGE_LABWARE_DRAW')
 
     def _draw_steps_fbo_scheduled(self, x, y, w, h, *args):
         """Scheduled callback for drawing steps FBO."""
-        try:
+
+        def draw():
             steps_fbo = self.create_step_locations_fbo()
             if steps_fbo and steps_fbo.texture:
                 self.draw_fbo_texture(
                     texture=steps_fbo.texture, pos=(x, y), size=(w, h), group='steps_fbo'
                 )
-        except Exception as e:
-            logger.exception(f'[Stage     ] Error drawing steps FBO: {e}')
+
+        run_unasked(draw, 'STAGE_STEPS_DRAW')
 
     def draw_fbo_texture(self, texture, pos, size, group=None):
         """Draw an FBO texture on the canvas - safe to call from schedule_to_draw_on_canvas"""
