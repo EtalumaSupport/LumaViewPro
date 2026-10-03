@@ -2290,6 +2290,8 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'fired. ERROR state must terminate the run, not be retried '
             'as a transient failure every period.'
         )
+        # run_complete fires during cleanup; the engine goes IDLE at its end.
+        assert wait_until_ready_for_next_run(executor), 'the run never ended after its timeout'
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'
         )
