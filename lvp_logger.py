@@ -708,10 +708,15 @@ def log_environment_banner(
     # data folder that orphaned the user's settings, and a failed save on
     # every capture. A diagnostic writer does not share a file with a
     # path-critical string.
+    #
+    # Line 3 names the branch the commit was stamped on (its upstream, or the
+    # local branch when it has none), not the branch the build came from: a
+    # commit made on a local branch and landed on the trunk unchanged keeps
+    # the local name. Hence "Committed on", never "Branch".
     # Triage chains:
     #   - `git log -S "<guid>" -- version.txt` finds the exact commit
     #     by GUID (works in any distribution).
-    #   - `git log --before=<Built>+1m <Branch>` finds it by timestamp.
+    #   - `git log --before=<Built>+1m <Committed on>` finds it by timestamp.
     #   - `.git_archival.txt` carries the actual SHA in GitHub ZIPs.
     _built = ''
     _branch = ''
@@ -737,7 +742,7 @@ def log_environment_banner(
     except Exception as _e:
         logger.debug(f'[LVP Main  ] build_id.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
-    logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
+    logger.info(f'[LVP Main  ] Committed on: {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
     # A missing build ID means two different things and they must not share
     # a message: an installed exe with no build ID was produced by a build
