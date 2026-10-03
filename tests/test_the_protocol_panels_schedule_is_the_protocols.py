@@ -206,10 +206,13 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
         self, ctx, monkeypatch, tmp_path
     ):
         panel = _Panel(_protocol())
-        monkeypatch.setattr(_Panel, '_gather_layer_settings_for_save', lambda self: {})
+        ctx.session.save_protocol.side_effect = lambda protocol, file_path: (
+            protocol.to_file(file_path=f'{file_path}.tsv') or f'{file_path}.tsv'
+        )
 
         panel.save_protocol(filepath=str(tmp_path / 'saved'))
 
+        assert ctx.session.save_protocol.call_args.args[0] is panel._protocol
         assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
         text = (tmp_path / 'saved.tsv').read_text()
         assert 'Period\t7.0\n' in text and 'Duration\t3.0\n' in text
@@ -276,12 +279,11 @@ class TestAClickAfterARefusedEdit:
 
     def test_save_does_not_save(self, ctx, reported, same_input, monkeypatch, tmp_path):
         panel = _Panel(_protocol())
-        monkeypatch.setattr(_Panel, '_gather_layer_settings_for_save', lambda self: {})
 
         self._refuse_an_edit(panel)
         panel.save_protocol(filepath=str(tmp_path / 'saved'))
 
-        assert not (tmp_path / 'saved.tsv').exists()
+        assert not ctx.session.save_protocol.called
 
     def test_a_click_in_a_later_input_acts(self, ctx, reported, monkeypatch):
         panel = _Panel(_protocol())

@@ -21,6 +21,7 @@ import copy
 import dataclasses
 import json
 import os
+import pathlib
 import threading
 import time
 import typing
@@ -62,6 +63,17 @@ DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S = 120.0
 # gives up on them and takes the file lane down. Budget row:
 # shutdown_run_files_wait_s in PERFORMANCE_BUDGETS.md.
 _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
+
+# A protocol's Layer Settings column beside the layer-settings key it is
+# saved from and restored into; Acquire and Stim_Enabled are handled apart.
+_LAYER_SETTINGS_KEYS = (
+    ('Illumination', 'illumination_ma'),
+    ('Gain', 'gain_db'),
+    ('Auto_Gain', 'auto_gain'),
+    ('Exposure', 'exposure_ms'),
+    ('False_Color', 'false_color'),
+    ('Sum', 'sum'),
+)
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -1096,6 +1108,82 @@ class ScopeSession:
             protocol.modify_labware(labware_id='Center Plate')
         self.select_labware(protocol.labware())
         return protocol
+
+    def apply_layer_settings(self, protocol: 'Protocol') -> None:
+        """Put a protocol's Layer Settings into this session's layer controls.
+
+        The other half of ``save_protocol``, and what the GUI's Load does
+        once ``load_protocol`` has accepted the plate. Every layer stops
+        acquiring and stimulating; each layer the protocol names then takes
+        its acquire mode and every value its row holds. A blank value leaves
+        that layer's control as it was. A layer this scope does not have is
+        logged and dropped.
+
+        Raises:
+            ProtocolFormatError: A protocol built in memory carries a
+                Layer Settings cell that is not of its column's type; no
+                layer is changed. A loaded protocol was refused at load.
+        """
+        rows = protocol.layer_settings()
+        layers = common_utils.get_layers()
+        with self.settings_lock:
+            for name in layers:
+                self.settings[name]['acquire'] = None
+                stim = self.settings[name].get('stim_config')
+                if stim is not None:
+                    stim['enabled'] = False
+            for name, row in rows.items():
+                if name not in layers:
+                    logger.warning(
+                        f'[Session   ] Protocol carries settings for unknown layer '
+                        f'{name!r}; that layer is dropped on load.'
+                    )
+                    continue
+                layer = self.settings[name]
+                layer['acquire'] = row['Acquire']
+                for column, key in _LAYER_SETTINGS_KEYS:
+                    if row[column] is not None:
+                        layer[key] = row[column]
+                stim = layer.get('stim_config')
+                if row['Stim_Enabled'] is not None and isinstance(stim, dict):
+                    stim['enabled'] = row['Stim_Enabled']
+
+    def save_protocol(self, protocol: 'Protocol', file_path: 'str | os.PathLike') -> pathlib.Path:
+        """Write a protocol to a file, with this session's Layer Settings.
+
+        ``.tsv`` is added to a name that does not end in it. The block holds
+        each layer set to acquire an image or a video, with the values its
+        controls hold now; ``apply_layer_settings`` puts them back. What the
+        GUI opens at its next start-up is not changed: a script's scratch
+        save is not the person's protocol.
+
+        Returns:
+            The path written.
+
+        Raises:
+            ProtocolNotSavedError: The file could not be written; a file
+                already at the path is unchanged.
+        """
+        path = pathlib.Path(file_path)
+        if path.suffix.lower() != '.tsv':
+            path = path.with_name(path.name + '.tsv')
+        layer_settings = {}
+        with self.settings_lock:
+            for name in common_utils.get_layers():
+                layer = self.settings[name]
+                if layer.get('acquire') not in ('image', 'video'):
+                    continue
+                stim = layer.get('stim_config')
+                layer_settings[name] = {
+                    'Layer': name,
+                    'Acquire': layer['acquire'],
+                    **{column: layer.get(key, '') for column, key in _LAYER_SETTINGS_KEYS},
+                    'Stim_Enabled': (
+                        stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else ''
+                    ),
+                }
+        protocol.to_file(file_path=path, layer_settings=layer_settings)
+        return path
 
     def new_protocol(
         self,

@@ -219,7 +219,7 @@ The plate decides every well position the program computes, so the Session owns 
 
 Its return value reports whether the stored NAME changed, not whether the plate did: selecting a renamed plate under its old name while the new name is stored returns `True` and both names refer to the same plate. Both stores are written on every accepted call, including one that reports no change -- the settings key is not evidence about what the scope holds, so a caller that writes it first cannot make the selection skip itself.
 
-A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol and the scope both take "Center Plate". The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. LumaViewPro's own Load also copies the per-layer settings into its live controls, which a script that loads and runs a protocol does not use.
+A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol and the scope both take "Center Plate". The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. To take a protocol's per-layer settings into the layer controls as well, call `session.apply_layer_settings(protocol)` after the load, as LumaViewPro's own Load does: every layer stops acquiring and stimulating, then each layer the protocol names takes its acquire mode and every value its row holds; a blank value leaves that control as it was, and a layer this scope does not have is logged and dropped. A script that loads a protocol only to run it does not need it. `protocol.layer_settings()` returns the rows typed: `Acquire` `'image'` or `'video'`; `Illumination`, `Gain` and `Exposure` floats; `Sum` an int; `Auto_Gain`, `False_Color` and `Stim_Enabled` bools; a blank cell None. A file whose Layer Settings block has a cell of the wrong type, or no `Layer` column, is refused at load with `ProtocolFormatError`, naming the file; a file with no block has its layer settings inferred from its steps.
 
 ```python
 question = session.objective_question()            # None, or ObjectiveQuestion(turret_position, proposed, choices)
@@ -570,6 +570,7 @@ session.scope.imaging.capture_frame_depth(image)
 ```python
 runner = session.create_protocol_runner()
 protocol = session.load_protocol('my_protocol.tsv')    # and the scope takes the plate it names
+session.apply_layer_settings(protocol)   # optional: its Layer Settings into the layer controls, as the GUI's Load does
 # ProtocolFormatError (a refusal) names the file and what is wrong with it -- malformed, too large, or a plate this
 # installation's labware catalogue does not have; ProtocolNotLoadedError names a file that cannot be read and the OS reason
 # or build one in-memory (config= | input_config= | empty_config=):
@@ -578,7 +579,12 @@ protocol = session.scope.protocols.create_protocol(input_config=config)
 # file and the OS reason, and a file already there is unchanged. A run saves its own
 # copy in its run folder; when that copy cannot be written the run ends failed_at_start
 # (reason run_dir_init_failed) before anything moves.
-protocol.to_file('my_protocol.tsv')
+written = session.save_protocol(protocol, 'my_protocol')   # -> Path('my_protocol.tsv')
+# save_protocol adds .tsv to a name without it and writes the protocol with the
+# session's Layer Settings block (each layer set to acquire, with the values its
+# controls hold), which apply_layer_settings puts back; it returns the path written.
+# It does not change what LumaViewPro opens at its next start-up.
+# protocol.to_file(path) writes the protocol alone, with the block it was loaded with.
 
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.

@@ -30,7 +30,7 @@ from modules.exceptions import ProtocolError, ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
+from modules.protocol import Protocol, ProtocolFormatError
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
@@ -2550,7 +2550,7 @@ class TestV6LayerSettings:
 
     def test_explicit_block_round_trips(self, tmp_path):
         """Save with layer_settings kwarg, reload, expect identical values
-        back from layer_settings() (string representation; values cast in UI)."""
+        back from layer_settings(), each typed by the protocol's one reader."""
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
@@ -2593,9 +2593,9 @@ class TestV6LayerSettings:
         ls_out = reloaded.layer_settings()
         assert set(ls_out.keys()) == {'BF', 'Blue'}
         assert ls_out['BF']['Acquire'] == 'image'
-        assert float(ls_out['Blue']['Illumination']) == 150.0
-        assert ls_out['Blue']['False_Color'] == 'True'
-        assert ls_out['Blue']['Stim_Enabled'] == 'False'
+        assert ls_out['Blue']['Illumination'] == 150.0
+        assert ls_out['Blue']['False_Color'] is True
+        assert ls_out['Blue']['Stim_Enabled'] is False
 
     def test_disabled_layers_omitted(self, tmp_path):
         """Layers with Acquire not in (image, video) should NOT be written
@@ -2666,10 +2666,10 @@ class TestV6LayerSettings:
         text = filepath.read_text()
         assert 'Layer Settings' not in text
 
-    def test_malformed_block_falls_back_to_inference(self, tmp_path):
-        """A Layer Settings header without a 'Layer' column should be
-        discarded with a warning; layer_settings() then falls back to
-        steps-based inference."""
+    def test_a_block_with_no_layer_column_is_refused(self, tmp_path):
+        """A Layer Settings header without a 'Layer' column refuses the file,
+        naming it: an inference from the steps would put back settings the
+        file never held."""
         filepath = tmp_path / 'bad_block.tsv'
         filepath.write_text(
             'LumaViewPro Protocol\n'
@@ -2687,11 +2687,9 @@ class TestV6LayerSettings:
             'Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\tAuto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\tCustom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\tVideo Config\tStim_Config\n'
             'A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t"{""duration"": 5}"\t"{""Blue"": {""enabled"": false}}"\n'
         )
-        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls = reloaded.layer_settings()
-        # Bad block discarded; inference from the BF step row
-        assert 'BF' in ls
-        assert ls['BF']['Acquire'] == 'image'
+        with pytest.raises(ProtocolFormatError) as refused:
+            Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        assert refused.value.file == filepath
 
 
 class TestFeedLossEndsVideoStep:

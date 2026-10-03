@@ -253,6 +253,85 @@ def _refuse_unless_runnable(
         raise ProtocolScheduleRefusedError(key, value, file=file)
 
 
+def _bool_cell(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str) and value.lower() in ('true', 'false'):
+        return value.lower() == 'true'
+    raise ValueError('is not True or False')
+
+
+def _float_cell(value: object) -> float:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError('is not a number')
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('is not a number') from None
+    if not np.isfinite(number):
+        raise ValueError('is not a number')
+    return number
+
+
+def _int_cell(value: object) -> int:
+    number = _float_cell(value)
+    if not number.is_integer():
+        raise ValueError('is not a whole number')
+    return int(number)
+
+
+def _acquire_cell(value: object) -> str:
+    if value not in ('image', 'video'):
+        raise ValueError("is not 'image' or 'video'")
+    return value
+
+
+# Each Layer Settings column after 'Layer', with the type its cell is read
+# as. Every cell but Acquire may be blank, read as None: the layer's control
+# keeps what it holds.
+_LAYER_SETTINGS_CELLS = (
+    ('Acquire', _acquire_cell),
+    ('Illumination', _float_cell),
+    ('Gain', _float_cell),
+    ('Auto_Gain', _bool_cell),
+    ('Exposure', _float_cell),
+    ('False_Color', _bool_cell),
+    ('Sum', _int_cell),
+    ('Stim_Enabled', _bool_cell),
+)
+
+
+def _typed_layer_settings_row(row: dict) -> dict:
+    """One Layer Settings row with each cell read as its column's type.
+
+    The one reader for a saved block and an inferred one, so every caller
+    of ``layer_settings()`` gets the same types and none casts a cell itself.
+
+    Raises:
+        ProtocolFormatError: A cell is not of its column's type; the words
+            name the layer, the column and the cell.
+    """
+    layer = row.get('Layer')
+    if not isinstance(layer, str) or layer.strip() == '':
+        raise ProtocolFormatError(f'a Layer Settings row names no layer: {row!r}')
+    layer = layer.strip()
+    typed = {'Layer': layer}
+    for column, read in _LAYER_SETTINGS_CELLS:
+        cell = row.get(column)
+        if isinstance(cell, str):
+            cell = cell.strip()
+        if column != 'Acquire' and cell in (None, ''):
+            typed[column] = None
+            continue
+        try:
+            typed[column] = read(cell)
+        except ValueError as e:
+            raise ProtocolFormatError(
+                f'the Layer Settings {column} of {layer}, {cell!r}, {e}'
+            ) from None
+    return typed
+
+
 def schedule_from_units(
     key: str,
     value: object,
@@ -408,7 +487,7 @@ class Protocol:
         # + gain + exposure + false_color + sum + stim-enabled) so a
         # protocol round-trips through the UI without losing per-layer
         # configuration. v5 files without the block fall back to
-        # inference from the steps Color column (see _infer_layer_settings).
+        # inference from the steps Color column (see layer_settings).
         6: [
             'Name',
             'X',
@@ -557,62 +636,59 @@ class Protocol:
         return self._config.get('capture_root', '')
 
     def layer_settings(self) -> dict:
-        """Return per-layer UI settings keyed by layer name.
+        """Return per-layer settings keyed by layer name, each cell typed.
 
-        v6 protocols carry an explicit 'Layer Settings' block in the
-        header; this method returns those values directly. For v5 (and
-        older) files that lack the block, per-layer state is inferred
-        from the steps DataFrame: each unique Color value yields one
-        entry seeded from the first matching step (Illumination, Gain,
-        Auto_Gain, Exposure, False_Color, Sum, Acquire). Returns an
-        empty dict when no inference is possible (no steps, etc.).
+        A protocol loaded from a file with a 'Layer Settings' block returns
+        that block, empty or not. One without (a v5 file, or a protocol
+        built in memory) has it inferred from its steps: each Color yields
+        one entry seeded from its first step, its Acquire 'video' when any
+        of its steps records video. Stim_Enabled is not inferred: a v5 step
+        carries its stimulation per step.
 
-        Values are returned as strings (matching the on-disk format).
-        The UI caller is responsible for casting to float/bool/int.
+        Each row is typed by one reader: Acquire 'image' or 'video';
+        Illumination, Gain and Exposure floats; Sum an int; Auto_Gain,
+        False_Color and Stim_Enabled bools; any blank cell but Acquire None.
+
+        Raises:
+            ProtocolFormatError: A cell is not of its column's type. A file
+                is refused at load for it, so a loaded protocol does not.
         """
-        explicit = self._config.get('layer_settings')
-        if explicit:
-            return explicit
-        return self._infer_layer_settings_from_steps()
+        rows = self._config.get('layer_settings')
+        if rows is None:
+            rows = self._layer_settings_inferred_from_steps()
+        return {name: _typed_layer_settings_row(row) for name, row in rows.items()}
 
-    def _infer_layer_settings_from_steps(self) -> dict:
-        """Fallback for v5 files: build per-layer state from unique Colors.
-
-        Picks the first step per Color as the representative source
-        for that layer. Honors any 'Acquire' value present in the
-        step row (image/video). Stim_Enabled is left blank because v5
-        steps embed stim_config per-step rather than per-layer.
-        """
+    def _layer_settings_inferred_from_steps(self) -> dict:
+        steps = self._config.get('steps')
+        if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
+            return {}
         out = {}
-        try:
-            steps = self._config.get('steps')
-            if steps is None or len(steps) == 0:
-                return out
-            if 'Color' not in steps.columns:
-                return out
-            for color, group in steps.groupby('Color'):
-                if not color:
-                    continue
-                first = group.iloc[0]
-                acquire = 'image'
-                if 'Acquire' in group.columns:
-                    if (group['Acquire'] == 'video').any():
-                        acquire = 'video'
-                    else:
-                        acquire = str(first.get('Acquire', 'image')) or 'image'
-                out[str(color)] = {
-                    'Layer': str(color),
-                    'Acquire': acquire,
-                    'Illumination': str(first.get('Illumination', '')),
-                    'Gain': str(first.get('Gain', '')),
-                    'Auto_Gain': str(first.get('Auto_Gain', '')),
-                    'Exposure': str(first.get('Exposure', '')),
-                    'False_Color': str(first.get('False_Color', '')),
-                    'Sum': str(first.get('Sum', '')),
-                    'Stim_Enabled': '',
-                }
-        except Exception as e:
-            logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
+        for color, group in steps.groupby('Color'):
+            if not color:
+                continue
+            first = group.iloc[0]
+            acquire = 'image'
+            if 'Acquire' in group.columns:
+                if (group['Acquire'] == 'video').any():
+                    acquire = 'video'
+                else:
+                    acquire = first.get('Acquire') or 'image'
+            out[str(color)] = {
+                'Layer': str(color),
+                'Acquire': acquire,
+                **{
+                    column: first.get(column)
+                    for column in (
+                        'Illumination',
+                        'Gain',
+                        'Auto_Gain',
+                        'Exposure',
+                        'False_Color',
+                        'Sum',
+                    )
+                },
+                'Stim_Enabled': None,
+            }
         return out
 
     def copy_for_execution(self) -> 'Protocol':
@@ -2306,7 +2382,8 @@ class Protocol:
         its period -- so a file saved before the period had a floor stays
         readable there. Every other reader leaves it True: a period or
         duration no protocol can run raises ProtocolScheduleRefusedError,
-        naming the file.
+        naming the file, and so does a Layer Settings cell
+        ``layer_settings()`` cannot type (ProtocolFormatError).
         """
 
         # A bound on how much memory one file may ask for, not a judgement
@@ -2495,9 +2572,9 @@ class Protocol:
                         # Parse the block in place. The first non-blank row is
                         # the column header; subsequent non-blank rows are
                         # per-layer entries; block ends at the first blank
-                        # row or at the 'Steps' marker. Bad header (missing
-                        # 'Layer' key) is logged and the block is discarded;
-                        # the file still loads via inference fallback.
+                        # row or at the 'Steps' marker. A header with no
+                        # 'Layer' column is refused: an inference from the
+                        # steps would put back settings the file never held.
                         ls_header = None
                         config['layer_settings'] = {}
                         for sub_row in csvreader:
@@ -2511,13 +2588,10 @@ class Protocol:
                             if ls_header is None:
                                 ls_header = sub_row
                                 if 'Layer' not in ls_header:
-                                    logger.warning(
-                                        f'[Protocol] Layer Settings header missing '
-                                        f"'Layer' column in {file_path}; discarding block "
-                                        f'and falling back to inference.'
+                                    raise ProtocolFormatError(
+                                        "its Layer Settings block has no 'Layer' column.",
+                                        file=file_path,
                                     )
-                                    config['layer_settings'] = {}
-                                    ls_header = None
                                 continue
                             row_dict = dict(zip(ls_header, sub_row, strict=False))
                             layer_name = row_dict.get('Layer', '').strip()
@@ -2793,6 +2867,22 @@ class Protocol:
             int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
         )
 
+        protocol = cls(
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            config=config,
+            judge_schedule=judge_schedule,
+        )
+
+        # A Layer Settings cell the reader cannot type refuses the file here,
+        # naming it, as a step cell does; a loaded protocol's layer_settings()
+        # then cannot raise. A run's protocol read back for post-processing
+        # is not judged: nothing there reads its layer settings.
+        if judge_schedule:
+            try:
+                protocol.layer_settings()
+            except ProtocolFormatError as e:
+                raise ProtocolFormatError(str(e), file=file_path) from None
+
         # Warn -- do not reject -- when steps would render the same capture
         # filename (#636's harm class). The file must stay loadable so the
         # user can rename the colliding steps IN the app; the run itself is
@@ -2811,11 +2901,7 @@ class Protocol:
                     category='Protocol',
                 )
 
-        return cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config,
-            judge_schedule=judge_schedule,
-        )
+        return protocol
 
 
 if __name__ == '__main__':
