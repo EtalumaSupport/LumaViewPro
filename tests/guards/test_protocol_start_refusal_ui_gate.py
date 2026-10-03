@@ -107,34 +107,39 @@ def _calls_named(node: ast.AST, func_name: str) -> list[ast.Call]:
     ]
 
 
-def test_the_panels_start_prepares_then_starts_then_names_the_folder():
-    """The call the panel hands the pool prepares, then starts, then
-    records the save folder -- so a refusal (raised by prepare) never
-    reaches start, and a refused run never points the save folder at the
-    previous run."""
-    method = _method_node(
-        REPO_ROOT / 'ui' / 'protocol_settings.py', 'ProtocolSettings', '_sequenced_capture_start'
+def test_the_panels_start_runs_through_the_api_then_names_the_folder():
+    """The call the panel hands the pool is the runner member a script
+    calls, then the save folder -- so a refusal (raised by the member)
+    never points the save folder at the previous run, and the panel holds
+    no second prepare-and-start of its own."""
+    path = REPO_ROOT / 'ui' / 'protocol_settings.py'
+    method = _method_node(path, 'ProtocolSettings', '_sequenced_capture_start')
+    assert _calls_named(method, 'start_run'), (
+        '_sequenced_capture_start must start the run through the runner member it is handed'
     )
-    assert _calls_named(method, 'prepare'), (
-        '_sequenced_capture_start must build the run via sequenced_capture_runner.prepare()'
-    )
-    assert _calls_named(method, 'start'), (
-        '_sequenced_capture_start must dispatch the prepared plan via start(plan)'
-    )
+    for name in ('prepare', 'start', 'run'):
+        assert not _calls_named(method, name), (
+            f"_sequenced_capture_start must not call the engine's {name}() itself: "
+            'ProtocolRunner.run_protocol / run_single_scan are the one way to start a run'
+        )
 
     src = ast.unparse(method)
-    prepare_pos = src.index('.prepare(')
-    start_pos = src.index('.start(')
-    save_pos = src.index('set_last_save_folder')
-    assert prepare_pos < start_pos < save_pos, (
-        'prepare, then start, then set_last_save_folder: the folder must name '
-        'only a run start() committed'
+    assert src.index('start_run(') < src.index('set_last_save_folder'), (
+        'start, then set_last_save_folder: the folder must name only a run that started'
     )
 
-    # The retired bool-returning call must not creep back in.
-    assert not _calls_named(method, 'run'), (
-        '_sequenced_capture_start must not call the retired sequenced_capture_runner.run() API'
-    )
+    for starter, member in (
+        ('_scan_start', 'run_single_scan'),
+        ('_protocol_start', 'run_protocol'),
+    ):
+        handed = _calls_named(
+            _method_node(path, 'ProtocolSettings', starter), '_sequenced_capture_start'
+        )
+        assert [
+            ast.unparse(kw.value) for c in handed for kw in c.keywords if kw.arg == 'start_run'
+        ] == [f'ctx.session.create_protocol_runner().{member}'], (
+            f'{starter} must hand the panel start ProtocolRunner.{member}'
+        )
 
 
 def test_every_press_hands_its_start_and_its_stop_to_the_boundary():

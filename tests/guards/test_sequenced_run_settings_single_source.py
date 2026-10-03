@@ -169,12 +169,14 @@ def test_autofocus_scan_plan_carries_the_forced_values():
 
 
 def test_every_acquisition_run_call_is_classified():
-    # Sanity: the scanner finds the known sites so the guards below are not
-    # vacuously passing. >= 2: ProtocolRunner's one prepare() (every member,
-    # the standalone autofocus, autofocus-all-steps and z-stack buttons
-    # included) and the GUI protocol scan.
-    blocks = list(_acquisition_run_call_blocks())
-    assert len(blocks) >= 2, f'expected >=2 acquisition prepare() sites, found {len(blocks)}'
+    # The scanner finds the one known site, so the guards below are not
+    # vacuously passing; and there is one: ProtocolRunner's prepare(), which
+    # every member reaches and every GUI run button starts through. A second
+    # site is a second way to start a run.
+    sites = [rel for rel, _ in _acquisition_run_call_blocks()]
+    assert sites == ['modules/protocol_runner.py'], (
+        f'expected the one acquisition prepare() site in ProtocolRunner, found {sites}'
+    )
 
 
 def test_every_acquisition_site_spreads_the_helper():

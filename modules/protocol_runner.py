@@ -125,6 +125,8 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
+        run_trigger_source: str = 'api_scan',
+        engineering_mode: bool | None = None,
     ) -> PendingRunOutcome:
         """Run a single scan through the protocol steps.
 
@@ -137,6 +139,13 @@ class ProtocolRunner:
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so the protocol panel's button records its own
+                token rather than the API's.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames. A GUI caller passes its live flag, which
+                a plugin may have flipped after the session was built; None
+                reads the mode the session was built in.
 
         Returns:
             The committed run's outcome. wait(timeout_s=...) on it for the
@@ -153,7 +162,7 @@ class ProtocolRunner:
         return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source='api_scan',
+            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -161,6 +170,9 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=return_to_position,
+            # A scan traverses the plate and may end unattended.
+            leds_state_at_end='off',
+            engineering_mode=engineering_mode,
         )
 
     def run_protocol(
@@ -171,6 +183,8 @@ class ProtocolRunner:
         image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
+        run_trigger_source: str = 'api_protocol',
+        engineering_mode: bool | None = None,
     ) -> PendingRunOutcome:
         """Run a full protocol (multiple scans over time).
 
@@ -182,6 +196,13 @@ class ProtocolRunner:
                 Build one with build_image_capture_config(image_mode=...).
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
+            run_trigger_source: Provenance recorded on the run and named
+                in refusals, so the protocol panel's button records its own
+                token rather than the API's.
+            engineering_mode: Whether the run stamps the turret position
+                into its filenames. A GUI caller passes its live flag, which
+                a plugin may have flipped after the session was built; None
+                reads the mode the session was built in.
 
         Returns:
             The committed run's outcome. wait(timeout_s=...) on it for the
@@ -198,13 +219,16 @@ class ProtocolRunner:
         return self._run(
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            run_trigger_source='api_protocol',
+            run_trigger_source=run_trigger_source,
             max_scans=None,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
+            # A protocol traverses the plate and may end unattended.
+            leds_state_at_end='off',
+            engineering_mode=engineering_mode,
         )
 
     def start_composite(

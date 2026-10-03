@@ -15,7 +15,6 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_auto_gain_settings,
     get_binning_from_ui,
     get_image_capture_config_from_ui,
     get_selected_labware,
@@ -24,7 +23,6 @@ from modules.config_ui_getters import (
 )
 from modules.protocol import Protocol, schedule_from_units
 from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
@@ -1417,9 +1415,8 @@ class ProtocolSettings(FloatLayout):
             ),
         }
         return self._sequenced_capture_start(
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            start_run=ctx.session.create_protocol_runner().run_single_scan,
             run_trigger_source='scan',
-            max_scans=1,
             protocol=self._protocol.copy_for_execution(),
             callbacks=callbacks,
         )
@@ -1493,9 +1490,8 @@ class ProtocolSettings(FloatLayout):
         # not the run's to change.
         protocol = self._protocol.copy_for_execution()
         return self._sequenced_capture_start(
-            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            start_run=ctx.session.create_protocol_runner().run_protocol,
             run_trigger_source='protocol',
-            max_scans=None,
             protocol=protocol,
             callbacks=callbacks,
         )
@@ -1519,23 +1515,21 @@ class ProtocolSettings(FloatLayout):
 
     def _sequenced_capture_start(
         self,
-        run_mode: SequencedCaptureRunMode,
+        start_run: typing.Callable[..., PendingRunOutcome],
         run_trigger_source: str,
-        max_scans: int | None,
         protocol: Protocol,
         callbacks: dict[str, typing.Callable],
     ) -> typing.Callable[[], None]:
         """Read a Scan or Protocol run's inputs from the panel; return the call that starts it.
 
-        Runs on the GUI thread, so every value a widget or the settings
-        store holds is read here and closed over. The call it returns is
-        what the worker pool runs -- prepare, start, the handle this
-        button's Stop names, and the save folder -- and touches no widget.
+        Runs on the GUI thread, so every value a widget holds is read here
+        and closed over. The call it returns is what the worker pool runs --
+        the runner member a script calls, the handle this button's Stop
+        names, and the save folder -- and touches no widget.
         """
         logger.info('[LVP Main  ] ProtocolSettings._sequenced_capture_start()')
 
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         engine = ctx.sequenced_capture_runner
 
         def restore_layer_shader_for_open_accordion():
@@ -1569,36 +1563,21 @@ class ProtocolSettings(FloatLayout):
             }
         )
 
-        parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'ProtocolData'
         sequence_name = self.ids['protocol_filename'].text
         image_capture_config = get_image_capture_config_from_ui()
-        autogain_settings = get_auto_gain_settings()
         enable_image_saving = is_image_saving_enabled()
         engineering_mode = ctx.engineering_mode
-        autofocus_snapshot = config_helpers.autofocus_snapshot_from_settings(
-            settings, ctx.settings_lock
-        )
 
         def _start():
-            plan = engine.prepare(
-                protocol=protocol,
-                run_mode=run_mode,
-                run_trigger_source=run_trigger_source,
-                max_scans=max_scans,
+            self._runs_started_here[run_trigger_source] = start_run(
+                protocol,
                 sequence_name=sequence_name,
-                parent_dir=parent_dir,
                 image_capture_config=image_capture_config,
                 enable_image_saving=enable_image_saving,
-                autogain_settings=autogain_settings,
                 callbacks=callbacks,
-                disable_saving_artifacts=False,
-                return_to_position=None,
-                leds_state_at_end='off',
+                run_trigger_source=run_trigger_source,
                 engineering_mode=engineering_mode,
-                autofocus_snapshot=autofocus_snapshot,
-                **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
             )
-            self._runs_started_here[run_trigger_source] = engine.start(plan)
             # A start() that failed during setup unwound as a failed run: it
             # nulled run_dir (set_last_save_folder no-ops on None), so the
             # saved folder never names a run that did not happen.

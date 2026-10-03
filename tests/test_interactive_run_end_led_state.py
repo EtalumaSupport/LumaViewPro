@@ -2,8 +2,8 @@
 """Run-end LED policy is decided by whether the run leaves the user's field.
 
 Every sequenced-capture starter hands the engine a ``leds_state_at_end``
-literal -- a GUI starter to ``SequencedCaptureRunner.prepare``, a run member to
-``ProtocolRunner._run`` -- and the two correct answers depend on one fact about
+literal -- a run member to ``ProtocolRunner._run``, which every GUI starter
+reaches -- and the two correct answers depend on one fact about
 the run:
 
 * A run that stays at the position the user is already watching (the standalone
@@ -57,11 +57,18 @@ STARTERS = {
         'autofocus-all-steps traverses every protocol position; holding the '
         'excitation LED across those moves would photobleach the sample',
     ),
-    '_sequenced_capture_start': (
-        'ui/protocol_settings.py',
-        'prepare',
+    # The protocol panel's Scan and Run buttons run through these.
+    'run_single_scan': (
+        'modules/protocol_runner.py',
+        '_run',
         'off',
-        'a protocol scan traverses the plate and may end unattended',
+        'a scan traverses the plate and may end unattended',
+    ),
+    'run_protocol': (
+        'modules/protocol_runner.py',
+        '_run',
+        'off',
+        'a protocol traverses the plate and may end unattended',
     ),
 }
 

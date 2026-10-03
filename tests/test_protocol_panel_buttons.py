@@ -92,13 +92,15 @@ def engine():
 
 @pytest.fixture
 def session(engine):
-    # The Autofocus Scan button runs through ProtocolRunner, whose run is the
+    # The three buttons run through ProtocolRunner, whose run is the
     # engine's prepare() then start(); this member does the same with the
     # engine stand-in, so one stand-in answers all three buttons.
     member = MagicMock()
-    member.run_autofocus_all_steps.side_effect = lambda protocol, **kw: engine.start(
-        engine.prepare(protocol=protocol, **kw)
-    )
+    for name in ('run_single_scan', 'run_protocol', 'run_autofocus_all_steps'):
+        getattr(member, name).side_effect = lambda protocol, **kw: engine.start(
+            engine.prepare(protocol=protocol, **kw)
+        )
+    member.run_dir.side_effect = engine.run_dir
     return SimpleNamespace(
         protocol_files_draining=False,
         is_protocol_running=False,
@@ -134,13 +136,10 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     for name, value in (
         ('get_image_capture_config_from_ui', lambda: {}),
-        ('get_auto_gain_settings', lambda: {}),
         ('is_image_saving_enabled', lambda: True),
         ('live_display_callbacks', lambda: {}),
     ):
         monkeypatch.setattr(ps, name, value)
-    monkeypatch.setattr(ps.config_helpers, 'autofocus_snapshot_from_settings', lambda *a: {})
-    monkeypatch.setattr(ps.config_helpers, 'get_sequenced_run_settings', lambda *a, **k: {})
     _app_ctx.ctx = SimpleNamespace(
         session=session,
         settings={'live_folder': str(tmp_path)},
@@ -164,20 +163,34 @@ def _live(engine, *runs):
     engine.is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
 
 
-def test_a_press_hands_the_start_to_the_engine_with_the_panels_inputs(app_ctx, engine):
+@pytest.mark.parametrize(
+    'press, member_name, trigger',
+    [
+        ('run_scan_from_ui', 'run_single_scan', 'scan'),
+        ('run_protocol_from_ui', 'run_protocol', 'protocol'),
+    ],
+)
+def test_a_press_starts_its_run_through_the_apis_runner(
+    app_ctx, engine, session, press, member_name, trigger
+):
+    """Run and Scan are the calls a script makes, with what only the panel knows."""
+    app_ctx.engineering_mode = True  # flipped by a plugin after the session was built
     panel = _Panel()
     handle = PendingRunOutcome()
     engine.start.return_value = handle
 
-    panel.run_scan_from_ui()
+    getattr(panel, press)()
 
-    kwargs = engine.prepare.call_args.kwargs
-    assert kwargs['run_trigger_source'] == 'scan'
+    member = getattr(session.create_protocol_runner(), member_name)
+    member.assert_called_once()
+    kwargs = member.call_args.kwargs
+    assert kwargs['run_trigger_source'] == trigger
+    assert kwargs['engineering_mode'] is True, 'the live mode, not the as-built one'
     assert kwargs['sequence_name'] == 'plate', 'the file name is read on the GUI thread'
-    assert kwargs['protocol'] is panel._protocol.copy_for_execution.return_value, (
-        "the run gets its own copy; the panel's protocol is the person's"
+    assert member.call_args.args[0] is panel._protocol.copy_for_execution.return_value, (
+        "the run gets the copy taken at the click; the panel's protocol is the person's"
     )
-    assert panel._runs_started_here['scan'] is handle, 'the handle is what its Stop names'
+    assert panel._runs_started_here[trigger] is handle, 'the handle is what its Stop names'
     assert not engine.reset.called, 'a start is not a stop'
 
 
